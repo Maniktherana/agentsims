@@ -1,0 +1,964 @@
+import {
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import {
+  SimulatorView,
+  digitalCrownDeltaFromWheel,
+  displayStreamConfig,
+  fallbackScreenSize,
+  isLandscapeConfig,
+  screenBorderRadius,
+  SimulatorToolbar,
+  getDeviceType,
+  simulatorAspectRatio,
+  simulatorMaxWidth,
+  ROTATE_LEFT_CYCLE,
+  ROTATE_RIGHT_CYCLE,
+  type DeviceType,
+  type SimulatorOrientation,
+  type StreamConfig,
+} from "../simulator";
+
+import { ArrowLeft, ListTree, Menu, Upload } from "lucide-react";
+import { ReloadIcon } from "../icons";
+import { AxStateProvider } from "../../annotations/web/ax-state-provider";
+import { AxTreeViewer } from "../../annotations/web/ax-tree-viewer";
+import { AnnotationSurface } from "../../annotations/web/annotation-surface";
+import { FloatingAnnotationControls } from "../../annotations/web/floating-annotation-controls";
+import { DeviceKitChrome, type ChromeButtonPress } from "../components/device-chrome-frame";
+import { ResizeHandle } from "../components/resize-handle";
+import { SimulatorResizeCornerHandle } from "../components/simulator-resize-corner-handle";
+import { SimulatorResizeSizeBadge } from "../components/simulator-resize-size-badge";
+import { StreamStatusPill } from "../components/stream-status-pill";
+import { ToolsPanel } from "../components/tools-panel";
+import {
+  CODEC_PREFERENCE_STORAGE_KEY,
+  type CodecPreference,
+} from "../components/stream-settings-tool";
+import { WebKitDevtoolsPanel } from "../components/webkit-devtools-panel";
+import { useMediaDrop } from "../hooks/use-media-drop";
+import { useMjpegStream } from "../hooks/use-mjpeg-stream";
+import { useAvccStream } from "../hooks/use-avcc-stream";
+import { useResizableWidth } from "../hooks/use-resizable-width";
+import { useScreenshotToast } from "../hooks/use-screenshot-toast";
+import { useSimulatorResize } from "../hooks/use-simulator-resize";
+import { useUploadToasts } from "../hooks/use-upload-toasts";
+import { useWebKitDevtools } from "../hooks/use-webkit-devtools";
+import type { DeviceKitChromeDescriptor } from "../utils/grid";
+import {
+  avccFallbackReducer,
+  initialAvccFallback,
+  AVCC_FRAME_TIMEOUT_MS,
+} from "../avcc-fallback";
+import { fileExtension } from "../utils/drop";
+import { execOnHost, openHostEventStream } from "../utils/exec";
+import { hidUsageForCode } from "../utils/hid";
+import {
+  DEVTOOLS_PANEL_WIDTH,
+  PANEL_WIDTH,
+} from "../utils/panel-widths";
+import { simEndpoint } from "../utils/sim-endpoint";
+import {
+  SIMULATOR_RESIZE_DRAG_TRANSITION,
+  SIMULATOR_RESIZE_LAYOUT_TRANSITION,
+  SIMULATOR_RESIZE_PAGE_TRANSITION,
+} from "../utils/simulator-resize";
+import {
+  flushWsMessageQueue,
+  sendOrQueueWsMessage,
+  type QueuedWsMessage,
+} from "../utils/ws-send-queue";
+import type { PreviewConfig } from "./workspace-state";
+
+export interface SimulatorDeviceViewProps {
+  config: PreviewConfig;
+  deviceName: string | null;
+  deviceRuntime: string | null;
+  chrome: DeviceKitChromeDescriptor | null;
+  preferMjpeg: boolean;
+  axOverlayEnabled: boolean;
+  setAxOverlayEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  toolsOpen: boolean;
+  setToolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  devtoolsOpen: boolean;
+  setDevtoolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  selectedDevtoolsTargetId: string | null;
+  setSelectedDevtoolsTargetId: React.Dispatch<React.SetStateAction<string | null>>;
+  streaming: boolean;
+  setStreaming: (v: boolean) => void;
+  embedded?: boolean;
+  focused?: boolean;
+  onFocus?: () => void;
+}
+
+export function SimulatorDeviceView({
+  config,
+  deviceName,
+  deviceRuntime,
+  chrome,
+  preferMjpeg,
+  axOverlayEnabled,
+  setAxOverlayEnabled,
+  toolsOpen,
+  setToolsOpen,
+  devtoolsOpen,
+  setDevtoolsOpen,
+  selectedDevtoolsTargetId,
+  setSelectedDevtoolsTargetId,
+  streaming,
+  setStreaming,
+  embedded = false,
+  focused = true,
+  onFocus,
+}: SimulatorDeviceViewProps) {
+  const panelsEnabled = !embedded || focused;
+  const [axTreeOpen, setAxTreeOpen] = useState(false);
+  const [axInspectorSelecting, setAxInspectorSelecting] = useState(false);
+  const closeAxTree = useCallback(() => {
+    setAxTreeOpen(false);
+    setAxInspectorSelecting(false);
+  }, []);
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const setStreamingRef = useRef(setStreaming);
+  setStreamingRef.current = setStreaming;
+
+  useEffect(() => {
+    if (!focused) return;
+    document.title = deviceName ? `Simulator - ${deviceName}` : "Simulator Preview";
+  }, [deviceName, focused]);
+
+  useEffect(() => {
+    if (!focused) closeAxTree();
+  }, [closeAxTree, focused]);
+
+  const deviceType: DeviceType = getDeviceType(deviceName);
+  const isAndroidDevice = config.device.startsWith("android:");
+  const devtools = useWebKitDevtools(
+    config.devtoolsEndpoint ?? simEndpoint("devtools"),
+    panelsEnabled && !isAndroidDevice && devtoolsOpen,
+  );
+  const webkitDevtoolsOpen = !isAndroidDevice && devtoolsOpen;
+
+  useEffect(() => {
+    if (!panelsEnabled || !webkitDevtoolsOpen) return;
+    if (selectedDevtoolsTargetId && devtools.targets.some((target) => target.id === selectedDevtoolsTargetId)) return;
+    setSelectedDevtoolsTargetId(devtools.targets.length === 1 ? devtools.targets[0]!.id : null);
+  }, [panelsEnabled, webkitDevtoolsOpen, devtools.targets, selectedDevtoolsTargetId, setSelectedDevtoolsTargetId]);
+
+  useEffect(() => {
+    if (!focused) return;
+    setSelectedDevtoolsTargetId(null);
+  }, [config.device, focused, setSelectedDevtoolsTargetId]);
+
+  // Prefer H.264 (AVCC via WebCodecs) when the browser supports it; otherwise
+  // fall back to MJPEG. The MJPEG reader stays dormant (null url) under AVCC so
+  // we never pull both streams at once. The AVCC frames are decoded view-side
+  // by SimulatorView's `useAvccStream`; this hook just reports browser support.
+  //
+  // Browser support is necessary but not sufficient: the helper may not serve
+  // `/stream.avcc` at all. A device started from the UI is spawned via
+  // `bunx agentsims --detach`, which runs the published `agentsims` — older
+  // versions predate H.264 and 404 the endpoint (cross-origin that 404 is
+  // opaque to fetch, so "no frame arrived" is the only reliable signal).
+  // `avccFallback` drives a startup timeout: if AVCC paints nothing in time,
+  // drop to MJPEG, which every helper serves. See avcc-fallback.ts.
+  const avcc = useAvccStream();
+  const [avccFallback, dispatchAvccFallback] = useReducer(
+    avccFallbackReducer,
+    initialAvccFallback,
+  );
+  // `?codec=mjpeg` forces the JPEG fallback path even where WebCodecs exists —
+  // an escape hatch for browsers whose H.264 decode misbehaves, and the way to
+  // exercise the MJPEG pipeline in a browser that would otherwise pick AVCC.
+  const [forceMjpeg] = useState(
+    () => new URLSearchParams(window.location.search).get("codec") === "mjpeg",
+  );
+  // User-selectable codec preference (Video section of the tools panel). "mjpeg"
+  // forces the software path; the H.264 hardware decoder shares the GPU's
+  // VideoToolbox pipeline with screen recorders, so MJPEG is the fix when the
+  // stream stutters/drops while recording the browser window. Persisted so the
+  // choice survives reloads.
+  const [codecPreference, setCodecPreference] = useState<CodecPreference>(
+    () => (window.localStorage.getItem(CODEC_PREFERENCE_STORAGE_KEY) === "mjpeg" ? "mjpeg" : "auto"),
+  );
+  useEffect(() => {
+    window.localStorage.setItem(CODEC_PREFERENCE_STORAGE_KEY, codecPreference);
+  }, [codecPreference]);
+  // The server can pin the stream codec (`agentsims --codec mjpeg`) for hosts
+  // whose hardware can't encode H.264 — e.g. VMs lacking the high/low-latency
+  // H.264 profiles. Treat that as a hard override the viewer can't switch off.
+  const serverForcesMjpeg = config.codec === "mjpeg";
+  const useAvccVideo =
+    isAndroidDevice
+      ? avcc.supported && !serverForcesMjpeg
+      : !serverForcesMjpeg && avcc.supported && !avccFallback.fellBack && !preferMjpeg && !forceMjpeg && codecPreference !== "mjpeg";
+  const videoCodec = isAndroidDevice ? "avcc" : useAvccVideo ? "avcc" : "mjpeg";
+  const mjpeg = useMjpegStream(useAvccVideo || isAndroidDevice ? null : config.streamUrl);
+
+  // Re-arm AVCC whenever the target stream changes (device switch / reconnect).
+  useEffect(() => {
+    setStreamingRef.current(false);
+    dispatchAvccFallback("reset");
+  }, [config.streamUrl]);
+  // `streaming` flips true on the first painted AVCC frame (JPEG seed decodes
+  // sub-second on a healthy helper), which cancels the fallback.
+  useEffect(() => {
+    if (isAndroidDevice) return;
+    if (useAvccVideo && streaming) dispatchAvccFallback("frame");
+  }, [isAndroidDevice, useAvccVideo, streaming]);
+  // One-shot startup window; on expiry fall back unless a frame already landed.
+  useEffect(() => {
+    if (isAndroidDevice) return;
+    if (!useAvccVideo) return;
+    const timer = setTimeout(
+      () => dispatchAvccFallback("timeout"),
+      AVCC_FRAME_TIMEOUT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [isAndroidDevice, useAvccVideo, config.streamUrl]);
+  const [liveStreamConfig, setLiveStreamConfig] = useState<StreamConfig | null>(null);
+  // Screen config now arrives over the input WebSocket (pushed by the helper on
+  // connect + on every dimension/orientation change) instead of a 1s /config poll.
+  const [wsStreamConfig, setWsStreamConfig] = useState<StreamConfig | null>(null);
+  const streamConfig = wsStreamConfig;
+  const activeStreamConfig = liveStreamConfig ?? streamConfig ?? fallbackScreenSize(deviceType, deviceName);
+  const imgBorderRadius = screenBorderRadius(deviceType, activeStreamConfig);
+  const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
+  const frameAspectRatio = simulatorAspectRatio(activeStreamConfig);
+  const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
+  const frameAspectRatioValue = frameDisplayConfig
+    ? frameDisplayConfig.width / frameDisplayConfig.height
+    : 1;
+
+  // DeviceKit chrome wraps the live stream in the real device bezel (with
+  // working hardware buttons). It's authored portrait, so in landscape we drop
+  // back to the bare rounded screen. When chromed, the on-screen container is
+  // the full frame (bezel + screen): `chromeScale` is how much bigger the frame
+  // is than the screen, so we scale the container up by it while keeping the
+  // *screen* at the same comfortable size — and resize / panel-collision math
+  // all operate on the frame dimensions.
+  const isLandscape = isLandscapeConfig(activeStreamConfig);
+  const useChrome = !!chrome && !isLandscape;
+  const chromeScale = useChrome ? chrome!.frame.width / chrome!.screen.width : 1;
+  const containerDefaultWidth = frameMaxWidth * chromeScale;
+  const containerAspectRatioValue = useChrome
+    ? chrome!.frame.width / chrome!.frame.height
+    : frameAspectRatioValue;
+  const containerAspectRatio = useChrome
+    ? `${chrome!.frame.width} / ${chrome!.frame.height}`
+    : frameAspectRatio;
+
+  // Touch/button relay via direct WebSocket
+  const wsRef = useRef<WebSocket | null>(null);
+  const pendingWsMessagesRef = useRef<QueuedWsMessage[]>([]);
+  useEffect(() => {
+    let stopped = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let currentWs: WebSocket | null = null;
+    pendingWsMessagesRef.current = [];
+
+    const scheduleReconnect = () => {
+      if (stopped || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, 1000);
+    };
+
+    const connect = () => {
+      const ws = new WebSocket(config.wsUrl);
+      ws.binaryType = "arraybuffer";
+      currentWs = ws;
+      wsRef.current = ws;
+      ws.onopen = () => {
+        pendingWsMessagesRef.current = flushWsMessageQueue(
+          ws,
+          pendingWsMessagesRef.current,
+        );
+      };
+      ws.onmessage = (ev) => {
+        // Server -> client screen-config push (tag 0x82): [tag][JSON].
+        if (!(ev.data instanceof ArrayBuffer)) return;
+        const bytes = new Uint8Array(ev.data);
+        if (bytes.length < 1 || bytes[0] !== 0x82) return;
+        try {
+          const cfg = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig;
+          if (cfg.width <= 0 || cfg.height <= 0) return;
+          setWsStreamConfig((prev) =>
+            prev &&
+            prev.width === cfg.width &&
+            prev.height === cfg.height &&
+            prev.orientation === cfg.orientation
+              ? prev
+              : cfg,
+          );
+        } catch {}
+      };
+      ws.onclose = () => {
+        if (wsRef.current === ws) wsRef.current = null;
+        scheduleReconnect();
+      };
+      ws.onerror = () => {
+        ws.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (wsRef.current === currentWs) wsRef.current = null;
+      currentWs?.close();
+    };
+  }, [config.wsUrl]);
+
+  const sendWs = useCallback((tag: number, payload: object) => {
+    pendingWsMessagesRef.current = sendOrQueueWsMessage(
+      wsRef.current,
+      pendingWsMessagesRef.current,
+      tag,
+      payload,
+    );
+  }, []);
+
+  const onStreamTouch = useCallback((data: any) => sendWs(0x03, data), [sendWs]);
+  const onStreamMultiTouch = useCallback((data: any) => sendWs(0x05, data), [sendWs]);
+  const onStreamButton = useCallback((button: string) => sendWs(0x04, { button }), [sendWs]);
+  // A hardware button on the device chrome was pressed/released. Forward its HID
+  // (page, usage) so the helper injects it via arbitrary HID — `down`/`up` phases
+  // let power / side buttons be held for their long-press menus.
+  const handleChromeButton = useCallback(
+    ({ phase, button }: ChromeButtonPress) => {
+      if (button.usagePage == null || button.usage == null) return;
+      sendWs(0x04, {
+        button: button.name,
+        page: button.usagePage,
+        usage: button.usage,
+        phase,
+      });
+    },
+    [sendWs],
+  );
+  const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
+  const onStreamScroll = useCallback((data: { dx: number; dy: number; x: number; y: number }) => sendWs(0x0b, data), [sendWs]);
+  const onScreenConfigChange = useCallback((next: StreamConfig) => {
+    setLiveStreamConfig((prev) =>
+      prev &&
+      prev.width === next.width &&
+      prev.height === next.height &&
+      prev.orientation === next.orientation
+        ? prev
+        : next,
+    );
+  }, []);
+  const rotateDevice = useCallback((orientation: SimulatorOrientation) => {
+    sendWs(0x07, { orientation });
+  }, [sendWs]);
+  const currentOrientation =
+    (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait";
+  const canRotate = deviceType !== "watch" && deviceType !== "vision";
+  const rotateBy = useCallback(
+    (direction: "left" | "right") => {
+      if (!canRotate) return;
+      const next = (direction === "left" ? ROTATE_LEFT_CYCLE : ROTATE_RIGHT_CYCLE)[currentOrientation];
+      rotateDevice(next);
+    },
+    [canRotate, currentOrientation, rotateDevice],
+  );
+
+  useEffect(() => {
+    setLiveStreamConfig(null);
+    setWsStreamConfig(null);
+  }, [config.streamUrl]);
+
+  useEffect(() => {
+    const confirmedConfig = streamConfig;
+    if (!confirmedConfig) return;
+    setLiveStreamConfig((prev) =>
+      prev &&
+      prev.width === confirmedConfig.width &&
+      prev.height === confirmedConfig.height &&
+      prev.orientation === confirmedConfig.orientation
+        ? prev
+        : null,
+    );
+  }, [streamConfig, streamConfig?.width, streamConfig?.height, streamConfig?.orientation]);
+
+  const sendKey = useCallback((type: "down" | "up", usage: number) => {
+    sendWs(0x06, { type, usage });
+  }, [sendWs]);
+
+  // Subscribe to app-state SSE.
+  const [currentApp, setCurrentApp] = useState<{ bundleId: string; isReactNative: boolean; pid?: number } | null>(null);
+  const { width: toolsPanelWidth, onPointerDown: onToolsResize } = useResizableWidth(
+    "agentsims:tools-panel-width",
+    PANEL_WIDTH,
+    240,
+    720,
+  );
+  const { width: devtoolsPanelWidth, onPointerDown: onDevtoolsResize } = useResizableWidth(
+    "agentsims:devtools-panel-width",
+    DEVTOOLS_PANEL_WIDTH,
+    420,
+    1400,
+  );
+  const [viewportWidth, setViewportWidth] = useState(
+    () => (typeof window !== "undefined" ? window.innerWidth : 0),
+  );
+  const [viewportHeight, setViewportHeight] = useState(
+    () => (typeof window !== "undefined" ? window.innerHeight : 0),
+  );
+  useEffect(() => {
+    const onResize = () => {
+      setViewportWidth(window.innerWidth);
+      setViewportHeight(window.innerHeight);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  useEffect(() => {
+    const es = openHostEventStream(config.appStateEndpoint ?? simEndpoint("appstate"));
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    es.onmessage = (e) => {
+      try {
+        const next = JSON.parse(e.data) as { bundleId: string; pid?: number; isReactNative: boolean };
+        if (timer) clearTimeout(timer);
+        const delay = next?.isReactNative ? 0 : 600;
+        timer = setTimeout(() => setCurrentApp(next), delay);
+      } catch {}
+    };
+    return () => { if (timer) clearTimeout(timer); es.close(); };
+  }, [config.appStateEndpoint]);
+
+  // Cmd+R to reload the RN/Expo bundle.
+  const sendReactNativeReload = useCallback(async () => {
+    if (isAndroidDevice) {
+      sendWs(0x0d, { action: "reload_react_native" });
+      return;
+    }
+    const META = 0xe3;
+    const R = 0x15;
+    sendKey("down", META);
+    await new Promise((r) => setTimeout(r, 30));
+    sendKey("down", R);
+    await new Promise((r) => setTimeout(r, 30));
+    sendKey("up", R);
+    await new Promise((r) => setTimeout(r, 30));
+    sendKey("up", META);
+  }, [isAndroidDevice, sendKey, sendWs]);
+
+  const simContainerRef = useRef<HTMLDivElement | null>(null);
+  const [deviceRenderedWidth, setDeviceRenderedWidth] = useState(0);
+  const [deviceRenderedHeight, setDeviceRenderedHeight] = useState(0);
+  useEffect(() => {
+    const el = simContainerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      setDeviceRenderedWidth(rect?.width ?? 0);
+      setDeviceRenderedHeight(rect?.height ?? 0);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const [simFocused, setSimFocused] = useState(true);
+  const simFocusedRef = useRef(true);
+  simFocusedRef.current = simFocused;
+  const pressedKeysRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      const inside = !!simContainerRef.current?.contains(e.target as Node);
+      if (inside) {
+        onFocus?.();
+        setSimFocused(true);
+      } else if (focusedRef.current) {
+        setSimFocused(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [onFocus]);
+
+  useEffect(() => {
+    if (simFocused && focused) return;
+    const held = pressedKeysRef.current;
+    if (held.size === 0) return;
+    for (const usage of held) sendWs(0x06, { type: "up", usage });
+    held.clear();
+  }, [simFocused, focused, sendWs]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent, type: "down" | "up") => {
+      if (!focusedRef.current || !simFocusedRef.current) return;
+      if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
+        e.preventDefault();
+        if (type === "down" && !e.repeat) sendWs(0x04, { button: "home" });
+        return;
+      }
+      if ((e.code === "ArrowLeft" || e.code === "ArrowRight") && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+        e.preventDefault();
+        if (type === "down" && !e.repeat) {
+          rotateBy(e.code === "ArrowLeft" ? "left" : "right");
+        }
+        return;
+      }
+      if (e.code === "KeyA" && e.metaKey && e.shiftKey) {
+        e.preventDefault();
+        if (type === "down" && !e.repeat) {
+          if (isAndroidDevice) {
+            sendWs(0x0d, { action: "toggle_appearance" });
+          } else {
+            execOnHost(`xcrun simctl ui ${config.device} appearance`).then((r) => {
+              const next = r.stdout.trim() === "dark" ? "light" : "dark";
+              return execOnHost(`xcrun simctl ui ${config.device} appearance ${next}`);
+            }).catch(() => {});
+          }
+        }
+        return;
+      }
+      if (e.code === "KeyK" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+        e.preventDefault();
+        if (type === "down" && !e.repeat) sendWs(0x0c, {});
+        return;
+      }
+      const usage = hidUsageForCode(e.code);
+      if (usage == null) return;
+      e.preventDefault();
+      if (type === "down") pressedKeysRef.current.add(usage);
+      else pressedKeysRef.current.delete(usage);
+      sendWs(0x06, { type, usage });
+    };
+    const down = (e: KeyboardEvent) => onKey(e, "down");
+    const up = (e: KeyboardEvent) => onKey(e, "up");
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [sendWs, config.device, rotateBy, isAndroidDevice]);
+
+  const uploads = useUploadToasts();
+  const screenshot = useScreenshotToast(config.device);
+  const captureAndroidScreenshot = useCallback(async () => {
+    const screenshotUrl = new URL("screenshot.png", config.streamUrl).toString();
+    const res = await fetch(screenshotUrl, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Android screenshot failed (${res.status})`);
+    const blob = await res.blob();
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `agentsims-android-${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(href);
+  }, [config.streamUrl]);
+  const mediaDrop = useMediaDrop({
+    exec: execOnHost,
+    udid: config.device,
+    enabled: streaming,
+    onUploadStart: uploads.add,
+    onUploadProgress: uploads.setProgress,
+    onUploadEnd: (id, ok, message) =>
+      uploads.update(id, { status: ok ? "success" : "error", message }),
+    onUnsupported: (file) => {
+      const id = uploads.add(file.name, "media");
+      uploads.update(id, {
+        status: "error",
+        message: `Unsupported: ${file.type || fileExtension(file)}`,
+      });
+    },
+    onHostPathDrop: screenshot.dismiss,
+  });
+
+  const simulatorResize = useSimulatorResize({
+    defaultWidth: containerDefaultWidth,
+    viewportWidth,
+    viewportHeight,
+    aspectRatio: containerAspectRatioValue,
+    onStart: () => setSimFocused(false),
+  });
+
+  // Only shift the simulator when a docked panel would otherwise collide with it.
+  const PANEL_EDGE_OFFSET = 12;
+  const PANEL_GAP = 24;
+  const deviceWidth = deviceRenderedWidth > 0
+    ? Math.min(deviceRenderedWidth, simulatorResize.width)
+    : simulatorResize.width;
+  // Shift needed to clear a docked panel of `panelWidthPx` on the given side
+  // without ever pushing the device under the opposite edge.
+  const shiftToClear = (panelWidthPx: number): number => {
+    if (panelWidthPx <= 0) return 0;
+    const panelInnerEdge = viewportWidth - PANEL_EDGE_OFFSET - panelWidthPx;
+    const deviceEdgeAtCenter = viewportWidth / 2 + deviceWidth / 2;
+    const overlap = deviceEdgeAtCenter - (panelInnerEdge - PANEL_GAP);
+    if (overlap <= 0) return 0;
+    const shiftNeeded = 2 * overlap;
+    return shiftNeeded <= panelWidthPx + PANEL_GAP ? shiftNeeded : 0;
+  };
+  const rightPanelWidthPx = webkitDevtoolsOpen
+    ? devtoolsPanelWidth
+    : toolsOpen
+    ? toolsPanelWidth
+    : 0;
+  const shiftForRightPanel = embedded || !panelsEnabled ? 0 : shiftToClear(rightPanelWidthPx);
+
+  return (
+    <AxStateProvider
+      endpoint={focused && (axOverlayEnabled || axTreeOpen) ? config?.axEndpoint : undefined}
+      annotationEndpoint={config.annotationEndpoint}
+      deviceId={config.device}
+    >
+    <div
+      className={`flex flex-col items-center justify-center gap-3 font-system box-border ${
+        embedded ? "relative h-full min-h-0 bg-transparent py-3" : "h-screen bg-page py-6"
+      }`}
+      style={{
+        paddingLeft: 24,
+        paddingRight: 24 + shiftForRightPanel,
+        transition:
+          simulatorResize.isResizing || simulatorResize.isInertia ? "none" : SIMULATOR_RESIZE_PAGE_TRANSITION,
+      }}
+      onPointerDownCapture={onFocus}
+    >
+      <div
+        className="flex flex-col items-center gap-3 min-w-0"
+        style={{
+          width: simulatorResize.width,
+          transition:
+            simulatorResize.isResizing || simulatorResize.isInertia
+              ? SIMULATOR_RESIZE_DRAG_TRANSITION
+              : SIMULATOR_RESIZE_LAYOUT_TRANSITION,
+        }}
+      >
+        <SimulatorToolbar
+          exec={execOnHost}
+          onRotate={rotateDevice}
+          orientation={(activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? null}
+          deviceUdid={config.device}
+          deviceName={deviceName}
+          deviceRuntime={deviceRuntime}
+          streaming={streaming}
+          aria-label="Simulator status"
+          style={{
+            alignSelf: "center",
+            width: "auto",
+            minWidth: 0,
+            maxWidth: "100%",
+            flexWrap: "nowrap",
+            justifyContent: "center",
+            gap: 10,
+            padding: "6px 10px",
+            borderRadius: 18,
+            border: focused ? "1px solid rgba(59, 130, 246, 0.95)" : "1px solid transparent",
+            boxShadow: focused ? "0 0 0 3px rgba(59, 130, 246, 0.18)" : undefined,
+          }}
+        >
+          <SimulatorToolbar.Title
+            onClick={onFocus}
+            aria-label={deviceName ?? "Focused simulator"}
+            title={deviceName ?? "Simulator"}
+            hideSubtitle
+            hideChevron
+            style={{
+              maxWidth: "min(230px, calc(100vw - 170px))",
+            }}
+          />
+          <StreamStatusPill streaming={streaming} />
+        </SimulatorToolbar>
+        <div
+          ref={simContainerRef}
+          className="relative max-h-full"
+          style={{
+            width: simulatorResize.width,
+            aspectRatio: containerAspectRatio,
+            transition:
+              simulatorResize.isResizing || simulatorResize.isInertia
+                ? SIMULATOR_RESIZE_DRAG_TRANSITION
+                : SIMULATOR_RESIZE_LAYOUT_TRANSITION,
+            willChange:
+              simulatorResize.isResizing || simulatorResize.isInertia ? "width" : undefined,
+          }}
+          {...mediaDrop.dropZoneProps}
+        >
+          {(() => {
+            const streamView = (
+              <SimulatorView
+                url={config.url}
+                wsUrl={config.wsUrl}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  pointerEvents:
+                    simulatorResize.isResizing || simulatorResize.isInertia ? "none" : undefined,
+                }}
+                imageStyle={{
+                  // With chrome the screen slot clips (rounded) and the bezel
+                  // provides the edge, so the stream itself is square + flush.
+                  // Without chrome, round the screen and add a subtle bezel as an
+                  // INSET shadow (not a border): a 1px border sits outside the
+                  // content and, on the <canvas> path, composites its
+                  // semi-transparent white against the black page as a visible
+                  // outline. An inset shadow paints over the (opaque) video edge.
+                  borderRadius: useChrome ? 0 : imgBorderRadius,
+                  cornerShape: useChrome ? undefined : "superellipse(1.3)",
+                  ...(useChrome
+                    ? {}
+                    : { boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.2)" }),
+                } as CSSProperties}
+                hideControls
+                onStreamingChange={setStreaming}
+                onStreamTouch={onStreamTouch}
+                onStreamMultiTouch={onStreamMultiTouch}
+                onStreamButton={onStreamButton}
+                onStreamDigitalCrown={onStreamDigitalCrown}
+                onStreamScroll={onStreamScroll}
+                codec={videoCodec}
+                onAvccError={isAndroidDevice ? undefined : () => dispatchAvccFallback("error")}
+                subscribeFrame={useAvccVideo || isAndroidDevice ? undefined : mjpeg.subscribeFrame}
+                streamFrame={useAvccVideo || isAndroidDevice ? undefined : mjpeg.frame}
+                streamConfig={activeStreamConfig}
+                enableDigitalCrown={deviceType === "watch"}
+                maxInputFps={isAndroidDevice ? 60 : undefined}
+                onScreenConfigChange={onScreenConfigChange}
+              />
+            );
+            const screenContent = (
+              <>
+                {streamView}
+                {focused && (
+                  <AnnotationSurface
+                    active={axOverlayEnabled}
+                    inspectorMode={
+                      axTreeOpen ? (axInspectorSelecting ? "select" : "passive") : null
+                    }
+                    screen={activeStreamConfig}
+                  />
+                )}
+              </>
+            );
+            if (!useChrome) return screenContent;
+            // The screen slot is the bezel's true opening; the stream letterboxes
+            // (contains) inside it, filling the constraining axis and leaving a
+            // thin black margin on the other — the device's own black screen
+            // border. Containing (not covering) keeps the stream from ever
+            // overflowing past the bezel.
+            return (
+              <DeviceKitChrome
+                chrome={chrome!}
+                interactive
+                onButton={handleChromeButton}
+                onCrownWheel={(deltaY, deltaMode) => {
+                  const delta = digitalCrownDeltaFromWheel(
+                    deltaY,
+                    deltaMode,
+                    deviceRenderedHeight || 1,
+                  );
+                  if (delta != null) onStreamDigitalCrown(delta);
+                }}
+                screen={screenContent}
+              />
+            );
+          })()}
+          {mediaDrop.isDragOver && (
+            <div
+              // No backdrop-blur here: the canvas underneath repaints every
+              // stream frame, and backdrop-filter forces a full re-blur per
+              // frame for the whole drag — the tint alone stays cheap.
+              className="absolute inset-0 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-[rgba(99,102,241,0.18)] text-accent pointer-events-none z-20"
+              style={{ borderRadius: useChrome ? undefined : imgBorderRadius }}
+            >
+              <Upload size={32} strokeWidth={1.5} />
+              <span className="text-[13px] font-medium">Drop media or .ipa</span>
+            </div>
+          )}
+          <SimulatorResizeCornerHandle
+            simulatorResize={simulatorResize}
+            deviceType={deviceType}
+            streamConfig={activeStreamConfig}
+            containerWidth={deviceRenderedWidth || simulatorResize.width}
+            containerHeight={
+              deviceRenderedHeight ||
+              (containerAspectRatioValue > 0 ? simulatorResize.width / containerAspectRatioValue : 0)
+            }
+          />
+          <SimulatorResizeSizeBadge
+            width={deviceRenderedWidth || simulatorResize.width}
+            height={
+              deviceRenderedHeight ||
+              (containerAspectRatioValue > 0 ? simulatorResize.width / containerAspectRatioValue : 0)
+            }
+            visible={simulatorResize.isResizing || simulatorResize.isInertia}
+          />
+        </div>
+        <div className="inline-flex items-center justify-center max-w-full">
+          <SimulatorToolbar
+            exec={execOnHost}
+            onRotate={rotateDevice}
+            orientation={(activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? null}
+            deviceUdid={config.device}
+            deviceName={deviceName}
+            deviceRuntime={deviceRuntime}
+            streaming={streaming}
+            aria-label="Simulator actions"
+            style={{
+              alignSelf: "center",
+              width: "auto",
+              minWidth: 0,
+              maxWidth: "100%",
+              justifyContent: "center",
+              padding: "6px 8px",
+              borderRadius: 18,
+            }}
+          >
+            <SimulatorToolbar.Actions>
+              {currentApp?.isReactNative && (
+                <SimulatorToolbar.Button
+                  aria-label="Reload React Native bundle"
+                  title="Reload (Cmd+R)"
+                  onClick={() => void sendReactNativeReload()}
+                >
+                  <ReloadIcon />
+                </SimulatorToolbar.Button>
+              )}
+              {isAndroidDevice ? (
+                <>
+                  <SimulatorToolbar.Button
+                    aria-label="Back"
+                    title="Back"
+                    onClick={() => onStreamButton("back")}
+                  >
+                    <ArrowLeft size={18} strokeWidth={2} />
+                  </SimulatorToolbar.Button>
+                  <SimulatorToolbar.HomeButton
+                    title="Home"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onStreamButton("home");
+                    }}
+                  />
+                  <SimulatorToolbar.Button
+                    aria-label="Recent apps"
+                    title="Recent apps"
+                    onClick={() => onStreamButton("recent_apps")}
+                  >
+                    <Menu size={18} strokeWidth={2} />
+                  </SimulatorToolbar.Button>
+                </>
+              ) : (
+                <SimulatorToolbar.HomeButton title="Home" />
+              )}
+              <SimulatorToolbar.ScreenshotButton
+                title="Screenshot"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void (isAndroidDevice ? captureAndroidScreenshot() : screenshot.capture());
+                }}
+              />
+              <SimulatorToolbar.RotateButton title="Rotate device" />
+              <SimulatorToolbar.Button
+                aria-label="Accessibility tree"
+                aria-pressed={axTreeOpen}
+                title="Accessibility tree"
+                onClick={() => {
+                  setAxTreeOpen((open) => {
+                    const next = !open;
+                    setAxInspectorSelecting(next);
+                    if (next) setAxOverlayEnabled(false);
+                    return next;
+                  });
+                }}
+                style={
+                  axTreeOpen
+                    ? {
+                        color: "#c7d2fe",
+                        background: "rgba(99, 102, 241, 0.2)",
+                      }
+                    : undefined
+                }
+              >
+                <ListTree size={18} strokeWidth={2} />
+              </SimulatorToolbar.Button>
+            </SimulatorToolbar.Actions>
+          </SimulatorToolbar>
+        </div>
+      </div>
+
+      {focused && (
+        <FloatingAnnotationControls
+          overlayEnabled={axOverlayEnabled}
+          streaming={streaming}
+          onToggleOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
+          udid={config.device}
+          deviceName={deviceName}
+          deviceRuntime={deviceRuntime}
+          currentApp={currentApp}
+        />
+      )}
+
+      <AxTreeViewer
+        open={focused && axTreeOpen}
+        deviceName={deviceName}
+        anchor={simContainerRef.current}
+        selecting={axInspectorSelecting}
+        onSelectingChange={setAxInspectorSelecting}
+        onClose={closeAxTree}
+      />
+
+      {panelsEnabled && (
+        <>
+          <ToolsPanel
+            open={toolsOpen}
+            onClose={() => setToolsOpen(false)}
+            udid={config.device}
+            deviceRuntime={deviceRuntime}
+            currentApp={currentApp}
+            codecPreference={codecPreference}
+            onCodecPreferenceChange={setCodecPreference}
+            onDeviceButton={onStreamButton}
+            onRotate={rotateDevice}
+            activeCodec={useAvccVideo ? "h264" : "mjpeg"}
+            avccSupported={avcc.supported}
+            width={toolsPanelWidth}
+          />
+          <ResizeHandle
+            panelWidth={toolsPanelWidth}
+            visible={toolsOpen}
+            onPointerDown={onToolsResize}
+            ariaLabel="Resize tools panel"
+          />
+
+          <WebKitDevtoolsPanel
+            open={webkitDevtoolsOpen}
+            onClose={() => setDevtoolsOpen(false)}
+            udid={config.device}
+            targets={devtools.targets}
+            selectedTargetId={selectedDevtoolsTargetId}
+            onSelectTarget={setSelectedDevtoolsTargetId}
+            loading={devtools.loading}
+            error={devtools.error}
+            onRefresh={() => void devtools.refresh()}
+            width={devtoolsPanelWidth}
+          />
+          <ResizeHandle
+            panelWidth={devtoolsPanelWidth}
+            visible={webkitDevtoolsOpen}
+            onPointerDown={onDevtoolsResize}
+            ariaLabel="Resize WebKit DevTools panel"
+          />
+        </>
+      )}
+    </div>
+    </AxStateProvider>
+  );
+}

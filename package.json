@@ -1,0 +1,20 @@
+{
+  "name": "agentsims-workspace",
+  "private": true,
+  "packageManager": "bun@1.3.11",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "test": "turbo test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "turbo": "^2.5.8",
+    "typescript": "^5.7.0"
+  }
+}

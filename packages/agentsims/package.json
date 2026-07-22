@@ -1,0 +1,109 @@
+{
+  "name": "agentsims",
+  "version": "0.0.0",
+  "type": "module",
+  "author": "Agentsims contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentsims/agentsims.git",
+    "directory": "packages/agentsims"
+  },
+  "homepage": "https://github.com/agentsims/agentsims#readme",
+  "bugs": {
+    "url": "https://github.com/agentsims/agentsims/issues"
+  },
+  "bin": {
+    "agentsims": "dist/agentsims.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist/agentsims.js",
+    "dist/middleware.js",
+    "dist/middleware.cjs",
+    "dist/metro.js",
+    "dist/metro.cjs",
+    "dist/babel-plugin.cjs",
+    "dist/simcam/libSimCameraInjector.dylib",
+    "dist/simcam/agentsims-camera-helper",
+    "dist/simax/agentsims-ax-settings",
+    "dist/android/scrcpy-server.jar",
+    "src/annotations/model.ts",
+    "src/annotations/snapshot.ts",
+    "src/rn/*.ts",
+    "src/annotations/rn-source.ts",
+    "src/middleware.ts",
+    "src/ios/native.ts",
+    "src/shared/state.ts",
+    "Sources/SimCameraInjector/SimCameraInjector.m",
+    "Sources/SimCameraInjector/SimCam*.h",
+    "Sources/SimCameraInjector/SimCam*.m",
+    "Sources/SimCameraInjector/include/SimCamShared.h",
+    "Sources/SimCameraInjector/build.sh",
+    "Sources/SimCameraHelper/main.m",
+    "Sources/SimCameraHelper/build.sh",
+    "Sources/SimAXSettings/sim-ax-settings.m",
+    "Sources/SimAXSettings/build.sh",
+    "dist/native/agentsims-native.node",
+    "Package.swift",
+    "Sources/SimNative/*.swift",
+    "Sources/SimNative/build.sh"
+  ],
+  "exports": {
+    "./middleware": {
+      "require": "./dist/middleware.cjs",
+      "import": "./dist/middleware.js",
+      "types": "./src/middleware.ts"
+    },
+    "./state": {
+      "import": "./src/shared/state.ts",
+      "types": "./src/shared/state.ts"
+    },
+    "./metro": {
+      "require": "./dist/metro.cjs",
+      "import": "./dist/metro.js",
+      "types": "./src/rn/metro.ts"
+    },
+    "./babel-plugin": {
+      "require": "./dist/babel-plugin.cjs",
+      "default": "./dist/babel-plugin.cjs"
+    }
+  },
+  "scripts": {
+    "build": "bun run build.ts",
+    "dev": "bun run dev.ts",
+    "lint": "oxlint src --deny-warnings",
+    "typecheck": "bun run typecheck:server && bun run typecheck:web",
+    "typecheck:server": "tsc -p tsconfig.server.json",
+    "typecheck:web": "tsc -p tsconfig.web.json",
+    "smoke:android": "bun run scripts/android-live-smoke.ts"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/bun": "latest",
+    "@types/debug": "^4.1.13",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.3",
+    "bun-plugin-tailwind": "^0.1.2",
+    "commander": "^14.0.1",
+    "debug": "^4.4.3",
+    "lucide-react": "^1.20.0",
+    "node-swift": "1.5.1",
+    "oxlint": "^1.74.0",
+    "preact": "^10.29.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.1.7",
+    "typescript": "^5.7.0",
+    "vite": "^8.1.3"
+  },
+  "dependencies": {
+    "inspect-webkit": "^0.0.5",
+    "sonner": "^2.0.7",
+    "ws": "^8.21.0"
+  }
+}
