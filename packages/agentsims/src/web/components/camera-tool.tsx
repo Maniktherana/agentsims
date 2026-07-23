@@ -4,8 +4,13 @@ import { PlayGlyph, StopGlyph, ReloadIcon } from "../icons";
 import { execOnHost, shellEscape } from "../utils/exec";
 import { fileExtension, uploadFileToTmp } from "../utils/drop";
 import { CollapsibleSection } from "./collapsible-section";
+import {
+  SettingRow,
+  SettingSelect,
+} from "./simulator-settings-tool";
 
 export type CamSource = "placeholder" | "image" | "video" | "webcam";
+type CameraSourceMode = "placeholder" | "media" | "webcam";
 type CamMirror = "on" | "off";
 export interface CamWebcam { id: string; name: string }
 
@@ -171,7 +176,7 @@ export function CameraMediaPreview({
       </>
     );
   }
-  return <span className="text-[12px] text-white/85 font-medium">Select or drop media</span>;
+  return <span className="text-[12px] text-white/85 font-medium">Test pattern</span>;
 }
 
 export function CameraInlineBanner({
@@ -205,12 +210,13 @@ export function CameraTool({
 }) {
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState<CamSource>("placeholder");
+  const [sourceMode, setSourceMode] = useState<CameraSourceMode>("placeholder");
+  const [mediaSourceKind, setMediaSourceKind] = useState<"image" | "video">("image");
   const [filePath, setFilePath] = useState<string>("");
   const [droppedFileName, setDroppedFileName] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCountRef = useRef(0);
   const [uploading, setUploading] = useState(false);
-  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [webcams, setWebcams] = useState<CamWebcam[]>([]);
   const [webcamLoading, setWebcamLoading] = useState(false);
@@ -226,7 +232,6 @@ export function CameraTool({
   const [pillState, setPillState] = useState<CameraPillState>("ready");
   const [injectedBundleIds, setInjectedBundleIds] = useState<Set<string>>(() => new Set());
   const [attachedHelperPid, setAttachedHelperPid] = useState<number | null>(null);
-  const [webcamAutoInjectRequest, setWebcamAutoInjectRequest] = useState<string | null>(null);
   const lastFileIsHeicRef = useRef(false);
   const skipNextAutoSwapRef = useRef(false);
   const appliedMirrorRef = useRef<CamMirror>("off");
@@ -270,6 +275,14 @@ export function CameraTool({
       const replySource = reply.source;
       if (replySource === "placeholder" || replySource === "webcam" || replySource === "image" || replySource === "video") {
         setSource(replySource);
+        setSourceMode(
+          replySource === "image" || replySource === "video"
+            ? "media"
+            : replySource,
+        );
+        if (replySource === "image" || replySource === "video") {
+          setMediaSourceKind(replySource);
+        }
       }
       if ((replySource === "image" || replySource === "video") && reply.arg) {
         setFilePath(reply.arg);
@@ -381,10 +394,10 @@ export function CameraTool({
   }, [refreshWebcams]);
 
   useEffect(() => {
-    if (sourceMenuOpen && webcams.length === 0 && !webcamLoading) {
+    if (source === "webcam" && webcams.length === 0 && !webcamLoading) {
       void refreshWebcams();
     }
-  }, [sourceMenuOpen, webcams.length, webcamLoading, refreshWebcams]);
+  }, [source, webcams.length, webcamLoading, refreshWebcams]);
 
   const reportSourceError = useCallback((rawMessage: string) => {
     setError(cameraSourceErrorMessage({
@@ -490,15 +503,6 @@ export function CameraTool({
   }, [foregroundIsStreaming]);
 
   useEffect(() => {
-    if (!webcamAutoInjectRequest) return;
-    if (!bundleId || isBusy || uploading) return;
-    if (source !== "webcam" || webcamId !== webcamAutoInjectRequest) return;
-    setWebcamAutoInjectRequest(null);
-    if (injected) return;
-    void inject();
-  }, [webcamAutoInjectRequest, bundleId, isBusy, uploading, source, webcamId, injected, inject]);
-
-  useEffect(() => {
     if (!injected) return;
     if ((source === "image" || source === "video") && !filePath.trim()) return;
     if (source === "webcam" && !webcamId) return;
@@ -587,7 +591,10 @@ export function CameraTool({
       const ext = fileExtension(file);
       const tmpPath = await uploadFileToTmp(file, "agentsims-camsrc", ext, execOnHost);
       setDroppedFileName(file.name);
-      setSource(isVideo ? "video" : "image");
+      const nextKind = isVideo ? "video" : "image";
+      setSource(nextKind);
+      setSourceMode("media");
+      setMediaSourceKind(nextKind);
       setFilePath(tmpPath);
       setStatus(`Loaded ${file.name}`);
     } catch (e: any) {
@@ -609,6 +616,7 @@ export function CameraTool({
 
   const clearMedia = useCallback(() => {
     setSource("placeholder");
+    setSourceMode("placeholder");
     setFilePath("");
     setDroppedFileName(null);
     setError(null);
@@ -627,26 +635,13 @@ export function CameraTool({
     if (file) await handleSourceFile(file);
   }, [handleSourceFile]);
 
-  useEffect(() => {
-    if (!sourceMenuOpen) return;
-    const onDocDown = (e: MouseEvent) => {
-      const t = e.target;
-      if (t instanceof Element && t.closest("[data-camera-source-menu]")) return;
-      setSourceMenuOpen(false);
-    };
-    window.addEventListener("mousedown", onDocDown);
-    return () => window.removeEventListener("mousedown", onDocDown);
-  }, [sourceMenuOpen]);
-
   const selectWebcam = useCallback((webcam: CamWebcam) => {
     setWebcamId(webcam.id);
     setSource("webcam");
-    setDroppedFileName(null);
+    setSourceMode("webcam");
     setError(null);
     lastFileIsHeicRef.current = false;
-    setSourceMenuOpen(false);
-    if (bundleId) setWebcamAutoInjectRequest(webcam.id);
-  }, [bundleId]);
+  }, []);
 
   const toggleMirror = useCallback(() => {
     setMirror((m) => (m === "on" ? "off" : "on"));
@@ -674,19 +669,34 @@ export function CameraTool({
   const primaryKind = selectCameraPrimaryKind({ bundleId, injected, source, foregroundIsInjected });
   const primary: { label: string; onClick: () => void; kind: CameraPrimaryKind } =
     primaryKind === "stop"
-      ? { label: pendingPrimary === "stop" ? "Stopping…" : "Stop", onClick: stopHelper, kind: "stop" }
+      ? {
+          label: pendingPrimary === "stop" ? "Stopping…" : "Stop Camera",
+          onClick: stopHelper,
+          kind: "stop",
+        }
     : primaryKind === "attach"
-      ? { label: pendingPrimary === "inject" ? "Injecting…" : `Inject ${bundleId}`, onClick: inject, kind: "attach" }
-    : { label: pendingPrimary === "inject" ? "Starting…" : "Play", onClick: inject, kind: "play" };
+      ? {
+          label: pendingPrimary === "inject" ? "Adding…" : "Add to App",
+          onClick: inject,
+          kind: "attach",
+        }
+    : {
+        label: pendingPrimary === "inject" ? "Starting…" : "Start Camera",
+        onClick: inject,
+        kind: "play",
+      };
+  const sourceReady =
+    sourceMode === "placeholder"
+    || (sourceMode === "media" && filePath.trim().length > 0)
+    || (sourceMode === "webcam" && webcamId.length > 0);
   const primaryDisabled = primaryKind === "stop"
     ? uploading || pendingPrimary !== null
-    : !bundleId || uploading || pendingPrimary !== null;
+    : !bundleId || !sourceReady || uploading || pendingPrimary !== null;
 
-  const isPlaceholder = source === "placeholder";
-  const showWebcam = source === "webcam";
-  const showFile = (source === "image" || source === "video") && !!droppedFileName;
+  const showWebcam = sourceMode === "webcam";
+  const showFile = sourceMode === "media" && !!droppedFileName;
   const activeWebcamName = showWebcam
-    ? (webcams.find((w) => w.id === webcamId)?.name ?? webcamId ?? "Webcam")
+    ? (webcams.find((w) => w.id === webcamId)?.name || webcamId || "Webcam")
     : null;
   const tileMode: CameraMediaPreviewProps["mode"] = uploading
     ? "uploading"
@@ -705,9 +715,8 @@ export function CameraTool({
       className="flex flex-col gap-2.5"
     >
         <p className="m-0 text-[10px] leading-[1.5] text-white/45">
-          Replaces the simulator's camera feed by injecting a dylib at app launch
-          and streaming frames into shared memory. Pick media or a webcam,
-          then Play to inject into the foreground app.
+          Select what the foreground app should receive, then start its camera
+          feed. Source changes apply live while it is running.
         </p>
 
         <input
@@ -718,116 +727,141 @@ export function CameraTool({
           onChange={onFilePicked as any}
         />
 
-        <div
-          onClick={(e) => {
-            if (!isPlaceholder) return;
-            if ((e.target as HTMLElement).closest("[data-clear-media]")) return;
-            openFilePicker();
-          }}
-          title={
-            isPlaceholder
-              ? "No source selected — Play uses a test-pattern feed. Click to pick an image/video, or drop one here."
-              : showWebcam
-                ? `Source: ${activeWebcamName}`
-                : `Source: ${droppedFileName ?? source}`
+        <SettingRow
+          icon={<Images size={14} strokeWidth={2} />}
+          label="Source"
+          description={
+            sourceMode === "media"
+              ? droppedFileName ?? "Image or video"
+              : sourceMode === "webcam"
+                ? activeWebcamName ?? "Mac camera"
+                : "Built-in moving pattern"
           }
-          className={[
-            "relative min-h-[44px] flex flex-row items-center justify-center gap-2.5 px-3.5 py-2.5 rounded-[7px] text-center transition-[border-color,background] duration-150",
-            isPlaceholder
-              ? "bg-white/[0.04] border border-dashed border-white/12"
-              : "bg-white/[0.04] border border-white/8",
-            isDragOver ? "!bg-[rgba(10,132,255,0.08)] !border-[rgba(10,132,255,0.6)]" : "",
-            uploading ? "cursor-progress" : isPlaceholder ? "cursor-pointer" : "cursor-default",
-          ].join(" ")}
         >
-          <CameraMediaPreview
-            mode={tileMode}
-            fileName={droppedFileName}
-            webcamName={activeWebcamName}
-            sourceKind={source}
-          />
-
-          {!isPlaceholder && !uploading && (
-            <button
-              data-clear-media
-              onClick={(e) => { e.stopPropagation(); clearMedia(); }}
-              className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-white/55 hover:text-white/90 cursor-pointer p-0"
-              aria-label="Clear source"
-              title="Clear → placeholder"
-            >
-              <X size={14} strokeWidth={2} />
-            </button>
-          )}
-        </div>
-
-        {isPlaceholder && !uploading && <CameraTestPatternHint />}
-
-        <div className="flex items-stretch gap-1.5">
-          <div className="relative" data-camera-source-menu>
-            <button
-              onClick={() => setSourceMenuOpen((o) => !o)}
-              className="h-full min-h-[36px] w-10 flex items-center justify-center bg-transparent border border-white/12 text-white/85 rounded-[7px] cursor-pointer p-0 hover:bg-white/[0.06] hover:border-white/20 hover:text-white"
-              aria-haspopup="menu"
-              aria-expanded={sourceMenuOpen}
-              title={
-                source === "webcam"
-                  ? `Source: webcam${webcamId ? ` (${webcams.find((w) => w.id === webcamId)?.name ?? webcamId})` : ""} — click to change`
-                  : `Source: ${source} — click to pick media or webcam`
+          <SettingSelect
+            label="Camera source"
+            value={sourceMode}
+            options={[
+              { value: "placeholder", label: "Test Feed" },
+              { value: "media", label: "Media" },
+              { value: "webcam", label: "Webcam" },
+            ]}
+            disabled={uploading || isBusy}
+            onChange={(next) => {
+              if (next === "media") {
+                setSourceMode("media");
+                setError(null);
+                if (filePath.trim()) setSource(mediaSourceKind);
+                return;
               }
-              aria-label="Choose camera source"
-            >
-              <Images size={20} strokeWidth={2} />
-            </button>
+              if (next === "webcam") {
+                setSourceMode("webcam");
+                setSource("webcam");
+                setError(null);
+                return;
+              }
+              clearMedia();
+            }}
+          />
+        </SettingRow>
 
-            {sourceMenuOpen && (
-              <div
-                role="menu"
-                className="absolute top-[calc(100%+6px)] left-0 z-10 min-w-[200px] flex flex-col gap-px p-1 bg-panel border border-white/8 rounded-[7px] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
+        {sourceMode === "media" && (
+          <SettingRow
+            icon={<Images size={14} strokeWidth={2} />}
+            label="Media file"
+            description={droppedFileName ?? "Image or video"}
+          >
+            <button
+              type="button"
+              onClick={openFilePicker}
+              disabled={uploading || isBusy}
+              className="h-6 rounded-[7px] border border-white/10 bg-white/[0.06] px-2 text-[11px] font-medium text-white/80 hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
+            >
+              {droppedFileName ? "Replace…" : "Choose File…"}
+            </button>
+          </SettingRow>
+        )}
+
+        {showWebcam && (
+          <SettingRow
+            icon={<Images size={14} strokeWidth={2} />}
+            label="Webcam"
+            description={webcamLoading ? "Finding cameras" : "Mac video input"}
+          >
+            <div className="flex w-[150px] items-center justify-end gap-1">
+              <SettingSelect
+                label="Webcam"
+                value={webcamId}
+                options={
+                  webcams.length > 0
+                    ? webcams.map((webcam) => ({ value: webcam.id, label: webcam.name }))
+                    : [{ value: "", label: webcamLoading ? "Loading…" : "No cameras" }]
+                }
+                disabled={webcamLoading || webcams.length === 0 || isBusy}
+                className="w-[122px]"
+                onChange={(next) => {
+                  const webcam = webcams.find((candidate) => candidate.id === next);
+                  if (webcam) selectWebcam(webcam);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => void refreshWebcams()}
+                disabled={webcamLoading}
+                className="grid size-6 shrink-0 place-items-center rounded-[6px] border-0 bg-transparent p-0 text-white/50 hover:bg-white/[0.06] hover:text-white/90 disabled:opacity-40"
+                aria-label="Refresh webcams"
+                title="Refresh webcams"
               >
-                <button
-                  role="menuitem"
-                  className="text-left bg-transparent border-none text-white/85 text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]"
-                  onClick={() => { setSourceMenuOpen(false); openFilePicker(); }}
-                  title="Pick an image or video from disk"
-                >
-                  Browse media…
-                </button>
-                <div className="h-px bg-white/8 my-1" />
-                <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
-                  <span className="text-[10px] text-white/45 uppercase tracking-[0.08em]">
-                    {webcamLoading ? "Cameras (loading…)" : webcams.length === 0 ? "No cameras" : "Cameras"}
-                  </span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); void refreshWebcams(); }}
-                    disabled={webcamLoading}
-                    className="flex items-center justify-center w-[22px] h-[22px] bg-transparent border-none rounded-[5px] text-white/55 hover:text-white/90 cursor-pointer p-0 disabled:opacity-50"
-                    aria-label="Refresh cameras"
-                    title="Refresh cameras"
-                  >
-                    <ReloadIcon size={13} strokeWidth={2} />
-                  </button>
-                </div>
-                {webcams.map((w) => {
-                  const active = source === "webcam" && webcamId === w.id;
-                  return (
-                    <button
-                      key={w.id}
-                      role="menuitem"
-                      className={[
-                        "text-left bg-transparent border-none text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]",
-                        active ? "!bg-white/[0.12] !text-white" : "text-white/85",
-                      ].join(" ")}
-                      onClick={() => selectWebcam(w)}
-                      title={w.name}
-                    >
-                      {w.name}
-                    </button>
-                  );
-                })}
-              </div>
+                <ReloadIcon size={13} strokeWidth={2} />
+              </button>
+            </div>
+          </SettingRow>
+        )}
+
+        {(showFile || uploading || isDragOver) && (
+          <div
+            onClick={() => {
+              if (!uploading) openFilePicker();
+            }}
+            title={showFile ? "Click to replace media" : "Drop an image or video"}
+            className={[
+              "relative min-h-[44px] flex flex-row items-center justify-center gap-2.5 px-3.5 py-2.5 rounded-[7px] text-center transition-[border-color,background] duration-150",
+              "bg-white/[0.04] border border-white/8",
+              isDragOver ? "!bg-[color-mix(in_oklch,var(--agentsims-accent)_8%,transparent)] !border-accent" : "",
+              uploading ? "cursor-progress" : "cursor-pointer",
+            ].join(" ")}
+          >
+            <CameraMediaPreview
+              mode={tileMode}
+              fileName={droppedFileName}
+              webcamName={activeWebcamName}
+              sourceKind={source}
+            />
+
+            {showFile && !uploading && (
+              <button
+                data-clear-media
+                onClick={(event) => {
+                  event.stopPropagation();
+                  clearMedia();
+                }}
+                className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-white/55 hover:text-white/90 cursor-pointer p-0"
+                aria-label="Clear media source"
+                title="Use test pattern"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
             )}
           </div>
+        )}
 
+        {!bundleId && (
+          <div className="rounded-[7px] bg-white/[0.035] px-2.5 py-2 text-[10px] leading-[1.4] text-white/48">
+            Open an app on the simulator to enable Start Camera.
+          </div>
+        )}
+
+        <div className="flex items-stretch gap-1.5">
           <button
             onClick={primary.onClick}
             disabled={primaryDisabled}
@@ -839,15 +873,16 @@ export function CameraTool({
             ].join(" ")}
             title={
               primary.kind === "stop" ? "Stop the camera helper and terminate injected apps" :
-              primary.kind === "attach" ? `Inject ${bundleId} so it joins the camera feed` :
+              primary.kind === "attach" ? `Add ${bundleId} to the running camera feed` :
               !bundleId ? "Bring an app to the foreground first" :
-              "Start: inject the dylib and launch the foreground app with the chosen source"
+              !sourceReady ? "Choose an available webcam first" :
+              "Start the foreground app with the selected camera feed"
             }
             aria-pressed={primary.kind === "stop"}
-            aria-label={primary.kind === "stop" ? "Stop" : "Play"}
+            aria-label={primary.label}
           >
             {primary.kind === "stop" ? <StopGlyph /> : <PlayGlyph />}
-            <span>{primary.kind === "stop" ? "Stop" : primary.kind === "attach" ? "Inject" : "Play"}</span>
+            <span>{primary.label}</span>
           </button>
 
           <button

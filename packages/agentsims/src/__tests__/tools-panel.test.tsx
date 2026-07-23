@@ -108,9 +108,13 @@ describe("ToolsPanel", () => {
     );
 
     expect(html).toContain("<details open");
-    expect(html).toContain("Camera &amp; audio");
-    expect(html).toContain("Front camera");
-    expect(html).toContain("Back camera");
+    expect(html).toContain(">Camera<");
+    expect(html).toContain(">Audio<");
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain(">Front<");
+    expect(html).toContain(">Back<");
+    expect(html).toContain("Startup route");
+    expect(html).toContain("Media file");
     expect(html).toContain("Microphone");
     expect(html).toContain("Output");
     expect(html).toContain('data-media-group="camera"');
@@ -134,8 +138,8 @@ describe("ToolsPanel", () => {
       />,
     );
 
-    expect(html).not.toContain("Front camera");
-    expect(html).not.toContain("Back camera");
+    expect(html).not.toContain(">Camera<");
+    expect(html).not.toContain("Startup route");
     expect(html).toContain("Microphone");
     expect(html).toContain("Output");
   });

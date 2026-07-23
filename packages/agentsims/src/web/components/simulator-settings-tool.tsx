@@ -78,17 +78,38 @@ const TOGGLE_OPTIONS = [
 export function SettingRow({
   icon,
   label,
+  description,
+  descriptionTitle,
+  labelClassName = "",
+  className = "",
   children,
 }: {
   icon: ReactNode;
   label: string;
+  description?: string;
+  descriptionTitle?: string;
+  labelClassName?: string;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-9 items-center justify-between gap-3" data-setting-row={label}>
-      <span className="flex shrink-0 items-center gap-2 text-[12px] text-white/90 whitespace-nowrap">
-        <span className="flex size-[18px] items-center justify-center text-white">{icon}</span>
-        {label}
+    <div
+      className={`grid min-h-9 min-w-0 grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 ${className}`}
+      data-setting-row={label}
+    >
+      <span className="flex size-[18px] items-center justify-center text-white">
+        {icon}
+      </span>
+      <span className="min-w-0 text-[12px] text-white/90">
+        <span className={`block truncate ${labelClassName}`}>{label}</span>
+        {description && (
+          <span
+            className="mt-0.5 block truncate text-[10px] font-medium text-white/42"
+            title={descriptionTitle ?? description}
+          >
+            {description}
+          </span>
+        )}
       </span>
       {/* min-w-0 lets the control shrink instead of overflowing the panel
           when it's resized to its narrow end. */}
@@ -97,7 +118,7 @@ export function SettingRow({
   );
 }
 
-function TextSizeSlider({
+export function TextSizeSlider({
   value,
   disabled,
   onChange,
@@ -147,7 +168,7 @@ function TextSizeSlider({
   const fill = `${(shown / max) * 100}%`;
   // Filled portion goes gray while disabled so the control doesn't read as
   // live during hydration.
-  const fillColor = disabled ? "rgba(255,255,255,0.3)" : "#0a84ff";
+  const fillColor = disabled ? "rgba(255,255,255,0.3)" : "var(--agentsims-accent)";
 
   const trackClasses =
     "[&::-webkit-slider-runnable-track]:h-[4px] [&::-webkit-slider-runnable-track]:rounded-full " +
@@ -176,7 +197,7 @@ function TextSizeSlider({
         onKeyUp={flush}
         onBlur={flush}
         style={{ "--slider-fill": fill, "--slider-fill-color": fillColor } as CSSProperties}
-        className={`h-[13px] w-full appearance-none rounded-full bg-transparent outline-none focus-visible:[outline:1.5px_solid_rgba(10,132,255,0.55)] focus-visible:outline-offset-4 ${disabled ? "cursor-default" : "cursor-pointer"} ${trackClasses} ${thumbClasses}`}
+        className={`h-[13px] w-full appearance-none rounded-full bg-transparent outline-none focus-visible:[outline:1.5px_solid_var(--agentsims-accent)] focus-visible:outline-offset-4 ${disabled ? "cursor-default" : "cursor-pointer"} ${trackClasses} ${thumbClasses}`}
       />
       <span aria-hidden className="pointer-events-none mt-[3px] flex justify-between px-[5.5px]">
         {TEXT_SIZE_CATEGORIES.map((category) => (
@@ -192,12 +213,14 @@ export function SettingSelect({
   value,
   options,
   disabled,
+  className = "",
   onChange,
 }: {
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   disabled: boolean;
+  className?: string;
   onChange: (next: string) => void;
 }) {
   return (
@@ -207,7 +230,7 @@ export function SettingSelect({
       options={options}
       disabled={disabled}
       onChange={onChange}
-      className="min-w-0 max-w-[150px] rounded-[8px] border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[12px] text-white/90 disabled:text-white/40"
+      className={`min-w-0 max-w-[150px] rounded-[8px] border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[12px] text-white/90 disabled:text-white/40 ${className}`}
     />
   );
 }

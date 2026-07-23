@@ -275,11 +275,11 @@ describe("CameraTestPatternHint (placeholder state, no source)", () => {
 });
 
 describe("CameraMediaPreview — source states", () => {
-  test("placeholder mode shows 'Select or drop media' invitation", () => {
+  test("placeholder mode identifies the generated test pattern", () => {
     const html = renderToStaticMarkup(
       <CameraMediaPreview mode="placeholder" fileName={null} webcamName={null} sourceKind="placeholder" />,
     );
-    expect(html).toContain("Select or drop media");
+    expect(html).toContain("Test pattern");
   });
 
   test("image source shows the dropped file name and Image badge", () => {

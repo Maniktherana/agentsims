@@ -5,6 +5,7 @@ import { LocationEmulationTool } from "../location-emulation-tool";
 import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { execOnHost } from "../utils/exec";
 import { AndroidControlsTool } from "./android-controls-tool";
+import { AndroidSimulatorSettingsTool } from "./android-simulator-settings-tool";
 import { AppDetectionTool } from "./app-detection-tool";
 import { AppPermissionsTool } from "./app-permissions-tool";
 import { MediaRoutingTool } from "./media-routing-tool";
@@ -70,6 +71,9 @@ export function ToolsPanel({
         >
           <AppDetectionTool udid={udid} currentApp={currentApp} />
           {isAndroid && <AndroidControlsTool udid={udid} />}
+          {/^android:emulator-\d+$/.test(udid) && (
+            <AndroidSimulatorSettingsTool udid={udid} />
+          )}
           {!isAndroid && <SimulatorSettingsTool udid={udid} runtime={deviceRuntime} />}
           <MediaRoutingTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <LocationEmulationTool udid={udid} exec={execOnHost} />

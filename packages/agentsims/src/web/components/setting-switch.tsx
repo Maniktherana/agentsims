@@ -22,7 +22,7 @@ export function SettingSwitch({
         disabled
           ? "cursor-default bg-white/20"
           : checked
-            ? "cursor-pointer bg-[#0a84ff]"
+            ? "cursor-pointer bg-accent"
             : "cursor-pointer bg-white/20"
       }`}
     >

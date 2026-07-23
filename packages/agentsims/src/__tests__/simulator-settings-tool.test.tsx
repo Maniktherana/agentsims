@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { isIosRuntime } from "../web/components/simulator-settings-tool";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+  isIosRuntime,
+  SettingRow,
+} from "../web/components/simulator-settings-tool";
 
 // The in-sim settings helper is an iOS-simulator Mach-O; spawning it inside a
 // watchOS / tvOS / visionOS runtime aborts in dyld. The panel gates on the
@@ -20,5 +24,26 @@ describe("isIosRuntime", () => {
   test("unknown/null runtime falls back to supported so the panel still renders", () => {
     expect(isIosRuntime(null)).toBe(true);
     expect(isIosRuntime("")).toBe(true);
+  });
+});
+
+describe("SettingRow", () => {
+  test("uses one icon, label, and trailing-control grid for settings alignment", () => {
+    const html = renderToStaticMarkup(
+      <SettingRow
+        icon={<span>icon</span>}
+        label="Front camera"
+        description="Startup route"
+      >
+        <span>control</span>
+      </SettingRow>,
+    );
+
+    expect(html).toContain(
+      "grid-cols-[18px_minmax(0,1fr)_auto]",
+    );
+    expect(html).toContain("gap-x-2");
+    expect(html).toContain("Front camera");
+    expect(html).toContain("Startup route");
   });
 });
