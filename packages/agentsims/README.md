@@ -48,7 +48,10 @@ Open `http://localhost:3210`. The dev server stays live with Vite HMR on port `3
 
 ## React Native / Expo Source Mapping
 
-Agentsims can enrich simulator AX/UIAutomator targets with React Native source context in dev.
+Agentsims can enrich simulator AX/UIAutomator targets with React Native source
+context in development. Apply `withAgentsims` after the app's other Metro
+wrappers so it can preserve and extend the final Expo, Sentry, NativeWind, or
+custom transformer configuration.
 
 ```js
 // metro.config.js
@@ -60,25 +63,19 @@ const config = getDefaultConfig(__dirname);
 module.exports = withAgentsims(config, { projectRoot: __dirname });
 ```
 
-```js
-// babel.config.js
-const { agentsimsBabelPluginPath } = require("agentsims/metro");
-
-module.exports = function (api) {
-  api.cache(true);
-  return {
-    presets: ["babel-preset-expo"],
-    plugins: [agentsimsBabelPluginPath()],
-  };
-};
-```
+No Babel config change is required. `withAgentsims` delegates to the Babel
+transformer already selected by Metro and adds the source instrumentation only
+for development transforms.
 
 What this does in development:
 
-- Adds stable `testID`s to React Native host components that do not already have one.
+- Adds project-scoped stable `testID`s to app-owned JSX callsites and React
+  Native host components that do not already have one.
+- Preserves authored static `testID`s and leaves dynamic IDs untouched.
 - Records `testID -> component/file/line/owner stack/route/visible text/safe props` metadata in a temp Agentsims manifest.
 - Exposes the manifest at Metro's `/_agentsims/source-map` endpoint.
-- Lets Agentsims match native AX/UIAutomator elements back to React Native source when the simulator exposes those test IDs.
+- Lets Agentsims match native AX/UIAutomator elements back to React Native
+  source through an exact ID or a conservative native-child relationship.
 
 No visible in-app overlay is added. Restart Metro with a cleared cache after enabling the bridge:
 
