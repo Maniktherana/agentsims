@@ -126,7 +126,6 @@ static SimCamSourceKind gActiveSource = SimCamSourceNone;
 static dispatch_queue_t gSourceQueue;        // serial — owns source lifecycle
 static dispatch_source_t gPlaceholderTimer;
 static AVCaptureSession *gWebcamSession;
-static SimCamSourceKind gPendingSource;     // for status reporting
 static NSString *gActiveArg = nil;          // selected camera name, image path
 
 @interface SimCamWebcamWriter : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
@@ -875,7 +874,6 @@ int main(int argc, const char *argv[]) {
             else if (!strcmp(a, "--socket") && i+1 < argc) socketPath = argv[++i];
             else if (!strcmp(a, "--source") && i+1 < argc) initialSource = @(argv[++i]);
             else if (!strcmp(a, "--arg") && i+1 < argc) initialArg = @(argv[++i]);
-            else if (!strcmp(a, "--device") && i+1 < argc) initialArg = @(argv[++i]); // back-compat
             else if (!strcmp(a, "--width") && i+1 < argc) gWidth = (uint32_t)atoi(argv[++i]);
             else if (!strcmp(a, "--height") && i+1 < argc) gHeight = (uint32_t)atoi(argv[++i]);
             else if (!strcmp(a, "--list")) list = YES;
@@ -887,13 +885,6 @@ int main(int argc, const char *argv[]) {
         }
         if (list) { ListDevices(); return 0; }
         if (!gShmName) { fprintf(stderr, "error: --shm <name> required\n"); return 64; }
-
-        // Webcam back-compat: if user passed --device but no --source we
-        // default to webcam mode rather than placeholder.
-        if (initialArg && [initialSource isEqualToString:@"placeholder"]
-                && [@[@"--device"] containsObject:@"--device"]) {
-            // (no-op marker; --device implies webcam below if user intended it)
-        }
 
         if (OpenShm(gShmName) < 0) return 1;
         fprintf(stderr, "[agentsims-camera] shm \"%s\" + %u IOSurfaces (%ux%u BGRA)\n",

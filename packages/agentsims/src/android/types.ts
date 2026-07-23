@@ -37,6 +37,10 @@ export interface AndroidStatus {
   release?: string;
   sdk?: string;
   avdName?: string;
+  emulator?: {
+    version?: string;
+    supportsImage360: boolean;
+  };
   screen: AndroidScreenConfig;
   stream: {
     backend: "emulator-controller" | "scrcpy";

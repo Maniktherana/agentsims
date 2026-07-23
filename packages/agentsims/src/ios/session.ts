@@ -43,8 +43,8 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-// AVCC seed tag (StreamFormat.AVCCEnvelope.seedTag). description/keyframe/delta
-// envelopes are framed natively; only the on-connect JPEG seed is built here.
+// Description/keyframe/delta envelopes are framed natively; only the
+// on-connect JPEG seed is built here.
 const AVCC_SEED_TAG = 0x04;
 
 // WS server→client screen-config push (ClientManager.wsMsgConfig).

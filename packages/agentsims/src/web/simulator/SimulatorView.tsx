@@ -341,12 +341,17 @@ export function SimulatorView({
       setError(null);
     }
   }, []);
+  const onAvccTransportChange = useCallback((transportConnected: boolean) => {
+    setConnected(transportConnected);
+    if (transportConnected) setError(null);
+  }, []);
   useAvccStream({
     url,
     enabled: useAvcc,
     canvasRef,
     onFirstFrame: onAvccFirstFrame,
     onFrame: onAvccFrame,
+    onTransportChange: onAvccTransportChange,
     onError: setError,
     onDecoderError: onAvccError,
   });
@@ -574,8 +579,12 @@ export function SimulatorView({
   // the upstream helper leaves the UI stuck on "live" forever.
   const lastFrameAtRef = useRef(0);
   useEffect(() => {
-    if (!relayMode) return;
-    const STALE_MS = 2000;
+    if (!relayMode || useAvcc) return;
+    // A live Android accessibility snapshot can pause emulator rendering for
+    // roughly two seconds even with the single-command path. Treat longer
+    // silence as stale so entering review mode does not falsely flash
+    // "connecting" while the transport itself remains healthy.
+    const STALE_MS = 5000;
     const checkStaleness = () => {
       const last = lastFrameAtRef.current;
       if (!last || !connectedRef.current) return;
@@ -595,7 +604,7 @@ export function SimulatorView({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [relayMode]);
+  }, [relayMode, useAvcc]);
 
   const getViewElement = useCallback(() => {
     if (useAvcc) return canvasRef.current;

@@ -17,6 +17,8 @@ export interface UseAvccStreamOptions {
   onFirstFrame?: () => void;
   /** Called on every painted frame — drives the FPS counter / staleness check. */
   onFrame?: () => void;
+  /** Tracks the HTTP stream transport independently from frame cadence. */
+  onTransportChange?: (connected: boolean) => void;
   /** Called with a human-readable message when the decode pipeline fails. */
   onError?: (message: string) => void;
   /**
@@ -49,12 +51,25 @@ export function useAvccStream({
   canvasRef,
   onFirstFrame,
   onFrame,
+  onTransportChange,
   onError,
   onDecoderError,
 }: UseAvccStreamOptions): void {
   // Latest-callback ref: keeps the decode effect off the callback identities.
-  const callbacks = useRef({ onFirstFrame, onFrame, onError, onDecoderError });
-  callbacks.current = { onFirstFrame, onFrame, onError, onDecoderError };
+  const callbacks = useRef({
+    onFirstFrame,
+    onFrame,
+    onTransportChange,
+    onError,
+    onDecoderError,
+  });
+  callbacks.current = {
+    onFirstFrame,
+    onFrame,
+    onTransportChange,
+    onError,
+    onDecoderError,
+  };
 
   useEffect(() => {
     if (!enabled || !url || !isAvccSupported()) return;
@@ -68,8 +83,14 @@ export function useAvccStream({
     let decoder: VideoDecoder | null = null;
     let pendingFrame: VideoFrame | null = null;
     let paintFrameRequest = 0;
+    let transportConnected = false;
 
     const isLive = () => !stopped && !controller.signal.aborted;
+    const setTransportConnected = (connected: boolean) => {
+      if (transportConnected === connected) return;
+      transportConnected = connected;
+      callbacks.current.onTransportChange?.(connected);
+    };
 
     // A fatal decode failure routes to onDecoderError (downgrade to MJPEG) when
     // a handler is wired, else surfaces as a user-facing error. Routing to both
@@ -200,6 +221,7 @@ export function useAvccStream({
         });
         const reader = res.body?.getReader();
         if (!reader) return;
+        setTransportConnected(true);
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -211,7 +233,10 @@ export function useAvccStream({
       } catch {
         /* aborted or network error — falls through to retry */
       } finally {
-        if (isLive()) scheduleRetry();
+        if (isLive()) {
+          setTransportConnected(false);
+          scheduleRetry();
+        }
       }
     };
 
@@ -219,6 +244,7 @@ export function useAvccStream({
 
     return () => {
       stopped = true;
+      setTransportConnected(false);
       if (retryTimer) clearTimeout(retryTimer);
       controller.abort();
       demuxer.reset();

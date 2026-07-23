@@ -43,12 +43,21 @@ actor CaptureConsumer<E: FrameEncoder>: CaptureConsuming {
         self.continuation = continuation
         Task {
             _ = onFrame.isolation
+            var lastError = ""
+            var lastErrorAt = ContinuousClock.now - .seconds(10)
             for await frame in stream {
                 do {
                     let encoded = try await encoder.encode(frame)
                     await onFrame(encoded)
                 } catch {
-                    print("error encoding frame: \(error)")
+                    if error is H264Encoder.FrameDropped { continue }
+                    let message = String(describing: error)
+                    let now = ContinuousClock.now
+                    if message != lastError || now - lastErrorAt >= .seconds(5) {
+                        print("error encoding frame: \(message)")
+                        lastError = message
+                        lastErrorAt = now
+                    }
                     continue
                 }
             }
@@ -79,6 +88,7 @@ actor CaptureEngine {
 
     private(set) var screenSize = Dimensions(width: 0, height: 0)
     private var consumers = [UUID: CaptureConsuming]()
+    private var avccEncoders = [UUID: AVCCEncoder]()
 
     init(deviceUDID: String) {
         self.deviceUDID = deviceUDID
@@ -144,7 +154,8 @@ actor CaptureEngine {
     func addAVCCConsumer(
         onFrame: sending @escaping (Dimensions, Data, Int32) async -> Void
     ) -> (@Sendable () async -> Void) {
-        addConsumer(encoder: AVCCEncoder()) { [weak self] encoded in
+        let encoder = AVCCEncoder()
+        let consumer = CaptureConsumer(encoder: encoder) { [weak self] encoded in
             let flagDescription: Int32 = 1 << 0
             let flagKeyframe: Int32 = 1 << 1
 
@@ -171,6 +182,21 @@ actor CaptureEngine {
                 )
             }
         }
+        let id = UUID()
+        consumers[id] = consumer
+        avccEncoders[id] = encoder
+        return { await self.removeAVCCConsumer(id) }
+    }
+
+    private func removeAVCCConsumer(_ id: UUID) {
+        consumers.removeValue(forKey: id)
+        avccEncoders.removeValue(forKey: id)
+    }
+
+    func requestAVCCKeyframe() async {
+        for encoder in avccEncoders.values {
+            await encoder.requestKeyframe()
+        }
     }
 
     func stop() {
@@ -178,6 +204,7 @@ actor CaptureEngine {
         phase = .stopped
         Task { [frameCapture] in await frameCapture.stop() }
         consumers.removeAll()
+        avccEncoders.removeAll()
     }
 }
 
@@ -211,6 +238,11 @@ actor AVCCEncoder: FrameEncoder {
         )
         forceKeyframe = false
         return result
+    }
+
+    func requestKeyframe() async {
+        forceKeyframe = true
+        await h264Encoder.reemitDescription()
     }
 
     deinit {

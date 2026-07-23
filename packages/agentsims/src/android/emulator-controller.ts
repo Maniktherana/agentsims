@@ -13,6 +13,7 @@ const INPUT_METHOD = "/android.emulation.control.EmulatorController/streamInputE
 // directly without that per-frame emulator cost.
 const MAX_STREAM_DIMENSION = 4096;
 const MAX_SUBSCRIBER_BUFFER_BYTES = 512 * 1024;
+const IDLE_FRAME_INTERVAL_MS = 200;
 const AVCC_TAG_DESCRIPTION = 0x01;
 const AVCC_TAG_KEYFRAME = 0x02;
 const AVCC_TAG_DELTA = 0x03;
@@ -219,10 +220,12 @@ export class AndroidEmulatorSession {
   private subscribers = new Set<AvccSubscriber>();
   private lastDescription: Buffer | null = null;
   private currentConfig: AndroidEmulatorConfig | null = null;
+  private idleFrameTimer: ReturnType<typeof setInterval> | null = null;
+  private lastCaptureSubmitAt = 0;
 
   constructor(
-    private readonly serial: string,
-    private readonly physicalScreen: { width: number; height: number },
+    serial: string,
+    physicalScreen: { width: number; height: number },
     private readonly onConfig: (config: AndroidEmulatorConfig) => void,
     private readonly onSubscriberCountChange?: (count: number) => void,
   ) {
@@ -268,7 +271,7 @@ export class AndroidEmulatorSession {
     this.onSubscriberCountChange?.(this.subscribers.size);
     if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
     this.capture?.requestKeyframe();
-    if (this.currentConfig) this.capture?.frame(this.currentConfig.width, this.currentConfig.height);
+    if (this.currentConfig) this.submitCaptureFrame(this.currentConfig);
 
     let attached = true;
     const cleanup = () => {
@@ -281,7 +284,7 @@ export class AndroidEmulatorSession {
       if (!this.subscribers.has(subscriber) || !subscriber.needsKeyframe) return;
       subscriber.needsKeyframe = false;
       this.capture?.requestKeyframe();
-      if (this.currentConfig) this.capture?.frame(this.currentConfig.width, this.currentConfig.height);
+      if (this.currentConfig) this.submitCaptureFrame(this.currentConfig);
     };
     res.on("close", cleanup);
     res.on("error", cleanup);
@@ -326,6 +329,8 @@ export class AndroidEmulatorSession {
     }
     this.subscribers.clear();
     this.onSubscriberCountChange?.(0);
+    if (this.idleFrameTimer) clearInterval(this.idleFrameTimer);
+    this.idleFrameTimer = null;
     this.unsubscribeCapture?.();
     this.unsubscribeCapture = null;
     this.capture?.stop();
@@ -341,7 +346,6 @@ export class AndroidEmulatorSession {
   }
 
   private async startImpl(): Promise<void> {
-    console.log(`[DEBUG-grpc-start] ${this.serial} opening MMAP capture`);
     const file = openSync(this.mmapPath, "w");
     ftruncateSync(file, this.requested.width * this.requested.height * 4);
     closeSync(file);
@@ -354,14 +358,23 @@ export class AndroidEmulatorSession {
       }
       this.broadcast(chunk);
     });
-    console.log(`[DEBUG-grpc-start] ${this.serial} native encoder subscribed`);
-
     this.client = connect(`http://127.0.0.1:${this.metadata.port}`);
     this.client.on("error", () => this.close());
     this.input = this.client.request(requestHeaders(INPUT_METHOD, this.metadata.token));
     this.input.on("error", () => {
       this.input = null;
     });
+    this.idleFrameTimer = setInterval(() => {
+      if (
+        this.stopped ||
+        this.subscribers.size === 0 ||
+        !this.currentConfig ||
+        Date.now() - this.lastCaptureSubmitAt < IDLE_FRAME_INTERVAL_MS
+      ) {
+        return;
+      }
+      this.submitCaptureFrame(this.currentConfig);
+    }, IDLE_FRAME_INTERVAL_MS);
 
     await new Promise<void>((resolve, reject) => {
       let resolved = false;
@@ -398,10 +411,9 @@ export class AndroidEmulatorSession {
             this.currentConfig = config;
             this.onConfig(config);
           }
-          this.capture?.frame(dimensions.width, dimensions.height);
+          this.submitCaptureFrame(config);
           if (!resolved) {
             resolved = true;
-            console.log(`[DEBUG-grpc-start] ${this.serial} first frame ${dimensions.width}x${dimensions.height}`);
             resolve();
           }
         }
@@ -418,7 +430,11 @@ export class AndroidEmulatorSession {
         this.mmapPath,
       )));
     });
-    console.log(`[DEBUG-grpc-start] ${this.serial} ready`);
+  }
+
+  private submitCaptureFrame(config: AndroidEmulatorConfig): void {
+    this.lastCaptureSubmitAt = Date.now();
+    this.capture?.frame(config.width, config.height);
   }
 
   private writeTouches(

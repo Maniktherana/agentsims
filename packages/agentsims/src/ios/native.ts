@@ -35,11 +35,12 @@ interface SimHIDHandle {
 interface SimCaptureHandle {
   start(): Promise<void>;
   stop(): Promise<void>;
-  subscribe(codec: number, onFrame: RawFrameCallback): Promise<() => void>;
+  requestAvccKeyframe(): Promise<void>;
+  subscribe(codec: number, onFrame: RawFrameCallback): Promise<NativeUnsubscribe>;
 }
 
 interface AndroidCaptureHandle {
-  subscribe(onFrame: RawFrameCallback): Promise<() => void>;
+  subscribe(onFrame: RawFrameCallback): Promise<NativeUnsubscribe>;
   frame(width: number, height: number): void;
   requestKeyframe(): void;
   stop(): void;
@@ -49,8 +50,23 @@ interface NativeAddon {
   SimHID: new (udid: string) => SimHIDHandle;
   SimCapture: new (udid: string) => SimCaptureHandle;
   AndroidCapture: new (path: string) => AndroidCaptureHandle;
+  hostAudioSnapshot(): string;
+  setHostAudioDefault(kind: "input" | "output", uid: string): boolean;
   axDescribe(udid: string): Promise<string>;
   axFrontmost(udid: string): Promise<string>;
+}
+
+export interface HostAudioDevice {
+  uid: string;
+  name: string;
+  inputChannels: number;
+  outputChannels: number;
+}
+
+export interface HostAudioSnapshot {
+  devices: HostAudioDevice[];
+  defaultInputUID?: string;
+  defaultOutputUID?: string;
 }
 
 // (codec, data, width, height, flags) — codec 0=MJPEG 1=AVCC; flags bit0=desc bit1=keyframe.
@@ -60,6 +76,7 @@ type RawFrameCallback = (
   height: number,
   flags: number,
 ) => Promise<void>;
+type NativeUnsubscribe = () => Promise<void> | void;
 
 const CODEC_MJPEG = 0;
 const CODEC_AVCC = 1;
@@ -199,6 +216,10 @@ export class NativeHid {
  */
 export class NativeCapture {
   private readonly handle: SimCaptureHandle;
+  private readonly avccListeners = new Set<(frame: AvccFrame) => Promise<void>>();
+  private avccSubscription: Promise<NativeUnsubscribe> | null = null;
+  private avccUnsubscribe: NativeUnsubscribe | null = null;
+  private avccStopping: Promise<void> | null = null;
 
   constructor(udid: string) {
     this.handle = new (load().SimCapture)(udid);
@@ -215,21 +236,66 @@ export class NativeCapture {
     });
   }
 
-  subscribeAvcc(onFrame: (frame: AvccFrame) => Promise<void>): Promise<() => void> {
-    return this.handle.subscribe(CODEC_AVCC, (data, width, height, flags) => {
-      return onFrame({
-        data,
-        width,
-        height,
-        isDescription: (flags & FLAG_DESCRIPTION) !== 0,
-        isKeyframe: (flags & FLAG_KEYFRAME) !== 0,
+  async subscribeAvcc(onFrame: (frame: AvccFrame) => Promise<void>): Promise<() => void> {
+    this.avccListeners.add(onFrame);
+    await this.avccStopping;
+    if (!this.avccSubscription) {
+      const subscription = this.handle.subscribe(CODEC_AVCC, async (data, width, height, flags) => {
+        const frame: AvccFrame = {
+          data,
+          width,
+          height,
+          isDescription: (flags & FLAG_DESCRIPTION) !== 0,
+          isKeyframe: (flags & FLAG_KEYFRAME) !== 0,
+        };
+        await Promise.allSettled(
+          [...this.avccListeners].map((listener) => listener(frame)),
+        );
       });
-    });
+      this.avccSubscription = subscription;
+      try {
+        this.avccUnsubscribe = await subscription;
+      } catch (error) {
+        if (this.avccSubscription === subscription) {
+          this.avccSubscription = null;
+          this.avccUnsubscribe = null;
+        }
+        this.avccListeners.delete(onFrame);
+        throw error;
+      }
+    } else {
+      await this.avccSubscription;
+      await this.handle.requestAvccKeyframe();
+    }
+
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      this.avccListeners.delete(onFrame);
+      if (this.avccListeners.size === 0) {
+        const unsubscribe = this.avccUnsubscribe;
+        this.avccUnsubscribe = null;
+        this.avccSubscription = null;
+        if (unsubscribe) {
+          const stopping = Promise.resolve(unsubscribe()).finally(() => {
+            if (this.avccStopping === stopping) this.avccStopping = null;
+          });
+          this.avccStopping = stopping;
+        }
+      }
+    };
   }
 
   /** Halt frame production. Full teardown happens when this object is GC'd. */
-  stop(): Promise<void> {
-    return this.handle.stop();
+  async stop(): Promise<void> {
+    this.avccListeners.clear();
+    const unsubscribe = this.avccUnsubscribe;
+    this.avccUnsubscribe = null;
+    this.avccSubscription = null;
+    if (unsubscribe) await unsubscribe();
+    await this.avccStopping;
+    await this.handle.stop();
   }
 }
 
@@ -271,6 +337,17 @@ export class NativeAndroidCapture {
  */
 export function axDescribeAsync(udid: string): Promise<string> {
   return load().axDescribe(udid);
+}
+
+export function getHostAudioSnapshot(): HostAudioSnapshot {
+  return JSON.parse(load().hostAudioSnapshot()) as HostAudioSnapshot;
+}
+
+export function setHostAudioDefault(
+  kind: "input" | "output",
+  uid: string,
+): boolean {
+  return load().setHostAudioDefault(kind, uid);
 }
 
 /** Async frontmost-app probe — JSON string `{ bundleId, pid }` for the visible app. */

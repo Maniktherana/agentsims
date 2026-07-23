@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { isAvccSupported } from "../simulator";
+import { isAvccSupported } from "../avcc-codec";
 
 /**
  * Reports whether the browser can decode H.264 via WebCodecs.

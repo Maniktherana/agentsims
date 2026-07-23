@@ -111,7 +111,7 @@ static CGImageRef SimCamAcquireCachedCGImage(void) CF_RETURNS_RETAINED {
     ref.target = delegate;
     [_lock lock];
     NSMutableIndexSet *toRemove = [NSMutableIndexSet new];
-    [_entries enumerateObjectsUsingBlock:^(NSDictionary *e, NSUInteger i, BOOL *stop) {
+    [_entries enumerateObjectsUsingBlock:^(NSDictionary *e, NSUInteger i, BOOL * __unused stop) {
         if (e[@"out"] == out) [toRemove addIndex:i];
     }];
     [_entries removeObjectsAtIndexes:toRemove];
@@ -163,7 +163,7 @@ static CGImageRef SimCamAcquireCachedCGImage(void) CF_RETURNS_RETAINED {
 - (void)removeOutput:(AVCaptureVideoDataOutput *)out {
     [_lock lock];
     NSMutableIndexSet *toRemove = [NSMutableIndexSet new];
-    [_entries enumerateObjectsUsingBlock:^(NSDictionary *e, NSUInteger i, BOOL *stop) {
+    [_entries enumerateObjectsUsingBlock:^(NSDictionary *e, NSUInteger i, BOOL * __unused stop) {
         if (e[@"out"] == out) [toRemove addIndex:i];
     }];
     [_entries removeObjectsAtIndexes:toRemove];
@@ -440,7 +440,7 @@ static CGImageRef SimCamAcquireCachedCGImage(void) CF_RETURNS_RETAINED {
         if (anyDead) {
             [self->_lock lock];
             NSMutableIndexSet *idx = [NSMutableIndexSet new];
-            [self->_entries enumerateObjectsUsingBlock:^(NSDictionary *entry, NSUInteger i, BOOL *stop) {
+            [self->_entries enumerateObjectsUsingBlock:^(NSDictionary *entry, NSUInteger i, BOOL * __unused stop) {
                 SimCamWeakRef *r = entry[@"del"];
                 if (!r.target) [idx addIndex:i];
             }];

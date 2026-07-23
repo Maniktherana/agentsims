@@ -1,17 +1,9 @@
 import { execFile, spawn } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import type { AxElement, AxSnapshot } from "../annotations/model";
 import type {
-  AndroidAudioStatus,
-  AndroidAvdCameraConfig,
-  AndroidForegroundApp,
-  AndroidScreenConfig,
-  AndroidStatus,
-} from "./types";
-
-export type {
   AndroidAudioStatus,
   AndroidAvdCameraConfig,
   AndroidForegroundApp,
@@ -48,6 +40,34 @@ export interface AndroidAvdInfo {
 const androidReactNativePackages = new Set<string>();
 const ANDROID_RN_LOG_MARKERS = /\b(?:ReactNativeJS|ReactNative|Hermes|ExpoModules|expo\.modules)\b/i;
 const ANDROID_RN_FILE_MARKERS = /(?:ReactNativeDevBundle|\.expo-internal|expo\.modules|reactnative|hermes)/i;
+const ANDROID_DISCOVERY_CACHE_MS = 1_000;
+const ANDROID_METADATA_CACHE_MS = 60_000;
+const ANDROID_AVD_CACHE_MS = 30_000;
+const ANDROID_EMULATOR_VERSION_CACHE_MS = 5 * 60_000;
+
+type AndroidDeviceMetadata = Pick<AndroidDeviceInfo, "release" | "sdk" | "avdName"> & {
+  at: number;
+  transportId?: string;
+};
+
+let androidDiscoverySnapshot: { at: number; devices: AndroidDeviceInfo[] } = {
+  at: 0,
+  devices: [],
+};
+let androidDiscoveryInFlight: Promise<AndroidDeviceInfo[]> | null = null;
+let androidAvdSnapshot: { at: number; avds: AndroidAvdInfo[] } = { at: 0, avds: [] };
+let androidAvdInFlight: Promise<AndroidAvdInfo[]> | null = null;
+let androidEmulatorVersionSnapshot: {
+  at: number;
+  version?: string;
+  supportsImage360: boolean;
+} = { at: 0, supportsImage360: false };
+let androidEmulatorVersionInFlight: Promise<{
+  version?: string;
+  supportsImage360: boolean;
+}> | null = null;
+const androidMetadata = new Map<string, AndroidDeviceMetadata>();
+const androidMetadataInFlight = new Map<string, Promise<AndroidDeviceMetadata>>();
 
 function adb(args: string[], options?: { encoding?: BufferEncoding | "buffer"; timeout?: number; maxBuffer?: number }): Promise<string | Buffer> {
   return new Promise((resolve, reject) => {
@@ -218,6 +238,15 @@ async function getAndroidAvdName(serial: string): Promise<string | undefined> {
   }
 }
 
+function parseAndroidProperties(output: string): Record<string, string> {
+  const properties: Record<string, string> = {};
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\[([^\]]+)\]: \[(.*)\]$/);
+    if (match) properties[match[1]!] = match[2]!;
+  }
+  return properties;
+}
+
 function androidAvdConfigPath(avdName: string): string {
   const avdRoot = join(homedir(), ".android", "avd");
   const iniPath = join(avdRoot, `${avdName}.ini`);
@@ -265,32 +294,89 @@ export async function listAndroidWebcams(): Promise<AndroidWebcam[]> {
   return parseAndroidWebcamList(await emulatorText(["-webcam-list"], 10_000));
 }
 
-export type AndroidCameraFace = "front" | "back";
-
-export function validateAndroidCameraSource(
-  face: AndroidCameraFace,
-  source: string,
-): boolean {
-  if (source === "none" || source === "emulated" || /^webcam\d+$/.test(source)) return true;
-  return face === "back" && (source === "virtualscene" || source === "videoplayback");
+export function parseAndroidEmulatorVersion(output: string): string | undefined {
+  return output.match(/\bversion\s+(\d+\.\d+\.\d+(?:\.\d+)?)/i)?.[1];
 }
 
-export function setAndroidAvdCameraSource(
-  avdName: string,
-  face: AndroidCameraFace,
-  source: string,
-): void {
-  if (!validateAndroidCameraSource(face, source)) {
-    throw new Error(`Unsupported ${face} camera source: ${source}`);
+export function androidEmulatorSupportsImage360(version: string | undefined): boolean {
+  if (!version) return false;
+  const [major = 0, minor = 0, patch = 0] = version.split(".").map((part) => Number(part));
+  if (![major, minor, patch].every(Number.isFinite)) return false;
+  if (major > 36) return true;
+  if (major < 36) return false;
+  if (minor > 6) return true;
+  if (minor < 6) return false;
+  return patch >= 4;
+}
+
+export async function getAndroidEmulatorCapabilities(): Promise<{
+  version?: string;
+  supportsImage360: boolean;
+}> {
+  if (Date.now() - androidEmulatorVersionSnapshot.at < ANDROID_EMULATOR_VERSION_CACHE_MS) {
+    return androidEmulatorVersionSnapshot;
   }
-  const configPath = androidAvdConfigPath(avdName);
-  if (!existsSync(configPath)) throw new Error(`AVD config not found for ${avdName}`);
-  const key = `hw.camera.${face}`;
-  const lines = readFileSync(configPath, "utf8").split(/\r?\n/);
-  const index = lines.findIndex((line) => line.trimStart().startsWith(`${key}=`));
-  if (index >= 0) lines[index] = `${key}=${source}`;
-  else lines.push(`${key}=${source}`);
-  writeFileSync(configPath, lines.join("\n"), "utf8");
+  if (androidEmulatorVersionInFlight) return androidEmulatorVersionInFlight;
+
+  androidEmulatorVersionInFlight = emulatorText(["-version"], 5_000)
+    .then((output) => {
+      const version = parseAndroidEmulatorVersion(output);
+      const snapshot = {
+        at: Date.now(),
+        ...(version ? { version } : {}),
+        supportsImage360: androidEmulatorSupportsImage360(version),
+      };
+      androidEmulatorVersionSnapshot = snapshot;
+      return snapshot;
+    })
+    .catch(() => {
+      const snapshot = { at: Date.now(), supportsImage360: false };
+      androidEmulatorVersionSnapshot = snapshot;
+      return snapshot;
+    })
+    .finally(() => {
+      androidEmulatorVersionInFlight = null;
+    });
+  return androidEmulatorVersionInFlight;
+}
+
+export type AndroidCameraFace = "front" | "back";
+export type AndroidCameraStartupMode =
+  | "emulated"
+  | "environment"
+  | "none"
+  | `webcam${number}`
+  | `imagefile:${string}`
+  | `videofile:${string}`
+  | `image360:${string}`;
+
+export function validateAndroidCameraStartupMode(
+  _face: AndroidCameraFace,
+  source: string,
+): source is AndroidCameraStartupMode {
+  if (source === "none" || source === "emulated" || source === "environment") return true;
+  if (/^webcam\d+$/.test(source)) return true;
+  return /^(imagefile|videofile|image360):\/.+/.test(source);
+}
+
+export function androidCameraStartupArgs(sources?: {
+  front?: string;
+  back?: string;
+}): string[] {
+  const args: string[] = [];
+  if (sources?.front) {
+    if (!validateAndroidCameraStartupMode("front", sources.front)) {
+      throw new Error(`Unsupported front camera mode: ${sources.front}`);
+    }
+    args.push("-camera-front", sources.front);
+  }
+  if (sources?.back) {
+    if (!validateAndroidCameraStartupMode("back", sources.back)) {
+      throw new Error(`Unsupported back camera mode: ${sources.back}`);
+    }
+    args.push("-camera-back", sources.back);
+  }
+  return args;
 }
 
 export async function setAndroidHostMicrophone(
@@ -359,7 +445,7 @@ async function getAndroidAudioStatus(serial: string): Promise<AndroidAudioStatus
 
 export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
   const emulator = /^emulator-\d+$/.test(serial);
-  const [release, sdk, model, product, device, screen, avdName, audio] = await Promise.all([
+  const [release, sdk, model, product, device, screen, avdName, audio, emulatorCapabilities] = await Promise.all([
     getProp(serial, "ro.build.version.release"),
     getProp(serial, "ro.build.version.sdk"),
     getProp(serial, "ro.product.model"),
@@ -368,6 +454,7 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
     getAndroidScreenConfig(serial),
     getAndroidAvdName(serial),
     getAndroidAudioStatus(serial),
+    emulator ? getAndroidEmulatorCapabilities() : Promise.resolve(undefined),
   ]);
   const camera = readAndroidAvdConfig(avdName);
   const status: AndroidStatus = {
@@ -396,6 +483,12 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
   if (release) status.release = release;
   if (sdk) status.sdk = sdk;
   if (avdName) status.avdName = avdName;
+  if (emulatorCapabilities) {
+    status.emulator = {
+      ...(emulatorCapabilities.version ? { version: emulatorCapabilities.version } : {}),
+      supportsImage360: emulatorCapabilities.supportsImage360,
+    };
+  }
   return status;
 }
 
@@ -426,59 +519,118 @@ export async function getAndroidScreenConfig(serial: string): Promise<AndroidScr
 
 async function enrichAndroidDevice(device: AndroidDeviceInfo): Promise<AndroidDeviceInfo> {
   if (device.state !== "device") return device;
-  const [release, sdk, config, avdName] = await Promise.all([
-    getProp(device.serial, "ro.build.version.release"),
-    getProp(device.serial, "ro.build.version.sdk"),
-    getAndroidScreenConfig(device.serial).catch(() => null),
-    getAndroidAvdName(device.serial),
-  ]);
-  const enriched: AndroidDeviceInfo = { ...device };
-  if (release) enriched.release = release;
-  if (sdk) enriched.sdk = sdk;
-  if (avdName) enriched.avdName = avdName;
-  if (config) {
-    enriched.width = config.width;
-    enriched.height = config.height;
-    if (config.density !== undefined) enriched.density = config.density;
-    enriched.orientation = config.orientation;
+  const now = Date.now();
+  const cached = androidMetadata.get(device.serial);
+  if (
+    cached &&
+    now - cached.at < ANDROID_METADATA_CACHE_MS &&
+    cached.transportId === device.transportId
+  ) {
+    return {
+      ...device,
+      ...(cached.release ? { release: cached.release } : {}),
+      ...(cached.sdk ? { sdk: cached.sdk } : {}),
+      ...(cached.avdName ? { avdName: cached.avdName } : {}),
+    };
   }
+
+  let pending = androidMetadataInFlight.get(device.serial);
+  if (!pending) {
+    pending = (async () => {
+      const [propertiesOutput, avdName] = await Promise.all([
+        adbText(["-s", device.serial, "shell", "getprop"], 4_000).catch(() => ""),
+        getAndroidAvdName(device.serial),
+      ]);
+      const properties = parseAndroidProperties(propertiesOutput);
+      const metadata: AndroidDeviceMetadata = {
+        at: Date.now(),
+        transportId: device.transportId,
+      };
+      const release = properties["ro.build.version.release"];
+      const sdk = properties["ro.build.version.sdk"];
+      if (release) metadata.release = release;
+      if (sdk) metadata.sdk = sdk;
+      if (avdName) metadata.avdName = avdName;
+      androidMetadata.set(device.serial, metadata);
+      return metadata;
+    })().finally(() => androidMetadataInFlight.delete(device.serial));
+    androidMetadataInFlight.set(device.serial, pending);
+  }
+  const metadata = await pending;
+  const enriched: AndroidDeviceInfo = { ...device };
+  if (metadata.release) enriched.release = metadata.release;
+  if (metadata.sdk) enriched.sdk = metadata.sdk;
+  if (metadata.avdName) enriched.avdName = metadata.avdName;
   return enriched;
 }
 
 export async function listAndroidDevices(): Promise<AndroidDeviceInfo[]> {
-  let output: string;
-  try {
-    output = await adbText(["devices", "-l"], 5_000);
-  } catch {
-    return [];
+  if (Date.now() - androidDiscoverySnapshot.at < ANDROID_DISCOVERY_CACHE_MS) {
+    return androidDiscoverySnapshot.devices;
   }
-  const devices = output.split(/\r?\n/).map(parseDeviceLine).filter((d): d is AndroidDeviceInfo => !!d);
-  return Promise.all(devices.map(enrichAndroidDevice));
+  if (androidDiscoveryInFlight) return androidDiscoveryInFlight;
+
+  androidDiscoveryInFlight = (async () => {
+    let output: string;
+    try {
+      output = await adbText(["devices", "-l"], 5_000);
+    } catch {
+      return [];
+    }
+    const discovered = output
+      .split(/\r?\n/)
+      .map(parseDeviceLine)
+      .filter((device): device is AndroidDeviceInfo => !!device);
+    const devices = await Promise.all(discovered.map(enrichAndroidDevice));
+    androidDiscoverySnapshot = { at: Date.now(), devices };
+    return devices;
+  })().finally(() => {
+    androidDiscoveryInFlight = null;
+  });
+  return androidDiscoveryInFlight;
 }
 
 export async function listAndroidAvds(): Promise<AndroidAvdInfo[]> {
-  let output: string;
-  try {
-    output = await emulatorText(["-list-avds"], 8_000);
-  } catch {
-    return [];
+  if (Date.now() - androidAvdSnapshot.at < ANDROID_AVD_CACHE_MS) {
+    return androidAvdSnapshot.avds;
   }
-  return output
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((name) => {
-      const config = readAndroidAvdConfig(name);
-      const info: AndroidAvdInfo = { name };
-      if (config.displayName) info.displayName = config.displayName;
-      if (config.deviceName) info.deviceName = config.deviceName;
-      if (config.skin) info.skin = config.skin;
-      return info;
-    });
+  if (androidAvdInFlight) return androidAvdInFlight;
+
+  androidAvdInFlight = (async () => {
+    let output: string;
+    try {
+      output = await emulatorText(["-list-avds"], 8_000);
+    } catch {
+      return [];
+    }
+    const avds = output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((name) => {
+        const config = readAndroidAvdConfig(name);
+        const info: AndroidAvdInfo = { name };
+        if (config.displayName) info.displayName = config.displayName;
+        if (config.deviceName) info.deviceName = config.deviceName;
+        if (config.skin) info.skin = config.skin;
+        return info;
+      });
+    androidAvdSnapshot = { at: Date.now(), avds };
+    return avds;
+  })().finally(() => {
+    androidAvdInFlight = null;
+  });
+  return androidAvdInFlight;
 }
 
-export function launchAndroidAvd(name: string): void {
-  const child = spawn(androidEmulatorCommand(), ["-avd", name], {
+export function launchAndroidAvd(name: string, camera?: { front?: string; back?: string }): void {
+  androidDiscoverySnapshot.at = 0;
+  androidAvdSnapshot.at = 0;
+  const child = spawn(androidEmulatorCommand(), [
+    "-avd",
+    name,
+    ...androidCameraStartupArgs(camera),
+  ], {
     detached: true,
     stdio: "ignore",
   });
@@ -491,13 +643,6 @@ export async function captureAndroidPng(serial: string): Promise<Buffer> {
     throw new Error(`Invalid screencap output from ${serial}`);
   }
   return png;
-}
-
-export function pngDimensions(png: Buffer): { width: number; height: number } | null {
-  if (png.length < 24 || png.readUInt32BE(0) !== 0x89504e47 || png.subarray(1, 4).toString("ascii") !== "PNG") {
-    return null;
-  }
-  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
 export async function androidTap(serial: string, x: number, y: number): Promise<void> {
@@ -721,13 +866,13 @@ export async function getAndroidForegroundApp(serial: string): Promise<AndroidFo
 }
 
 async function readUiautomatorXml(serial: string): Promise<string> {
-  const path = `/sdcard/agentsims-window-${Date.now()}.xml`;
-  try {
-    await adbText(["-s", serial, "shell", "uiautomator", "dump", "--compressed", path], 10_000);
-    return await adbText(["-s", serial, "shell", "cat", path], 10_000);
-  } finally {
-    await adbText(["-s", serial, "shell", "rm", "-f", path], 3_000).catch(() => "");
-  }
+  // `/dev/tty` lets uiautomator return the hierarchy through one exec-out
+  // request. Writing a file, reading it, and deleting it triples ADB process
+  // churn and can briefly starve the emulator's video producer.
+  return adbText(
+    ["-s", serial, "exec-out", "uiautomator", "dump", "--compressed", "/dev/tty"],
+    10_000,
+  );
 }
 
 function decodeXml(value: string): string {
@@ -771,10 +916,20 @@ function screenFromAndroidElements(
   return fallback;
 }
 
-export async function collectAndroidAxSnapshot(serial: string): Promise<AxSnapshot> {
-  const config = await getAndroidScreenConfig(serial);
+export interface AndroidAxSnapshotDependencies {
+  readXml?: (serial: string) => Promise<string>;
+  readScreenConfig?: (serial: string) => Promise<AndroidScreenConfig>;
+}
+
+export async function collectAndroidAxSnapshot(
+  serial: string,
+  dependencies: AndroidAxSnapshotDependencies = {},
+): Promise<AxSnapshot> {
+  const readXml = dependencies.readXml ?? readUiautomatorXml;
+  const readScreenConfig =
+    dependencies.readScreenConfig ?? getAndroidScreenConfig;
   try {
-    const xml = await readUiautomatorXml(serial);
+    const xml = await readXml(serial);
     const elements: AxElement[] = [];
     const nodeRe = /<node\b[^>]*>/g;
     let match: RegExpExecArray | null;
@@ -799,12 +954,25 @@ export async function collectAndroidAxSnapshot(serial: string): Promise<AxSnapsh
         nativeId,
       });
     }
-    const screen = screenFromAndroidElements(elements, { width: config.width, height: config.height });
+    if (elements.length === 0) {
+      const config = await readScreenConfig(serial);
+      return {
+        screen: { width: config.width, height: config.height },
+        elements,
+        errors: ["UIAutomator returned no accessibility elements"],
+      };
+    }
+    const screen = screenFromAndroidElements(elements, { width: 1, height: 1 });
     return {
       screen,
       elements,
     };
   } catch (error) {
+    const config = await readScreenConfig(serial).catch(() => ({
+      width: 1,
+      height: 1,
+      orientation: "portrait" as const,
+    }));
     return {
       screen: { width: config.width, height: config.height },
       elements: [],

@@ -147,6 +147,10 @@ private func u32(_ v: Int) -> UInt32 {
         try await engine.start()
     }
 
+    @NodeMethod func requestAvccKeyframe() async {
+        await engine.requestAVCCKeyframe()
+    }
+
     @NodeMethod func stop() async {
         await engine.stop()
     }
@@ -258,6 +262,13 @@ private func axQuery(
     "SimHID": SimHID.deferredConstructor,
     "SimCapture": SimCapture.deferredConstructor,
     "AndroidCapture": AndroidCapture.deferredConstructor,
+    "hostAudioSnapshot": try NodeFunction { () throws -> String in
+        try HostAudio.snapshotJSON()
+    },
+    "setHostAudioDefault": try NodeFunction {
+        (kind: String, uid: String) throws -> Bool in
+        try HostAudio.setDefault(kind: kind, uid: uid)
+    },
     // axDescribe(udid): Promise<string> — axe-shaped accessibility JSON.
     "axDescribe": try NodeFunction { (udid: String) async throws -> String in
         try await axQuery(udid) { udid in

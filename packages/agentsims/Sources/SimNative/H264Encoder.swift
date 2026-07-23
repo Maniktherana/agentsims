@@ -3,6 +3,38 @@ import CoreVideo
 import CoreMedia
 import VideoToolbox
 
+private final class EncodeCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(OSStatus, CMSampleBuffer?), Never>?
+    private var result: (OSStatus, CMSampleBuffer?)?
+
+    func install(
+        _ continuation: CheckedContinuation<(OSStatus, CMSampleBuffer?), Never>
+    ) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(returning: result)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func finish(status: OSStatus, sampleBuffer: CMSampleBuffer?) {
+        lock.lock()
+        guard result == nil else {
+            lock.unlock()
+            return
+        }
+        result = (status, sampleBuffer)
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: (status, sampleBuffer))
+    }
+}
+
 /// Real-time H.264 encoder backed by `VTCompressionSession`, producing AVCC
 /// (length-prefixed NAL) output for the `/stream.avcc` endpoint.
 ///
@@ -61,7 +93,15 @@ actor H264Encoder {
             ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue!] as NSDictionary
             : nil
 
+        let completion = EncodeCompletion()
+        let timeout = Task {
+            try? await Task.sleep(for: .milliseconds(750))
+            if !Task.isCancelled {
+                completion.finish(status: kVTVideoEncoderNotAvailableNowErr, sampleBuffer: nil)
+            }
+        }
         let result: (OSStatus, CMSampleBuffer?) = await withCheckedContinuation { continuation in
+            completion.install(continuation)
             let status = VTCompressionSessionEncodeFrame(
                 session,
                 imageBuffer: source,
@@ -70,29 +110,45 @@ actor H264Encoder {
                 frameProperties: frameProps,
                 infoFlagsOut: nil
             ) { @Sendable status, _, sampleBuffer in
-                continuation.resume(returning: (status, sampleBuffer))
+                completion.finish(status: status, sampleBuffer: sampleBuffer)
             }
             if status != noErr {
-                continuation.resume(returning: (status, nil))
+                completion.finish(status: status, sampleBuffer: nil)
             }
         }
-        guard result.0 == noErr, let buffer = result.1 else {
+        timeout.cancel()
+        guard result.0 == noErr else {
+            if result.0 == kVTVideoEncoderNotAvailableNowErr ||
+                result.0 == kVTVideoEncoderMalfunctionErr ||
+                result.0 == kVTInvalidSessionErr {
+                rebuildSession()
+                try? await Task.sleep(for: .milliseconds(250))
+            }
             throw Errors.encodingFailed(result.0)
+        }
+        guard let buffer = result.1 else {
+            throw FrameDropped()
         }
         return try extract(from: buffer)
     }
 
     func stop() {
         if let session {
+            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
             VTCompressionSessionInvalidate(session)
             self.session = nil
         }
+    }
+
+    func reemitDescription() {
+        emittedDescription = false
     }
 
     // MARK: - private
 
     private func rebuildSession() {
         if let session {
+            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
             VTCompressionSessionInvalidate(session)
             self.session = nil
         }
@@ -222,4 +278,6 @@ actor H264Encoder {
         case encodingFailed(OSStatus)
         case invalidSampleBuffer
     }
+
+    struct FrameDropped: Error {}
 }
