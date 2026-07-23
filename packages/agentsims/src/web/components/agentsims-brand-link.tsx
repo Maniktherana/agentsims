@@ -1,4 +1,4 @@
-export const AGENTSIMS_REPO_URL = "https://github.com/agentsims/agentsims";
+export const AGENTSIMS_REPO_URL = "https://github.com/maniktherana/agentsims";
 
 export function AgentsimsBrandLink({ className = "" }: { className?: string }) {
   return (

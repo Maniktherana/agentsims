@@ -2,6 +2,7 @@ import { readFileSync, unlinkSync } from "fs";
 import { execFile } from "child_process";
 import {
   androidAvdNameFromStateId,
+  androidAvdStateId,
   androidSerialFromStateId,
   androidStateId,
   launchAndroidAvd,
@@ -11,12 +12,13 @@ import { closeAndroidSession, getAndroidSession } from "../android/session";
 import { closeDeviceSession, getDeviceSession } from "../ios/session";
 import { debugMw } from "./debug";
 import {
-  inProcessServeSimState,
+  inProcessDeviceState,
   listStateFiles,
-  removeServeSimState,
-  writeServeSimState,
-  type ServeSimDeviceState,
+  removeDeviceState,
+  writeDeviceState,
+  type DeviceState,
 } from "./state";
+import { getStoredMediaRoute } from "../media/route-store";
 
 type SimctlBootedList = {
   devices: Record<string, Array<{ udid: string; state: string }>>;
@@ -34,7 +36,7 @@ function isIosSimulatorId(value: string): boolean {
 }
 
 export function classifyStaleDeviceState(
-  state: Pick<ServeSimDeviceState, "pid" | "device">,
+  state: Pick<DeviceState, "pid" | "device">,
   live: LiveDeviceSnapshot,
   selfPid: number,
 ): StaleStateAction {
@@ -73,17 +75,17 @@ export class DeviceLifecycle {
     this.androidSnapshot = { at: 0, devices: null };
   }
 
-  async states(): Promise<ServeSimDeviceState[]> {
+  async states(): Promise<DeviceState[]> {
     const [ios, android] = await Promise.all([
       this.bootedIosDevices(),
       this.connectedAndroidDevices(),
     ]);
     const live = { ios, android };
-    const states: ServeSimDeviceState[] = [];
+    const states: DeviceState[] = [];
 
     for (const path of listStateFiles()) {
       try {
-        const state = JSON.parse(readFileSync(path, "utf-8")) as ServeSimDeviceState;
+        const state = JSON.parse(readFileSync(path, "utf-8")) as DeviceState;
         try {
           process.kill(state.pid, 0);
         } catch {
@@ -113,7 +115,7 @@ export class DeviceLifecycle {
     return states;
   }
 
-  select(states: ServeSimDeviceState[], device?: string | null): ServeSimDeviceState | null {
+  select(states: DeviceState[], device?: string | null): DeviceState | null {
     return device ? states.find((state) => state.device === device) ?? null : states[0] ?? null;
   }
 
@@ -138,7 +140,7 @@ export class DeviceLifecycle {
     const androidSerial = androidSerialFromStateId(device);
     if (androidSerial) {
       closeAndroidSession(androidSerial);
-      removeServeSimState(device);
+      removeDeviceState(device);
       this.invalidate();
       if (!androidSerial.startsWith("emulator-")) return null;
       const result = await execFileResult("adb", ["-s", androidSerial, "emu", "kill"], 10_000);
@@ -147,7 +149,7 @@ export class DeviceLifecycle {
 
     if (!isIosSimulatorId(device)) return "Invalid or missing device";
     closeDeviceSession(device);
-    removeServeSimState(device);
+    removeDeviceState(device);
     this.invalidate();
     const result = await execFileResult("xcrun", ["simctl", "shutdown", device], 30_000);
     return result.error ? result.stderr.trim() || result.error.message : null;
@@ -169,7 +171,7 @@ export class DeviceLifecycle {
     }
     try {
       await getDeviceSession(udid).start();
-      writeServeSimState(inProcessServeSimState(udid, port, base));
+      writeDeviceState(inProcessDeviceState(udid, port, base));
       this.invalidate();
       return null;
     } catch (error) {
@@ -181,7 +183,7 @@ export class DeviceLifecycle {
   private async startAndroidDevice(serial: string, port: number, base: string): Promise<string | null> {
     try {
       await getAndroidSession(serial);
-      writeServeSimState(inProcessServeSimState(androidStateId(serial), port, base));
+      writeDeviceState(inProcessDeviceState(androidStateId(serial), port, base));
       this.invalidate();
       return null;
     } catch (error) {
@@ -205,7 +207,11 @@ export class DeviceLifecycle {
 
     const before = new Set(existing.map((device) => device.serial));
     try {
-      launchAndroidAvd(avdName);
+      const cameraRoute = getStoredMediaRoute(androidAvdStateId(avdName));
+      launchAndroidAvd(avdName, {
+        front: cameraRoute.androidCameraFront,
+        back: cameraRoute.androidCameraBack,
+      });
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
     }
@@ -277,13 +283,13 @@ export class DeviceLifecycle {
 
 export const deviceLifecycle = new DeviceLifecycle();
 
-export function readDeviceStates(): Promise<ServeSimDeviceState[]> {
+export function readDeviceStates(): Promise<DeviceState[]> {
   return deviceLifecycle.states();
 }
 
 export function selectDeviceState(
-  states: ServeSimDeviceState[],
+  states: DeviceState[],
   device?: string | null,
-): ServeSimDeviceState | null {
+): DeviceState | null {
   return deviceLifecycle.select(states, device);
 }

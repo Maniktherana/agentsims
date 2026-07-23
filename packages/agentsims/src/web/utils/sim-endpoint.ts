@@ -20,7 +20,7 @@ declare global {
       // Absolute path of the running agentsims entry script. The camera tool
       // shells out via `node <bin> camera ...` so it doesn't depend on the
       // `agentsims` binary being on the user's PATH.
-      serveSimBin?: string;
+      agentsimsBin?: string;
       /** Bearer token required by the /exec shell-exec route. */
       execToken?: string;
       /**

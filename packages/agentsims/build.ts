@@ -178,75 +178,13 @@ async function buildNodeExport({
 }
 
 await buildNodeExport({ entry: "src/rn/metro.ts", naming: "metro.js", format: "esm" });
+await buildNodeExport({ entry: "src/rn/metro.ts", naming: "metro.cjs", format: "cjs" });
 await buildNodeExport({ entry: "src/rn/babel-plugin.ts", naming: "babel-plugin.cjs", format: "cjs" });
 const babelPluginPath = resolve(distDir, "babel-plugin.cjs");
 writeFileSync(
   babelPluginPath,
   `${readFileSync(babelPluginPath, "utf-8")}\nmodule.exports = module.exports.default || module.exports;\n`,
 );
-
-const metroCjs = `"use strict";
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const DEFAULT_RN_SOURCE_MANIFEST = path.join(os.tmpdir(), "agentsims", "rn-source-map.jsonl");
-function ensureManifestEnv(options = {}) {
-  const manifestPath = options.manifestPath || process.env.AGENTSIMS_RN_MANIFEST || DEFAULT_RN_SOURCE_MANIFEST;
-  process.env.AGENTSIMS_RN_MANIFEST = manifestPath;
-  if (options.projectRoot) process.env.AGENTSIMS_PROJECT_ROOT = options.projectRoot;
-  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  return manifestPath;
-}
-function readManifest(manifestPath) {
-  if (!fs.existsSync(manifestPath)) return [];
-  const stat = fs.statSync(manifestPath);
-  if (stat.size > 20 * 1024 * 1024) return [{ error: "Agentsims RN source manifest is too large (" + stat.size + " bytes)" }];
-  const byTestID = new Map();
-  const text = fs.readFileSync(manifestPath, "utf-8");
-  for (const line of text.split(/\\r?\\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (entry.testID) byTestID.set(entry.testID, entry);
-    } catch {}
-  }
-  return [...byTestID.values()];
-}
-function sendJson(res, payload) {
-  const body = JSON.stringify(payload);
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.end(body);
-}
-function withAgentsims(config, options = {}) {
-  const manifestPath = ensureManifestEnv(options);
-  const previousEnhance = config.server && config.server.enhanceMiddleware;
-  return {
-    ...config,
-    server: {
-      ...(config.server || {}),
-      enhanceMiddleware(middleware, server) {
-        const inner = previousEnhance ? previousEnhance(middleware, server) : middleware;
-        return (req, res, next) => {
-          const url = new URL(req.url || "/", "http://agentsims.metro");
-          if (url.pathname === "/_agentsims/source-map") {
-            sendJson(res, { manifestPath, entries: readManifest(manifestPath) });
-            return;
-          }
-          inner(req, res, next);
-        };
-      },
-    },
-  };
-}
-function agentsimsBabelPluginPath() {
-  return path.join(__dirname, "babel-plugin.cjs");
-}
-module.exports = { withAgentsims, agentsimsBabelPluginPath };
-`;
-writeFileSync(resolve(distDir, "metro.cjs"), metroCjs);
-console.log(`dist/metro.cjs          ${kb(metroCjs.length)}`);
 
 // ─── 4. Bin JS bundle ────────────────────────────────────────────────────
 

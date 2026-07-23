@@ -66,7 +66,7 @@ export function DeviceRow({
           onSelect();
         }
       }}
-      className={`group relative flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer select-none [transition:background_0.12s] ${
+      className={`group relative flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-pointer select-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] ${
         active
           ? "bg-white/10 text-white"
           : "text-white/90 hover:bg-white/8"
@@ -88,7 +88,7 @@ export function DeviceRow({
         </label>
       )}
       <div
-        className={`relative shrink-0 grid place-items-center size-9 rounded-[9px] overflow-hidden ${iconBackingClass}`}
+        className={`relative shrink-0 grid place-items-center size-9 rounded-md overflow-hidden ${iconBackingClass}`}
       >
         <span className={iconColorClass}>
           <DeviceGlyph type={type} screenOn={Boolean(helper)} />

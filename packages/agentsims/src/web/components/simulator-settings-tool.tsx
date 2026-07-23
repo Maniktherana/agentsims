@@ -85,7 +85,7 @@ export function SettingRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 min-h-[30px]" data-setting-row={label}>
+    <div className="flex min-h-9 items-center justify-between gap-3" data-setting-row={label}>
       <span className="flex shrink-0 items-center gap-2 text-[12px] text-white/90 whitespace-nowrap">
         <span className="flex size-[18px] items-center justify-center text-white">{icon}</span>
         {label}
@@ -207,7 +207,7 @@ export function SettingSelect({
       options={options}
       disabled={disabled}
       onChange={onChange}
-      className="bg-white/[0.06] border border-white/10 rounded-md text-white/90 text-[12px] py-0.5 px-2 min-w-0 max-w-[150px] disabled:text-white/40"
+      className="min-w-0 max-w-[150px] rounded-[8px] border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[12px] text-white/90 disabled:text-white/40"
     />
   );
 }
@@ -409,19 +409,19 @@ export function SimulatorSettingsTool({
       ) : (
         <>
       {error && (
-        <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
           <span className="min-w-0">{error}</span>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="shrink-0 cursor-pointer rounded border border-danger/30 bg-transparent px-1.5 py-0.5 text-[11px] text-danger-soft"
+            className="min-h-8 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 bg-transparent px-2 text-[11px] text-danger-soft"
           >
             Retry
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-1.5 pb-1.5">
+      <div className="flex flex-col gap-1.5">
           <SettingRow icon={I.appearance} label="Appearance">
             <SettingSelect
               label="Appearance"

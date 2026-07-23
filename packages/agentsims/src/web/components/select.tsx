@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { ChevronDown } from "lucide-react";
 
 // Custom <select> replacement in the device-picker dropdown style. Native
 // option popups are drawn by the host browser and ignore the page color
@@ -117,7 +118,17 @@ export function Select({
         onClick={() => setOpen((o) => !o)}
         className={`text-left font-[inherit] cursor-pointer disabled:cursor-default ${className ?? ""}`}
       >
-        <span className="block truncate">{selected?.label ?? value}</span>
+        <span className="flex min-w-0 items-center justify-between gap-2">
+          <span className="min-w-0 flex-1 truncate">{selected?.label ?? value}</span>
+          <ChevronDown
+            size={12}
+            strokeWidth={2}
+            className={`shrink-0 text-white/45 [transition:transform_120ms_ease,color_100ms_ease] ${
+              open ? "rotate-180 text-white/70" : ""
+            }`}
+            aria-hidden="true"
+          />
+        </span>
       </button>
       {open &&
         pos &&

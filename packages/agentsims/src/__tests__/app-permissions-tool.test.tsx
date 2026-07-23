@@ -10,7 +10,9 @@ describe("AppPermissionsLoading", () => {
     const html = renderToStaticMarkup(<AppPermissionsLoading />);
 
     expect(html).toContain('data-testid="app-permissions-loading"');
-    expect(html).toContain("bg-panel rounded-[10px] px-3 py-2");
+    expect(html).toContain("border-b border-white/[0.07] px-3 py-2");
+    expect(html).not.toContain("rounded-[10px]");
+    expect(html).not.toContain("bg-panel");
     expect(html).toContain("Permissions");
     expect(html).toContain('aria-disabled="true"');
     expect(html).toContain('aria-busy="true"');

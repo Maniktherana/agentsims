@@ -63,7 +63,7 @@ const toolbarStyle: CSSProperties = {
   justifyContent: "space-between",
   gap: "4px 12px",
   padding: "8px 12px",
-  borderRadius: 24,
+  borderRadius: 10,
   background: "var(--agentsims-panel-bg, #181818)",
   border: "1px solid rgba(255,255,255,0.1)",
   boxShadow: "0 1px 2px rgba(0,0,0,0.2)",

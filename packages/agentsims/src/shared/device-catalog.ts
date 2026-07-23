@@ -12,7 +12,7 @@ import {
   type DevicePlaceholderAssetDescriptor,
 } from "./devicekit-chrome";
 import { deviceLifecycle, type DeviceLifecycle } from "./device-lifecycle";
-import type { ServeSimDeviceState } from "./state";
+import type { DeviceState } from "./state";
 
 type SimctlDevice = {
   udid: string;
@@ -34,7 +34,7 @@ export type GridDevice = {
   state: string;
   chrome: DeviceKitChromeDescriptor | null;
   placeholderAsset: DevicePlaceholderAssetDescriptor | null;
-  helper: Pick<ServeSimDeviceState, "port" | "url" | "streamUrl" | "wsUrl"> | null;
+  helper: Pick<DeviceState, "port" | "url" | "streamUrl" | "wsUrl"> | null;
 };
 
 export type GridPage = {
@@ -85,7 +85,7 @@ export class DeviceCatalog {
   async page(options: {
     selectedDevice: string | null;
     paging: { limit: number | null; offset: number };
-    expose: (state: ServeSimDeviceState) => ServeSimDeviceState;
+    expose: (state: DeviceState) => DeviceState;
   }): Promise<GridPage> {
     const [states, simulators, androidDevices, androidAvds] = await Promise.all([
       this.lifecycle.states(),
@@ -125,12 +125,25 @@ export class DeviceCatalog {
     const runningAvdNames = new Set(
       androidDevices.map((device) => device.avdName).filter((name): name is string => !!name),
     );
+    const androidAvdByName = new Map(
+      androidAvds.map((avd) => [avd.name, avd] as const),
+    );
     const androidRows: PendingGridDevice[] = androidDevices.map((device) => {
       const id = androidStateId(device.serial);
       const release = device.release || device.sdk || "device";
+      const avd = device.avdName
+        ? androidAvdByName.get(device.avdName)
+        : undefined;
       return {
         device: id,
-        name: (device.model || device.device || device.serial).replace(/_/g, " "),
+        name: (
+          avd?.displayName ||
+          avd?.deviceName ||
+          device.avdName ||
+          device.model ||
+          device.device ||
+          device.serial
+        ).replace(/_/g, " "),
         runtime: `Android-${release.replace(/\./g, "-")}`,
         state: device.state === "device" ? "Booted" : device.state,
         chrome: null,

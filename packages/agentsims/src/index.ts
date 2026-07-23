@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, openSync, closeSync, readSync, readFileSync, unl
 import { createHash } from "crypto";
 import { networkInterfaces } from "os";
 import { join, resolve } from "path";
-import { STATE_DIR, stateFileForDevice, listStateFiles, inProcessServeSimState, type ServeSimDeviceState } from "./shared/state";
+import { STATE_DIR, stateFileForDevice, listStateFiles, inProcessDeviceState, type DeviceState } from "./shared/state";
 import { textToKeyEvents, UnsupportedCharacterError, sendKeyEventsToWs } from "./shared/text-to-keys";
 import { dirnameOf, sleepSync, isPortFree, servePreview } from "./shared/runtime";
 import { killPortHolder } from "./shared/ports";
@@ -42,7 +42,7 @@ function resolveVersion(): string {
 // real file on disk; inside a compiled binary it points at bun's virtual FS
 // and we extract the bytes to a cached location on first use.
 
-type ServerState = ServeSimDeviceState;
+type ServerState = DeviceState;
 
 function ensureStateDir() {
   if (!existsSync(STATE_DIR)) {
@@ -124,7 +124,7 @@ function readStateFile(file: string): ServerState | null {
     if (!androidSerialFromStateId(state.device) && booted && !booted.has(state.device)) {
       if (state.pid === process.pid) {
         // The state belongs to *this* process (an in-process/preview server
-        // recorded its own pid via inProcessServeSimState). Never SIGTERM
+        // recorded its own pid via inProcessDeviceState). Never SIGTERM
         // ourselves — that would take the whole server down. Just drop the
         // stale file; the live server reaps its own sessions on grid polls.
         debugState("dropping own stale state for non-booted device %s", state.device);
@@ -440,7 +440,7 @@ async function follow(devices: string[], startPort: number, quiet: boolean) {
 
     // The re-exec'd preview server wrote its own in-process state (same-origin
     // /helper URLs); reuse it rather than reconstructing helper-port URLs.
-    const state = readState(udid) ?? inProcessServeSimState(udid, port, "/", "127.0.0.1");
+    const state = readState(udid) ?? inProcessDeviceState(udid, port, "/", "127.0.0.1");
     states.push(state);
 
     if (!quiet) {
@@ -545,7 +545,7 @@ async function detach(devices: string[], startPort: number): Promise<ServerState
     await startHelper(udid, port, { detach: true });
 
     // Reuse the detached server's own in-process state (same-origin /helper URLs).
-    states.push(readState(udid) ?? inProcessServeSimState(udid, port, "/", "127.0.0.1"));
+    states.push(readState(udid) ?? inProcessDeviceState(udid, port, "/", "127.0.0.1"));
 
     port++;
   }
@@ -1675,7 +1675,7 @@ async function serve(
   // Record in-process state so the preview/grid enumerate these devices and the
   // CLI input subcommands can reach the same-origin /helper ws.
   for (const udid of targetDevices) {
-    writeState(inProcessServeSimState(udid, boundPort, "/", host));
+    writeState(inProcessDeviceState(udid, boundPort, "/", host));
   }
   const clearAll = () => {
     for (const udid of targetDevices) {

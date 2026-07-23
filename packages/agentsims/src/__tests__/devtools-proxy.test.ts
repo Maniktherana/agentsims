@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { createServer as createNetServer } from "net";
 import { spawn, type ChildProcess } from "child_process";
-import { simMiddleware, type ServeSimState, type WebKitBridge } from "../middleware";
+import { simMiddleware, type WebKitBridge } from "../middleware";
 import { servePreview, type PreviewServer } from "../shared/runtime";
-import { STATE_DIR, stateFileForDevice } from "../shared/state";
+import { STATE_DIR, stateFileForDevice, type DeviceState } from "../shared/state";
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -67,7 +67,7 @@ describe("devtools proxy", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(fakeHelperProcess.pid).toBeTruthy();
     expect(fakeHelperProcess.exitCode).toBeNull();
-    const state: ServeSimState = {
+    const state: DeviceState = {
       pid: fakeHelperProcess.pid!,
       port: 3100,
       device: udid,

@@ -1,8 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { AppWindow, ArrowUpRight } from "lucide-react";
+import { AppWindow, ArrowUpRight, Package } from "lucide-react";
 import { type AppDetails, fetchAppDetails } from "../utils/app-icon";
 import { execOnHost, shellEscape } from "../utils/exec";
 import { CollapsibleSection } from "./collapsible-section";
+
+type AppPlatform = "ios" | "android";
+const appDetectionDetailsCache = new Map<string, AppDetails>();
 
 export function isSystemBundleId(bundleId: string): boolean {
   return bundleId.startsWith("com.apple.")
@@ -15,21 +18,28 @@ export function fallbackAppDisplayName(bundleId: string): string {
   return bundleId;
 }
 
-export function AppIconFallback({ bundleId }: { bundleId: string }) {
+export function AppIconFallback({
+  bundleId,
+  platform = bundleId.startsWith("com.apple.") ? "ios" : "android",
+}: {
+  bundleId: string;
+  platform?: AppPlatform;
+}) {
   const system = isSystemBundleId(bundleId);
+  const appleSystemApp = platform === "ios" && bundleId.startsWith("com.apple.");
+  const label = system
+    ? `${platform === "android" ? "Android" : "iOS"} system app`
+    : `${platform === "android" ? "Android package" : "App"} icon unavailable`;
 
   return (
     <div
       data-testid={system ? "system-app-icon" : "app-icon-fallback"}
-      className={`w-10 h-10 rounded-[8px] shrink-0 border grid place-items-center ${
-        system
-          ? "border-[#3b5f99] bg-[linear-gradient(145deg,#253a5f,#162132)] text-[#c8d7ff]"
-          : "border-white/10 bg-white/[0.06] text-white/80"
-      }`}
-      aria-label={system ? "System app" : "App icon unavailable"}
-      title={system ? "System app" : "App icon unavailable"}
+      data-app-platform={platform}
+      className="grid size-10 shrink-0 place-items-center rounded-[8px] border border-white/10 bg-white/[0.06] text-white/70"
+      aria-label={label}
+      title={label}
     >
-      {system ? (
+      {appleSystemApp ? (
         <svg
           role="img"
           viewBox="0 0 24 24"
@@ -40,6 +50,8 @@ export function AppIconFallback({ bundleId }: { bundleId: string }) {
           <title>Apple</title>
           <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
         </svg>
+      ) : platform === "android" ? (
+        <Package size={19} strokeWidth={1.9} />
       ) : (
         <AppWindow size={19} strokeWidth={1.9} />
       )}
@@ -50,9 +62,11 @@ export function AppIconFallback({ bundleId }: { bundleId: string }) {
 export function AppIcon({
   bundleId,
   iconDataUrl,
+  platform,
 }: {
   bundleId: string;
   iconDataUrl?: string | null;
+  platform?: AppPlatform;
 }) {
   if (iconDataUrl) {
     return (
@@ -63,7 +77,7 @@ export function AppIcon({
       />
     );
   }
-  return <AppIconFallback bundleId={bundleId} />;
+  return <AppIconFallback bundleId={bundleId} platform={platform} />;
 }
 
 export function AppDetectionTool({
@@ -79,31 +93,46 @@ export function AppDetectionTool({
 
   useEffect(() => {
     if (!currentApp) { setDetails(null); return; }
+    const cacheKey = `${udid}:${currentApp.bundleId}`;
+    const cached = appDetectionDetailsCache.get(cacheKey);
+    if (cached) {
+      setDetails({
+        ...cached,
+        pid: currentApp.pid,
+        isReactNative: currentApp.isReactNative,
+      });
+      return;
+    }
     let cancelled = false;
-    setDetails({
+    const baseDetails: AppDetails = {
       bundleId: currentApp.bundleId,
       isReactNative: currentApp.isReactNative,
       pid: currentApp.pid,
       loading: true,
-    });
+    };
+    setDetails(baseDetails);
     if (isAndroid) {
-      setDetails({
+      const nextDetails: AppDetails = {
         bundleId: currentApp.bundleId,
         isReactNative: currentApp.isReactNative,
         pid: currentApp.pid,
         loading: false,
-      });
+      };
+      appDetectionDetailsCache.set(cacheKey, nextDetails);
+      setDetails(nextDetails);
       return;
     }
     fetchAppDetails(execOnHost, udid, currentApp.bundleId).then((extra) => {
       if (cancelled) return;
-      setDetails({
+      const nextDetails: AppDetails = {
         bundleId: currentApp.bundleId,
         isReactNative: currentApp.isReactNative,
         pid: currentApp.pid,
         loading: false,
         ...extra,
-      });
+      };
+      appDetectionDetailsCache.set(cacheKey, nextDetails);
+      setDetails(nextDetails);
     });
     return () => { cancelled = true; };
   }, [udid, isAndroid, currentApp, currentApp?.bundleId, currentApp?.pid, currentApp?.isReactNative]);
@@ -119,7 +148,11 @@ export function AppDetectionTool({
       summaryClassName="flex items-center gap-3 text-left"
       summary={
         <>
-          <AppIcon bundleId={details.bundleId} iconDataUrl={details.iconDataUrl} />
+          <AppIcon
+            bundleId={details.bundleId}
+            iconDataUrl={details.iconDataUrl}
+            platform={isAndroid ? "android" : "ios"}
+          />
           <AppSummaryLabel
             bundleId={details.bundleId}
             displayName={details.displayName}
@@ -128,7 +161,7 @@ export function AppDetectionTool({
       }
     >
       {details.error && (
-        <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md">
+        <div className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
           {details.error}
         </div>
       )}
@@ -164,10 +197,10 @@ export function AppDetectionSkeleton() {
   return (
     <div
       data-testid="app-detection-skeleton"
-      className="bg-panel rounded-[10px] px-3 py-2"
+      className="mx-3 mt-2 rounded-[10px] border border-white/[0.07] bg-white/[0.025] px-3 last:mb-3"
       aria-label="Waiting for foreground app"
     >
-      <div className="flex items-center gap-3 text-left min-h-[36px] leading-none py-2.5 px-1 -my-2 -mx-1 w-[calc(100%+8px)]">
+      <div className="flex min-h-11 items-center gap-3 text-left leading-none">
         <span className="w-10 h-10 rounded-[8px] shrink-0 bg-white/[0.08]" />
         <span className="min-w-0 flex-1 flex flex-col gap-2">
           <span className="h-3.5 w-[46%] rounded-full bg-white/[0.12]" />
@@ -188,10 +221,10 @@ export function AppSummaryLabel({
 }) {
   return (
     <div className="min-w-0 flex-1 leading-tight text-left">
-      <div className="text-[13px] font-semibold text-white/90 truncate">
+      <div className="truncate text-[13px] font-semibold text-white/92">
         {displayName ?? fallbackAppDisplayName(bundleId)}
       </div>
-      <div className="text-[11px] text-white/55 font-mono truncate" title={bundleId}>
+      <div className="truncate font-mono text-[10px] text-white/50" title={bundleId}>
         {bundleId}
       </div>
     </div>

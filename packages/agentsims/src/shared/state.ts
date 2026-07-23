@@ -5,17 +5,13 @@ import { readdirSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "f
 /** Directory where Agentsims stores runtime state. */
 export const STATE_DIR = join(tmpdir(), "agentsims");
 
-/** Path to the Agentsims server state file (JSON with pid, port, URLs).
- *  @deprecated Use `stateFileForDevice(udid)` for multi-device support. Kept for backward compat. */
-export const STATE_FILE = join(STATE_DIR, "server.json");
-
 /** Per-device state file: `/tmp/agentsims/server-{udid}.json` */
 export function stateFileForDevice(udid: string): string {
   return join(STATE_DIR, `server-${udid}.json`);
 }
 
 /** Runtime record for a device streamed in-process by a preview server. */
-export interface ServeSimDeviceState {
+export interface DeviceState {
   pid: number;
   port: number;
   device: string;
@@ -30,12 +26,12 @@ export interface ServeSimDeviceState {
  * `{base}/helper/<device>/…` routes, which simMiddleware serves from a
  * NativeCapture/NativeHid DeviceSession.
  */
-export function inProcessServeSimState(
+export function inProcessDeviceState(
   udid: string,
   port: number,
   base = "/",
   host = "127.0.0.1",
-): ServeSimDeviceState {
+): DeviceState {
   const h = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
   // Normalize to a leading-slash, no-trailing-slash prefix so a base without a
   // leading slash (e.g. "foo") still yields well-formed `…:port/foo/helper/…`.
@@ -55,7 +51,7 @@ export function inProcessServeSimState(
 /** Persist a device's state so other processes / the grid can enumerate it.
  *  Writes atomically (temp file + rename) so a concurrent reader never observes
  *  a truncated or partially-written file. */
-export function writeServeSimState(state: ServeSimDeviceState): void {
+export function writeDeviceState(state: DeviceState): void {
   mkdirSync(STATE_DIR, { recursive: true });
   const file = stateFileForDevice(state.device);
   const tmp = `${file}.${process.pid}.tmp`;
@@ -63,7 +59,7 @@ export function writeServeSimState(state: ServeSimDeviceState): void {
   renameSync(tmp, file);
 }
 
-export function removeServeSimState(device: string): void {
+export function removeDeviceState(device: string): void {
   try { unlinkSync(stateFileForDevice(device)); } catch {}
 }
 

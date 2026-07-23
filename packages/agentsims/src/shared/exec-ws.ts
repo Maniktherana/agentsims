@@ -98,6 +98,7 @@ function wireExecSocket(
       send({ sub, end: true, error: "no local port" });
       return;
     }
+    let upstreamResponse: import("http").IncomingMessage | null = null;
     const upstream = httpRequest(
       {
         host: "127.0.0.1",
@@ -106,6 +107,7 @@ function wireExecSocket(
         headers: { accept: "text/event-stream" },
       },
       (res) => {
+        upstreamResponse = res;
         res.on("data", (chunk: Buffer) => send({ sub, data: chunk.toString("utf-8") }));
         res.on("end", () => {
           subscriptions.delete(sub);
@@ -118,7 +120,12 @@ function wireExecSocket(
       send({ sub, end: true });
     });
     upstream.end();
-    subscriptions.set(sub, { destroy: () => upstream.destroy() });
+    subscriptions.set(sub, {
+      destroy: () => {
+        upstreamResponse?.destroy();
+        upstream.destroy();
+      },
+    });
   };
 
   ws.on("message", (data) => {

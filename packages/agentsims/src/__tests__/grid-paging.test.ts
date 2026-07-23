@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseGridPaging } from "../middleware";
+import { parseGridPaging } from "../shared/device-catalog";
 
 describe("parseGridPaging", () => {
   test("no query → unpaginated (whole list)", () => {

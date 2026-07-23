@@ -17,10 +17,9 @@ import tailwindcss from "@tailwindcss/vite";
 import {
   simMiddleware,
   previewConfigForState,
-  selectServeSimState,
-  readServeSimStates,
-  type ServeSimState,
 } from "./src/middleware";
+import { readDeviceStates, selectDeviceState } from "./src/shared/device-lifecycle";
+import type { DeviceState } from "./src/shared/state";
 import { servePreview } from "./src/shared/runtime";
 
 const PORT = Number(process.env.PORT) || 3200;
@@ -62,7 +61,7 @@ const vite = await createViteServer({
   },
 });
 
-function devPreviewConfig(state: ServeSimState) {
+function devPreviewConfig(state: DeviceState) {
   return previewConfigForState(state, "", AGENTSIMS_BIN, EXEC_TOKEN, undefined, true);
 }
 
@@ -94,7 +93,7 @@ function runViteMiddleware(req: IncomingMessage, res: ServerResponse, next: () =
 }
 
 async function buildHtml(viteServer: ViteDevServer, selectedDevice?: string | null): Promise<string> {
-  const state = selectServeSimState(await readServeSimStates(), selectedDevice);
+  const state = selectDeviceState(await readDeviceStates(), selectedDevice);
   const config = state
     ? devPreviewConfig(state)
     : { basePath: "", execToken: EXEC_TOKEN };

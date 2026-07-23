@@ -354,7 +354,7 @@ export function LocationEmulationTool({
                 value={trailId}
                 onChange={onTrailChange}
                 options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name }))}
-                className="bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s] hover:bg-white/[0.07] hover:border-[rgba(255,255,255,0.16)] focus:outline-none focus:bg-white/[0.08] focus:border-[rgba(255,255,255,0.24)]"
+                className="w-full rounded-[8px] border border-white/8 bg-white/[0.04] py-1.5 pl-2 pr-[26px] text-[12px] text-white/90 [transition:background_0.12s,border-color_0.12s] hover:border-[rgba(255,255,255,0.16)] hover:bg-white/[0.07] focus:border-[rgba(255,255,255,0.24)] focus:bg-white/[0.08] focus:outline-none"
               />
               <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
                 <Chevron open={false} />
@@ -378,7 +378,7 @@ export function LocationEmulationTool({
             <button
               type="button"
               onClick={onPlayPause}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer font-[inherit] ${playing ? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]" : "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]"}`}
+              className={`flex-1 flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border-none px-2.5 py-2 font-[inherit] text-[12px] font-semibold ${playing ? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]" : "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]"}`}
               aria-pressed={playing}
               title={playing ? "Pause" : "Play"}
             >
@@ -388,7 +388,7 @@ export function LocationEmulationTool({
             <button
               type="button"
               onClick={onStop}
-              className="flex items-center justify-center gap-1.5 py-2 px-3 border border-white/12 rounded-[7px] text-[12px] font-medium bg-transparent text-white/85 cursor-pointer font-[inherit] enabled:hover:bg-white/[0.06] enabled:hover:border-white/20 enabled:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-white/12 bg-transparent px-3 py-2 font-[inherit] text-[12px] font-medium text-white/85 enabled:hover:border-white/20 enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               disabled={playback.status === "idle" && playback.arc === 0}
               title="Stop and clear simulated location"
             >
@@ -418,7 +418,7 @@ export function LocationEmulationTool({
                 const next = SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!;
                 setMultiplier(next);
               }}
-              className={`flex items-center justify-center gap-1 px-2.5 border rounded-[7px] cursor-pointer font-[inherit] text-[11px] font-semibold min-w-[56px] active:scale-[0.97] ${multiplier > 1 ? "bg-white border-white text-[#0a0a0c] hover:bg-white/[0.88] hover:border-white/[0.88] hover:text-[#0a0a0c]" : "bg-white/[0.04] border-white/8 text-white/85 hover:bg-white/[0.09] hover:border-[rgba(255,255,255,0.18)] hover:text-white"}`}
+              className={`flex min-w-[56px] cursor-pointer items-center justify-center gap-1 rounded-[8px] border px-2.5 font-[inherit] text-[11px] font-semibold active:scale-[0.97] ${multiplier > 1 ? "bg-white border-white text-[#0a0a0c] hover:bg-white/[0.88] hover:border-white/[0.88] hover:text-[#0a0a0c]" : "bg-white/[0.04] border-white/8 text-white/85 hover:bg-white/[0.09] hover:border-[rgba(255,255,255,0.18)] hover:text-white"}`}
               aria-label={`Speed ${multiplier}× — tap to cycle`}
               title={`Speed ${multiplier}× — tap to cycle`}
             >
@@ -428,7 +428,7 @@ export function LocationEmulationTool({
           </div>
 
           {error && (
-            <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md">
+            <div className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
               {error}
             </div>
           )}
@@ -440,7 +440,7 @@ export function LocationEmulationTool({
 
 const Stat = memo(function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5 bg-white/[0.03] border border-white/[0.06] rounded-md py-[5px] px-[7px] min-w-0">
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-[8px] bg-white/[0.035] px-[7px] py-[5px]">
       <div className="text-[9px] uppercase tracking-[0.06em] text-white/45">{label}</div>
       <div className="text-[12px] font-mono text-white overflow-hidden text-ellipsis whitespace-nowrap">{value}</div>
     </div>
@@ -462,7 +462,7 @@ function Segmented<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="flex bg-white/[0.04] border border-white/8 rounded-[7px] p-0.5 gap-0.5"
+      className="flex gap-0.5 rounded-[8px] border border-white/8 bg-white/[0.04] p-0.5"
     >
       {options.map((o) => {
         const active = o.value === value;

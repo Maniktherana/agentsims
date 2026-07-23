@@ -197,9 +197,11 @@ export function CameraInlineBanner({
 export function CameraTool({
   udid,
   bundleId,
+  embedded = false,
 }: {
   udid: string;
   bundleId: string | null;
+  embedded?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState<CamSource>("placeholder");
@@ -231,7 +233,7 @@ export function CameraTool({
   const autoOpenedForInjectionRef = useRef(false);
 
   const cliPrefix = useMemo(() => {
-    const bin = window.__SIM_PREVIEW__?.serveSimBin;
+    const bin = window.__SIM_PREVIEW__?.agentsimsBin;
     if (!bin) return "agentsims";
     if (bin.endsWith(".ts")) return `bun ${shellEscape(bin)}`;
     if (bin.endsWith(".js")) return `node ${shellEscape(bin)}`;
@@ -694,6 +696,188 @@ export function CameraTool({
         ? "webcam"
         : "placeholder";
 
+  const content = (
+    <div
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className="flex flex-col gap-2.5"
+    >
+        <p className="m-0 text-[10px] leading-[1.5] text-white/45">
+          Replaces the simulator's camera feed by injecting a dylib at app launch
+          and streaming frames into shared memory. Pick media or a webcam,
+          then Play to inject into the foreground app.
+        </p>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={onFilePicked as any}
+        />
+
+        <div
+          onClick={(e) => {
+            if (!isPlaceholder) return;
+            if ((e.target as HTMLElement).closest("[data-clear-media]")) return;
+            openFilePicker();
+          }}
+          title={
+            isPlaceholder
+              ? "No source selected — Play uses a test-pattern feed. Click to pick an image/video, or drop one here."
+              : showWebcam
+                ? `Source: ${activeWebcamName}`
+                : `Source: ${droppedFileName ?? source}`
+          }
+          className={[
+            "relative min-h-[44px] flex flex-row items-center justify-center gap-2.5 px-3.5 py-2.5 rounded-[7px] text-center transition-[border-color,background] duration-150",
+            isPlaceholder
+              ? "bg-white/[0.04] border border-dashed border-white/12"
+              : "bg-white/[0.04] border border-white/8",
+            isDragOver ? "!bg-[rgba(10,132,255,0.08)] !border-[rgba(10,132,255,0.6)]" : "",
+            uploading ? "cursor-progress" : isPlaceholder ? "cursor-pointer" : "cursor-default",
+          ].join(" ")}
+        >
+          <CameraMediaPreview
+            mode={tileMode}
+            fileName={droppedFileName}
+            webcamName={activeWebcamName}
+            sourceKind={source}
+          />
+
+          {!isPlaceholder && !uploading && (
+            <button
+              data-clear-media
+              onClick={(e) => { e.stopPropagation(); clearMedia(); }}
+              className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-white/55 hover:text-white/90 cursor-pointer p-0"
+              aria-label="Clear source"
+              title="Clear → placeholder"
+            >
+              <X size={14} strokeWidth={2} />
+            </button>
+          )}
+        </div>
+
+        {isPlaceholder && !uploading && <CameraTestPatternHint />}
+
+        <div className="flex items-stretch gap-1.5">
+          <div className="relative" data-camera-source-menu>
+            <button
+              onClick={() => setSourceMenuOpen((o) => !o)}
+              className="h-full min-h-[36px] w-10 flex items-center justify-center bg-transparent border border-white/12 text-white/85 rounded-[7px] cursor-pointer p-0 hover:bg-white/[0.06] hover:border-white/20 hover:text-white"
+              aria-haspopup="menu"
+              aria-expanded={sourceMenuOpen}
+              title={
+                source === "webcam"
+                  ? `Source: webcam${webcamId ? ` (${webcams.find((w) => w.id === webcamId)?.name ?? webcamId})` : ""} — click to change`
+                  : `Source: ${source} — click to pick media or webcam`
+              }
+              aria-label="Choose camera source"
+            >
+              <Images size={20} strokeWidth={2} />
+            </button>
+
+            {sourceMenuOpen && (
+              <div
+                role="menu"
+                className="absolute top-[calc(100%+6px)] left-0 z-10 min-w-[200px] flex flex-col gap-px p-1 bg-panel border border-white/8 rounded-[7px] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
+              >
+                <button
+                  role="menuitem"
+                  className="text-left bg-transparent border-none text-white/85 text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]"
+                  onClick={() => { setSourceMenuOpen(false); openFilePicker(); }}
+                  title="Pick an image or video from disk"
+                >
+                  Browse media…
+                </button>
+                <div className="h-px bg-white/8 my-1" />
+                <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
+                  <span className="text-[10px] text-white/45 uppercase tracking-[0.08em]">
+                    {webcamLoading ? "Cameras (loading…)" : webcams.length === 0 ? "No cameras" : "Cameras"}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void refreshWebcams(); }}
+                    disabled={webcamLoading}
+                    className="flex items-center justify-center w-[22px] h-[22px] bg-transparent border-none rounded-[5px] text-white/55 hover:text-white/90 cursor-pointer p-0 disabled:opacity-50"
+                    aria-label="Refresh cameras"
+                    title="Refresh cameras"
+                  >
+                    <ReloadIcon size={13} strokeWidth={2} />
+                  </button>
+                </div>
+                {webcams.map((w) => {
+                  const active = source === "webcam" && webcamId === w.id;
+                  return (
+                    <button
+                      key={w.id}
+                      role="menuitem"
+                      className={[
+                        "text-left bg-transparent border-none text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]",
+                        active ? "!bg-white/[0.12] !text-white" : "text-white/85",
+                      ].join(" ")}
+                      onClick={() => selectWebcam(w)}
+                      title={w.name}
+                    >
+                      {w.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={primary.onClick}
+            disabled={primaryDisabled}
+            className={[
+              "flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer disabled:opacity-50 min-h-[36px]",
+              primary.kind === "stop"
+                ? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]"
+                : "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]",
+            ].join(" ")}
+            title={
+              primary.kind === "stop" ? "Stop the camera helper and terminate injected apps" :
+              primary.kind === "attach" ? `Inject ${bundleId} so it joins the camera feed` :
+              !bundleId ? "Bring an app to the foreground first" :
+              "Start: inject the dylib and launch the foreground app with the chosen source"
+            }
+            aria-pressed={primary.kind === "stop"}
+            aria-label={primary.kind === "stop" ? "Stop" : "Play"}
+          >
+            {primary.kind === "stop" ? <StopGlyph /> : <PlayGlyph />}
+            <span>{primary.kind === "stop" ? "Stop" : primary.kind === "attach" ? "Inject" : "Play"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleMirror}
+            disabled={mirrorDisabled}
+            className={`flex items-center justify-center w-10 min-h-[36px] border rounded-[7px] font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97] ${
+              mirror === "on"
+                ? "bg-white border-white text-[#0a0a0c] cursor-pointer enabled:hover:bg-white/[0.88] enabled:hover:border-white/[0.88] enabled:hover:text-[#0a0a0c]"
+                : "bg-white/[0.04] border-white/8 text-white/85 cursor-pointer enabled:hover:bg-white/[0.09] enabled:hover:border-[rgba(255,255,255,0.18)] enabled:hover:text-white"
+            }`}
+            aria-label={`Mirror: ${mirror} — tap to toggle`}
+            title={
+              mirrorDisabled
+                ? "Mirror toggle available once a source is streaming"
+                : `Mirror: ${mirror} — click to toggle`
+            }
+            aria-pressed={mirror === "on"}
+          >
+            <FlipHorizontal2 size={20} strokeWidth={2} fill={mirror === "on" ? "currentColor" : "none"} />
+          </button>
+        </div>
+
+        {warning && <CameraInlineBanner kind="warning" message={warning} />}
+        {error && <CameraInlineBanner kind="error" message={error} />}
+      </div>
+  );
+
+  if (embedded) return content;
+
   return (
     <CollapsibleSection
       open={open}
@@ -707,183 +891,7 @@ export function CameraTool({
         </>
       }
     >
-      <div
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        className="flex flex-col gap-2.5"
-      >
-          <p className="m-0 text-[10px] leading-[1.5] text-white/45">
-            Replaces the simulator's camera feed by injecting a dylib at app launch
-            and streaming frames into shared memory. Pick media or a webcam,
-            then Play to inject into the foreground app.
-          </p>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            className="hidden"
-            onChange={onFilePicked as any}
-          />
-
-          <div
-            onClick={(e) => {
-              if (!isPlaceholder) return;
-              if ((e.target as HTMLElement).closest("[data-clear-media]")) return;
-              openFilePicker();
-            }}
-            title={
-              isPlaceholder
-                ? "No source selected — Play uses a test-pattern feed. Click to pick an image/video, or drop one here."
-                : showWebcam
-                  ? `Source: ${activeWebcamName}`
-                  : `Source: ${droppedFileName ?? source}`
-            }
-            className={[
-              "relative min-h-[44px] flex flex-row items-center justify-center gap-2.5 px-3.5 py-2.5 rounded-[7px] text-center transition-[border-color,background] duration-150",
-              isPlaceholder
-                ? "bg-white/[0.04] border border-dashed border-white/12"
-                : "bg-white/[0.04] border border-white/8",
-              isDragOver ? "!bg-[rgba(10,132,255,0.08)] !border-[rgba(10,132,255,0.6)]" : "",
-              uploading ? "cursor-progress" : isPlaceholder ? "cursor-pointer" : "cursor-default",
-            ].join(" ")}
-          >
-            <CameraMediaPreview
-              mode={tileMode}
-              fileName={droppedFileName}
-              webcamName={activeWebcamName}
-              sourceKind={source}
-            />
-
-            {!isPlaceholder && !uploading && (
-              <button
-                data-clear-media
-                onClick={(e) => { e.stopPropagation(); clearMedia(); }}
-                className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-white/55 hover:text-white/90 cursor-pointer p-0"
-                aria-label="Clear source"
-                title="Clear → placeholder"
-              >
-                <X size={14} strokeWidth={2} />
-              </button>
-            )}
-          </div>
-
-          {isPlaceholder && !uploading && <CameraTestPatternHint />}
-
-          <div className="flex items-stretch gap-1.5">
-            <div className="relative" data-camera-source-menu>
-              <button
-                onClick={() => setSourceMenuOpen((o) => !o)}
-                className="h-full min-h-[36px] w-10 flex items-center justify-center bg-transparent border border-white/12 text-white/85 rounded-[7px] cursor-pointer p-0 hover:bg-white/[0.06] hover:border-white/20 hover:text-white"
-                aria-haspopup="menu"
-                aria-expanded={sourceMenuOpen}
-                title={
-                  source === "webcam"
-                    ? `Source: webcam${webcamId ? ` (${webcams.find((w) => w.id === webcamId)?.name ?? webcamId})` : ""} — click to change`
-                    : `Source: ${source} — click to pick media or webcam`
-                }
-                aria-label="Choose camera source"
-              >
-                <Images size={20} strokeWidth={2} />
-              </button>
-
-              {sourceMenuOpen && (
-                <div
-                  role="menu"
-                  className="absolute top-[calc(100%+6px)] left-0 z-10 min-w-[200px] flex flex-col gap-px p-1 bg-panel border border-white/8 rounded-[7px] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
-                >
-                  <button
-                    role="menuitem"
-                    className="text-left bg-transparent border-none text-white/85 text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]"
-                    onClick={() => { setSourceMenuOpen(false); openFilePicker(); }}
-                    title="Pick an image or video from disk"
-                  >
-                    Browse media…
-                  </button>
-                  <div className="h-px bg-white/8 my-1" />
-                  <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
-                    <span className="text-[10px] text-white/45 uppercase tracking-[0.08em]">
-                      {webcamLoading ? "Cameras (loading…)" : webcams.length === 0 ? "No cameras" : "Cameras"}
-                    </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void refreshWebcams(); }}
-                      disabled={webcamLoading}
-                      className="flex items-center justify-center w-[22px] h-[22px] bg-transparent border-none rounded-[5px] text-white/55 hover:text-white/90 cursor-pointer p-0 disabled:opacity-50"
-                      aria-label="Refresh cameras"
-                      title="Refresh cameras"
-                    >
-                      <ReloadIcon size={13} strokeWidth={2} />
-                    </button>
-                  </div>
-                  {webcams.map((w) => {
-                    const active = source === "webcam" && webcamId === w.id;
-                    return (
-                      <button
-                        key={w.id}
-                        role="menuitem"
-                        className={[
-                          "text-left bg-transparent border-none text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]",
-                          active ? "!bg-white/[0.12] !text-white" : "text-white/85",
-                        ].join(" ")}
-                        onClick={() => selectWebcam(w)}
-                        title={w.name}
-                      >
-                        {w.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={primary.onClick}
-              disabled={primaryDisabled}
-              className={[
-                "flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer disabled:opacity-50 min-h-[36px]",
-                primary.kind === "stop"
-                  ? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]"
-                  : "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]",
-              ].join(" ")}
-              title={
-                primary.kind === "stop" ? "Stop the camera helper and terminate injected apps" :
-                primary.kind === "attach" ? `Inject ${bundleId} so it joins the camera feed` :
-                !bundleId ? "Bring an app to the foreground first" :
-                "Start: inject the dylib and launch the foreground app with the chosen source"
-              }
-              aria-pressed={primary.kind === "stop"}
-              aria-label={primary.kind === "stop" ? "Stop" : "Play"}
-            >
-              {primary.kind === "stop" ? <StopGlyph /> : <PlayGlyph />}
-              <span>{primary.kind === "stop" ? "Stop" : primary.kind === "attach" ? "Inject" : "Play"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleMirror}
-              disabled={mirrorDisabled}
-              className={`flex items-center justify-center w-10 min-h-[36px] border rounded-[7px] font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97] ${
-                mirror === "on"
-                  ? "bg-white border-white text-[#0a0a0c] cursor-pointer enabled:hover:bg-white/[0.88] enabled:hover:border-white/[0.88] enabled:hover:text-[#0a0a0c]"
-                  : "bg-white/[0.04] border-white/8 text-white/85 cursor-pointer enabled:hover:bg-white/[0.09] enabled:hover:border-[rgba(255,255,255,0.18)] enabled:hover:text-white"
-              }`}
-              aria-label={`Mirror: ${mirror} — tap to toggle`}
-              title={
-                mirrorDisabled
-                  ? "Mirror toggle available once a source is streaming"
-                  : `Mirror: ${mirror} — click to toggle`
-              }
-              aria-pressed={mirror === "on"}
-            >
-              <FlipHorizontal2 size={20} strokeWidth={2} fill={mirror === "on" ? "currentColor" : "none"} />
-            </button>
-          </div>
-
-          {warning && <CameraInlineBanner kind="warning" message={warning} />}
-          {error && <CameraInlineBanner kind="error" message={error} />}
-        </div>
+      {content}
     </CollapsibleSection>
   );
 }

@@ -24,12 +24,17 @@ import {
   type StreamConfig,
 } from "../simulator";
 
-import { ArrowLeft, ListTree, Menu, Upload } from "lucide-react";
+import { ArrowLeft, GripVertical, ListTree, Menu, Upload } from "lucide-react";
 import { ReloadIcon } from "../icons";
-import { AxStateProvider } from "../../annotations/web/ax-state-provider";
-import { AxTreeViewer } from "../../annotations/web/ax-tree-viewer";
-import { AnnotationSurface } from "../../annotations/web/annotation-surface";
-import { FloatingAnnotationControls } from "../../annotations/web/floating-annotation-controls";
+import {
+  ConnectedReviewLaunchers,
+  ReviewDeviceController,
+} from "../../annotations/web/review/review-device-controller";
+import { AxStateProvider } from "../../annotations/web/state/ax-state-provider";
+import type { ReviewEvent } from "../../annotations/web/state/review-reducer";
+import { selectNeedsAxSnapshot } from "../../annotations/web/state/review-selectors";
+import type { ReviewState } from "../../annotations/web/state/review-state";
+import { AnnotationSurface } from "../../annotations/web/overlay/annotation-surface";
 import { DeviceKitChrome, type ChromeButtonPress } from "../components/device-chrome-frame";
 import { ResizeHandle } from "../components/resize-handle";
 import { SimulatorResizeCornerHandle } from "../components/simulator-resize-corner-handle";
@@ -75,14 +80,18 @@ import {
 } from "../utils/ws-send-queue";
 import type { PreviewConfig } from "./workspace-state";
 
+const EMBEDDED_WORKSPACE_VERTICAL_RESERVE = 200;
+type CurrentApp = { bundleId: string; isReactNative: boolean; pid?: number };
+const currentAppCache = new Map<string, CurrentApp>();
+
 export interface SimulatorDeviceViewProps {
   config: PreviewConfig;
   deviceName: string | null;
   deviceRuntime: string | null;
   chrome: DeviceKitChromeDescriptor | null;
   preferMjpeg: boolean;
-  axOverlayEnabled: boolean;
-  setAxOverlayEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  reviewState: ReviewState;
+  dispatchReview: (event: ReviewEvent) => void;
   toolsOpen: boolean;
   setToolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   devtoolsOpen: boolean;
@@ -93,6 +102,7 @@ export interface SimulatorDeviceViewProps {
   setStreaming: (v: boolean) => void;
   embedded?: boolean;
   focused?: boolean;
+  settingsPosition?: -1 | 0 | 1;
   onFocus?: () => void;
 }
 
@@ -102,8 +112,8 @@ export function SimulatorDeviceView({
   deviceRuntime,
   chrome,
   preferMjpeg,
-  axOverlayEnabled,
-  setAxOverlayEnabled,
+  reviewState,
+  dispatchReview,
   toolsOpen,
   setToolsOpen,
   devtoolsOpen,
@@ -114,15 +124,14 @@ export function SimulatorDeviceView({
   setStreaming,
   embedded = false,
   focused = true,
+  settingsPosition = 0,
   onFocus,
 }: SimulatorDeviceViewProps) {
   const panelsEnabled = !embedded || focused;
-  const [axTreeOpen, setAxTreeOpen] = useState(false);
-  const [axInspectorSelecting, setAxInspectorSelecting] = useState(false);
-  const closeAxTree = useCallback(() => {
-    setAxTreeOpen(false);
-    setAxInspectorSelecting(false);
-  }, []);
+  const annotationActive = reviewState.kind === "annotate";
+  const accessibilityOpen = reviewState.kind === "accessibility";
+  const accessibilitySelecting = accessibilityOpen && reviewState.picking;
+  const accessibilityShowAll = accessibilityOpen && reviewState.showAllNodes;
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
   const setStreamingRef = useRef(setStreaming);
@@ -132,10 +141,6 @@ export function SimulatorDeviceView({
     if (!focused) return;
     document.title = deviceName ? `Simulator - ${deviceName}` : "Simulator Preview";
   }, [deviceName, focused]);
-
-  useEffect(() => {
-    if (!focused) closeAxTree();
-  }, [closeAxTree, focused]);
 
   const deviceType: DeviceType = getDeviceType(deviceName);
   const isAndroidDevice = config.device.startsWith("android:");
@@ -396,7 +401,9 @@ export function SimulatorDeviceView({
   }, [sendWs]);
 
   // Subscribe to app-state SSE.
-  const [currentApp, setCurrentApp] = useState<{ bundleId: string; isReactNative: boolean; pid?: number } | null>(null);
+  const [currentApp, setCurrentApp] = useState<CurrentApp | null>(
+    () => currentAppCache.get(config.device) ?? null,
+  );
   const { width: toolsPanelWidth, onPointerDown: onToolsResize } = useResizableWidth(
     "agentsims:tools-panel-width",
     PANEL_WIDTH,
@@ -428,14 +435,17 @@ export function SimulatorDeviceView({
     let timer: ReturnType<typeof setTimeout> | null = null;
     es.onmessage = (e) => {
       try {
-        const next = JSON.parse(e.data) as { bundleId: string; pid?: number; isReactNative: boolean };
+        const next = JSON.parse(e.data) as CurrentApp;
         if (timer) clearTimeout(timer);
         const delay = next?.isReactNative ? 0 : 600;
-        timer = setTimeout(() => setCurrentApp(next), delay);
+        timer = setTimeout(() => {
+          currentAppCache.set(config.device, next);
+          setCurrentApp(next);
+        }, delay);
       } catch {}
     };
     return () => { if (timer) clearTimeout(timer); es.close(); };
-  }, [config.appStateEndpoint]);
+  }, [config.appStateEndpoint, config.device]);
 
   // Cmd+R to reload the RN/Expo bundle.
   const sendReactNativeReload = useCallback(async () => {
@@ -497,6 +507,15 @@ export function SimulatorDeviceView({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, type: "down" | "up") => {
+      if (e.defaultPrevented) return;
+      const target = e.target;
+      if (
+        target instanceof Element &&
+        (target.matches("input, textarea, select") ||
+          target.closest("[contenteditable='true']"))
+      ) {
+        return;
+      }
       if (!focusedRef.current || !simFocusedRef.current) return;
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
         e.preventDefault();
@@ -583,48 +602,47 @@ export function SimulatorDeviceView({
   const simulatorResize = useSimulatorResize({
     defaultWidth: containerDefaultWidth,
     viewportWidth,
-    viewportHeight,
+    viewportHeight: embedded
+      ? Math.max(320, viewportHeight - EMBEDDED_WORKSPACE_VERTICAL_RESERVE)
+      : viewportHeight,
     aspectRatio: containerAspectRatioValue,
     onStart: () => setSimFocused(false),
   });
 
-  // Only shift the simulator when a docked panel would otherwise collide with it.
-  const PANEL_EDGE_OFFSET = 12;
-  const PANEL_GAP = 24;
-  const deviceWidth = deviceRenderedWidth > 0
-    ? Math.min(deviceRenderedWidth, simulatorResize.width)
-    : simulatorResize.width;
-  // Shift needed to clear a docked panel of `panelWidthPx` on the given side
-  // without ever pushing the device under the opposite edge.
-  const shiftToClear = (panelWidthPx: number): number => {
-    if (panelWidthPx <= 0) return 0;
-    const panelInnerEdge = viewportWidth - PANEL_EDGE_OFFSET - panelWidthPx;
-    const deviceEdgeAtCenter = viewportWidth / 2 + deviceWidth / 2;
-    const overlap = deviceEdgeAtCenter - (panelInnerEdge - PANEL_GAP);
-    if (overlap <= 0) return 0;
-    const shiftNeeded = 2 * overlap;
-    return shiftNeeded <= panelWidthPx + PANEL_GAP ? shiftNeeded : 0;
-  };
   const rightPanelWidthPx = webkitDevtoolsOpen
     ? devtoolsPanelWidth
     : toolsOpen
     ? toolsPanelWidth
     : 0;
-  const shiftForRightPanel = embedded || !panelsEnabled ? 0 : shiftToClear(rightPanelWidthPx);
 
   return (
     <AxStateProvider
-      endpoint={focused && (axOverlayEnabled || axTreeOpen) ? config?.axEndpoint : undefined}
+      endpoint={config?.axEndpoint}
+      reviewActive={selectNeedsAxSnapshot(reviewState)}
+      reviewState={reviewState}
+      dispatchReview={dispatchReview}
       annotationEndpoint={config.annotationEndpoint}
       deviceId={config.device}
     >
+    <ReviewDeviceController
+      reviewState={reviewState}
+      dispatchReview={dispatchReview}
+      focused={focused}
+      anchor={simContainerRef.current}
+      deviceId={config.device}
+      deviceName={deviceName}
+      deviceRuntime={deviceRuntime}
+      currentApp={currentApp}
+      connected={streaming}
+      reservedRight={rightPanelWidthPx > 0 ? rightPanelWidthPx + 12 : 0}
+    >
     <div
       className={`flex flex-col items-center justify-center gap-3 font-system box-border ${
-        embedded ? "relative h-full min-h-0 bg-transparent py-3" : "h-screen bg-page py-6"
+        embedded ? "relative max-h-full min-h-0 bg-transparent py-3" : "h-screen bg-page py-6"
       }`}
       style={{
         paddingLeft: 24,
-        paddingRight: 24 + shiftForRightPanel,
+        paddingRight: 24,
         transition:
           simulatorResize.isResizing || simulatorResize.isInertia ? "none" : SIMULATOR_RESIZE_PAGE_TRANSITION,
       }}
@@ -649,6 +667,7 @@ export function SimulatorDeviceView({
           deviceRuntime={deviceRuntime}
           streaming={streaming}
           aria-label="Simulator status"
+          data-agentsims-device-drag-handle
           style={{
             alignSelf: "center",
             width: "auto",
@@ -658,25 +677,29 @@ export function SimulatorDeviceView({
             justifyContent: "center",
             gap: 10,
             padding: "6px 10px",
-            borderRadius: 18,
-            border: focused ? "1px solid rgba(59, 130, 246, 0.95)" : "1px solid transparent",
-            boxShadow: focused ? "0 0 0 3px rgba(59, 130, 246, 0.18)" : undefined,
+            borderRadius: 10,
+            border: "1px solid rgba(255, 255, 255, 0.09)",
+            cursor: "grab",
+            touchAction: "none",
+            userSelect: "none",
           }}
         >
-          <SimulatorToolbar.Title
-            onClick={onFocus}
-            aria-label={deviceName ?? "Focused simulator"}
-            title={deviceName ?? "Simulator"}
-            hideSubtitle
-            hideChevron
-            style={{
-              maxWidth: "min(230px, calc(100vw - 170px))",
-            }}
+          <GripVertical
+            aria-hidden="true"
+            size={13}
+            strokeWidth={1.8}
+            className="shrink-0 text-white/32"
           />
+          <span
+            className="max-w-[min(230px,calc(100vw-170px))] truncate text-[12px] font-semibold text-white/92"
+          >
+            {deviceName ?? "Simulator"}
+          </span>
           <StreamStatusPill streaming={streaming} />
         </SimulatorToolbar>
         <div
           ref={simContainerRef}
+          data-agentsims-device-frame={config.device}
           className="relative max-h-full"
           style={{
             width: simulatorResize.width,
@@ -736,15 +759,28 @@ export function SimulatorDeviceView({
             const screenContent = (
               <>
                 {streamView}
-                {focused && (
-                  <AnnotationSurface
-                    active={axOverlayEnabled}
-                    inspectorMode={
-                      axTreeOpen ? (axInspectorSelecting ? "select" : "passive") : null
-                    }
-                    screen={activeStreamConfig}
-                  />
-                )}
+                <AnnotationSurface
+                  active={annotationActive}
+                  inspectorMode={
+                    accessibilityOpen
+                      ? accessibilitySelecting
+                        ? "select"
+                        : "passive"
+                      : null
+                  }
+                  inspectorShowAll={accessibilityShowAll}
+                  onInspectorPick={(key) => {
+                    dispatchReview({
+                      type: "ACCESSIBILITY_TARGET_SELECTED",
+                      key,
+                    });
+                    dispatchReview({
+                      type: "ACCESSIBILITY_PICKING_CHANGED",
+                      picking: false,
+                    });
+                  }}
+                  screen={activeStreamConfig}
+                />
               </>
             );
             if (!useChrome) return screenContent;
@@ -801,7 +837,7 @@ export function SimulatorDeviceView({
             visible={simulatorResize.isResizing || simulatorResize.isInertia}
           />
         </div>
-        <div className="inline-flex items-center justify-center max-w-full">
+        <div className="inline-flex max-w-full items-center justify-center gap-2">
           <SimulatorToolbar
             exec={execOnHost}
             onRotate={rotateDevice}
@@ -818,7 +854,7 @@ export function SimulatorDeviceView({
               maxWidth: "100%",
               justifyContent: "center",
               padding: "6px 8px",
-              borderRadius: 18,
+              borderRadius: 10,
             }}
           >
             <SimulatorToolbar.Actions>
@@ -868,21 +904,24 @@ export function SimulatorDeviceView({
               <SimulatorToolbar.RotateButton title="Rotate device" />
               <SimulatorToolbar.Button
                 aria-label="Accessibility tree"
-                aria-pressed={axTreeOpen}
+                aria-pressed={accessibilityOpen}
                 title="Accessibility tree"
                 onClick={() => {
-                  setAxTreeOpen((open) => {
-                    const next = !open;
-                    setAxInspectorSelecting(next);
-                    if (next) setAxOverlayEnabled(false);
-                    return next;
-                  });
+                  dispatchReview(
+                    accessibilityOpen
+                      ? { type: "REVIEW_CLOSED" }
+                      : {
+                          type: "REVIEW_ACCESSIBILITY_OPENED",
+                          picking: false,
+                          showAllNodes: true,
+                        },
+                  );
                 }}
                 style={
-                  axTreeOpen
+                  accessibilityOpen
                     ? {
-                        color: "#c7d2fe",
-                        background: "rgba(99, 102, 241, 0.2)",
+                        color: "rgba(255, 255, 255, 0.92)",
+                        background: "rgba(255, 255, 255, 0.1)",
                       }
                     : undefined
                 }
@@ -891,49 +930,32 @@ export function SimulatorDeviceView({
               </SimulatorToolbar.Button>
             </SimulatorToolbar.Actions>
           </SimulatorToolbar>
+          {focused && <ConnectedReviewLaunchers />}
         </div>
       </div>
 
-      {focused && (
-        <FloatingAnnotationControls
-          overlayEnabled={axOverlayEnabled}
-          streaming={streaming}
-          onToggleOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
-          udid={config.device}
-          deviceName={deviceName}
-          deviceRuntime={deviceRuntime}
-          currentApp={currentApp}
-        />
-      )}
-
-      <AxTreeViewer
-        open={focused && axTreeOpen}
-        deviceName={deviceName}
-        anchor={simContainerRef.current}
-        selecting={axInspectorSelecting}
-        onSelectingChange={setAxInspectorSelecting}
-        onClose={closeAxTree}
-      />
-
-      {panelsEnabled && (
-        <>
+      {(embedded || panelsEnabled) && (
           <ToolsPanel
             open={toolsOpen}
             onClose={() => setToolsOpen(false)}
             udid={config.device}
+            deviceName={deviceName}
             deviceRuntime={deviceRuntime}
             currentApp={currentApp}
             codecPreference={codecPreference}
             onCodecPreferenceChange={setCodecPreference}
-            onDeviceButton={onStreamButton}
-            onRotate={rotateDevice}
             activeCodec={useAvccVideo ? "h264" : "mjpeg"}
             avccSupported={avcc.supported}
             width={toolsPanelWidth}
+            dock={embedded}
+            settingsPosition={settingsPosition}
           />
+      )}
+      {panelsEnabled && (
+        <>
           <ResizeHandle
             panelWidth={toolsPanelWidth}
-            visible={toolsOpen}
+            visible={toolsOpen && !embedded}
             onPointerDown={onToolsResize}
             ariaLabel="Resize tools panel"
           />
@@ -959,6 +981,7 @@ export function SimulatorDeviceView({
         </>
       )}
     </div>
+    </ReviewDeviceController>
     </AxStateProvider>
   );
 }

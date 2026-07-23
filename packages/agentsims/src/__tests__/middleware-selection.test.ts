@@ -3,12 +3,12 @@ import {
   matchInstalledAppByDisplayName,
   parseForegroundAppLogMessage,
   previewConfigForState,
-  rewriteStateForRequestHost,
-  selectServeSimState,
-  type ServeSimState,
 } from "../middleware";
+import { exposeDeviceState } from "../shared/device-gateway";
+import { selectDeviceState } from "../shared/device-lifecycle";
+import type { DeviceState } from "../shared/state";
 
-const states: ServeSimState[] = [
+const states: DeviceState[] = [
   {
     pid: 101,
     port: 3100,
@@ -27,31 +27,31 @@ const states: ServeSimState[] = [
   },
 ];
 
-describe("selectServeSimState", () => {
+describe("selectDeviceState", () => {
   test("keeps existing first-state behavior when no device is requested", () => {
-    expect(selectServeSimState(states)?.device).toBe("DEVICE-A");
+    expect(selectDeviceState(states)?.device).toBe("DEVICE-A");
   });
 
   test("selects the requested device state", () => {
-    expect(selectServeSimState(states, "DEVICE-B")?.device).toBe("DEVICE-B");
+    expect(selectDeviceState(states, "DEVICE-B")?.device).toBe("DEVICE-B");
   });
 
   test("returns null when the requested device is not running", () => {
-    expect(selectServeSimState(states, "DEVICE-C")).toBeNull();
+    expect(selectDeviceState(states, "DEVICE-C")).toBeNull();
   });
 });
 
 describe("previewConfigForState", () => {
   test("returns the full client config shape with device-scoped endpoints", () => {
     const state = states[1]!;
-    expect(previewConfigForState(state, "/preview", "/bin/serve-sim", "token-xyz")).toEqual({
+    expect(previewConfigForState(state, "/preview", "/bin/agentsims", "token-xyz")).toEqual({
       ...state,
       basePath: "/preview",
       appStateEndpoint: "/preview/appstate?device=DEVICE-B",
       axEndpoint: "/preview/ax?device=DEVICE-B",
       annotationEndpoint: "/preview/annotations",
       devtoolsEndpoint: "/preview/devtools?device=DEVICE-B",
-      serveSimBin: "/bin/serve-sim",
+      agentsimsBin: "/bin/agentsims",
       gridApiEndpoint: "/preview/grid/api",
       gridStartEndpoint: "/preview/grid/api/start",
       gridShutdownEndpoint: "/preview/grid/api/shutdown",
@@ -63,44 +63,44 @@ describe("previewConfigForState", () => {
 
   test("omits codec when none is pinned", () => {
     expect(
-      "codec" in previewConfigForState(states[0]!, "/preview", "/bin/serve-sim", "token-xyz"),
+      "codec" in previewConfigForState(states[0]!, "/preview", "/bin/agentsims", "token-xyz"),
     ).toBe(false);
   });
 
   test("pins the stream codec in the client config", () => {
     expect(
-      previewConfigForState(states[0]!, "/preview", "/bin/serve-sim", "token-xyz", "mjpeg").codec,
+      previewConfigForState(states[0]!, "/preview", "/bin/agentsims", "token-xyz", "mjpeg").codec,
     ).toBe("mjpeg");
   });
 });
 
-describe("rewriteStateForRequestHost", () => {
+describe("exposeDeviceState", () => {
   const state = states[0]!;
   // Proxy mode routes browsers through the preview's same-origin `/helper`
   // proxy; the trailing args are (base, protocol, proxy).
   const proxy = (host: string | undefined, base = "", protocol: "http" | "https" = "http") =>
-    rewriteStateForRequestHost(state, host, base, protocol, true);
+    exposeDeviceState(state, host, base, protocol, true);
 
   test("returns the state unchanged when host header is missing", () => {
-    expect(rewriteStateForRequestHost(state, undefined)).toBe(state);
+    expect(exposeDeviceState(state, undefined)).toBe(state);
     expect(proxy(undefined)).toBe(state);
   });
 
   describe("default (direct helper URLs, no proxy)", () => {
     test("leaves loopback viewers on the helper's own port", () => {
-      expect(rewriteStateForRequestHost(state, "localhost:3200")).toBe(state);
-      expect(rewriteStateForRequestHost(state, "127.0.0.1:3200")).toBe(state);
-      expect(rewriteStateForRequestHost(state, "[::1]:3200")).toBe(state);
+      expect(exposeDeviceState(state, "localhost:3200")).toBe(state);
+      expect(exposeDeviceState(state, "127.0.0.1:3200")).toBe(state);
+      expect(exposeDeviceState(state, "[::1]:3200")).toBe(state);
     });
 
     test("swaps the loopback host for LAN/tunnel viewers, keeping the helper port", () => {
-      expect(rewriteStateForRequestHost(state, "192.168.1.42:3200")).toEqual({
+      expect(exposeDeviceState(state, "192.168.1.42:3200")).toEqual({
         ...state,
         url: "http://192.168.1.42:3100",
         streamUrl: "http://192.168.1.42:3100/stream.mjpeg",
         wsUrl: "ws://192.168.1.42:3100/ws",
       });
-      expect(rewriteStateForRequestHost(state, "tunnel.example.com")).toEqual({
+      expect(exposeDeviceState(state, "tunnel.example.com")).toEqual({
         ...state,
         url: "http://tunnel.example.com:3100",
         streamUrl: "http://tunnel.example.com:3100/stream.mjpeg",

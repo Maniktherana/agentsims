@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import { Chevron } from "../icons";
 
-// Shared collapsible card for the tool sections. Built on native
+// Shared collapsible region for the tool sections. Built on native
 // <details>/<summary> so the open/close height transition is CSS-only (see
 // `details.lem-section` in global.css) rather than a JS height animation.
 //
@@ -14,7 +14,7 @@ export function CollapsibleSection({
   summary,
   children,
   summaryClassName = "",
-  bodyClassName = "flex flex-col gap-2.5 pt-2.5",
+  bodyClassName = "flex flex-col gap-2.5",
   className = "",
   ...dataProps
 }: {
@@ -30,16 +30,32 @@ export function CollapsibleSection({
     <details
       open={open}
       onToggle={(e) => onOpenChange((e.currentTarget as HTMLDetailsElement).open)}
-      className={`lem-section bg-panel rounded-[10px] px-3 py-2 ${className}`}
+      className={`lem-section mx-3 mt-2 overflow-hidden rounded-[10px] border border-white/[0.07] bg-white/[0.025] last:mb-3 ${className}`}
       {...dataProps}
     >
       <summary
-        className={`lem-toggle cursor-pointer select-none text-white/90 min-h-[36px] leading-none py-2.5 px-1 -my-2 -mx-1 w-[calc(100%+8px)] ${summaryClassName}`}
+        className="lem-toggle flex min-h-11 w-full cursor-pointer select-none items-center gap-2 px-3 text-white/90"
       >
-        {summary}
-        <Chevron open={open} />
+        <div
+          data-collapsible-summary-content
+          className={`min-w-0 flex-1 ${summaryClassName}`}
+        >
+          {summary}
+        </div>
+        <span
+          data-collapsible-chevron
+          className="grid size-8 shrink-0 place-items-center"
+          aria-hidden="true"
+        >
+          <Chevron open={open} />
+        </span>
       </summary>
-      <div className={bodyClassName}>{children}</div>
+      <div
+        data-collapsible-body
+        className={`px-3 pb-3 pt-1 ${bodyClassName}`}
+      >
+        {children}
+      </div>
     </details>
   );
 }

@@ -1,15 +1,18 @@
-import { ArrowLeft, Camera, Home, Menu, Mic, Monitor, RefreshCw, RotateCcw, Volume2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { SimulatorOrientation } from "../types";
+import { Monitor, RefreshCw, Smartphone, Video } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { simEndpoint } from "../utils/sim-endpoint";
 import type { AndroidStatus } from "../../android/types";
+import { CollapsibleSection } from "./collapsible-section";
+import { SettingRow } from "./simulator-settings-tool";
 
-const SECTION = "bg-panel rounded-[10px]";
-const SECTION_TITLE = "text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] m-0";
-const STATUS_ROW = "flex min-w-0 items-start gap-2 rounded-md bg-white/[0.045] px-2 py-1.5";
-const STATUS_ICON = "mt-0.5 shrink-0 text-white/38";
-const STATUS_LABEL = "text-[10px] font-semibold uppercase tracking-[0.08em] text-white/35";
-const STATUS_VALUE = "min-w-0 truncate text-[11px] font-medium text-white/72";
+const SECTION_TITLE = "m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50";
+const STATUS_VALUE = "min-w-0 max-w-[190px] truncate text-right text-[12px] font-medium tabular-nums text-white/72";
 
 function androidSerial(udid: string) {
   return udid.startsWith("android:") ? udid.slice("android:".length) : udid;
@@ -19,16 +22,32 @@ function cleanValue(value: string | undefined): string {
   return value?.replace(/_/g, " ").trim() || "unknown";
 }
 
+export function formatAndroidDisplay(status: AndroidStatus | null): string {
+  const screen = status?.screen;
+  if (!screen) return "Loading";
+  return `${screen.width} × ${screen.height}${screen.density ? ` @ ${screen.density} dpi` : ""}`;
+}
+
+export function formatAndroidStream(status: AndroidStatus | null): string {
+  if (!status?.stream) return "Loading";
+  if (status.stream.transport === "mmap-videotoolbox-h264") {
+    return "H.264 · emulator framebuffer";
+  }
+  return "H.264 · scrcpy";
+}
+
 function useAndroidStatus(udid: string) {
   const [status, setStatus] = useState<AndroidStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refreshIdRef = useRef(0);
   const endpoint = useMemo(
     () => simEndpoint(`helper/${encodeURIComponent(udid)}/status`),
     [udid],
   );
 
   const refresh = useCallback((signal?: AbortSignal) => {
+    const refreshId = ++refreshIdRef.current;
     setLoading(true);
     setError(null);
     fetch(endpoint, { cache: "no-store", signal })
@@ -36,21 +55,24 @@ function useAndroidStatus(udid: string) {
         if (!res.ok) throw new Error(`status ${res.status}`);
         return res.json() as Promise<AndroidStatus>;
       })
-      .then(setStatus)
+      .then((nextStatus) => {
+        if (refreshId === refreshIdRef.current) setStatus(nextStatus);
+      })
       .catch((err) => {
-        if (err?.name === "AbortError") return;
+        if (err?.name === "AbortError" || refreshId !== refreshIdRef.current) return;
         setError(err instanceof Error ? err.message : String(err));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (refreshId === refreshIdRef.current) setLoading(false);
+      });
   }, [endpoint]);
 
   useEffect(() => {
     const ac = new AbortController();
+    setStatus(null);
     refresh(ac.signal);
-    const timer = setInterval(() => refresh(), 5000);
     return () => {
       ac.abort();
-      clearInterval(timer);
     };
   }, [refresh]);
 
@@ -59,128 +81,97 @@ function useAndroidStatus(udid: string) {
 
 export function AndroidControlsTool({
   udid,
-  onButton,
-  onRotate,
 }: {
   udid: string;
-  onButton: (button: string) => void;
-  onRotate: (orientation: SimulatorOrientation) => void;
 }) {
   const { status, loading, error, refresh } = useAndroidStatus(udid);
-  const displayName = status?.camera?.displayName || status?.avdName || status?.model;
-  const screen = status?.screen;
-  const display = screen
-    ? `${screen.width}x${screen.height}${screen.density ? ` @ ${screen.density}dpi` : ""}`
-    : "waiting";
-  const stream = status?.stream
-    ? `${status.stream.source} · ${status.stream.transport}`
-    : "waiting";
-  const camera = status?.camera
-    ? `back ${cleanValue(status.camera.back)} · front ${cleanValue(status.camera.front)}`
-    : "waiting";
-  const outputType = status?.audio?.activeOutput?.type;
-  const outputName = status?.audio?.activeOutput?.name;
-  const audio = status?.audio
-    ? `${cleanValue(outputType)}${outputName ? ` · ${cleanValue(outputName)}` : ""}${status.audio.micMuted ? " · mic muted" : ""}`
-    : "waiting";
 
   return (
-    <div className={`${SECTION} px-3 py-2`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <span className={SECTION_TITLE}>Android</span>
-          {displayName && (
-            <div className="mt-0.5 truncate text-[11px] font-medium text-white/62">
-              {cleanValue(displayName)}{status?.release ? ` · ${status.release}` : ""}
-            </div>
-          )}
-        </div>
-        <div className="flex min-w-0 items-center gap-1.5">
-          <code className="min-w-0 truncate rounded-md bg-white/[0.05] px-1.5 py-1 text-[10px] font-medium text-white/45">
+    <AndroidControlsStatus
+      udid={udid}
+      status={status}
+      loading={loading}
+      error={error}
+      onRefresh={() => refresh()}
+    />
+  );
+}
+
+export function AndroidControlsStatus({
+  udid,
+  status,
+  loading,
+  error,
+  onRefresh,
+}: {
+  udid: string;
+  status: AndroidStatus | null;
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const displayName = status?.camera?.displayName || status?.avdName || status?.model;
+
+  return (
+    <CollapsibleSection
+      open={open}
+      onOpenChange={setOpen}
+      data-android-controls={loading ? "loading" : "ready"}
+      summary={<span className={SECTION_TITLE}>Android</span>}
+      bodyClassName="flex flex-col gap-1.5"
+    >
+      <div data-android-metadata className="flex flex-col gap-1.5">
+        <SettingRow icon={<Smartphone size={14} strokeWidth={2} />} label="Device">
+          <span
+            data-android-device-subtitle
+            className={STATUS_VALUE}
+            title={status ? cleanValue(displayName) : undefined}
+          >
+            {status ? cleanValue(displayName) : "Loading"}
+          </span>
+        </SettingRow>
+        <SettingRow icon={<span className="text-[10px] font-semibold">OS</span>} label="Version">
+          <span className={STATUS_VALUE}>
+            {status?.release ? `Android ${status.release}` : "Loading"}
+          </span>
+        </SettingRow>
+        <SettingRow icon={<Monitor size={14} strokeWidth={2} />} label="Display">
+          <span className={STATUS_VALUE} title={formatAndroidDisplay(status)}>
+            {formatAndroidDisplay(status)}
+          </span>
+        </SettingRow>
+        <SettingRow icon={<Video size={14} strokeWidth={2} />} label="Stream">
+          <span className={STATUS_VALUE} title={formatAndroidStream(status)}>
+            {formatAndroidStream(status)}
+          </span>
+        </SettingRow>
+        <SettingRow icon={<span className="text-[10px] font-semibold">ID</span>} label="Device ID">
+          <code
+            className="min-w-0 max-w-[150px] truncate rounded-[8px] bg-white/[0.05] px-2 py-1 text-[10px] font-medium text-white/48"
+            title={androidSerial(udid)}
+          >
             {androidSerial(udid)}
           </code>
+        </SettingRow>
+      </div>
+      {error && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-[8px] bg-red-500/10 px-2.5 py-2 text-[11px] font-medium text-red-200/80"
+          role="alert"
+        >
+          <span className="min-w-0">Could not load Android details: {error}</span>
           <button
             type="button"
-            onClick={() => refresh()}
-            className="grid size-6 shrink-0 place-items-center rounded-md bg-white/[0.055] text-white/55 [transition:background,color,scale] duration-150 hover:bg-white/[0.1] hover:text-white active:scale-[0.94]"
-            title="Refresh Android status"
-            aria-label="Refresh Android status"
+            onClick={onRefresh}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] bg-white/[0.06] px-2 text-[10px] text-white/70 [transition:background,color,transform] duration-100 hover:bg-white/[0.1] hover:text-white active:scale-[0.97]"
             disabled={loading}
           >
             <RefreshCw size={13} strokeWidth={2} className={loading ? "animate-spin" : undefined} />
+            Retry
           </button>
         </div>
-      </div>
-      <div className="mt-2 grid grid-cols-4 gap-1.5">
-        <AndroidButton label="Back" onClick={() => onButton("back")}>
-          <ArrowLeft size={15} strokeWidth={2} />
-        </AndroidButton>
-        <AndroidButton label="Home" onClick={() => onButton("home")}>
-          <Home size={15} strokeWidth={2} />
-        </AndroidButton>
-        <AndroidButton label="Recents" onClick={() => onButton("recent_apps")}>
-          <Menu size={15} strokeWidth={2} />
-        </AndroidButton>
-        <AndroidButton
-          label="Rotate"
-          onClick={() => onRotate(screen?.orientation === "landscape" ? "portrait" : "landscape_left")}
-        >
-          <RotateCcw size={15} strokeWidth={2} />
-        </AndroidButton>
-      </div>
-      <div className="mt-2 grid gap-1.5">
-        <StatusRow icon={<Monitor size={13} strokeWidth={2} />} label="Display" value={display} />
-        <StatusRow icon={<RefreshCw size={13} strokeWidth={2} />} label="Stream" value={stream} />
-        <StatusRow icon={<Camera size={13} strokeWidth={2} />} label="Camera" value={camera} />
-        <StatusRow icon={status?.audio?.recording?.active ? <Mic size={13} strokeWidth={2} /> : <Volume2 size={13} strokeWidth={2} />} label="Audio" value={audio} />
-        {error && (
-          <div className="rounded-md bg-red-500/10 px-2 py-1.5 text-[11px] font-medium text-red-200/80">
-            {error}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StatusRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className={STATUS_ROW}>
-      <span className={STATUS_ICON}>{icon}</span>
-      <div className="min-w-0 flex-1">
-        <div className={STATUS_LABEL}>{label}</div>
-        <div className={STATUS_VALUE} title={value}>{value}</div>
-      </div>
-    </div>
-  );
-}
-
-function AndroidButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-md bg-white/[0.06] px-1 text-[10px] font-medium text-white/70 [transition-property:background,color,scale] duration-150 hover:bg-white/[0.1] hover:text-white active:scale-[0.96]"
-      title={label}
-    >
-      {children}
-      <span className="max-w-full truncate">{label}</span>
-    </button>
+      )}
+    </CollapsibleSection>
   );
 }

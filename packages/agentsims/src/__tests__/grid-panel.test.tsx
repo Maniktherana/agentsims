@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkspaceHeader } from "../web/components/workspace-header";
-import { AGENTSIMS_REPO_URL } from "../web/components/agentsims-brand-link";
+import {
+  AGENTSIMS_REPO_URL,
+  AgentsimsBrandLink,
+} from "../web/components/agentsims-brand-link";
 import type { GridDevice } from "../web/utils/grid";
 
 const devices: GridDevice[] = [
@@ -42,6 +45,8 @@ function renderHeader(override: Partial<Parameters<typeof WorkspaceHeader>[0]> =
       selectedUdid="ios-one"
       visibleUdids={new Set(["ios-one"])}
       onSelect={noop}
+      settingsUdid="ios-one"
+      onSettingsSelect={noop}
       onToggleVisible={noop}
       onStart={noop}
       starting={{}}
@@ -49,9 +54,9 @@ function renderHeader(override: Partial<Parameters<typeof WorkspaceHeader>[0]> =
       onShutdown={noop}
       toolsOpen={false}
       onToggleTools={noop}
-      devtoolsOpen={false}
-      onToggleDevtools={noop}
-      devtoolsAvailable
+      reviewOpen={false}
+      onToggleReview={noop}
+      hasActiveDevice
       {...override}
     />,
   );
@@ -74,11 +79,31 @@ describe("WorkspaceHeader", () => {
     expect(html).toContain('data-testid="device-row-skeleton"');
   });
 
-  test("keeps branding and focused tool actions in the top bar", () => {
+  test("keeps global actions in one bottom workspace dock", () => {
     const html = renderHeader();
+    expect(html).toContain('id="agentsims-workspace-dock"');
+    expect(html).toContain('id="agentsims-review-dock-slot"');
+    expect(html).toContain('aria-label="Devices, 1 shown"');
+    expect(html).toContain('aria-label="Device settings"');
+    expect(html).not.toContain('aria-label="Add simulator"');
+    expect(html).not.toContain('aria-label="WebKit DevTools"');
+  });
+
+  test("mounts Settings inside the same expanded dock", () => {
+    const html = renderHeader({ pickerOpen: false, toolsOpen: true });
+    expect(html).toContain('id="agentsims-tools-dock-slot"');
+    expect(html).toContain('data-expanded="true"');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('aria-label="Settings device"');
+    expect(html).toContain('data-variant="ghost"');
+    expect(html).toContain('data-slot="tabs-indicator"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain("iPhone 16");
+  });
+
+  test("keeps product identity outside the action dock and links the project repository", () => {
+    const html = renderToStaticMarkup(<AgentsimsBrandLink />);
     expect(html).toContain(`href="${AGENTSIMS_REPO_URL}"`);
-    expect(html).toContain('aria-label="Simulator tools"');
-    expect(html).toContain('aria-label="WebKit DevTools"');
-    expect(html).toContain('aria-label="Add simulator"');
+    expect(AGENTSIMS_REPO_URL).toBe("https://github.com/maniktherana/agentsims");
   });
 });

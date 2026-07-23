@@ -25,7 +25,7 @@ export function AppPermissionsTool({
   // can't (push notifications via BulletinBoard, location's `i<bundleId>:`
   // clients.plist keys), so the UI drives it instead of calling simctl directly.
   const cliPrefix = useMemo(() => {
-    const bin = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__?.serveSimBin;
+    const bin = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__?.agentsimsBin;
     if (!bin) return "agentsims";
     if (bin.endsWith(".ts")) return `bun ${shellEscape(bin)}`;
     if (bin.endsWith(".js")) return `node ${shellEscape(bin)}`;
@@ -163,7 +163,7 @@ export function AppPermissionsLoading() {
   return (
     <div
       data-testid="app-permissions-loading"
-      className="bg-panel rounded-[10px] px-3 py-2"
+      className="border-b border-white/[0.07] px-3 py-2"
       aria-disabled="true"
       aria-busy="true"
     >

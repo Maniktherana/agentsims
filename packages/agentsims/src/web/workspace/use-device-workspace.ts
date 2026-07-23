@@ -28,10 +28,11 @@ function initialSelectedDeviceId(config: PreviewConfig | null): string | null {
   return config?.device ?? new URLSearchParams(window.location.search).get("device");
 }
 
-function replaceUrlDevice(deviceId: string): void {
+function consumeUrlDevice(): void {
   try {
     const url = new URL(window.location.href);
-    url.searchParams.set("device", deviceId);
+    if (!url.searchParams.has("device")) return;
+    url.searchParams.delete("device");
     window.history.replaceState(null, "", url.toString());
   } catch {}
 }
@@ -71,6 +72,10 @@ export function useDeviceWorkspace() {
   const [uiStarted, setUiStarted] = useState<Set<string>>(() => new Set());
   const autoAttachRequestedRef = useRef<Set<string>>(new Set());
 
+  useEffect(() => {
+    consumeUrlDevice();
+  }, []);
+
   const [endpoints] = useState(() => {
     const preview = window.__SIM_PREVIEW__;
     return {
@@ -109,7 +114,6 @@ export function useDeviceWorkspace() {
 
   const selectDevice = useCallback((deviceId: string) => {
     dispatchSelection({ type: "select", deviceId });
-    replaceUrlDevice(deviceId);
   }, []);
 
   const setDeviceVisible = useCallback(
@@ -172,7 +176,6 @@ export function useDeviceWorkspace() {
           resolvedDeviceId,
           focus: focusDevice,
         });
-        if (focusDevice) replaceUrlDevice(resolvedDeviceId);
         setUiStarted((current) => {
           if (current.has(resolvedDeviceId)) return current;
           const next = new Set(current);

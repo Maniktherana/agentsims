@@ -1,7 +1,7 @@
 import { Toaster } from "sonner";
 import type { UploadToast } from "../hooks/use-upload-toasts";
 
-export function ServeSimToaster() {
+export function AgentsimsToaster() {
   return (
     <Toaster
       theme="dark"

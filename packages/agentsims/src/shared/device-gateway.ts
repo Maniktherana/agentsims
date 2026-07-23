@@ -4,7 +4,7 @@ import { androidSerialFromStateId } from "../android/device";
 import { getAndroidSession, serveAndroidHelper } from "../android/session";
 import { closeDeviceSession, getDeviceSession } from "../ios/session";
 import { createRawHidSocket, writeWebSocketAccept } from "./raw-websocket";
-import type { ServeSimDeviceState } from "./state";
+import type { DeviceState } from "./state";
 
 const DIRECT_HELPER_ENDPOINTS = new Set([
   "ax",
@@ -24,12 +24,12 @@ type HelperTarget = {
 };
 
 export function exposeDeviceState(
-  state: ServeSimDeviceState,
+  state: DeviceState,
   hostHeader: string | undefined,
   base = "",
   protocol: "http" | "https" = "http",
   proxy = false,
-): ServeSimDeviceState {
+): DeviceState {
   if (!hostHeader) return state;
   if (!proxy) {
     let hostname: string;

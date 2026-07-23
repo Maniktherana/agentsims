@@ -7,7 +7,7 @@ import type { Socket } from "net";
 import { createAxStreamerCache } from "./annotations/snapshot";
 import { AnnotationRouter } from "./annotations/router";
 import { MediaRouter } from "./media/router";
-import type { ServeSimDeviceState } from "./shared/state";
+import type { DeviceState } from "./shared/state";
 import {
   serveDeviceKitChromeAsset,
   serveDevicePlaceholderAsset,
@@ -19,7 +19,7 @@ import {
   readDeviceStates,
   selectDeviceState,
 } from "./shared/device-lifecycle";
-import { deviceCatalog, parseGridPaging as parseCatalogPaging } from "./shared/device-catalog";
+import { deviceCatalog, parseGridPaging } from "./shared/device-catalog";
 import { bridgeWebSocketFrames } from "./shared/raw-websocket";
 import {
   AppStateRouter,
@@ -87,9 +87,6 @@ type ReleaseRequestBody = { targetId?: string };
 type HighlightRequestBody = { targetId?: string; on?: boolean };
 type ExecRequestBody = { command?: string };
 
-/** Re-exported alias for the canonical device-state record in `./state`. */
-export type ServeSimState = ServeSimDeviceState;
-
 const axStreamerCache = createAxStreamerCache();
 
 let inspectWebKitBridge: Promise<WebKitBridge> | null = null;
@@ -126,9 +123,6 @@ export function matchInstalledAppByDisplayName(
   return null;
 }
 
-export const readServeSimStates = readDeviceStates;
-export const selectServeSimState = selectDeviceState;
-
 function queryDevice(rawUrl: string): string | null {
   const qIndex = rawUrl.indexOf("?");
   if (qIndex === -1) return null;
@@ -142,8 +136,6 @@ function queryDevice(rawUrl: string): string | null {
  * page, so a remote viewer over a tunnel fetches a small first page instead of
  * the whole simulator catalog (~150KB) up front.
  */
-export const parseGridPaging = parseCatalogPaging;
-
 function hostForRequest(req: SimReq): string | undefined {
   const host = req.headers?.host;
   if (host) return host;
@@ -177,8 +169,6 @@ function endpoint(base: string, path: string, device: string): string {
  * loopback URLs are emitted directly (with `127.0.0.1` swapped for the request
  * hostname so LAN/tunnel viewers can still reach the separate helper port).
  */
-export const rewriteStateForRequestHost = exposeDeviceState;
-
 function devtoolsProxyPrefix(base: string): string {
   return `${base === "/" ? "" : base}/devtools`;
 }
@@ -193,19 +183,19 @@ function devtoolsProxyTarget(rawUrl: string, prefix: string): { upstreamPath: st
 }
 
 export function previewConfigForState(
-  state: ServeSimState,
+  state: DeviceState,
   base: string,
-  serveSimBin: string,
+  agentsimsBin: string,
   execToken: string,
   codec?: string,
   proxyHelpers = false,
-): ServeSimState & {
+): DeviceState & {
   basePath: string;
   appStateEndpoint: string;
   axEndpoint: string;
   annotationEndpoint: string;
   devtoolsEndpoint: string;
-  serveSimBin: string;
+  agentsimsBin: string;
   gridApiEndpoint: string;
   gridStartEndpoint: string;
   gridShutdownEndpoint: string;
@@ -224,7 +214,7 @@ export function previewConfigForState(
     axEndpoint: endpoint(base, "/ax", state.device),
     annotationEndpoint: base === "" ? "/annotations" : `${base}/annotations`,
     devtoolsEndpoint: endpoint(base, "/devtools", state.device),
-    serveSimBin,
+    agentsimsBin,
     gridApiEndpoint: gridApiBase,
     gridStartEndpoint: gridApiBase + "/start",
     gridShutdownEndpoint: gridApiBase + "/shutdown",
@@ -386,7 +376,7 @@ let _html: string | null = null;
  * the in-page Camera tool can `node <path> camera ...` regardless of PATH.
  * Falls back to the literal `agentsims` if we can't determine a usable path.
  */
-function serveSimBinPath(): string {
+function agentsimsBinPath(): string {
   try {
     const argv = process.argv;
     if (argv[1] && existsSync(argv[1])) return argv[1];
@@ -475,7 +465,7 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
     (state) => previewConfigForState(
       state,
       base,
-      serveSimBinPath(),
+      agentsimsBinPath(),
       execToken,
       options?.codec,
       proxyHelpers,
@@ -506,7 +496,7 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
     const url = qIndex === -1 ? rawUrl : rawUrl.slice(0, qIndex);
     const selectedDevice = queryDevice(rawUrl) ?? options?.device ?? null;
     const devtoolsFrontendBase = base === "/" ? "/devtools-frontend" : `${base}/devtools-frontend`;
-    const exposeState = (state: ServeSimState) => exposeDeviceState(
+    const exposeState = (state: DeviceState) => exposeDeviceState(
       state,
       hostForRequest(req),
       base,
@@ -562,8 +552,8 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
 
     // Serve the preview page
     if (url === base || url === base + "/") {
-      const states = await readServeSimStates();
-      const state = selectServeSimState(states, selectedDevice);
+      const states = await readDeviceStates();
+      const state = selectDeviceState(states, selectedDevice);
       let html = loadHtml();
 
       if (!state) {
@@ -579,7 +569,7 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
 
       if (state) {
         const remoteState = exposeState(state);
-        const config = JSON.stringify(previewConfigForState(remoteState, base, serveSimBinPath(), execToken, options?.codec, proxyHelpers));
+        const config = JSON.stringify(previewConfigForState(remoteState, base, agentsimsBinPath(), execToken, options?.codec, proxyHelpers));
         const configScript = `<script>window.__SIM_PREVIEW__=${config}</script>`;
         html = html.replace("<!--__SIM_PREVIEW_CONFIG__-->", configScript);
       }
@@ -669,8 +659,8 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
     // /devtools/page/:id on localhost; the preview adds iframe-safe frontend
     // URLs so the browser UI can embed Chrome DevTools.
     if (url === base + "/devtools") {
-      const states = await readServeSimStates();
-      const state = selectServeSimState(states, selectedDevice);
+      const states = await readDeviceStates();
+      const state = selectDeviceState(states, selectedDevice);
       if (!state) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "No agentsims device" }));
@@ -770,8 +760,8 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
 
     // SSE: normalized accessibility snapshot stream
     if (url === base + "/ax") {
-      const states = await readServeSimStates();
-      const state = selectServeSimState(states, selectedDevice);
+      const states = await readDeviceStates();
+      const state = selectDeviceState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
         res.end("No agentsims device");

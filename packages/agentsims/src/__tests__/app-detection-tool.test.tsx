@@ -20,10 +20,34 @@ describe("AppDetectionTool app icon fallback", () => {
     const html = renderToStaticMarkup(<AppIconFallback bundleId="com.apple.springboard" />);
 
     expect(html).toContain('data-testid="system-app-icon"');
-    expect(html).toContain("System app");
+    expect(html).toContain("iOS system app");
+    expect(html).toContain('data-app-platform="ios"');
     expect(html).toContain('role="img"');
     expect(html).toContain("<title>Apple</title>");
     expect(html).toContain("M12.152 6.896c-.948");
+  });
+
+  test("does not use an Apple glyph for Android system apps", () => {
+    const html = renderToStaticMarkup(
+      <AppIconFallback bundleId="com.google.android.apps.nexuslauncher" />,
+    );
+
+    expect(html).toContain('data-testid="system-app-icon"');
+    expect(html).toContain("Android system app");
+    expect(html).toContain('data-app-platform="android"');
+    expect(html).not.toContain("<title>Apple</title>");
+    expect(html).toContain("lucide-package");
+    expect(html).not.toContain("lucide-app-window");
+  });
+
+  test("uses an Android package fallback for third-party Android apps", () => {
+    const html = renderToStaticMarkup(
+      <AppIconFallback bundleId="ai.vartalaap" platform="android" />,
+    );
+
+    expect(html).toContain('data-testid="app-icon-fallback"');
+    expect(html).toContain("Android package icon unavailable");
+    expect(html).toContain("lucide-package");
   });
 
   test("uses official icon data even for Apple system apps", () => {
@@ -64,8 +88,9 @@ describe("AppDetectionSkeleton", () => {
     const html = renderToStaticMarkup(<AppDetectionSkeleton />);
 
     expect(html).toContain('data-testid="app-detection-skeleton"');
-    expect(html).toContain("bg-panel rounded-[10px] px-3 py-2");
-    expect(html).toContain("min-h-[36px]");
+    expect(html).toContain("rounded-[10px] border border-white/[0.07]");
+    expect(html).toContain("min-h-11");
+    expect(html).not.toContain("border-b border-white");
     expect(html).not.toContain("border-dashed");
     expect(html).not.toContain("Waiting for an app");
   });

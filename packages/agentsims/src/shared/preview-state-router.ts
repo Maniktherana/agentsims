@@ -2,10 +2,10 @@ import { watch, type FSWatcher } from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { readDeviceStates, selectDeviceState } from "./device-lifecycle";
 import { debugMw } from "./debug";
-import { STATE_DIR, type ServeSimDeviceState } from "./state";
+import { STATE_DIR, type DeviceState } from "./state";
 
-type PreviewConfigFactory = (state: ServeSimDeviceState) => unknown;
-type StateExposure = (state: ServeSimDeviceState) => ServeSimDeviceState;
+type PreviewConfigFactory = (state: DeviceState) => unknown;
+type StateExposure = (state: DeviceState) => DeviceState;
 
 export class PreviewStateRouter {
   private lastApiLogKey: string | undefined;
@@ -36,7 +36,7 @@ export class PreviewStateRouter {
   private async currentConfig(
     selectedDevice: string | null,
     expose: StateExposure,
-  ): Promise<{ states: ServeSimDeviceState[]; state: ServeSimDeviceState | null; json: string }> {
+  ): Promise<{ states: DeviceState[]; state: DeviceState | null; json: string }> {
     const states = await readDeviceStates();
     const state = selectDeviceState(states, selectedDevice);
     const exposed = state ? expose(state) : null;
