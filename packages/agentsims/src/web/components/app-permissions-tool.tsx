@@ -198,7 +198,12 @@ function PermBtn({
   title: string;
   children: ReactNode;
 }) {
-  const accent = variant === "grant" ? "#4ade80" : variant === "revoke" ? "#f87171" : "#a5b4fc";
+  const accent =
+    variant === "grant"
+      ? "#4ade80"
+      : variant === "revoke"
+        ? "#f87171"
+        : "var(--agentsims-accent)";
   return (
     <button
       onClick={onClick}

@@ -32,7 +32,7 @@ export function UploadToastContent({ toast }: { toast: UploadToast }) {
           className="size-1.5 rounded-full shrink-0 [transition:background_0.3s]"
           style={{
             background: isUploading
-              ? "#a5b4fc"
+              ? "var(--agentsims-accent)"
               : toast.status === "success"
               ? "#4ade80"
               : "#f87171",

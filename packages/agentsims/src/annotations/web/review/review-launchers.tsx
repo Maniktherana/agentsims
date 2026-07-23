@@ -156,7 +156,7 @@ export function ReviewLaunchers({
                 size={dockHost ? "dock" : "compact"}
                 surface="toolbar"
                 onClick={onComposeMulti}
-                className="bg-indigo-400/10 text-indigo-100 hover:bg-indigo-400/16"
+                className="bg-accent/10 text-white/90 hover:bg-accent/16"
               >
                 <MessageSquarePlus size={dockHost ? 16 : 14} strokeWidth={2} />
               </ReviewIconButton>

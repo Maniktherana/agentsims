@@ -811,7 +811,7 @@ export function SimulatorDeviceView({
               // No backdrop-blur here: the canvas underneath repaints every
               // stream frame, and backdrop-filter forces a full re-blur per
               // frame for the whole drag — the tint alone stays cheap.
-              className="absolute inset-0 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-[rgba(99,102,241,0.18)] text-accent pointer-events-none z-20"
+              className="absolute inset-0 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-[color-mix(in_oklch,var(--agentsims-accent)_16%,transparent)] text-accent pointer-events-none z-20"
               style={{ borderRadius: useChrome ? undefined : imgBorderRadius }}
             >
               <Upload size={32} strokeWidth={1.5} />
@@ -847,13 +847,14 @@ export function SimulatorDeviceView({
             deviceRuntime={deviceRuntime}
             streaming={streaming}
             aria-label="Simulator actions"
+            className="agentsims-simulator-actions"
             style={{
               alignSelf: "center",
               width: "auto",
               minWidth: 0,
               maxWidth: "100%",
               justifyContent: "center",
-              padding: "6px 8px",
+              padding: "4px 6px",
               borderRadius: 10,
             }}
           >

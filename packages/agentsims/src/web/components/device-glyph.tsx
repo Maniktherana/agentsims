@@ -1,6 +1,6 @@
 import type { DeviceType } from "../simulator";
 
-const SCREEN_ON_FILL = "#47b7ff";
+const SCREEN_ON_FILL = "var(--agentsims-device-screen-on)";
 
 // Compact device-family glyphs for the sidebar rows. Stroked outlines keyed off
 // `getDeviceType(name)` — a stand-in when a device has no live stream thumbnail.

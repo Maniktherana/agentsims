@@ -70,6 +70,7 @@ describe("WorkspaceHeader", () => {
     expect(html).toContain("Available");
     expect(html).toContain("iPhone 16");
     expect(html).toContain("Pixel 10");
+    expect(html).toContain("overflow-x-hidden overflow-y-auto");
     expect(html).not.toContain(">Add sim</button>");
   });
 

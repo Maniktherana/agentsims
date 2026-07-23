@@ -1,3 +1,4 @@
+import { Tooltip } from "@base-ui/react/tooltip";
 import { useReducer, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -83,7 +84,7 @@ function App() {
   };
 
   return (
-    <>
+    <Tooltip.Provider delay={0} closeDelay={0}>
       <AgentsimsBrandLink className="fixed left-3 top-3 z-30 bg-[#181818]/90 px-2 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] [border-radius:8px]" />
       <WorkspaceCanvas
         visibleDeviceIds={workspace.visibleDeviceIds}
@@ -180,7 +181,7 @@ function App() {
         hasActiveDevice={workspace.visibleDeviceIds.length > 0}
         onResetLayout={resetWorkspaceLayout}
       />
-    </>
+    </Tooltip.Provider>
   );
 }
 

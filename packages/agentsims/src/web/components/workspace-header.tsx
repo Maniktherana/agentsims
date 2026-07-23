@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -25,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { type GridDevice, runtimeLabel } from "../utils/grid";
+import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
 import { DeviceRow } from "./device-row";
 import { Tabs, TabsList, TabsTrigger } from "./tabs";
 
@@ -104,6 +104,8 @@ export function WorkspaceHeader({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const wasSearchingRef = useRef(false);
   const [reviewControlsWidth, setReviewControlsWidth] = useState(40);
+  const [dockWidthAnimating, setDockWidthAnimating] = useState(false);
+  const previousDockWidthRef = useRef<number | null>(null);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized || !devices) return devices;
@@ -164,6 +166,14 @@ export function WorkspaceHeader({
       )
     : 50;
 
+  useLayoutEffect(() => {
+    const previousWidth = previousDockWidthRef.current;
+    previousDockWidthRef.current = dockWidth;
+    if (previousWidth !== null && previousWidth !== dockWidth) {
+      setDockWidthAnimating(true);
+    }
+  }, [dockWidth]);
+
   useEffect(() => {
     if (!pickerOpen) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -184,7 +194,17 @@ export function WorkspaceHeader({
     const slot = reviewSlotRef.current;
     if (!slot || typeof ResizeObserver === "undefined") return;
     const updateWidth = () => {
-      const nextWidth = Math.max(40, Math.ceil(slot.getBoundingClientRect().width));
+      // The launcher animates its own inline width. Measuring the slot here
+      // would feed every in-between frame into the dock spring, making the
+      // parent chase the child. Read the declared destination width so both
+      // animations begin together and settle in one pass.
+      const launcher = slot.querySelector<HTMLElement>("[data-review-launcher]");
+      const declaredWidth = Number.parseFloat(launcher?.style.width ?? "");
+      const measuredWidth = slot.getBoundingClientRect().width;
+      const nextWidth = Math.max(
+        40,
+        Math.ceil(Number.isFinite(declaredWidth) ? declaredWidth : measuredWidth),
+      );
       setReviewControlsWidth((current) =>
         current === nextWidth ? current : nextWidth
       );
@@ -294,8 +314,9 @@ export function WorkspaceHeader({
           animate={{
             width: dockWidth,
             height: dockHeight,
-            borderRadius: expanded ? 16 : 12,
+            borderRadius: expanded ? 16 : 10,
           }}
+          onAnimationComplete={() => setDockWidthAnimating(false)}
           className="pointer-events-auto relative flex max-w-[calc(100vw-24px)] flex-col overflow-visible border border-white/[0.1] bg-[#181818] shadow-[0_18px_56px_rgba(0,0,0,0.5)]"
         >
           <motion.div
@@ -427,7 +448,13 @@ export function WorkspaceHeader({
             </AnimatePresence>
           </motion.div>
 
-          <div className="flex h-12 shrink-0 items-center justify-center gap-1 p-1">
+          <div
+            className={`flex h-12 w-full min-w-0 shrink-0 items-center justify-center gap-1 p-1 ${
+              dockWidthAnimating
+                ? "overflow-x-clip overflow-y-visible"
+                : "overflow-visible"
+            }`}
+          >
             <div
               className="relative flex h-10 shrink-0 items-center justify-center"
             >
@@ -519,45 +546,22 @@ function WorkspaceDockButton({
   shortcutVisible?: boolean;
   children: ReactNode;
 }) {
-  const tooltipId = useId();
   return (
-    <button
+    <ReviewIconButton
       {...buttonProps}
-      type="button"
       disabled={disabled}
-      aria-label={label}
-      aria-describedby={tooltipId}
-      aria-pressed={pressed}
-      className="group relative grid size-10 shrink-0 place-items-center border-0 bg-transparent p-0 [border-radius:8px] outline-none focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-1 focus-visible:ring-offset-[#171719] disabled:pointer-events-none"
+      label={label}
+      tooltip={label}
+      selected={pressed}
+      badge={badge}
+      surface="dock"
+      size="dock"
     >
-      <span
-        className={`relative grid size-10 place-items-center border border-transparent [border-radius:8px] [transition-property:background-color,color,transform,opacity] duration-[110ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] group-active:scale-[0.96] group-disabled:text-white/20 motion-reduce:transition-none motion-reduce:group-active:scale-100 ${
-          pressed
-            ? "bg-white/[0.1] text-white"
-            : "text-white/78 group-hover:bg-white/[0.08] group-hover:text-white"
-        }`}
-      >
-        {children}
-        {badge !== null && badge !== undefined && (
-          <span
-            aria-hidden="true"
-            className="absolute right-0 top-0 grid size-4 place-items-center rounded-full bg-[#303030] text-[9px] font-medium tabular-nums leading-none text-white/80 shadow-[0_0_0_1px_#181818]"
-          >
-            {badge}
-          </span>
-        )}
-      </span>
+      {children}
       {shortcut && (
         <ShortcutHint visible={shortcutVisible}>{shortcut}</ShortcutHint>
       )}
-      <span
-        id={tooltipId}
-        role="tooltip"
-        className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-50 -translate-x-1/2 translate-y-0.5 whitespace-nowrap border border-white/[0.12] bg-[#181818] px-[7px] py-1 text-[11px] font-medium leading-none text-white/90 opacity-0 shadow-[0_4px_14px_rgba(0,0,0,0.32)] [border-radius:6px] [transition:opacity_120ms_ease,transform_120ms_ease] group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:translate-y-0 motion-reduce:transition-none"
-      >
-        {label}
-      </span>
-    </button>
+    </ReviewIconButton>
   );
 }
 
@@ -669,7 +673,7 @@ function DevicePickerContent({
         )}
       </div>
       {runningDevices !== null && (
-        <div className="max-h-44 shrink-0 overflow-y-auto border-t border-white/[0.08] px-2 py-1 [scrollbar-width:thin]">
+        <div className="max-h-44 shrink-0 overflow-x-hidden overflow-y-auto border-t border-white/[0.08] px-2 py-1 [scrollbar-width:thin]">
           <DeviceSectionTitle count={runningDevices.length}>Running</DeviceSectionTitle>
           {runningDevices.length === 0 ? (
             <EmptyDevices>{query ? "No running devices match." : "No devices are running."}</EmptyDevices>
@@ -680,12 +684,12 @@ function DevicePickerContent({
                   key={device.device}
                   device={device}
                   active={device.device === selectedUdid}
-                  checked={visibleUdids.has(device.device)}
-                  showCheckbox
+                  visible={visibleUdids.has(device.device)}
+                  showVisibilityControl
                   starting={!!starting[device.device]}
                   shuttingDown={!!shuttingDown[device.device]}
                   onSelect={() => onSelect(device.device)}
-                  onCheckedChange={(checked) => onToggleVisible(device.device, checked)}
+                  onVisibleChange={(visible) => onToggleVisible(device.device, visible)}
                   onShutdown={() => onShutdown(device.device)}
                 />
               ))}

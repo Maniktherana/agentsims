@@ -12,7 +12,7 @@
   --color-page: #0a0a0a;
 
   /* Accent palette */
-  --color-accent: #a5b4fc;
+  --color-accent: var(--agentsims-accent);
   --color-success: #4ade80;
   --color-success-emerald: #34d399;
   --color-danger: #f87171;
@@ -32,11 +32,13 @@
    show a white option list on the dark panel. */
 :root {
   color-scheme: dark;
+  --agentsims-accent: oklch(0.625 0.205 256);
   --agentsims-panel-bg: #181818;
   /* Frosted-glass overlays (e.g. the resize badge) want the same backing color
      but translucent so `backdrop-blur` still shows the stream through them. */
   --agentsims-panel-bg-translucent: rgba(24, 24, 24, 0.78);
   --agentsims-panel-bg-transparent: rgba(24, 24, 24, 0);
+  --agentsims-device-screen-on: oklch(0.58 0.1 245);
   --agentsims-radius-row: 5px;
   --agentsims-radius-control: 6px;
   --agentsims-radius-surface: 10px;
@@ -54,6 +56,22 @@
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Compact under-device controls. The status toolbar deliberately keeps its
+   existing density; only the action toolbar opts into this smaller footprint. */
+.agentsims-simulator-actions > div {
+  gap: 2px !important;
+}
+
+.agentsims-simulator-actions button {
+  padding: 4px !important;
+  border-radius: 8px !important;
+}
+
+.agentsims-simulator-actions button > svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Collapsible tool sections (<details>) animate open/close height with a

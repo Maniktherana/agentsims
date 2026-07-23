@@ -1,6 +1,7 @@
 import { getDeviceType } from "../simulator";
-import { X } from "lucide-react";
+import { Eye, EyeOff, Power } from "lucide-react";
 import { type GridDevice, runtimeLabel, runtimeVersion } from "../utils/grid";
+import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
 import { DeviceGlyph } from "./device-glyph";
 
 // A single horizontal device row in the sidebar (Xcode-style): family glyph,
@@ -10,22 +11,22 @@ import { DeviceGlyph } from "./device-glyph";
 export function DeviceRow({
   device,
   active,
-  checked,
-  showCheckbox = false,
+  visible,
+  showVisibilityControl = false,
   starting,
   shuttingDown,
   onSelect,
-  onCheckedChange,
+  onVisibleChange,
   onShutdown,
 }: {
   device: GridDevice;
   active: boolean;
-  checked?: boolean;
-  showCheckbox?: boolean;
+  visible?: boolean;
+  showVisibilityControl?: boolean;
   starting: boolean;
   shuttingDown: boolean;
   onSelect: () => void;
-  onCheckedChange?: (checked: boolean) => void;
+  onVisibleChange?: (visible: boolean) => void;
   onShutdown: () => void;
 }) {
   const helper = device.helper;
@@ -45,14 +46,13 @@ export function DeviceRow({
     : runtime;
   const dotColor = helper ? "#34d399" : isBooted ? "#e9a13b" : null;
   const canShutdown = helper || isBooted;
-  const iconBackingClass = helper
-    ? active
-      ? "bg-[#26364c]"
-      : "bg-[#202b3a]"
+  const iconBackingClass = "bg-white/6";
+  const iconColorClass = "text-white/55";
+  const rowStateClass = helper
+    ? "text-white/90 focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/25"
     : active
-    ? "bg-white/15"
-    : "bg-white/6";
-  const iconColorClass = helper ? "text-[#d2e7ff]" : active ? "text-white/90" : "text-white/55";
+      ? "bg-white/10 text-white"
+      : "text-white/90 hover:bg-white/8";
 
   return (
     <div
@@ -66,27 +66,8 @@ export function DeviceRow({
           onSelect();
         }
       }}
-      className={`group relative flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-pointer select-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] ${
-        active
-          ? "bg-white/10 text-white"
-          : "text-white/90 hover:bg-white/8"
-      }`}
+      className={`group relative flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-pointer select-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] ${rowStateClass}`}
     >
-      {showCheckbox && (
-        <label
-          className="grid place-items-center shrink-0 size-5 rounded-md cursor-pointer"
-          title={checked ? "Hide from canvas" : "Show on canvas"}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={!!checked}
-            onChange={(e) => onCheckedChange?.(e.currentTarget.checked)}
-            aria-label={`${checked ? "Hide" : "Show"} ${device.name}`}
-            className="size-4 cursor-pointer accent-[#3b82f6]"
-          />
-        </label>
-      )}
       <div
         className={`relative shrink-0 grid place-items-center size-9 rounded-md overflow-hidden ${iconBackingClass}`}
       >
@@ -116,33 +97,77 @@ export function DeviceRow({
 
       <div
         data-testid="device-row-trailing-slot"
-        className="relative shrink-0 w-8 h-6 flex items-center justify-end"
+        className={
+          showVisibilityControl
+            ? "shrink-0 flex items-center gap-0.5"
+            : "relative shrink-0 w-8 h-6 flex items-center justify-end"
+        }
       >
-        <span
-          className={`absolute right-0 text-[11px] font-mono tabular-nums [transition:opacity_0.12s] ${
-            active ? "text-white/85" : "text-white/40"
-          } ${canShutdown ? "group-hover:opacity-0 group-focus-within:opacity-0" : ""}`}
-        >
-          {version}
-        </span>
+        {showVisibilityControl ? (
+          <>
+            <ReviewIconButton
+              label={`${visible ? "Hide" : "Show"} ${device.name}`}
+              tooltip={visible ? "Hide from canvas" : "Show on canvas"}
+              active={!!visible}
+              surface="toolbar"
+              size="row"
+              className="!border-transparent"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onVisibleChange?.(!visible);
+              }}
+            >
+              {visible ? <Eye size={14} strokeWidth={2} /> : <EyeOff size={14} strokeWidth={2} />}
+            </ReviewIconButton>
+            {canShutdown && (
+              <ReviewIconButton
+                label="Shut down device"
+                tooltip={shuttingDown ? "Shutting down…" : "Shut down"}
+                tone="danger"
+                surface="toolbar"
+                size="row"
+                className="!border-transparent hover:!bg-red-500/20 hover:!text-red-400 focus-visible:!text-red-400"
+                disabled={shuttingDown}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onShutdown();
+                }}
+              >
+                <Power size={14} strokeWidth={2} />
+              </ReviewIconButton>
+            )}
+          </>
+        ) : (
+          <>
+            <span
+              className={`absolute right-0 text-[11px] font-mono tabular-nums [transition:opacity_0.12s] ${
+                active ? "text-white/85" : "text-white/40"
+              } ${canShutdown ? "group-hover:opacity-0 group-focus-within:opacity-0" : ""}`}
+            >
+              {version}
+            </span>
 
-        {canShutdown && (
-          <button
-            type="button"
-            title={shuttingDown ? "Shutting down…" : "Shut down device"}
-            aria-label="Shut down device"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onShutdown();
-            }}
-            disabled={shuttingDown}
-            className={`absolute right-0 top-1/2 -translate-y-1/2 grid place-items-center size-5 rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [transition:opacity_0.12s,background_0.12s,color_0.12s] ${
-              active ? "text-white/80 hover:bg-white/20" : "text-white/70 hover:bg-white/12 hover:text-white"
-            }`}
-          >
-            <X size={13} strokeWidth={2.2} />
-          </button>
+            {canShutdown && (
+              <button
+                type="button"
+                title={shuttingDown ? "Shutting down…" : "Shut down device"}
+                aria-label="Shut down device"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onShutdown();
+                }}
+                disabled={shuttingDown}
+                className={`absolute right-0 top-1/2 -translate-y-1/2 grid place-items-center size-5 rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [transition:opacity_0.12s,background_0.12s,color_0.12s] ${
+                  active ? "text-white/80 hover:bg-white/20" : "text-white/70 hover:bg-white/12 hover:text-white"
+                }`}
+              >
+                <Power size={13} strokeWidth={2.2} />
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

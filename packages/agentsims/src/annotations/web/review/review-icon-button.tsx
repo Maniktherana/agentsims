@@ -1,6 +1,6 @@
+import { Tooltip } from "@base-ui/react/tooltip";
 import {
   forwardRef,
-  useId,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
@@ -13,7 +13,7 @@ export interface ReviewIconButtonProps
   active?: boolean;
   tone?: "neutral" | "danger";
   surface?: "default" | "toolbar" | "dock";
-  size?: "default" | "compact" | "dock" | "toolbar" | "picker" | "launcher";
+  size?: "default" | "compact" | "dock" | "toolbar" | "row" | "picker" | "launcher";
   badge?: number | string | null;
   draft?: boolean;
   children: ReactNode;
@@ -38,7 +38,6 @@ export const ReviewIconButton = forwardRef<HTMLButtonElement, ReviewIconButtonPr
     },
     ref,
   ) {
-    const tooltipId = useId();
     const stateClass = surface === "dock"
       ? selected || active
         ? "border-transparent bg-white/[0.1] text-white"
@@ -62,6 +61,8 @@ export const ReviewIconButton = forwardRef<HTMLButtonElement, ReviewIconButtonPr
         ? "size-10 rounded-[8px]"
       : size === "toolbar"
         ? "size-8 rounded-md"
+        : size === "row"
+          ? "size-6 rounded-md"
         : size === "picker"
           ? "h-8 min-w-[84px] rounded-md px-2"
       : size === "launcher"
@@ -71,25 +72,24 @@ export const ReviewIconButton = forwardRef<HTMLButtonElement, ReviewIconButtonPr
       ? "inline-flex items-center justify-center gap-1.5"
       : "grid place-items-center";
 
-    return (
+    const button = (
       <button
         {...buttonProps}
         ref={ref}
         type="button"
         disabled={disabled}
         aria-label={label}
-        aria-describedby={tooltip ? tooltipId : undefined}
         aria-pressed={selected || active}
-        className={`group relative shrink-0 border-0 bg-transparent p-0 outline-none hover:z-10 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-1 focus-visible:ring-offset-[#171719] disabled:pointer-events-none disabled:opacity-35 ${layoutClass} ${sizeClass}`}
+        className={`group/review-action relative shrink-0 border-0 bg-transparent p-0 outline-none hover:z-10 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-1 focus-visible:ring-offset-[#171719] disabled:pointer-events-none disabled:opacity-35 ${layoutClass} ${sizeClass}`}
       >
         <span
-          className={`relative size-full border [border-radius:inherit] [transition-property:background,color,border-color,transform,opacity] duration-[110ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] group-active:scale-[0.96] motion-reduce:transition-none motion-reduce:group-active:scale-100 ${layoutClass} ${stateClass} ${className}`}
+          className={`relative size-full border [border-radius:inherit] [transition-property:background,color,border-color,transform,opacity] duration-[110ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] group-active/review-action:scale-[0.96] motion-reduce:transition-none motion-reduce:group-active/review-action:scale-100 ${layoutClass} ${stateClass} ${className}`}
         >
           {children}
           {badge !== null && badge !== undefined && (
             <span
               aria-hidden="true"
-              className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-indigo-500 px-1 text-[9px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.42)]"
+              className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.42)]"
             >
               {badge}
             </span>
@@ -101,16 +101,27 @@ export const ReviewIconButton = forwardRef<HTMLButtonElement, ReviewIconButtonPr
             />
           )}
         </span>
-        {tooltip ? (
-          <span
-            id={tooltipId}
-            role="tooltip"
-            className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-50 -translate-x-1/2 translate-y-0.5 whitespace-nowrap border border-white/[0.12] bg-[#181818] px-[7px] py-1 text-[11px] font-medium leading-none text-white/90 opacity-0 shadow-[0_4px_14px_rgba(0,0,0,0.32)] [border-radius:6px] [transition:opacity_120ms_ease,transform_120ms_ease] group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:translate-y-0 motion-reduce:transition-none"
-          >
-            {tooltip}
-          </span>
-        ) : null}
       </button>
+    );
+
+    if (!tooltip) return button;
+
+    return (
+      <Tooltip.Root disabled={disabled}>
+        <Tooltip.Trigger render={button} closeOnClick />
+        <Tooltip.Portal>
+          <Tooltip.Positioner
+            side="top"
+            sideOffset={8}
+            collisionPadding={8}
+            className="z-[9999]"
+          >
+            <Tooltip.Popup className="pointer-events-none whitespace-nowrap border border-white/[0.12] bg-[#181818] px-[7px] py-1 text-[11px] font-medium leading-none text-white/90 shadow-[0_4px_14px_rgba(0,0,0,0.32)] [border-radius:6px] [transform-origin:var(--transform-origin)] [transition:opacity_110ms_ease-out,transform_110ms_ease-out] data-ending-style:translate-y-0.5 data-ending-style:opacity-0 data-instant:transition-none data-starting-style:translate-y-0.5 data-starting-style:opacity-0 motion-reduce:transition-none">
+              {tooltip}
+            </Tooltip.Popup>
+          </Tooltip.Positioner>
+        </Tooltip.Portal>
+      </Tooltip.Root>
     );
   },
 );

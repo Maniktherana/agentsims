@@ -88,28 +88,47 @@ describe("DeviceRow", () => {
     expect(html).toContain("text-[#34d399]");
   });
 
-  test("keeps the runtime and shutdown button in a stable trailing slot", () => {
-    const html = render({
-      device: "streaming",
-      name: "iPhone 16",
-      runtime: "iOS-26-5",
-      state: "Booted",
-      helper: {
-        port: 3100,
-        url: "http://localhost:3100",
-        streamUrl: "http://localhost:3100/stream.mjpeg",
-        wsUrl: "ws://localhost:3100/ws",
-      },
-    });
+  test("uses visible eye and power actions instead of a checkbox and trailing version", () => {
+    const html = renderToStaticMarkup(
+      <DeviceRow
+        device={{
+          device: "streaming",
+          name: "iPhone 16",
+          runtime: "iOS-26-5",
+          state: "Booted",
+          helper: {
+            port: 3100,
+            url: "http://localhost:3100",
+            streamUrl: "http://localhost:3100/stream.mjpeg",
+            wsUrl: "ws://localhost:3100/ws",
+          },
+        }}
+        active
+        visible
+        showVisibilityControl
+        starting={false}
+        shuttingDown={false}
+        onSelect={noop}
+        onVisibleChange={noop}
+        onShutdown={noop}
+      />,
+    );
 
     expect(html).toContain('data-testid="device-row-trailing-slot"');
-    expect(html).toContain("w-8 h-6");
-    expect(html).toContain("group-hover:opacity-0");
-    expect(html).toContain("group-hover:opacity-100");
-    expect(html).not.toContain("group-hover:hidden");
+    expect(html).toContain('aria-label="Hide iPhone 16"');
+    expect(html).toContain('aria-label="Shut down device"');
+    expect(html).toContain("lucide-eye");
+    expect(html).toContain("lucide-power");
+    expect(html.match(/data-base-ui-tooltip-trigger/g)).toHaveLength(2);
+    expect(html).toContain("hover:!text-red-400");
+    expect(html).toContain("!border-transparent");
+    expect(html).toContain("group/review-action");
+    expect(html).not.toContain("group-hover:opacity-100");
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).not.toContain(">26.5</span>");
   });
 
-  test("uses a light overlay instead of a bright blue selected state", () => {
+  test("does not add active or hover fills to running rows", () => {
     const html = render(
       {
         device: "streaming",
@@ -126,8 +145,14 @@ describe("DeviceRow", () => {
       true,
     );
 
-    expect(html).toContain("bg-white/10");
+    expect(html).not.toContain("bg-white/10");
+    expect(html).not.toContain("hover:bg-white/8");
+    expect(html).toContain("focus-visible:outline-white/25");
+    expect(html).toContain("bg-white/6");
+    expect(html).not.toContain("agentsims-device-tile-running-selected");
     expect(html).not.toContain("bg-[#0a84ff]");
+    expect(html).not.toContain("bg-[#26364c]");
     expect(html).not.toContain("shadow-[inset");
   });
+
 });
