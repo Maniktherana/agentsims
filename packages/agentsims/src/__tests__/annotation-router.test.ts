@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
 import type { IncomingMessage, ServerResponse } from "http";
+import { legacyAnnotationScope, type AnnotationScope } from "../annotations/model";
 import { AnnotationRouter } from "../annotations/router";
 
 type RouterResponse = {
@@ -64,11 +65,25 @@ describe("AnnotationRouter", () => {
       body: annotation,
     });
     expect(created.status).toBe(201);
-    expect(JSON.parse(created.body)).toEqual({ ok: true, annotation });
+    expect(JSON.parse(created.body)).toEqual({
+      ok: true,
+      annotation: {
+        ...annotation,
+        scope: legacyAnnotationScope(device),
+        status: "open",
+      },
+    });
 
     const listed = await request(router, device, { method: "GET", url: endpoint });
     expect(listed.status).toBe(200);
-    expect(JSON.parse(listed.body)).toEqual({ device, annotations: [annotation] });
+    expect(JSON.parse(listed.body)).toEqual({
+      device,
+      annotations: [{
+        ...annotation,
+        scope: legacyAnnotationScope(device),
+        status: "open",
+      }],
+    });
 
     const removed = await request(router, device, {
       method: "DELETE",
@@ -91,5 +106,72 @@ describe("AnnotationRouter", () => {
       body: { id: "blocked" },
     });
     expect(response.status).toBe(403);
+  });
+
+  test("isolates scoped records while legacy device-only reads remain compatible", async () => {
+    const endpoint = "/preview/annotations";
+    const firstScope: AnnotationScope = {
+      projectId: "router-project",
+      bundleId: "com.example.router",
+      sessionId: "first",
+      captureDeviceId: device,
+      capturePlatform: "ios",
+    };
+    const secondScope: AnnotationScope = {
+      ...firstScope,
+      sessionId: "second",
+      route: "/details",
+    };
+    const scopedUrl = (scope: AnnotationScope) => {
+      const params = new URLSearchParams({
+        projectId: scope.projectId,
+        bundleId: scope.bundleId,
+        sessionId: scope.sessionId,
+        captureDeviceId: scope.captureDeviceId,
+        capturePlatform: scope.capturePlatform,
+      });
+      if (scope.route) params.set("route", scope.route);
+      return `${endpoint}?${params}`;
+    };
+
+    await request(router, device, {
+      method: "POST",
+      url: scopedUrl(firstScope),
+      headers: { "content-type": "application/json", origin, host },
+      body: { id: "first-note", note: "First" },
+    });
+    await request(router, device, {
+      method: "POST",
+      url: scopedUrl(secondScope),
+      headers: { "content-type": "application/json", origin, host },
+      body: { id: "second-note", note: "Second" },
+    });
+
+    const scoped = await request(router, device, {
+      method: "GET",
+      url: scopedUrl(firstScope),
+    });
+    expect(JSON.parse(scoped.body).annotations.map(
+      (annotation: { id: string }) => annotation.id,
+    )).toEqual(["first-note"]);
+
+    const all = await request(router, device, { method: "GET", url: endpoint });
+    expect(JSON.parse(all.body).annotations.map(
+      (annotation: { id: string }) => annotation.id,
+    ).sort()).toEqual(["first-note", "second-note"]);
+
+    const mismatched = await request(router, device, {
+      method: "POST",
+      url: scopedUrl(firstScope),
+      headers: { "content-type": "application/json", origin, host },
+      body: { id: "mismatched-note", scope: secondScope },
+    });
+    expect(mismatched.status).toBe(400);
+
+    await request(router, device, {
+      method: "DELETE",
+      url: endpoint,
+      headers: { origin, host },
+    });
   });
 });

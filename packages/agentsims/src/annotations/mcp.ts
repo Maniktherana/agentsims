@@ -2,10 +2,16 @@ import { readFileSync } from "fs";
 import {
   listStoredAnnotationDevices,
   listStoredAnnotations,
-  upsertStoredAnnotation,
+  setStoredAnnotationStatus,
   type StoredAnnotation,
 } from "./server-store";
-import { listStateFiles, type ServeSimDeviceState } from "../shared/state";
+import { listStateFiles, type DeviceState } from "../shared/state";
+import {
+  annotationStatus,
+  isAnnotationScope,
+  type AnnotationScope,
+  type AnnotationStatus,
+} from "./model";
 
 type JsonRpcId = string | number | null;
 
@@ -21,6 +27,26 @@ interface ToolCallParams {
   arguments?: Record<string, unknown>;
 }
 
+const SCOPE_SCHEMA = {
+  type: "object",
+  required: [
+    "projectId",
+    "bundleId",
+    "sessionId",
+    "captureDeviceId",
+    "capturePlatform",
+  ],
+  properties: {
+    projectId: { type: "string" },
+    bundleId: { type: "string" },
+    sessionId: { type: "string" },
+    route: { type: "string" },
+    captureDeviceId: { type: "string" },
+    capturePlatform: { type: "string", enum: ["ios", "android"] },
+  },
+  additionalProperties: false,
+} as const;
+
 const TOOLS = [
   {
     name: "agentsims_list_devices",
@@ -35,6 +61,7 @@ const TOOLS = [
       properties: {
         device: { type: "string", description: "Optional Agentsims device id." },
         includeResolved: { type: "boolean", default: false },
+        scope: SCOPE_SCHEMA,
       },
       additionalProperties: false,
     },
@@ -46,6 +73,7 @@ const TOOLS = [
       type: "object",
       properties: {
         device: { type: "string" },
+        scope: SCOPE_SCHEMA,
         since: { type: "number", description: "Unix time in milliseconds. Omit to return existing pending annotations immediately." },
         timeoutMs: { type: "number", minimum: 0, maximum: 30000, default: 30000 },
       },
@@ -61,6 +89,21 @@ const TOOLS = [
       properties: {
         device: { type: "string" },
         id: { type: "string" },
+        scope: SCOPE_SCHEMA,
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "agentsims_reopen_annotation",
+    description: "Reopen a resolved annotation when more work is required.",
+    inputSchema: {
+      type: "object",
+      required: ["device", "id"],
+      properties: {
+        device: { type: "string" },
+        id: { type: "string" },
+        scope: SCOPE_SCHEMA,
       },
       additionalProperties: false,
     },
@@ -77,10 +120,10 @@ const TOOLS = [
   },
 ] as const;
 
-function readLiveStates(): ServeSimDeviceState[] {
+function readLiveStates(): DeviceState[] {
   return listStateFiles().flatMap((path) => {
     try {
-      return [JSON.parse(readFileSync(path, "utf8")) as ServeSimDeviceState];
+      return [JSON.parse(readFileSync(path, "utf8")) as DeviceState];
     } catch {
       return [];
     }
@@ -88,16 +131,27 @@ function readLiveStates(): ServeSimDeviceState[] {
 }
 
 function pending(annotation: StoredAnnotation): boolean {
-  return annotation.status !== "resolved";
+  return annotationStatus(annotation) === "open";
 }
 
 function updatedAt(annotation: StoredAnnotation): number {
   return typeof annotation.updatedAt === "number" ? annotation.updatedAt : 0;
 }
 
-function annotationsResult(device?: string, includeResolved = false) {
-  const devices = device
-    ? [{ device, annotations: listStoredAnnotations(device) }]
+function annotationScopeArgument(args: Record<string, unknown>): AnnotationScope | undefined {
+  if (args.scope === undefined) return undefined;
+  if (!isAnnotationScope(args.scope)) throw new Error("scope is invalid");
+  return args.scope;
+}
+
+function annotationsResult(
+  device?: string,
+  includeResolved = false,
+  scope?: AnnotationScope,
+) {
+  const scopedDevice = device ?? scope?.captureDeviceId;
+  const devices = scopedDevice
+    ? [{ device: scopedDevice, annotations: listStoredAnnotations(scopedDevice, scope) }]
     : listStoredAnnotationDevices();
   return {
     devices: devices.map((entry) => ({
@@ -109,13 +163,17 @@ function annotationsResult(device?: string, includeResolved = false) {
 
 async function waitForAnnotations(args: Record<string, unknown>) {
   const device = typeof args.device === "string" ? args.device : undefined;
+  const scope = annotationScopeArgument(args);
+  if (scope && device && scope.captureDeviceId !== device) {
+    throw new Error("scope captureDeviceId must match device");
+  }
   const since = typeof args.since === "number" ? args.since : null;
   const timeoutMs = Math.max(0, Math.min(30_000, typeof args.timeoutMs === "number" ? args.timeoutMs : 30_000));
   const deadline = Date.now() + timeoutMs;
   let firstAttempt = true;
   while (firstAttempt || Date.now() < deadline) {
     firstAttempt = false;
-    const result = annotationsResult(device, false);
+    const result = annotationsResult(device, false, scope);
     const matching = result.devices.map((entry) => ({
       ...entry,
       annotations: since === null
@@ -129,16 +187,19 @@ async function waitForAnnotations(args: Record<string, unknown>) {
   return { timedOut: true, devices: [], observedAt: Date.now() };
 }
 
-function resolveAnnotation(args: Record<string, unknown>) {
+function updateAnnotationLifecycle(
+  args: Record<string, unknown>,
+  status: AnnotationStatus,
+) {
   const device = typeof args.device === "string" ? args.device : "";
   const id = typeof args.id === "string" ? args.id : "";
   if (!device || !id) throw new Error("device and id are required");
-  const annotation = listStoredAnnotations(device).find((entry) => entry.id === id);
-  if (!annotation) throw new Error(`Annotation ${id} was not found on ${device}`);
-  const now = Date.now();
-  const resolved = { ...annotation, status: "resolved", resolvedAt: now, updatedAt: now };
-  upsertStoredAnnotation(device, resolved);
-  return { device, annotation: resolved };
+  const scope = annotationScopeArgument(args);
+  if (scope && scope.captureDeviceId !== device) {
+    throw new Error("scope captureDeviceId must match device");
+  }
+  const annotation = setStoredAnnotationStatus(device, id, status, scope);
+  return { device, annotation };
 }
 
 async function captureScreenshot(args: Record<string, unknown>) {
@@ -173,11 +234,14 @@ async function callTool(params: ToolCallParams) {
       return annotationsResult(
         typeof args.device === "string" ? args.device : undefined,
         args.includeResolved === true,
+        annotationScopeArgument(args),
       );
     case "agentsims_watch_annotations":
       return await waitForAnnotations(args);
     case "agentsims_resolve_annotation":
-      return resolveAnnotation(args);
+      return updateAnnotationLifecycle(args, "resolved");
+    case "agentsims_reopen_annotation":
+      return updateAnnotationLifecycle(args, "open");
     case "agentsims_capture_screenshot":
       return await captureScreenshot(args);
     default:

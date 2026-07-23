@@ -9,6 +9,7 @@ export type { AxElement, AxRect, AxSnapshot } from "./model";
 const MAX_ELEMENTS = 500;
 const POLL_INTERVAL_MS = 500;
 const MAX_POLL_INTERVAL_MS = 2000;
+const ANDROID_POLL_INTERVAL_MS = 1000;
 const UNAVAILABLE_RETRY_INTERVAL_MS = 15_000;
 
 interface RawAxeNode {
@@ -153,46 +154,71 @@ interface AxStreamer {
   dispose(): void;
 }
 
-function createAxStreamer({ udid }: { udid: string }): AxStreamer {
+export interface AxStreamerCacheOptions {
+  collect?: (udid: string) => Promise<AxSnapshot>;
+  now?: () => number;
+  androidPollIntervalMs?: number;
+}
+
+function createAxStreamer({
+  udid,
+  collect = collectAxSnapshot,
+  now = Date.now,
+  androidPollIntervalMs = ANDROID_POLL_INTERVAL_MS,
+}: {
+  udid: string;
+} & AxStreamerCacheOptions): AxStreamer {
   const clients = new Set<{ write(chunk: string): void }>();
+  const basePollIntervalMs = androidSerialFromStateId(udid)
+    ? androidPollIntervalMs
+    : POLL_INTERVAL_MS;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let latestMessage: string | null = null;
-  let pollIntervalMs = POLL_INTERVAL_MS;
+  let latestCollectedAt = 0;
+  let latestUsable = false;
+  let retryNotBefore = 0;
+  let pollIntervalMs = basePollIntervalMs;
   let polling = false;
   let disposed = false;
 
-  const schedule = () => {
+  const schedule = (delayMs = pollIntervalMs) => {
     if (disposed || clients.size === 0 || timer) return;
-    timer = setTimeout(poll, pollIntervalMs);
+    timer = setTimeout(poll, delayMs);
   };
 
   const poll = async () => {
     timer = null;
     if (disposed || polling || clients.size === 0) {
-      schedule();
       return;
     }
 
     polling = true;
+    let retry = true;
     try {
-      const next = await collectAxSnapshot(udid);
+      const next = await collect(udid);
       const nextMessage = sseMessage(next);
       if (nextMessage !== latestMessage) {
         for (const client of clients) client.write(nextMessage);
-        pollIntervalMs = POLL_INTERVAL_MS;
+        pollIntervalMs = basePollIntervalMs;
       } else {
         pollIntervalMs = Math.min(pollIntervalMs * 2, MAX_POLL_INTERVAL_MS);
       }
       latestMessage = nextMessage;
+      latestCollectedAt = now();
+      latestUsable = isUsableAxSnapshot(next);
       // If the helper says AX is unavailable (framework missing, sim
       // booting), keep polling but back off so we recover automatically
       // without spamming requests.
-      if (isAxUnavailableSnapshot(next)) {
+      if (isAxUnavailableSnapshot(next) || !latestUsable) {
         pollIntervalMs = UNAVAILABLE_RETRY_INTERVAL_MS;
+        retryNotBefore = latestCollectedAt + UNAVAILABLE_RETRY_INTERVAL_MS;
+        retry = true;
+      } else {
+        retryNotBefore = 0;
       }
     } finally {
       polling = false;
-      schedule();
+      if (retry) schedule();
     }
   };
 
@@ -201,7 +227,18 @@ function createAxStreamer({ udid }: { udid: string }): AxStreamer {
       if (disposed) return () => {};
       clients.add(res);
       if (latestMessage) res.write(latestMessage);
-      void poll();
+      if (!latestMessage) {
+        void poll();
+      } else if (!latestUsable) {
+        const retryDelay = Math.max(0, retryNotBefore - now());
+        if (retryDelay === 0) void poll();
+        else schedule(retryDelay);
+      } else {
+        // Both platforms stay live while a review client is connected.
+        // Android uses a slower base cadence because UIAutomator snapshots
+        // are materially more expensive than the iOS native AX bridge.
+        schedule(Math.max(0, basePollIntervalMs - (now() - latestCollectedAt)));
+      }
       return () => {
         clients.delete(res);
         if (clients.size === 0 && timer) {
@@ -229,7 +266,9 @@ export interface AxStreamerCache {
   size(): number;
 }
 
-export function createAxStreamerCache(): AxStreamerCache {
+export function createAxStreamerCache(
+  options: AxStreamerCacheOptions = {},
+): AxStreamerCache {
   const streamers = new Map<string, AxStreamer>();
 
   return {
@@ -241,7 +280,7 @@ export function createAxStreamerCache(): AxStreamerCache {
       const existing = streamers.get(udid);
       if (existing) return existing;
 
-      const streamer = createAxStreamer({ udid });
+      const streamer = createAxStreamer({ udid, ...options });
       streamers.set(udid, streamer);
       return streamer;
     },

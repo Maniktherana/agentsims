@@ -1,5 +1,4 @@
-import type { AxElement } from "../model";
-import type { AnnotationEntry } from "./use-ax-snapshot";
+import type { AnnotationEntry, AxElement } from "../../model";
 import { axElementSummary, axFrameString, axNodeForElement } from "./ax";
 
 export function annotationElementLabel(element: AxElement | null) {
@@ -8,6 +7,20 @@ export function annotationElementLabel(element: AxElement | null) {
     return element.source.componentName || element.source.elementName || "React Native element";
   }
   return element.label || element.value || element.role || element.type || "Unlabeled element";
+}
+
+export function annotationElementHoverLabel(element: AxElement) {
+  const component = element.source?.componentName || element.source?.elementName;
+  const nativeLabel = annotationElementLabel(element);
+  if (!component) return nativeLabel;
+  if (
+    nativeLabel === component ||
+    nativeLabel === "Unlabeled element" ||
+    /^ags_[a-f0-9_]+$/i.test(nativeLabel)
+  ) {
+    return component;
+  }
+  return `${component} ${JSON.stringify(nativeLabel)}`;
 }
 
 export function annotationElementDetails(element: AxElement | null, index = 0) {
@@ -26,16 +39,11 @@ export function annotationSourceLabel(element: AxElement | null) {
 export function annotationSourceLine(element: AxElement | null) {
   const source = element?.source;
   if (!source) return null;
-  const location = source.file
-    ? `${source.file}${source.line ? `:${source.line}` : ""}${source.column ? `:${source.column}` : ""}`
-    : "unknown file";
   const component = source.componentName || source.elementName || "React Native element";
-  const details = [
-    source.ownerStack?.length ? `owners ${source.ownerStack.join(" > ")}` : "",
-    source.route ? `route ${source.route}` : "",
-    source.visibleText ? `text ${JSON.stringify(source.visibleText)}` : "",
-  ].filter(Boolean).join(", ");
-  return `${component} at ${location} (${source.confidence}, testID ${source.testID}${details ? `, ${details}` : ""})`;
+  if (!source.file) return component;
+  const location =
+    `${source.file}${source.line ? `:${source.line}` : ""}${source.column ? `:${source.column}` : ""}`;
+  return `${component} at ${location}`;
 }
 
 export function annotationEntryElements(annotation: AnnotationEntry) {
@@ -125,8 +133,26 @@ export function buildAnnotationPrompt({
         if (target.testId) {
           lines.push(`   - testID/native id: ${target.testId}`);
         }
-        const source = annotationSourceLine(target);
-        if (source) lines.push(`   - Source: ${source}`);
+        const source = target.source;
+        if (source) {
+          const component =
+            source.componentName || source.elementName || "React Native element";
+          lines.push(`   - React component: ${component}`);
+          if (source.file) {
+            lines.push(
+              `   - Source: ${source.file}${source.line ? `:${source.line}` : ""}${source.column ? `:${source.column}` : ""}`,
+            );
+          }
+          if (source.ownerStack?.length) {
+            lines.push(`   - React owners: ${source.ownerStack.join(" > ")}`);
+          }
+          if (source.route) {
+            lines.push(`   - Route: ${source.route}`);
+          }
+          if (source.visibleText) {
+            lines.push(`   - Visible text: ${JSON.stringify(source.visibleText)}`);
+          }
+        }
         lines.push(`   - Native id/path: ${target.id || "none"} / ${target.path}`);
       });
     });

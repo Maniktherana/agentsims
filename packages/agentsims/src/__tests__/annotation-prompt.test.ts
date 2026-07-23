@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AxElement } from "../annotations/model";
-import { buildAnnotationPrompt } from "../annotations/web/prompt";
-import type { AnnotationEntry } from "../annotations/web/use-ax-snapshot";
+import type { AnnotationEntry } from "../annotations/model";
+import { buildAnnotationPrompt } from "../annotations/web/core/prompt";
 
 const element: AxElement = {
   id: "pay-now-button",
@@ -53,7 +53,9 @@ describe("buildAnnotationPrompt", () => {
     expect(prompt).toContain("Feedback: Raise this CTA above the home gesture area.");
     expect(prompt).toContain("Bounds: 24,612 342x52");
     expect(prompt).toContain("testID/native id: pay-now-button");
-    expect(prompt).toContain("PayButton at src/features/checkout/PaymentFooter.tsx:88:5");
+    expect(prompt).toContain("React component: PayButton");
+    expect(prompt).toContain("Source: src/features/checkout/PaymentFooter.tsx:88:5");
+    expect(prompt).not.toContain("testID undefined");
     expect(prompt).toContain("Native id/path: pay-now-button / /0/2/4");
   });
 
@@ -111,6 +113,7 @@ describe("buildAnnotationPrompt", () => {
     expect(prompt).toContain("2. 2 selected elements");
     expect(prompt).toContain("Target 1: Pay now");
     expect(prompt).toContain("Target 2: $24.00");
-    expect(prompt).toContain("PriceLabel at src/features/checkout/PaymentFooter.tsx:74:5");
+    expect(prompt).toContain("React component: PriceLabel");
+    expect(prompt).toContain("Source: src/features/checkout/PaymentFooter.tsx:74:5");
   });
 });

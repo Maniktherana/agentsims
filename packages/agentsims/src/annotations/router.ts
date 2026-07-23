@@ -9,9 +9,14 @@ import {
   readStoredScreenshot,
   removeStoredAnnotation,
   upsertStoredAnnotation,
+  watchStoredAnnotations,
   writeStoredScreenshot,
   type StoredAnnotation,
 } from "./server-store";
+import {
+  isAnnotationScope,
+  type AnnotationScope,
+} from "./model";
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, {
@@ -64,6 +69,37 @@ function readJsonBody<T>(req: IncomingMessage, maxBytes = 2 * 1024 * 1024): Prom
   });
 }
 
+function annotationScopeFromSearchParams(
+  searchParams: URLSearchParams,
+): AnnotationScope | undefined {
+  const projectId = searchParams.get("projectId");
+  const bundleId = searchParams.get("bundleId");
+  const sessionId = searchParams.get("sessionId");
+  const route = searchParams.get("route");
+  const captureDeviceId = searchParams.get("captureDeviceId");
+  const capturePlatform = searchParams.get("capturePlatform");
+  const hasScope = [
+    projectId,
+    bundleId,
+    sessionId,
+    route,
+    captureDeviceId,
+    capturePlatform,
+  ].some((value) => value !== null);
+  if (!hasScope) return undefined;
+
+  const candidate = {
+    projectId,
+    bundleId,
+    sessionId,
+    ...(route === null ? {} : { route }),
+    captureDeviceId,
+    capturePlatform,
+  };
+  if (!isAnnotationScope(candidate)) throw new Error("Invalid annotation scope");
+  return candidate;
+}
+
 export function annotationBasePath(base: string): string {
   return base === "" ? "/annotations" : `${base}/annotations`;
 }
@@ -86,6 +122,16 @@ export class AnnotationRouter {
     const parsed = new URL(rawUrl || "/", "http://agentsims.local");
     const url = parsed.pathname;
     if (url !== this.basePath && !url.startsWith(`${this.basePath}/`)) return false;
+    let scope: AnnotationScope | undefined;
+    try {
+      scope = annotationScopeFromSearchParams(parsed.searchParams);
+      if (scope && selectedDevice && scope.captureDeviceId !== selectedDevice) {
+        throw new Error("Annotation scope device does not match the selected device");
+      }
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      return true;
+    }
 
     if (url.startsWith(this.screenshotPrefix) && req.method === "GET") {
       const screenshot = readStoredScreenshot(url.slice(this.screenshotPrefix.length));
@@ -132,6 +178,44 @@ export class AnnotationRouter {
       return true;
     }
 
+    if (url === `${this.basePath}/events` && req.method === "GET") {
+      if (!selectedDevice) {
+        sendJson(res, 400, { error: "Missing device" });
+        return true;
+      }
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      res.write(":\n\n");
+
+      let closed = false;
+      let lastPayload = "";
+      const emit = () => {
+        if (closed || res.writableEnded) return;
+        const payload = JSON.stringify({
+          device: selectedDevice,
+          annotations: listStoredAnnotations(selectedDevice, scope),
+        });
+        if (payload === lastPayload) return;
+        lastPayload = payload;
+        res.write(`data: ${payload}\n\n`);
+      };
+      emit();
+      const stopWatching = watchStoredAnnotations(emit);
+      const heartbeat = setInterval(() => {
+        if (!closed && !res.writableEnded) res.write(":\n\n");
+      }, 15_000);
+      req.on("close", () => {
+        closed = true;
+        clearInterval(heartbeat);
+        stopWatching();
+      });
+      return true;
+    }
+
     if (url === this.basePath && req.method === "GET") {
       if (!selectedDevice) {
         sendJson(res, 400, { error: "Missing device" });
@@ -139,7 +223,7 @@ export class AnnotationRouter {
       }
       sendJson(res, 200, {
         device: selectedDevice,
-        annotations: listStoredAnnotations(selectedDevice),
+        annotations: listStoredAnnotations(selectedDevice, scope),
       });
       return true;
     }
@@ -158,8 +242,9 @@ export class AnnotationRouter {
         if (!annotation || typeof annotation !== "object" || typeof annotation.id !== "string") {
           throw new Error("Invalid annotation");
         }
-        upsertStoredAnnotation(selectedDevice, annotation);
-        sendJson(res, 201, { ok: true, annotation });
+        const annotations = upsertStoredAnnotation(selectedDevice, annotation, scope);
+        const stored = annotations.find((entry) => entry.id === annotation.id);
+        sendJson(res, 201, { ok: true, annotation: stored });
       } catch (error) {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -173,7 +258,7 @@ export class AnnotationRouter {
       }
       try {
         const id = parsed.searchParams.get("id") ?? undefined;
-        const annotations = removeStoredAnnotation(selectedDevice, id);
+        const annotations = removeStoredAnnotation(selectedDevice, id, scope);
         sendJson(res, 200, { ok: true, annotations });
       } catch (error) {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });

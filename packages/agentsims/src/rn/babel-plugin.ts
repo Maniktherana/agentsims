@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { appendFileSync, mkdirSync } from "fs";
-import { dirname, relative } from "path";
-import { tmpdir } from "os";
+import { dirname, relative, resolve } from "path";
+import { homedir } from "os";
 
 const HOST_COMPONENTS = new Set([
   "ActivityIndicator",
@@ -27,7 +27,7 @@ const HOST_COMPONENTS = new Set([
   "VirtualizedList",
 ]);
 
-const DEFAULT_MANIFEST = `${tmpdir()}/agentsims/rn-source-map.jsonl`;
+const DEFAULT_MANIFEST = `${homedir()}/.agentsims/rn-source-map.jsonl`;
 const SAFE_PROP_NAMES = new Set([
   "accessibilityHint",
   "accessibilityLabel",
@@ -52,6 +52,15 @@ type BabelPath = {
   isVariableDeclarator?: () => boolean;
 };
 
+type InstrumentableElement =
+  | { kind: "host"; name: string; tag: string }
+  | { kind: "custom"; name: string; tag: string };
+
+type TestIDAttribute =
+  | { kind: "missing" }
+  | { kind: "static"; value: string }
+  | { kind: "dynamic" };
+
 function hash(input: string): string {
   return createHash("sha1").update(input).digest("hex").slice(0, 12);
 }
@@ -62,6 +71,10 @@ function manifestPath(): string {
 
 function projectRoot(state: any): string {
   return process.env.AGENTSIMS_PROJECT_ROOT || state.file?.opts?.root || process.cwd();
+}
+
+function projectKey(root: string): string {
+  return hash(resolve(root).replace(/\\/g, "/"));
 }
 
 function tagName(node: any): string | null {
@@ -75,29 +88,109 @@ function tagName(node: any): string | null {
   return null;
 }
 
-function hostComponentName(name: string | null): string | null {
-  if (!name) return null;
-  if (HOST_COMPONENTS.has(name)) return name;
-  const dot = name.lastIndexOf(".");
-  if (dot >= 0) {
-    const tail = name.slice(dot + 1);
-    if (HOST_COMPONENTS.has(tail)) return tail;
-  }
-  return null;
-}
-
 function attrName(attr: any): string | null {
   return attr?.name?.type === "JSXIdentifier" ? attr.name.name : null;
 }
 
-function stringAttrValue(attr: any): string | null {
-  if (!attr) return null;
-  if (attr.value?.type === "StringLiteral") return attr.value.value;
-  return null;
-}
-
 function findAttribute(opening: any, name: string): any | null {
   return opening.attributes.find((attr: any) => attrName(attr) === name) ?? null;
+}
+
+function testIDAttribute(attr: any | null): TestIDAttribute {
+  if (!attr) return { kind: "missing" };
+  if (attr.value?.type === "StringLiteral") {
+    return { kind: "static", value: attr.value.value };
+  }
+  if (attr.value?.type !== "JSXExpressionContainer") return { kind: "dynamic" };
+
+  const expression = attr.value.expression;
+  if (expression?.type === "StringLiteral") {
+    return { kind: "static", value: expression.value };
+  }
+  if (expression?.type === "TemplateLiteral" && expression.expressions?.length === 0) {
+    const value = expression.quasis?.[0]?.value?.cooked ?? expression.quasis?.[0]?.value?.raw;
+    if (typeof value === "string") return { kind: "static", value };
+  }
+  return { kind: "dynamic" };
+}
+
+function reactNativeBindings(program: any): {
+  hosts: Map<string, string>;
+  namespaces: Set<string>;
+} {
+  const hosts = new Map<string, string>();
+  const namespaces = new Set<string>();
+
+  for (const statement of program?.body ?? []) {
+    if (statement.type === "ImportDeclaration" && statement.source?.value === "react-native") {
+      for (const specifier of statement.specifiers ?? []) {
+        if (specifier.type === "ImportNamespaceSpecifier" || specifier.type === "ImportDefaultSpecifier") {
+          if (specifier.local?.name) namespaces.add(specifier.local.name);
+          continue;
+        }
+        if (specifier.type !== "ImportSpecifier" || !specifier.local?.name) continue;
+        const imported = specifier.imported?.name ?? specifier.imported?.value;
+        if (typeof imported === "string" && HOST_COMPONENTS.has(imported)) {
+          hosts.set(specifier.local.name, imported);
+        }
+      }
+      continue;
+    }
+
+    if (statement.type !== "VariableDeclaration") continue;
+    for (const declaration of statement.declarations ?? []) {
+      const init = declaration.init;
+      const isReactNativeRequire = init?.type === "CallExpression"
+        && init.callee?.type === "Identifier"
+        && init.callee.name === "require"
+        && init.arguments?.[0]?.type === "StringLiteral"
+        && init.arguments[0].value === "react-native";
+      if (!isReactNativeRequire) continue;
+
+      if (declaration.id?.type === "Identifier") {
+        namespaces.add(declaration.id.name);
+        continue;
+      }
+      if (declaration.id?.type !== "ObjectPattern") continue;
+      for (const property of declaration.id.properties ?? []) {
+        if (property.type !== "ObjectProperty") continue;
+        const imported = property.key?.name ?? property.key?.value;
+        const local = property.value?.name;
+        if (typeof imported === "string" && typeof local === "string" && HOST_COMPONENTS.has(imported)) {
+          hosts.set(local, imported);
+        }
+      }
+    }
+  }
+
+  return { hosts, namespaces };
+}
+
+function instrumentableElement(opening: any, state: any): InstrumentableElement | null {
+  const name = tagName(opening.name);
+  if (!name || name === "Fragment" || name === "React.Fragment") return null;
+
+  const bindings = state.__agentsimsReactNativeBindings as
+    | ReturnType<typeof reactNativeBindings>
+    | undefined;
+  const directHost = bindings?.hosts.get(name);
+  if (directHost) return { kind: "host", name, tag: directHost };
+
+  const dot = name.indexOf(".");
+  if (dot > 0 && bindings?.namespaces.has(name.slice(0, dot))) {
+    const member = name.slice(name.lastIndexOf(".") + 1);
+    if (HOST_COMPONENTS.has(member)) return { kind: "host", name, tag: member };
+  }
+
+  const rootName = dot >= 0 ? name.slice(0, dot) : name;
+  if (!/^[A-Z]/.test(rootName)) return null;
+  return { kind: "custom", name, tag: name };
+}
+
+function insertGeneratedTestID(opening: any, attribute: any): void {
+  const firstSpread = opening.attributes.findIndex((attr: any) => attr.type === "JSXSpreadAttribute");
+  const index = firstSpread >= 0 ? firstSpread : opening.attributes.length;
+  opening.attributes.splice(index, 0, attribute);
 }
 
 function componentStack(path: BabelPath): string[] {
@@ -177,8 +270,9 @@ export default function agentsimsReactNativeBabelPlugin({ types: t }: BabelApi) 
     name: "agentsims-react-native-source",
     visitor: {
       Program: {
-        enter(_path: BabelPath, state: any) {
+        enter(path: BabelPath, state: any) {
           state.__agentsimsRecords = [];
+          state.__agentsimsReactNativeBindings = reactNativeBindings(path.node);
         },
         exit(_path: BabelPath, state: any) {
           writeRecords(state.__agentsimsRecords ?? []);
@@ -189,34 +283,46 @@ export default function agentsimsReactNativeBabelPlugin({ types: t }: BabelApi) 
         if (!filename || /[/\\]node_modules[/\\]/.test(filename)) return;
 
         const opening = path.node;
-        const tag = hostComponentName(tagName(opening.name));
-        if (!tag || !opening.loc?.start) return;
+        const element = instrumentableElement(opening, state);
+        if (!element || !opening.loc?.start) return;
 
         const existingTestId = findAttribute(opening, "testID");
-        const existingTestIDValue = stringAttrValue(existingTestId);
+        const explicitTestID = testIDAttribute(existingTestId);
+        if (explicitTestID.kind === "dynamic") return;
+
         const root = projectRoot(state);
+        const rootKey = projectKey(root);
         const rel = relative(root, filename) || filename;
         const loc = opening.loc.start;
-        const generated = `ags_${hash(`${rel}:${loc.line}:${loc.column}:${tag}`)}`;
-        const testID = existingTestIDValue || generated;
-        const injected = !existingTestId;
+        const generated = `ags_${rootKey}_${hash(`${rel}:${loc.line}:${loc.column}:${element.name}`)}`;
+        const testID = explicitTestID.kind === "static" ? explicitTestID.value : generated;
+        if (!testID) return;
+        const injected = explicitTestID.kind === "missing"
+          || (explicitTestID.kind === "static" && explicitTestID.value === generated);
         const owners = componentStack(path);
 
-        if (injected) {
-          opening.attributes.push(
+        if (explicitTestID.kind === "missing") {
+          insertGeneratedTestID(
+            opening,
             t.jsxAttribute(t.jsxIdentifier("testID"), t.stringLiteral(testID)),
           );
         }
 
+        const ownerStack = element.kind === "custom" && owners[owners.length - 1] !== element.name
+          ? [...owners, element.name]
+          : owners;
         state.__agentsimsRecords.push({
           testID,
-          tag,
+          tag: element.tag,
+          elementKind: element.kind,
+          testIDSource: injected ? "generated" : "static",
+          projectKey: rootKey,
           file: rel,
           absoluteFile: filename,
           line: loc.line,
           column: loc.column,
-          componentName: owners[owners.length - 1],
-          ownerStack: owners,
+          componentName: element.kind === "custom" ? element.name : owners[owners.length - 1],
+          ownerStack,
           route: expoRoute(rel),
           visibleText: directVisibleText(path),
           props: safeLiteralProps(opening),

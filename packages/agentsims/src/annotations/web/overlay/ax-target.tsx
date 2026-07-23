@@ -1,12 +1,13 @@
-import { memo } from "react";
-import type { AxElement } from "../model";
+import { memo, useRef } from "react";
+import type { AxElement } from "../../model";
 import {
   axElementKey,
   axElementsEqual,
   axFrameString,
   axNodeForElement,
   clampAxFrameForScreen,
-} from "./ax";
+} from "../core/ax";
+import { annotationElementHoverLabel } from "../core/prompt";
 
 export interface AxTargetProps {
   element: AxElement;
@@ -18,7 +19,7 @@ export interface AxTargetProps {
   outlined?: boolean;
   onHighlight: (key: string | null) => void;
   onSelect: (key: string) => void;
-  onPick?: () => void;
+  onPick?: (key: string) => void;
 }
 
 export const AxTarget = memo(function AxTarget({
@@ -33,13 +34,24 @@ export const AxTarget = memo(function AxTarget({
   onSelect,
   onPick,
 }: AxTargetProps) {
+  const handlersRef = useRef({ onHighlight, onSelect, onPick });
+  handlersRef.current = { onHighlight, onSelect, onPick };
   const key = axElementKey(element);
   const axNode = axNodeForElement(element, index);
   const visibleFrame = clampAxFrameForScreen(element.frame, screen);
   if (!visibleFrame) return null;
 
-  const baseBorder = element.source ? "#34d399" : "#94a3b8";
-  const hoverBackground = element.source ? "rgba(16,185,129,0.18)" : "rgba(148,163,184,0.14)";
+  const baseBorder = "#22d3ee";
+  const hoverBackground = "rgba(34,211,238,0.12)";
+  const areaRatio = Math.min(
+    1,
+    (visibleFrame.width * visibleFrame.height) /
+      Math.max(1, screen.width * screen.height),
+  );
+  const specificityLayer = Math.max(
+    1,
+    Math.round((1 - areaRatio) * 10_000),
+  );
   return (
     <button
       type="button"
@@ -53,31 +65,30 @@ export const AxTarget = memo(function AxTarget({
       data-ax-enabled={String(axNode.enabled)}
       data-ax-frame={axFrameString(axNode.frame)}
       data-ax-selected={String(selected)}
-      aria-label={
-        element.source?.componentName ||
-        element.source?.elementName ||
-        element.label ||
-        element.role ||
-        "UI element"
-      }
+      aria-label={annotationElementHoverLabel(element)}
       aria-hidden={!interactive}
-      tabIndex={interactive ? 0 : -1}
+      tabIndex={-1}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        onSelect(key);
-        onPick?.();
+        handlersRef.current.onSelect(key);
+        handlersRef.current.onPick?.(key);
       }}
-      onMouseEnter={() => onHighlight(key)}
-      onMouseLeave={() => onHighlight(null)}
-      className={`absolute box-border min-w-px min-h-px p-0 rounded-[3px] border ${
+      onMouseEnter={() => handlersRef.current.onHighlight(key)}
+      onMouseLeave={() => handlersRef.current.onHighlight(null)}
+      className={`absolute box-border min-h-px min-w-px rounded-[3px] border p-0 [transition-property:border-color,background-color] duration-[120ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none ${
         interactive ? "cursor-pointer pointer-events-auto" : "cursor-default pointer-events-none"
-      }`}
+      } ${selected ? "agentsims-target-lock-enter" : ""}`}
       style={{
         left: `${(visibleFrame.x / screen.width) * 100}%`,
         top: `${(visibleFrame.y / screen.height) * 100}%`,
         width: `${(visibleFrame.width / screen.width) * 100}%`,
         height: `${(visibleFrame.height / screen.height) * 100}%`,
+        zIndex: selected
+          ? 30_000
+          : highlighted
+            ? 20_000
+            : specificityLayer,
         borderColor: selected
           ? "#60a5fa"
           : highlighted

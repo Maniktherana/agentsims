@@ -1,6 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { AxRect } from "../model";
-import { useAxSelectionContext } from "./use-ax-snapshot";
+import type { AxRect } from "../../model";
+import { useAxSelectionContext } from "../state/device-annotation-state";
 
 interface Point {
   x: number;
@@ -67,7 +67,8 @@ export function AreaSelectionOverlay({
       }}
       onPointerMove={(event) => {
         if (pointerId.current !== event.pointerId) return;
-        setSelection((current) => current ? { ...current, end: pointInElement(event) } : null);
+        const end = pointInElement(event);
+        setSelection((current) => current ? { ...current, end } : null);
       }}
       onPointerUp={finish}
       onPointerCancel={() => {

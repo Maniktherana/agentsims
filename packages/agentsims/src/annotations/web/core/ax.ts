@@ -1,8 +1,54 @@
-import { AX_UNAVAILABLE_ERROR } from "../model";
-import type { AxElement, AxRect, AxSnapshot } from "../model";
+import { AX_UNAVAILABLE_ERROR } from "../../model";
+import type { AxElement, AxRect, AxSnapshot } from "../../model";
 
 export function isAxeUnavailable(snapshot: AxSnapshot | null) {
   return snapshot?.errors?.includes(AX_UNAVAILABLE_ERROR) ?? false;
+}
+
+function sameStringArray(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+) {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
+function samePrimitiveRecord(
+  a: Record<string, string | number | boolean | null> | undefined,
+  b: Record<string, string | number | boolean | null> | undefined,
+) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  return (
+    aKeys.length === bKeys.length &&
+    aKeys.every((key) => a[key] === b[key])
+  );
+}
+
+function axSourcesEqual(a: AxElement["source"], b: AxElement["source"]) {
+  if (a === b) return true;
+  return Boolean(
+    a &&
+      b &&
+      a.kind === b.kind &&
+      a.confidence === b.confidence &&
+      a.matchReason === b.matchReason &&
+      a.testID === b.testID &&
+      a.componentName === b.componentName &&
+      a.elementName === b.elementName &&
+      a.file === b.file &&
+      a.absoluteFile === b.absoluteFile &&
+      a.line === b.line &&
+      a.column === b.column &&
+      a.route === b.route &&
+      a.visibleText === b.visibleText &&
+      a.injected === b.injected &&
+      sameStringArray(a.ownerStack, b.ownerStack) &&
+      samePrimitiveRecord(a.props, b.props),
+  );
 }
 
 export function axElementsEqual(a: AxElement, b: AxElement) {
@@ -17,10 +63,7 @@ export function axElementsEqual(a: AxElement, b: AxElement) {
     a.enabled !== b.enabled ||
     a.testId !== b.testId ||
     a.nativeId !== b.nativeId ||
-    a.source?.testID !== b.source?.testID ||
-    a.source?.file !== b.source?.file ||
-    a.source?.line !== b.source?.line ||
-    a.source?.componentName !== b.source?.componentName
+    !axSourcesEqual(a.source, b.source)
   ) return false;
   const fa = a.frame, fb = b.frame;
   return (
