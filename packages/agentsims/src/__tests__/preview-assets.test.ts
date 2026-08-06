@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
+import { tmpdir } from "os";
+import { join } from "path";
 import { simMiddleware } from "../middleware";
 import {
   assertPreviewDynamicImportsEmbedded,
@@ -36,7 +39,7 @@ async function getPreviewAsset(
   return { status, headers, body };
 }
 
-describe("embedded preview assets", () => {
+describe("preview assets", () => {
   test("serves the entry and every emitted dynamic import with browser MIME types", async () => {
     const javascript = {
       "assets/client-a0.js": 'const theme = () => import("./pierre-light-a1.js");',
@@ -87,5 +90,66 @@ describe("embedded preview assets", () => {
       { "client.js": 'import("./assets/missing.js")' },
       {},
     )).toThrow("assets/missing.js");
+  });
+
+  test("serves production assets from disk and scopes generated URLs to the mount", async () => {
+    const previewRoot = mkdtempSync(join(tmpdir(), "agentsims-preview-"));
+    try {
+      mkdirSync(join(previewRoot, "assets"));
+      writeFileSync(
+        join(previewRoot, "index.html"),
+        '<link rel="stylesheet" href="__SIM_PREVIEW_BASE__/assets/client.css">' +
+          '<!--__SIM_PREVIEW_CONFIG__-->' +
+          '<script src="__SIM_PREVIEW_BASE__/assets/client.js"></script>',
+      );
+      writeFileSync(join(previewRoot, "assets", "client.js"), "export default 1;");
+      writeFileSync(join(previewRoot, "assets", "client.css"), ":root{color-scheme:dark}");
+
+      const middleware = simMiddleware({
+        basePath: "/review",
+        execToken: "preview-disk-test",
+        previewRoot,
+        readDeviceStates: async () => [],
+      });
+      const request = async (url: string) => {
+        const req = {
+          method: "GET",
+          url,
+          headers: { host: "localhost:3200" },
+          socket: { localPort: 3200 },
+        } as IncomingMessage;
+        let status = 0;
+        let headers: Record<string, string> = {};
+        let body = Buffer.alloc(0);
+        const res = {
+          writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
+            status = nextStatus;
+            headers = nextHeaders ?? {};
+            return this;
+          },
+          end(chunk?: string | Buffer) {
+            body = chunk ? Buffer.from(chunk) : Buffer.alloc(0);
+            return this;
+          },
+        } as unknown as ServerResponse;
+        await middleware(req, res);
+        return { status, headers, body };
+      };
+
+      const script = await request("/review/assets/client.js");
+      expect(script.status).toBe(200);
+      expect(script.headers["Content-Type"]).toBe("text/javascript; charset=utf-8");
+      expect(script.body.toString()).toContain("export default 1");
+
+      const page = await request("/review");
+      expect(page.status).toBe(200);
+      expect(page.body.toString()).toContain('href="/review/assets/client.css"');
+      expect(page.body.toString()).toContain('src="/review/assets/client.js"');
+      expect(page.body.toString()).toContain("window.__SIM_PREVIEW__=");
+
+      expect((await request("/review/assets/%5C..%5Csecret")).status).toBe(404);
+    } finally {
+      rmSync(previewRoot, { recursive: true, force: true });
+    }
   });
 });

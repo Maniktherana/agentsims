@@ -1,17 +1,30 @@
 {
   "name": "agentsims",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Local multi-device simulator workspace for React Native and Expo development",
   "type": "module",
   "author": "Agentsims contributors",
   "license": "Apache-2.0",
+  "keywords": [
+    "react-native",
+    "expo",
+    "ios-simulator",
+    "android-emulator",
+    "accessibility",
+    "developer-tools"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agentsims/agentsims.git",
+    "url": "git+https://github.com/Maniktherana/agentsims.git",
     "directory": "packages/agentsims"
   },
-  "homepage": "https://github.com/agentsims/agentsims#readme",
+  "homepage": "https://github.com/Maniktherana/agentsims#readme",
   "bugs": {
-    "url": "https://github.com/agentsims/agentsims/issues"
+    "url": "https://github.com/Maniktherana/agentsims/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "bin": {
     "agentsims": "dist/agentsims.js"
@@ -19,64 +32,64 @@
   "engines": {
     "node": ">=20"
   },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
   "files": [
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_LICENSES.txt",
     "dist/agentsims.js",
     "dist/middleware.js",
     "dist/middleware.cjs",
+    "dist/state.js",
+    "dist/state.cjs",
     "dist/metro.js",
     "dist/metro.cjs",
     "dist/babel-plugin.cjs",
+    "dist/types/**",
+    "dist/preview/**",
     "dist/simcam/libSimCameraInjector.dylib",
     "dist/simcam/agentsims-camera-helper",
     "dist/simax/agentsims-ax-settings",
     "dist/android/scrcpy-server.jar",
     "dist/android/agentsims-ax-server.jar",
-    "src/annotations/model.ts",
-    "src/annotations/snapshot.ts",
-    "src/rn/*.ts",
-    "src/annotations/rn-source.ts",
-    "src/middleware.ts",
-    "src/ios/native.ts",
-    "src/shared/state.ts",
-    "Sources/SimCameraInjector/SimCameraInjector.m",
-    "Sources/SimCameraInjector/SimCam*.h",
-    "Sources/SimCameraInjector/SimCam*.m",
-    "Sources/SimCameraInjector/include/SimCamShared.h",
-    "Sources/SimCameraInjector/build.sh",
-    "Sources/SimCameraHelper/main.m",
-    "Sources/SimCameraHelper/build.sh",
-    "Sources/SimAXSettings/sim-ax-settings.m",
-    "Sources/SimAXSettings/build.sh",
-    "Sources/AndroidAxServer/dev/agentsims/ax/Main.java",
-    "Sources/AndroidAxServer/build.sh",
-    "dist/native/agentsims-native.node",
-    "Package.swift",
-    "Sources/SimNative/*.swift",
-    "Sources/SimNative/build.sh"
+    "dist/native/agentsims-native.node"
   ],
   "exports": {
     "./middleware": {
-      "require": "./dist/middleware.cjs",
+      "types": "./dist/types/middleware.d.ts",
       "import": "./dist/middleware.js",
-      "types": "./src/middleware.ts"
+      "require": "./dist/middleware.cjs"
     },
     "./state": {
-      "import": "./src/shared/state.ts",
-      "types": "./src/shared/state.ts"
+      "types": "./dist/types/shared/state.d.ts",
+      "import": "./dist/state.js",
+      "require": "./dist/state.cjs"
     },
     "./metro": {
-      "require": "./dist/metro.cjs",
+      "types": "./dist/types/rn/metro.d.ts",
       "import": "./dist/metro.js",
-      "types": "./src/rn/metro.ts"
+      "require": "./dist/metro.cjs"
     },
     "./babel-plugin": {
+      "types": "./dist/types/rn/babel-plugin.d.ts",
       "require": "./dist/babel-plugin.cjs",
       "default": "./dist/babel-plugin.cjs"
     }
   },
   "scripts": {
     "build": "bun run build.ts",
-    "dev": "bun run dev.ts",
+    "dev": "portless agentsims bun run dev:server",
+    "dev:server": "bun run dev.ts",
+    "prepack": "bun run build && bun run licenses:third-party && bun run verify:package",
+    "licenses:third-party": "node scripts/generate-third-party-licenses.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "pack:dry-run": "npm pack --dry-run --json",
     "lint": "oxlint src --deny-warnings",
     "typecheck": "bun run typecheck:server && bun run typecheck:web",
     "typecheck:server": "tsc -p tsconfig.server.json",
@@ -100,6 +113,7 @@
     "node-swift": "1.5.1",
     "oxlint": "^1.74.0",
     "preact": "^10.29.1",
+    "portless": "^0.14.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwindcss": "^4.1.7",
@@ -107,6 +121,7 @@
     "vite": "^8.1.3"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.7",
     "@fontsource/geist-mono": "^5.3.0",
     "@pierre/diffs": "^1.3.3",
     "@pierre/trees": "^1.0.0-beta.6",

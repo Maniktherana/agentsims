@@ -43,7 +43,11 @@ export function previewAssetKeyForRequest(
   } catch {
     return "";
   }
-  if (!suffix || suffix.split("/").some((segment) => segment === "..")) {
+  if (
+    !suffix ||
+    suffix.includes("\\") ||
+    suffix.split("/").some((segment) => segment === "..")
+  ) {
     return "";
   }
   return `assets/${suffix}`;
@@ -72,6 +76,7 @@ export interface PreviewDynamicImport {
 
 export interface PreviewViteManifestChunk {
   file: string;
+  css?: string[];
   dynamicImports?: string[];
   isEntry?: boolean;
 }
@@ -101,7 +106,10 @@ export function assertPreviewManifestAssetsEmbedded(
   assets: PreviewAssetMap,
 ): string[] {
   const manifestAssets = [
-    ...new Set(Object.values(manifest).map((chunk) => posix.normalize(chunk.file))),
+    ...new Set(Object.values(manifest).flatMap((chunk) => [
+      posix.normalize(chunk.file),
+      ...(chunk.css ?? []).map((file) => posix.normalize(file)),
+    ])),
   ];
   const missing = manifestAssets.filter((file) => assets[file] === undefined);
   if (missing.length > 0) {

@@ -13,9 +13,11 @@ import { join } from "path";
 // any bundle that picked up the compile-time constant instead.
 
 const PKG_DIR = join(import.meta.dir, "../..");
-const SRC_DIR = join(PKG_DIR, "src");
-
-const BUNDLES = ["dist/agentsims.js", "dist/middleware.js"] as const;
+const BUNDLES = [
+  "dist/agentsims.js",
+  "dist/middleware.js",
+  "dist/middleware.cjs",
+] as const;
 
 // CI builds dist before running this directory; locally, run
 // `bun run build.ts` first or the suite skips.
@@ -26,6 +28,6 @@ const describeIfBuilt = BUNDLES.every((b) => existsSync(join(PKG_DIR, b)))
 describeIfBuilt("bundle portability", () => {
   test.each([...BUNDLES])("%s has no build-machine path baked in", (bundle) => {
     const js = readFileSync(join(PKG_DIR, bundle), "utf-8");
-    expect(js).not.toContain(SRC_DIR);
+    expect(js).not.toContain(PKG_DIR);
   });
 });

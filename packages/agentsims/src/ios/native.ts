@@ -3,14 +3,14 @@
  * that replaces the spawned helper. HID is the first surface;
  * frame capture + encoders land here next.
  *
- * The .node is resolved from disk (dist/native/) relative to either this module
- * or the bun-compiled executable, so it loads under `npx agentsims`, the
- * compiled binary, and the mounted middleware alike.
+ * The .node is resolved from disk (dist/native/) relative to this module or a
+ * native launcher, so it loads under `npx agentsims` and mounted middleware.
  */
 import { createRequire } from "module";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
+import { configuredDistDirectory } from "../shared/runtime-paths";
 
 const require = createRequire(import.meta.url);
 
@@ -110,10 +110,13 @@ export const Orientation = {
 } as const;
 
 function resolveAddon(): string {
+  const configuredDist = configuredDistDirectory();
   const candidates = [
-    // Beside the bun-compiled executable (dist/agentsims → dist/native/…).
-    // arm64-only (Apple Silicon); loaded by path so it works under npx, the
-    // compiled binary, and the dev server alike.
+    ...(configuredDist
+      ? [join(configuredDist, "native", "agentsims-native.node")]
+      : []),
+    // Beside an optional native launcher (dist/agentsims → dist/native/…).
+    // The shipped addon contains Intel and Apple Silicon slices.
     join(dirname(process.execPath), "native", "agentsims-native.node"),
     // Beside the bundled JS (dist/agentsims.js or dist/middleware.js).
     join(dirname(fileURLToPath(import.meta.url)), "native", "agentsims-native.node"),

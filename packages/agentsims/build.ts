@@ -4,17 +4,16 @@
  *
  * Produces, all minified and with no runtime deps on workspace packages:
  *   dist/agentsims.js      ESM bin (node target) referenced by package.json#bin
- *   dist/agentsims         Compiled single-file executable (bun --compile)
  *   dist/middleware.js    Public subpath export "agentsims/middleware" (ESM)
- *   dist/middleware.cjs   Thin CJS wrapper for the same
+ *   dist/middleware.cjs   Public subpath export "agentsims/middleware" (CJS)
+ *   dist/preview/*        Browser HTML and hashed static assets
  *
  * The bin and middleware bundles target `node` so users without `bun` on
  * their PATH can still run `npx agentsims` / mount the Connect middleware.
  * Runtime server and timing behavior is implemented with Node stdlib APIs.
  *
- * The preview HTML (bundled client.tsx + Preact, base64
- * encoded) is injected into every artifact that could need to serve the UI
- * via the __PREVIEW_HTML_B64__ build-time define.
+ * Browser files stay on disk beside the server bundles. This avoids embedding
+ * the same large preview payload in both the CLI and middleware artifacts.
  */
 import { relative, resolve } from "path";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from "fs";
@@ -37,12 +36,22 @@ function kb(n: number): string {
   return `${(n / 1024).toFixed(1)} KB`;
 }
 
+function assertUniversalMachO(path: string): void {
+  const result = spawnSync(
+    "lipo",
+    [path, "-verify_arch", "x86_64", "arm64"],
+    { encoding: "utf-8" },
+  );
+  if (result.status === 0) return;
+  const detail = result.stderr?.trim() || result.stdout?.trim() || "architecture verification failed";
+  throw new Error(`${relative(root, path)} must contain x86_64 and arm64 slices: ${detail}`);
+}
+
 // ─── 1. Bundle the browser client with Vite + React + Tailwind ────────────
 
 interface BuiltBrowserClient {
-  css: string;
+  cssPaths: string[];
   entryPath: string;
-  assets: Record<string, string>;
 }
 
 function outputFiles(directory: string): string[] {
@@ -53,7 +62,7 @@ function outputFiles(directory: string): string[] {
 }
 
 async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
-  const outDir = resolve(root, ".agentsims-vite");
+  const outDir = resolve(distDir, "preview");
   rmSync(outDir, { recursive: true, force: true });
   await viteBuild({
     configFile: false,
@@ -65,13 +74,13 @@ async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
       emptyOutDir: true,
       minify: true,
       cssCodeSplit: false,
-      codeSplitting: false,
       manifest: true,
       rollupOptions: {
         input: resolve(root, "src/web/vite-entry.tsx"),
         output: {
           entryFileNames: "assets/client-[hash].js",
-          assetFileNames: "client.[ext]",
+          chunkFileNames: "assets/[name]-[hash].js",
+          assetFileNames: "assets/[name]-[hash][extname]",
         },
       },
     },
@@ -88,13 +97,16 @@ async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
   const entryChunk = Object.values(manifest).find((chunk) => chunk.isEntry);
   if (!entryChunk) throw new Error("Vite client build manifest omitted its entry");
   const entryPath = entryChunk.file;
+  const cssPaths = entryChunk.css?.length
+    ? entryChunk.css
+    : files
+      .filter((file) => file.endsWith(".css"))
+      .map((file) => relative(outDir, file).replaceAll("\\", "/"));
   const jsFile = files.find((file) =>
     relative(outDir, file).replaceAll("\\", "/") === entryPath
   );
-  const cssFile = files.find((file) => relative(outDir, file) === "client.css");
   if (!jsFile) throw new Error("Vite client build did not emit JS");
   const js = readFileSync(jsFile, "utf-8");
-  const css = cssFile ? readFileSync(cssFile, "utf-8") : "";
   const assetFiles = files.filter((file) => file !== manifestFile);
   const assets = Object.fromEntries(assetFiles.map((file) => [
     relative(outDir, file).replaceAll("\\", "/"),
@@ -114,21 +126,24 @@ async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
     manifest,
     assets,
   );
-  rmSync(outDir, { recursive: true, force: true });
-  console.log(`vite css          ${kb(css.length)}`);
+  rmSync(resolve(outDir, ".vite"), { recursive: true, force: true });
+  const cssBytes = cssPaths.reduce((total, cssPath) => {
+    const file = resolve(outDir, cssPath);
+    return total + (existsSync(file) ? readFileSync(file).length : 0);
+  }, 0);
+  console.log(`vite css          ${kb(cssBytes)}`);
   console.log(`vite client       ${kb(js.length)}`);
   console.log(
     `vite assets       ${Object.keys(assets).length} ` +
     `(${manifestAssets.length} manifest files, ` +
     `${literalDynamicImports.length} literal)`,
   );
-  return { css, entryPath, assets };
+  return { cssPaths, entryPath };
 }
 
 const {
-  css: tailwindCss,
+  cssPaths: clientCssPaths,
   entryPath: clientEntryPath,
-  assets: previewAssets,
 } = await buildBrowserClientWithVite();
 
 // ─── 2. Reference the embedded client asset from preview HTML ────────────
@@ -146,24 +161,21 @@ const html = `<!doctype html>
 <title>Simulator Preview</title>
 ${faviconTag}
 <style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden}</style>
-<style>${tailwindCss}</style>
+${clientCssPaths.map((path) => `<link rel="stylesheet" href="__SIM_PREVIEW_BASE__/${path}">`).join("\n")}
 </head><body>
 <div id="root"></div>
 <!--__SIM_PREVIEW_CONFIG__-->
-<script type="module" src="/${clientEntryPath}"></script>
+<script type="module" src="__SIM_PREVIEW_BASE__/${clientEntryPath}"></script>
 </body></html>`;
 
-const htmlB64 = Buffer.from(html).toString("base64");
-const previewAssetsB64 = Buffer.from(JSON.stringify(previewAssets)).toString("base64");
-console.log(`preview html      ${kb(html.length)}  (base64 ${kb(htmlB64.length)})`);
+writeFileSync(resolve(distDir, "preview", "index.html"), html);
+console.log(`preview html      ${kb(html.length)}`);
 
 const pkgVersion = JSON.parse(
   readFileSync(resolve(root, "package.json"), "utf-8"),
 ).version as string;
 
 const PREVIEW_DEFINE = {
-  __PREVIEW_HTML_B64__: JSON.stringify(htmlB64),
-  __PREVIEW_ASSETS_B64__: JSON.stringify(previewAssetsB64),
   __AGENTSIMS_VERSION__: JSON.stringify(pkgVersion),
 };
 
@@ -211,9 +223,8 @@ const mwResult = await Bun.build({
   format: "esm",
   minify: true,
   outdir: distDir,
-  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws"],
+  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws", "inspect-webkit"],
   define: PREVIEW_DEFINE,
-  sourcemap: "linked",
 });
 if (!mwResult.success) {
   console.error("Middleware build failed:");
@@ -223,11 +234,35 @@ if (!mwResult.success) {
 const mwSize = (await mwResult.outputs[0]!.text()).length;
 console.log(`dist/middleware.js ${kb(mwSize)}`);
 
+const mwCjsResult = await Bun.build({
+  entrypoints: [resolve(root, "src/middleware.ts")],
+  target: "node",
+  format: "cjs",
+  minify: true,
+  outdir: distDir,
+  naming: "middleware.cjs",
+  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws", "inspect-webkit"],
+  define: PREVIEW_DEFINE,
+});
+if (!mwCjsResult.success) {
+  console.error("Middleware CJS build failed:");
+  for (const log of mwCjsResult.logs) console.error(log);
+  process.exit(1);
+}
+const middlewareCjsPath = resolve(distDir, "middleware.cjs");
+// Bun lowers `import.meta.url` in CommonJS output to the source file's URL.
+// The CJS prelude below supplies the installed dist directory instead, so
+// replace those unreachable build-machine fallbacks before publishing. This
+// keeps the artifact relocatable and avoids exposing the builder's filesystem
+// layout in the npm package.
+const middlewareCjsSource = readFileSync(middlewareCjsPath, "utf-8")
+  .replaceAll(root, "/__agentsims_runtime__");
 writeFileSync(
-  resolve(distDir, "middleware.cjs"),
-  `"use strict";\nmodule.exports = require("./middleware.js");\n`,
+  middlewareCjsPath,
+  `"use strict";\nglobalThis.__AGENTSIMS_DIST_DIR__ = __dirname;\n${middlewareCjsSource}`,
 );
-console.log("dist/middleware.cjs (wrapper)");
+const mwCjsSize = readFileSync(middlewareCjsPath).length;
+console.log(`dist/middleware.cjs ${kb(mwCjsSize)}`);
 
 // ─── 3b. RN/Expo source bridge exports ───────────────────────────────────
 
@@ -261,6 +296,8 @@ async function buildNodeExport({
 await buildNodeExport({ entry: "src/rn/metro.ts", naming: "metro.js", format: "esm" });
 await buildNodeExport({ entry: "src/rn/metro.ts", naming: "metro.cjs", format: "cjs" });
 await buildNodeExport({ entry: "src/rn/babel-plugin.ts", naming: "babel-plugin.cjs", format: "cjs" });
+await buildNodeExport({ entry: "src/shared/state.ts", naming: "state.js", format: "esm" });
+await buildNodeExport({ entry: "src/shared/state.ts", naming: "state.cjs", format: "cjs" });
 const babelPluginPath = resolve(distDir, "babel-plugin.cjs");
 writeFileSync(
   babelPluginPath,
@@ -278,7 +315,6 @@ const binJsResult = await Bun.build({
   naming: "agentsims.js",
   external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws"],
   define: PREVIEW_DEFINE,
-  sourcemap: "linked",
 });
 if (!binJsResult.success) {
   console.error("Bin JS build failed:");
@@ -289,28 +325,27 @@ if (!binJsResult.success) {
 const binJsSize = (await binJsResult.outputs[0]!.text()).length;
 console.log(`dist/agentsims.js   ${kb(binJsSize)}`);
 
-// ─── 5. Compiled single-file executable ──────────────────────────────────
-// Bun.build doesn't expose --compile yet, so shell out. Compile the JS bundle
-// from step 4: it already contains the preview HTML and version defines. This
-// also keeps the large embedded preview out of the OS argument list.
+// ─── 5. Public TypeScript declarations ───────────────────────────────────
 
-const compile = spawnSync(
-  "bun",
+const typeBuild = spawnSync(
+  "bunx",
   [
-    "build",
-    "--compile",
-    "--minify",
-    resolve(distDir, "agentsims.js"),
-    "--outfile", resolve(distDir, "agentsims"),
-    // `ws` must stay a runtime-resolved specifier so Bun substitutes its
-    // native implementation — bundling the Node implementation breaks
-    // upgrades (raw handshake writes never flush under Bun's node:http).
-    "--external", "ws",
+    "tsc",
+    "-p", resolve(root, "tsconfig.server.json"),
+    "--declaration",
+    "--emitDeclarationOnly",
+    "--declarationMap", "false",
+    "--noEmit", "false",
+    "--rootDir", resolve(root, "src"),
+    "--outDir", resolve(distDir, "types"),
   ],
   { stdio: "inherit" },
 );
-if (compile.status !== 0) process.exit(compile.status ?? 1);
-console.log("dist/agentsims      (compiled binary)");
+if (typeBuild.status !== 0) {
+  console.error("Type declaration build failed.");
+  process.exit(typeBuild.status ?? 1);
+}
+console.log("dist/types");
 
 // ─── 6. SimCameraInjector dylib + SimCameraHelper host CLI ───────────────
 // Both ship in dist/simcam/ so they tarball alongside the JS bin. The CLI's
@@ -329,6 +364,7 @@ if (camBuild.status !== 0) {
   process.exit(camBuild.status ?? 1);
 }
 console.log("dist/simcam/libSimCameraInjector.dylib");
+assertUniversalMachO(resolve(distDir, "simcam", "libSimCameraInjector.dylib"));
 
 const helperBuild = spawnSync(
   "bash",
@@ -343,6 +379,7 @@ if (helperBuild.status !== 0) {
   process.exit(helperBuild.status ?? 1);
 }
 console.log("dist/simcam/agentsims-camera-helper");
+assertUniversalMachO(resolve(distDir, "simcam", "agentsims-camera-helper"));
 
 // ─── 7. sim-ax-settings in-sim CLI (simulator-wide UI settings) ──────────
 
@@ -359,10 +396,11 @@ if (axSettingsBuild.status !== 0) {
   process.exit(axSettingsBuild.status ?? 1);
 }
 console.log("dist/simax/agentsims-ax-settings");
+assertUniversalMachO(resolve(distDir, "simax", "agentsims-ax-settings"));
 
 // ─── 8. agentsims-native.node — in-process N-API addon ───────────────────
-// Replaces the spawned agentsims-bin helper. arm64 (Apple Silicon); loaded by
-// path from both the node bundle (createRequire) and the bun-compiled executable.
+// Replaces the spawned agentsims-bin helper. The npm artifact supports both
+// Intel and Apple Silicon Macs and is loaded lazily by the Node bundle.
 
 const nativeBuild = spawnSync(
   "bash",
@@ -377,5 +415,6 @@ if (nativeBuild.status !== 0) {
   process.exit(nativeBuild.status ?? 1);
 }
 console.log("dist/native/agentsims-native.node");
+assertUniversalMachO(resolve(distDir, "native", "agentsims-native.node"));
 
 console.log("Done.");

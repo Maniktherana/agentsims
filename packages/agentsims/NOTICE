@@ -1,0 +1,42 @@
+Agentsims
+Copyright 2026 Agentsims contributors
+
+This product includes third-party software. The following notices are provided
+for attribution and do not modify the Apache License, Version 2.0, that applies
+to Agentsims itself.
+
+Apache-2.0 components
+---------------------
+
+- @pierre/diffs, @pierre/theme, @pierre/theming, and @pierre/trees
+  Copyright 2025 Pierre Computer Company
+- scrcpy server
+  Copyright (C) 2018 Genymobile
+  Copyright (C) 2018-2026 Romain Vimont
+
+The Apache License, Version 2.0, is reproduced in LICENSE.
+
+@pierre/trees notice
+--------------------
+
+@pierre/trees includes ideas and code derived from @headless-tree/core,
+Copyright 2023 Lukas Bach. Its upstream notice and full MIT License are
+preserved in THIRD_PARTY_LICENSES.txt.
+
+Geist Mono
+----------
+
+Copyright 2024 The Geist Project Authors
+(https://github.com/vercel/geist-font.git)
+
+Geist Mono is distributed under the SIL Open Font License, Version 1.1. The
+copyright notice and full license are preserved in THIRD_PARTY_LICENSES.txt.
+
+Other bundled components
+------------------------
+
+The browser and CLI bundles also contain software from Babel, Base UI,
+Commander, debug, inspect-webkit, Lucide, Motion, Preact, React, React DOM,
+Sonner, and their production dependencies. Their exact versions, license
+identifiers, copyright notices, and license texts are preserved in
+THIRD_PARTY_LICENSES.txt.

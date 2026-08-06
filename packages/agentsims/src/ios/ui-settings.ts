@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { join, resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
 import { dirnameOf } from "../shared/runtime";
+import { configuredDistDirectory } from "../shared/runtime-paths";
 
 // Bun's bundler inlines a bare `__dirname` as the build machine's source
 // directory; shadow it with the runtime location so the published bundle
@@ -149,7 +150,11 @@ export function parseUiArgs(args: string[]): UiArgs {
 // ─── In-sim helper binary ───
 
 export function locateAxSettingsTool(): string | null {
+  const configuredDist = configuredDistDirectory();
   const candidates = [
+    ...(configuredDist
+      ? [join(configuredDist, "simax", "agentsims-ax-settings")]
+      : []),
     join(__dirname, "simax", "agentsims-ax-settings"),
     join(__dirname, "..", "dist", "simax", "agentsims-ax-settings"),
     join(__dirname, "..", "..", "dist", "simax", "agentsims-ax-settings"),

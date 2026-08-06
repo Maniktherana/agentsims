@@ -3,6 +3,7 @@ import { execFile, execFileSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
+import { configuredDistDirectory } from "../shared/runtime-paths";
 import { Socket } from "net";
 import { axFrontmostAsync } from "../ios/native";
 import { STATE_DIR } from "../shared/state";
@@ -69,7 +70,11 @@ function readInjectedBundles(udid: string): string[] {
 
 function locateCameraHelper(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
+  const configuredDist = configuredDistDirectory();
   const candidates = [
+    ...(configuredDist
+      ? [join(configuredDist, "simcam", "agentsims-camera-helper")]
+      : []),
     join(here, "..", "..", "dist", "simcam", "agentsims-camera-helper"),
     join(here, "simcam", "agentsims-camera-helper"),
     join(dirname(process.execPath), "simcam", "agentsims-camera-helper"),
@@ -97,7 +102,9 @@ function cameraHelperPath(): string {
 
 function locateAgentsimsCli(): string {
   const here = dirname(fileURLToPath(import.meta.url));
+  const configuredDist = configuredDistDirectory();
   const candidates = [
+    ...(configuredDist ? [join(configuredDist, "agentsims.js")] : []),
     join(here, "..", "index.ts"),
     join(here, "..", "..", "dist", "agentsims.js"),
     process.argv[1],

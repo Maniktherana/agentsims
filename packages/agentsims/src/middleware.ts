@@ -1,9 +1,11 @@
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { exec, type ExecException } from "child_process";
 import { createServer as createNetServer } from "net";
 import { randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
 import type { Socket } from "net";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 import {
   createAxStreamerCache,
   type AxStreamerCache,
@@ -30,8 +32,11 @@ import {
   parseForegroundAppLogMessage,
 } from "./shared/app-state-router";
 import { PreviewStateRouter } from "./shared/preview-state-router";
+import { configuredDistDirectory } from "./shared/runtime-paths";
 import { UI_OPTIONS, getUiStatus, normalizeUiValue, setUiOption } from "./ios/ui-settings";
 import {
+  previewAssetContentType,
+  previewAssetKeyForRequest,
   resolvePreviewAsset,
   type PreviewAssetMap,
 } from "./shared/preview-assets";
@@ -44,9 +49,6 @@ export type SimMiddleware = {
   handleUpgrade(req: SimReq, socket: Socket, head: Buffer): void;
 };
 
-// Injected at build time as a base64-encoded string via `define`
-declare const __PREVIEW_HTML_B64__: string;
-declare const __PREVIEW_ASSETS_B64__: string | undefined;
 const DEVTOOLS_FRONTEND_REV = "854a02be78c7ffea104cb523636efa991bef5c5b";
 const INSPECT_WEBKIT_START_PORT = 9222;
 type WebKitBridgeTarget = {
@@ -379,8 +381,6 @@ function devtoolsFrontendUrl(
   return `${url.pathname}${url.search}`;
 }
 
-let _html: string | null = null;
-let _previewAssets: PreviewAssetMap | null = null;
 /**
  * Best-effort absolute path to the running agentsims entry script. Used so
  * the in-page Camera tool can `node <path> camera ...` regardless of PATH.
@@ -394,23 +394,17 @@ function agentsimsBinPath(): string {
   return "agentsims";
 }
 
-function loadHtml(): string {
-  if (!_html) {
-    _html = Buffer.from(__PREVIEW_HTML_B64__, "base64").toString("utf-8");
-  }
-  return _html;
-}
+function defaultPreviewRoot(): string {
+  const configuredDist = configuredDistDirectory();
+  if (configuredDist) return resolve(configuredDist, "preview");
 
-function loadPreviewAssets(): PreviewAssetMap {
-  if (_previewAssets) return _previewAssets;
-  if (typeof __PREVIEW_ASSETS_B64__ !== "string") {
-    _previewAssets = {};
-    return _previewAssets;
-  }
-  _previewAssets = JSON.parse(
-    Buffer.from(__PREVIEW_ASSETS_B64__, "base64").toString("utf-8"),
-  ) as PreviewAssetMap;
-  return _previewAssets;
+  const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+  const bundledRoot = resolve(moduleDirectory, "preview");
+  if (existsSync(resolve(bundledRoot, "index.html"))) return bundledRoot;
+
+  // Source execution (`bun src/index.ts`) resolves this module from `src/`.
+  // Keep that path useful for tests and local production-runtime smoke runs.
+  return resolve(moduleDirectory, "..", "dist", "preview");
 }
 
 export interface SimMiddlewareOptions {
@@ -445,8 +439,12 @@ export interface SimMiddlewareOptions {
   proxyHelpers?: boolean;
   /** Test hook for supplying a fake inspect-webkit bridge. */
   inspectWebKitBridge?: () => Promise<WebKitBridge>;
-  /** Test hook for the browser assets embedded by the production build. */
+  /** Test hook for browser assets without reading the production build. */
   previewAssets?: PreviewAssetMap;
+  /** Override the directory containing production `index.html` and `assets/`. */
+  previewRoot?: string;
+  /** Test hook for the generated production HTML shell. */
+  previewHtml?: string;
   /** Test hook for deterministic AX route device discovery. */
   readDeviceStates?: () => Promise<DeviceState[]>;
   /** Test hook for an isolated AX stream lifecycle. */
@@ -484,7 +482,13 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
   const appStateRouter = new AppStateRouter(base);
   const mediaRouter = new MediaRouter(base);
   const deviceGateway = new DeviceGateway(base);
-  const previewAssets = options?.previewAssets ?? loadPreviewAssets();
+  const previewAssets = options?.previewAssets;
+  const previewRoot = options?.previewRoot ?? defaultPreviewRoot();
+  let previewHtml = options?.previewHtml;
+  const getPreviewHtml = () => {
+    previewHtml ??= readFileSync(resolve(previewRoot, "index.html"), "utf-8");
+    return previewHtml;
+  };
   const getAxDeviceStates = options?.readDeviceStates ?? readDeviceStates;
   const streamers = options?.axStreamerCache ?? axStreamerCache;
   // Per-process random token. Anyone who can read the preview HTML same-origin
@@ -535,8 +539,11 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
       proxyHelpers,
     );
 
-    const previewAsset = resolvePreviewAsset(rawUrl, base, previewAssets);
-    if (previewAsset === false) {
+    const previewAssetKey = previewAssetKeyForRequest(rawUrl, base);
+    const previewAsset = previewAssets
+      ? resolvePreviewAsset(rawUrl, base, previewAssets)
+      : null;
+    if (previewAssetKey === "" || previewAsset === false) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Preview asset not found");
       return;
@@ -547,6 +554,21 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
         "Cache-Control": "public, max-age=31536000, immutable",
       });
       res.end(Buffer.from(previewAsset.contentBase64, "base64"));
+      return;
+    }
+    if (previewAssetKey) {
+      try {
+        const body = readFileSync(resolve(previewRoot, previewAssetKey));
+        res.writeHead(200, {
+          "Content-Type": previewAssetContentType(previewAssetKey),
+          "Cache-Control": "public, max-age=31536000, immutable",
+        });
+        res.end(body);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Preview asset not found");
+      }
       return;
     }
 
@@ -600,7 +622,9 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
     if (url === base || url === base + "/") {
       const states = await readDeviceStates();
       const state = selectDeviceState(states, selectedDevice);
-      let html = loadHtml();
+      let html = getPreviewHtml();
+      const previewBase = base === "" || base === "/" ? "" : base;
+      html = html.replaceAll("__SIM_PREVIEW_BASE__", previewBase);
 
       if (!state) {
         // Empty-state UI still polls /exec (boot/list helpers), so the page

@@ -5,6 +5,7 @@ import { createServer, type Server, type Socket } from "net";
 import { dirname, resolve } from "path";
 import type { ServerResponse } from "http";
 import { fileURLToPath } from "url";
+import { configuredDistDirectory } from "../shared/runtime-paths";
 
 const SCRCPY_VERSION = "4.0";
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -78,7 +79,11 @@ function adb(args: string[], options?: { timeout?: number; encoding?: BufferEnco
 }
 
 export function scrcpyServerCandidates(): string[] {
+  const configuredDist = configuredDistDirectory();
   return [
+    ...(configuredDist
+      ? [resolve(configuredDist, "android", "scrcpy-server.jar")]
+      : []),
     // Source layout: src/android/scrcpy.ts -> package root.
     resolve(MODULE_DIR, "..", "..", "vendor", "scrcpy-server", "scrcpy-server"),
     resolve(MODULE_DIR, "..", "..", "dist", "android", "scrcpy-server.jar"),

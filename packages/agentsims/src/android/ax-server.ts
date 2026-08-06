@@ -6,6 +6,7 @@ import {
 import { existsSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
+import { configuredDistDirectory } from "../shared/runtime-paths";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const DEVICE_SERVER_PATH = "/data/local/tmp/agentsims-ax-server.jar";
@@ -98,7 +99,11 @@ function adb(args: string[], timeout = 15_000): Promise<string> {
 }
 
 export function androidAxServerCandidates(): string[] {
+  const configuredDist = configuredDistDirectory();
   return [
+    ...(configuredDist
+      ? [resolve(configuredDist, "android", "agentsims-ax-server.jar")]
+      : []),
     // Source layout: src/android/ax-server.ts -> package root.
     resolve(MODULE_DIR, "..", "..", "vendor", "agentsims-ax-server", "agentsims-ax-server.jar"),
     resolve(MODULE_DIR, "..", "..", "dist", "android", "agentsims-ax-server.jar"),

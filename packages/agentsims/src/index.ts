@@ -23,14 +23,14 @@ import {
   type ServerState,
 } from "./cli/device-state";
 import { registerDeviceCommands } from "./cli/register-device-commands";
+import { registerSetupCommand } from "./cli/register-setup-command";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
 const __dirname = dirnameOf(import.meta.url);
 
-// Stamped in at build time (see build.ts), mirroring __PREVIEW_HTML_B64__. In
-// the un-bundled dev run the define is absent, so fall back to reading the
-// package.json that sits next to the source / dist bin.
+// Stamped in by build.ts. Source execution falls back to the package.json
+// beside this module.
 declare const __AGENTSIMS_VERSION__: string | undefined;
 function resolveVersion(): string {
   if (typeof __AGENTSIMS_VERSION__ === "string") return __AGENTSIMS_VERSION__;
@@ -42,10 +42,34 @@ function resolveVersion(): string {
   }
 }
 
-// Embed the Swift helper so `bun build --compile` produces a self-contained
-// `agentsims` binary. In dev / the un-compiled ESM bin the returned path is a
-// real file on disk; inside a compiled binary it points at bun's virtual FS
-// and we extract the bytes to a cached location on first use.
+function previewPortFromEnvironment(): number | undefined {
+  const raw = process.env.PORT?.trim();
+  if (!raw) return undefined;
+  if (!/^\d+$/.test(raw)) {
+    throw new InvalidArgumentError(`PORT must be an integer between 1 and 65535 (received '${raw}').`);
+  }
+  const port = Number(raw);
+  if (port < 1 || port > 65_535) {
+    throw new InvalidArgumentError(`PORT must be an integer between 1 and 65535 (received '${raw}').`);
+  }
+  return port;
+}
+
+function previewHostFromEnvironment(): string {
+  return process.env.HOST?.trim() || "127.0.0.1";
+}
+
+function portlessPublicUrl(): string | null {
+  const raw = process.env.PORTLESS_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.href.replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
 
 function ensureStateDir() {
   if (!existsSync(STATE_DIR)) {
@@ -224,9 +248,9 @@ async function ensureBooted(udid: string): Promise<void> {
 
 // ─── Preview server lifecycle ───
 
-/** Resolve the command to re-exec this CLI (compiled binary or `node …js`). */
+/** Resolve the command to re-exec this CLI (native launcher or `node …js`). */
 function reExecArgs(extra: string[]): { command: string; args: string[] } {
-  // Compiled standalone binary: argv[0] is the agentsims binary itself.
+  // Native launcher: argv[0] is the agentsims executable itself.
   if (process.argv[0] && /(^|\/)agentsims$/.test(process.argv[0])) {
     return { command: process.argv[0], args: extra };
   }
@@ -1369,9 +1393,12 @@ async function serve(
 
   const exposedToLan = host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
   const networkIP = getLocalNetworkIP();
+  const publicUrl = portlessPublicUrl();
   console.log("");
   console.log(`  - Local:   http://localhost:${boundPort}`);
-  if (exposedToLan && networkIP) {
+  if (publicUrl) {
+    console.log(`  - Public:  ${publicUrl}`);
+  } else if (exposedToLan && networkIP) {
     console.log(`  - Network: http://${networkIP}:${boundPort}`);
   } else if (networkIP) {
     console.log(`  - Network: \x1b[2muse --host 0.0.0.0 to expose on http://${networkIP}:${boundPort}\x1b[0m`);
@@ -1407,7 +1434,7 @@ program
     "Interface to bind the preview server to. Use 0.0.0.0 to expose on the " +
       "LAN — only on trusted networks: the preview exposes a token-gated " +
       "shell-exec route.",
-    "127.0.0.1",
+    previewHostFromEnvironment(),
   )
   .option("--detach", "Spawn helper and exit (daemon mode)")
   .option("-q, --quiet", "Suppress human-readable output, JSON only")
@@ -1456,11 +1483,19 @@ Examples:
     } else if (opts.preview === false) {
       await follow(devices, startPort ?? 3100, !!opts.quiet);
     } else {
-      await serve(startPort ?? 3200, devices, startPort !== undefined, opts.host, opts.codec);
+      const environmentPort = previewPortFromEnvironment();
+      await serve(
+        startPort ?? environmentPort ?? 3200,
+        devices,
+        startPort !== undefined || environmentPort !== undefined,
+        opts.host,
+        opts.codec,
+      );
     }
   });
 
 registerDeviceCommands(program);
+registerSetupCommand(program);
 
 const deviceOpt = ["-d, --device <id>", "Target a running device id from `agentsims --list`"] as const;
 
