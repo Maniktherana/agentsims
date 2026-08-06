@@ -8,6 +8,7 @@ import {
   createAxStreamerCache,
   type AxStreamerCache,
 } from "./annotations/snapshot";
+import { readRnSourceFile } from "./annotations/rn-source";
 import { AnnotationRouter } from "./annotations/router";
 import { MediaRouter } from "./media/router";
 import type { DeviceState } from "./shared/state";
@@ -800,6 +801,41 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
           }));
         }
       });
+      return;
+    }
+
+    // Resolve the complete approved source file only when a selected RN target
+    // asks for it. The file/testID/line tuple is verified against the manifest
+    // and the reader applies a strict size cap, so this is not an arbitrary
+    // host file reader.
+    if (url === base + "/source" && req.method === "GET") {
+      const requestUrl = new URL(rawUrl, "http://agentsims.local");
+      const testID = requestUrl.searchParams.get("testID") ?? "";
+      const file = requestUrl.searchParams.get("file") ?? "";
+      const line = Number(requestUrl.searchParams.get("line"));
+      if (!testID || !file || !Number.isInteger(line) || line < 1) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing source identity" }));
+        return;
+      }
+      const sourceFile = readRnSourceFile({ testID, file, line });
+      if (!sourceFile) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Source unavailable" }));
+        return;
+      }
+      const etag = JSON.stringify(sourceFile.cacheKey);
+      if (req.headers["if-none-match"] === etag) {
+        res.writeHead(304, { ETag: etag });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "private, no-cache",
+        ETag: etag,
+      });
+      res.end(JSON.stringify(sourceFile));
       return;
     }
 

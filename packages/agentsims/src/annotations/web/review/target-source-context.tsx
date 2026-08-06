@@ -100,7 +100,7 @@ export function createReviewTargetSourceContext(
   const nativeLabelCandidate = accessibilityLabel || visibleText;
   const nativeLabel = nativeLabelCandidate &&
       nativeLabelCandidate !== testId &&
-      !/^ags_[a-f0-9]+$/i.test(nativeLabelCandidate)
+      !/^ags_[a-z0-9_-]+$/i.test(nativeLabelCandidate)
     ? nativeLabelCandidate
     : null;
   const elementName = compactText(source?.elementName);
@@ -278,6 +278,7 @@ function matchReasonLabel(
   if (reason === "test-id") return "testID";
   if (reason === "native-id") return "native ID";
   if (reason === "element-id") return "element ID";
+  if (reason === "ancestor-owner") return "React ancestor";
   if (reason === "nearby-visible-text") return "nearby visible text";
   if (reason === "nearby-accessibility-label") {
     return "nearby accessibility label";

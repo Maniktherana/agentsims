@@ -76,6 +76,7 @@ import {
   type QueuedWsMessage,
 } from "../utils/ws-send-queue";
 import type { PreviewConfig } from "./workspace-state";
+import { createAxRefreshScheduler } from "./ax-refresh-scheduler";
 
 type CurrentApp = { bundleId: string; isReactNative: boolean; pid?: number };
 const currentAppCache = new Map<string, CurrentApp>();
@@ -128,6 +129,7 @@ export function SimulatorDeviceView({
   const accessibilityOpen = reviewState.kind === "accessibility";
   const accessibilitySelecting = accessibilityOpen && reviewState.picking;
   const accessibilityShowAll = accessibilityOpen && reviewState.showAllNodes;
+  const needsAxSnapshot = selectNeedsAxSnapshot(reviewState);
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
   const setStreamingRef = useRef(setStreaming);
@@ -139,6 +141,21 @@ export function SimulatorDeviceView({
   }, [deviceName, focused]);
 
   const isAndroidDevice = config.device.startsWith("android:");
+  const [axRefreshSignal, requestAxRefresh] = useReducer(
+    (value: number) => value + 1,
+    0,
+  );
+  const [axRefreshScheduler] = useState(() =>
+    createAxRefreshScheduler(requestAxRefresh)
+  );
+  const scheduleAxRefresh = useCallback(() => {
+    if (!isAndroidDevice || !needsAxSnapshot) return;
+    axRefreshScheduler.schedule();
+  }, [axRefreshScheduler, isAndroidDevice, needsAxSnapshot]);
+  useEffect(() => {
+    if (!isAndroidDevice || !needsAxSnapshot) axRefreshScheduler.cancel();
+  }, [axRefreshScheduler, isAndroidDevice, needsAxSnapshot]);
+  useEffect(() => () => axRefreshScheduler.cancel(), [axRefreshScheduler]);
   const devtools = useWebKitDevtools(
     config.devtoolsEndpoint ?? simEndpoint("devtools"),
     panelsEnabled && !isAndroidDevice && devtoolsOpen,
@@ -322,9 +339,18 @@ export function SimulatorDeviceView({
     );
   }, []);
 
-  const onStreamTouch = useCallback((data: any) => sendWs(0x03, data), [sendWs]);
-  const onStreamMultiTouch = useCallback((data: any) => sendWs(0x05, data), [sendWs]);
-  const onStreamButton = useCallback((button: string) => sendWs(0x04, { button }), [sendWs]);
+  const onStreamTouch = useCallback((data: any) => {
+    sendWs(0x03, data);
+    if (data?.type === "end") scheduleAxRefresh();
+  }, [scheduleAxRefresh, sendWs]);
+  const onStreamMultiTouch = useCallback((data: any) => {
+    sendWs(0x05, data);
+    if (data?.type === "end") scheduleAxRefresh();
+  }, [scheduleAxRefresh, sendWs]);
+  const onStreamButton = useCallback((button: string) => {
+    sendWs(0x04, { button });
+    scheduleAxRefresh();
+  }, [scheduleAxRefresh, sendWs]);
   // A hardware button on the device chrome was pressed/released. Forward its HID
   // (page, usage) so the helper injects it via arbitrary HID — `down`/`up` phases
   // let power / side buttons be held for their long-press menus.
@@ -337,11 +363,14 @@ export function SimulatorDeviceView({
         usage: button.usage,
         phase,
       });
+      if (phase === "up") scheduleAxRefresh();
     },
-    [sendWs],
+    [scheduleAxRefresh, sendWs],
   );
   const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
-  const onStreamScroll = useCallback((data: { dx: number; dy: number; x: number; y: number }) => sendWs(0x0b, data), [sendWs]);
+  const onStreamScroll = useCallback((data: { dx: number; dy: number; x: number; y: number }) => {
+    sendWs(0x0b, data);
+  }, [sendWs]);
   const onScreenConfigChange = useCallback((next: StreamConfig) => {
     setLiveStreamConfig((prev) =>
       prev &&
@@ -354,7 +383,8 @@ export function SimulatorDeviceView({
   }, []);
   const rotateDevice = useCallback((orientation: SimulatorOrientation) => {
     sendWs(0x07, { orientation });
-  }, [sendWs]);
+    scheduleAxRefresh();
+  }, [scheduleAxRefresh, sendWs]);
   const currentOrientation =
     (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait";
   const canRotate = deviceType !== "watch" && deviceType !== "vision";
@@ -387,7 +417,8 @@ export function SimulatorDeviceView({
 
   const sendKey = useCallback((type: "down" | "up", usage: number) => {
     sendWs(0x06, { type, usage });
-  }, [sendWs]);
+    if (type === "up") scheduleAxRefresh();
+  }, [scheduleAxRefresh, sendWs]);
 
   // Subscribe to app-state SSE.
   const [currentApp, setCurrentApp] = useState<CurrentApp | null>(
@@ -607,7 +638,8 @@ export function SimulatorDeviceView({
   return (
     <AxStateProvider
       endpoint={config?.axEndpoint}
-      reviewActive={selectNeedsAxSnapshot(reviewState)}
+      refreshSignal={axRefreshSignal}
+      reviewActive={needsAxSnapshot}
       reviewState={reviewState}
       dispatchReview={dispatchReview}
       annotationEndpoint={config.annotationEndpoint}
@@ -762,6 +794,7 @@ export function SimulatorDeviceView({
                     dispatchReview({
                       type: "ACCESSIBILITY_TARGET_SELECTED",
                       key,
+                      origin: "phone",
                     });
                     dispatchReview({
                       type: "ACCESSIBILITY_PICKING_CHANGED",
@@ -903,7 +936,6 @@ export function SimulatorDeviceView({
                       : {
                           type: "REVIEW_ACCESSIBILITY_OPENED",
                           picking: false,
-                          showAllNodes: true,
                         },
                   );
                 }}

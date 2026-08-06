@@ -22,6 +22,85 @@ export interface AxTargetProps {
   onPick?: (key: string) => void;
 }
 
+export interface AxTargetVisualStyle {
+  borderColor: string;
+  background: string;
+  borderWidth: number;
+}
+
+/** The established simulator overlay palette, shared by iOS and Android. */
+export function axTargetVisualStyle({
+  highlighted,
+  selected,
+  outlined,
+}: {
+  hasSource: boolean;
+  highlighted: boolean;
+  selected: boolean;
+  outlined: boolean;
+}): AxTargetVisualStyle {
+  return {
+    borderWidth: 1,
+    borderColor: selected
+      ? "#60a5fa"
+      : highlighted
+        ? "#fbbf24"
+        : outlined
+          ? "#34d399"
+          : "transparent",
+    background: selected
+      ? "rgba(96,165,250,0.24)"
+      : highlighted
+        ? "rgba(245,158,11,0.28)"
+        : outlined
+          ? "rgba(16,185,129,0.12)"
+          : "transparent",
+  };
+}
+
+export function axTargetSpecificityLayer(
+  frame: { width: number; height: number },
+  screen: { width: number; height: number },
+): number {
+  const areaRatio = Math.min(
+    1,
+    (frame.width * frame.height) /
+      Math.max(1, screen.width * screen.height),
+  );
+  return Math.max(1, Math.round((1 - areaRatio) * 10_000));
+}
+
+export function axTargetStackingLayer({
+  interactive: _interactive,
+  selected,
+  highlighted,
+  specificityLayer,
+}: {
+  interactive: boolean;
+  selected: boolean;
+  highlighted: boolean;
+  specificityLayer: number;
+}): number {
+  if (selected) return 30_000;
+  if (highlighted) return 20_000;
+  return specificityLayer;
+}
+
+/**
+ * Keep the phone-hover contract in one place so every native pointer entry,
+ * movement, and exit produces the same canonical overlay highlight.
+ */
+export function axTargetPointerHandlers(
+  key: string,
+  onHighlight: (key: string | null) => void,
+) {
+  return {
+    onPointerEnter: () => onHighlight(key),
+    onPointerMove: () => onHighlight(key),
+    onPointerLeave: () => onHighlight(null),
+  };
+}
+
 export const AxTarget = memo(function AxTarget({
   element,
   index,
@@ -40,18 +119,18 @@ export const AxTarget = memo(function AxTarget({
   const axNode = axNodeForElement(element, index);
   const visibleFrame = clampAxFrameForScreen(element.frame, screen);
   if (!visibleFrame) return null;
+  const pointerHandlers = axTargetPointerHandlers(
+    key,
+    (highlightedKey) => handlersRef.current.onHighlight(highlightedKey),
+  );
 
-  const baseBorder = "#22d3ee";
-  const hoverBackground = "rgba(34,211,238,0.12)";
-  const areaRatio = Math.min(
-    1,
-    (visibleFrame.width * visibleFrame.height) /
-      Math.max(1, screen.width * screen.height),
-  );
-  const specificityLayer = Math.max(
-    1,
-    Math.round((1 - areaRatio) * 10_000),
-  );
+  const specificityLayer = axTargetSpecificityLayer(visibleFrame, screen);
+  const visualStyle = axTargetVisualStyle({
+    hasSource: Boolean(element.source),
+    highlighted,
+    selected,
+    outlined,
+  });
   return (
     <button
       type="button"
@@ -74,9 +153,13 @@ export const AxTarget = memo(function AxTarget({
         handlersRef.current.onSelect(key);
         handlersRef.current.onPick?.(key);
       }}
-      onMouseEnter={() => handlersRef.current.onHighlight(key)}
-      onMouseLeave={() => handlersRef.current.onHighlight(null)}
-      className={`absolute box-border min-h-px min-w-px rounded-[3px] border p-0 [transition-property:border-color,background-color] duration-[120ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none ${
+      // Pointer entry handles the common stationary-cursor path when Select
+      // arms; move covers an already-active pointer. Full-screen carriers are
+      // filtered out before this component mounts.
+      onPointerEnter={pointerHandlers.onPointerEnter}
+      onPointerMove={pointerHandlers.onPointerMove}
+      onPointerLeave={pointerHandlers.onPointerLeave}
+      className={`absolute box-border min-h-px min-w-px rounded-[3px] border p-0 outline-none focus:outline-none [transition-property:border-color,background-color] duration-[120ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none ${
         interactive ? "cursor-pointer pointer-events-auto" : "cursor-default pointer-events-none"
       } ${selected ? "agentsims-target-lock-enter" : ""}`}
       style={{
@@ -84,23 +167,13 @@ export const AxTarget = memo(function AxTarget({
         top: `${(visibleFrame.y / screen.height) * 100}%`,
         width: `${(visibleFrame.width / screen.width) * 100}%`,
         height: `${(visibleFrame.height / screen.height) * 100}%`,
-        zIndex: selected
-          ? 30_000
-          : highlighted
-            ? 20_000
-            : specificityLayer,
-        borderColor: selected
-          ? "#60a5fa"
-          : highlighted
-            ? baseBorder
-            : outlined
-              ? "rgba(96,165,250,0.34)"
-              : "transparent",
-        background: selected
-          ? "rgba(96,165,250,0.16)"
-          : highlighted
-          ? hoverBackground
-          : "transparent",
+        zIndex: axTargetStackingLayer({
+          interactive,
+          selected,
+          highlighted,
+          specificityLayer,
+        }),
+        ...visualStyle,
       }}
     />
   );

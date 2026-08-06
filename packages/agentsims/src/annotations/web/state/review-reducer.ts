@@ -7,6 +7,8 @@ import {
   type AnnotationPhase,
   type AnnotationTargetingPhase,
   type AnnotateReviewState,
+  type AccessibilitySelectionOrigin,
+  type AxHighlightOrigin,
   type AxKey,
   type DraftId,
   type ReviewPoint,
@@ -24,8 +26,16 @@ export type ReviewEvent =
   | { type: "REVIEW_CLOSED" }
   | { type: "ACCESSIBILITY_PICKING_CHANGED"; picking: boolean }
   | { type: "ACCESSIBILITY_ALL_NODES_CHANGED"; visible: boolean }
-  | { type: "AX_TARGET_HOVERED"; key: AxKey | null }
-  | { type: "ACCESSIBILITY_TARGET_SELECTED"; key: AxKey | null }
+  | {
+      type: "AX_TARGET_HOVERED";
+      key: AxKey | null;
+      origin: AxHighlightOrigin;
+    }
+  | {
+      type: "ACCESSIBILITY_TARGET_SELECTED";
+      key: AxKey | null;
+      origin: AccessibilitySelectionOrigin;
+    }
   | { type: "ANNOTATION_TOOL_CHANGED"; tool: ReviewTool }
   | { type: "ANNOTATION_ELEMENT_SELECTED"; key: AxKey; draftId: DraftId }
   | { type: "ANNOTATION_MULTI_TARGET_TOGGLED"; key: AxKey }
@@ -79,6 +89,7 @@ function annotateWithPhase(
     ...phase,
     kind: "annotate",
     highlightedKey: null,
+    highlightedOrigin: null,
     hoveredAnnotationId: null,
     recoverableDraftId,
   } as AnnotateReviewState;
@@ -163,7 +174,12 @@ function dismissTopReviewLayer(state: ReviewState): ReviewState {
 
   if (state.kind === "accessibility") {
     return state.picking
-      ? { ...state, picking: false, highlightedKey: null }
+      ? {
+          ...state,
+          picking: false,
+          highlightedKey: null,
+          highlightedOrigin: null,
+        }
       : createClosedReviewState(state.recoverableDraftId);
   }
 
@@ -235,7 +251,12 @@ export function reviewReducer(
 
     case "ACCESSIBILITY_PICKING_CHANGED":
       return state.kind === "accessibility" && state.picking !== event.picking
-        ? { ...state, picking: event.picking, highlightedKey: null }
+        ? {
+            ...state,
+            picking: event.picking,
+            highlightedKey: null,
+            highlightedOrigin: null,
+          }
         : state;
 
     case "ACCESSIBILITY_ALL_NODES_CHANGED":
@@ -246,19 +267,41 @@ export function reviewReducer(
 
     case "AX_TARGET_HOVERED":
       if (state.kind === "accessibility") {
-        return state.highlightedKey === event.key
+        if (
+          event.key === null &&
+          event.origin !== null &&
+          state.highlightedOrigin !== event.origin
+        ) return state;
+        const highlightedOrigin = event.key === null ? null : event.origin;
+        return state.highlightedKey === event.key &&
+            state.highlightedOrigin === highlightedOrigin
           ? state
-          : { ...state, highlightedKey: event.key };
+          : { ...state, highlightedKey: event.key, highlightedOrigin };
       }
       if (state.kind !== "annotate" || state.phase !== "targeting") return state;
-      return state.highlightedKey === event.key
+      if (
+        event.key === null &&
+        event.origin !== null &&
+        state.highlightedOrigin !== event.origin
+      ) return state;
+      const highlightedOrigin = event.key === null ? null : event.origin;
+      return state.highlightedKey === event.key &&
+          state.highlightedOrigin === highlightedOrigin
         ? state
-        : { ...state, highlightedKey: event.key };
+        : { ...state, highlightedKey: event.key, highlightedOrigin };
 
     case "ACCESSIBILITY_TARGET_SELECTED":
-      return state.kind === "accessibility" && state.selectedKey !== event.key
-        ? { ...state, selectedKey: event.key }
-        : state;
+      if (state.kind !== "accessibility") return state;
+      if (event.origin === "phone" && event.key !== null) {
+        return {
+          ...state,
+          selectedKey: event.key,
+          phoneSelectionRevealToken: state.phoneSelectionRevealToken + 1,
+        };
+      }
+      return state.selectedKey === event.key
+        ? state
+        : { ...state, selectedKey: event.key };
 
     case "ANNOTATION_TOOL_CHANGED":
       if (
@@ -302,6 +345,7 @@ export function reviewReducer(
       return {
         ...state,
         highlightedKey: null,
+        highlightedOrigin: null,
         selectedKeys,
       };
     }
@@ -315,7 +359,12 @@ export function reviewReducer(
       ) {
         return state;
       }
-      return { ...state, highlightedKey: null, selectedKeys: [] };
+      return {
+        ...state,
+        highlightedKey: null,
+        highlightedOrigin: null,
+        selectedKeys: [],
+      };
 
     case "ANNOTATION_MULTI_COMPOSE_REQUESTED":
       if (

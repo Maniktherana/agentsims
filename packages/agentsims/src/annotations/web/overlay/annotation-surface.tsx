@@ -6,7 +6,7 @@ import { useAxModeContext } from "../state/device-annotation-state";
 export function AnnotationSurface({
   active,
   inspectorMode = null,
-  inspectorShowAll = true,
+  inspectorShowAll = false,
   onInspectorPick,
   screen,
 }: {

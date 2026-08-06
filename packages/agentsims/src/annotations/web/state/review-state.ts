@@ -2,6 +2,8 @@ export type DeviceId = string;
 export type AxKey = string;
 export type DraftId = string;
 export type AnnotationId = string;
+export type AxHighlightOrigin = "phone" | "tree" | null;
+export type AccessibilitySelectionOrigin = "phone" | "tree";
 
 export type ReviewTool = "element" | "area" | "multi" | "screen";
 
@@ -20,7 +22,9 @@ export interface AccessibilityReviewState {
   picking: boolean;
   showAllNodes: boolean;
   highlightedKey: AxKey | null;
+  highlightedOrigin: AxHighlightOrigin;
   selectedKey: AxKey | null;
+  phoneSelectionRevealToken: number;
   recoverableDraftId: DraftId | null;
 }
 
@@ -73,6 +77,7 @@ export type AnnotationPhase =
 interface AnnotateReviewBase {
   kind: "annotate";
   highlightedKey: AxKey | null;
+  highlightedOrigin: AxHighlightOrigin;
   hoveredAnnotationId: AnnotationId | null;
   recoverableDraftId: DraftId | null;
 }
@@ -102,7 +107,9 @@ export function createAccessibilityReviewState(options: {
     picking: options.picking ?? false,
     showAllNodes: options.showAllNodes ?? true,
     highlightedKey: null,
+    highlightedOrigin: null,
     selectedKey: null,
+    phoneSelectionRevealToken: 0,
     recoverableDraftId: options.recoverableDraftId ?? null,
   };
 }
@@ -127,6 +134,7 @@ export function createAnnotateReviewState(options: {
   return {
     kind: "annotate",
     highlightedKey: null,
+    highlightedOrigin: null,
     hoveredAnnotationId: null,
     recoverableDraftId: options.recoverableDraftId ?? null,
     ...createAnnotationTargetingPhase(

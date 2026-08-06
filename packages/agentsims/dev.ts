@@ -25,6 +25,8 @@ import { servePreview } from "./src/shared/runtime";
 const PORT = Number(process.env.PORT) || 3200;
 const HMR_PORT = Number(process.env.AGENTSIMS_VITE_HMR_PORT) || PORT + 1;
 const PKG_ROOT = resolve(import.meta.dir);
+const ACCESSIBILITY_SOURCE_FIXTURE_PATH =
+  "/src/__tests__/fixtures/accessibility-source.browser.html";
 const AGENTSIMS_BIN_CANDIDATES = [
   join(PKG_ROOT, "src", "index.ts"),
   join(PKG_ROOT, "dist", "agentsims.js"),
@@ -124,6 +126,28 @@ async function devMiddleware(req: IncomingMessage, res: ServerResponse, next: ()
     try {
       const html = await buildHtml(vite, device);
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(html);
+    } catch (error) {
+      vite.ssrFixStacktrace(error as Error);
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.end((error as Error).stack || String(error));
+      }
+    }
+    return;
+  }
+
+  if (path === ACCESSIBILITY_SOURCE_FIXTURE_PATH) {
+    try {
+      const fixture = readFileSync(
+        resolve(PKG_ROOT, `.${ACCESSIBILITY_SOURCE_FIXTURE_PATH}`),
+        "utf8",
+      );
+      const html = await vite.transformIndexHtml(path, fixture);
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
       res.end(html);
     } catch (error) {
       vite.ssrFixStacktrace(error as Error);

@@ -42,7 +42,9 @@ describe("reviewReducer accessibility", () => {
       picking: false,
       showAllNodes: true,
       highlightedKey: null,
+      highlightedOrigin: null,
       selectedKey: null,
+      phoneSelectionRevealToken: 0,
       recoverableDraftId: null,
     });
     expect(selectReviewPointerCapture(state)).toBe("none");
@@ -50,11 +52,39 @@ describe("reviewReducer accessibility", () => {
     expect(selectNeedsAxSnapshot(state)).toBe(true);
   });
 
-  test("opens accessibility passively by default", () => {
+  test("opens accessibility passively with meaningful outlines by default", () => {
     const state = reviewReducer(createClosedReviewState(), {
       type: "REVIEW_ACCESSIBILITY_OPENED",
     });
     expect(state.kind).toBe("accessibility");
+    expect(selectCapturesSimulatorPointer(state)).toBe(false);
+    expect(selectShowsAllAccessibilityNodes(state)).toBe(true);
+  });
+
+  test("phone pick replaces a broad selection and exits picking", () => {
+    const state = reduce(
+      createClosedReviewState(),
+      { type: "REVIEW_ACCESSIBILITY_OPENED", picking: true },
+      {
+        type: "ACCESSIBILITY_TARGET_SELECTED",
+        key: "root@0",
+        origin: "phone",
+      },
+      {
+        type: "ACCESSIBILITY_TARGET_SELECTED",
+        key: "nested-button@0.1.2",
+        origin: "phone",
+      },
+      { type: "ACCESSIBILITY_PICKING_CHANGED", picking: false },
+    );
+
+    expect(state).toMatchObject({
+      kind: "accessibility",
+      picking: false,
+      selectedKey: "nested-button@0.1.2",
+      highlightedKey: null,
+      phoneSelectionRevealToken: 2,
+    });
     expect(selectCapturesSimulatorPointer(state)).toBe(false);
   });
 
@@ -81,10 +111,73 @@ describe("reviewReducer accessibility", () => {
     const state = reduce(
       createClosedReviewState(),
       { type: "REVIEW_ACCESSIBILITY_OPENED", picking: false },
-      { type: "ACCESSIBILITY_TARGET_SELECTED", key: "button@/0/2" },
+      {
+        type: "ACCESSIBILITY_TARGET_SELECTED",
+        key: "button@/0/2",
+        origin: "tree",
+      },
     );
     expect(selectSelectedAxKeys(state)).toEqual(["button@/0/2"]);
     expect(selectCapturesSimulatorPointer(state)).toBe(false);
+  });
+
+  test("emits one phone reveal token per phone commit, including the same key", () => {
+    const open = reduce(
+      createClosedReviewState(),
+      { type: "REVIEW_ACCESSIBILITY_OPENED" },
+      {
+        type: "ACCESSIBILITY_TARGET_SELECTED",
+        key: "button@0.2",
+        origin: "tree",
+      },
+    );
+    expect(open.kind === "accessibility"
+      ? open.phoneSelectionRevealToken
+      : -1).toBe(0);
+
+    const firstPhoneCommit = reviewReducer(open, {
+      type: "ACCESSIBILITY_TARGET_SELECTED",
+      key: "button@0.2",
+      origin: "phone",
+    });
+    const repeatedPhoneCommit = reviewReducer(firstPhoneCommit, {
+      type: "ACCESSIBILITY_TARGET_SELECTED",
+      key: "button@0.2",
+      origin: "phone",
+    });
+    expect(firstPhoneCommit.kind === "accessibility"
+      ? firstPhoneCommit.phoneSelectionRevealToken
+      : -1).toBe(1);
+    expect(repeatedPhoneCommit.kind === "accessibility"
+      ? repeatedPhoneCommit.phoneSelectionRevealToken
+      : -1).toBe(2);
+  });
+
+  test("ignores crossed delayed hover leaves from the superseded origin", () => {
+    const open = reviewReducer(createClosedReviewState(), {
+      type: "REVIEW_ACCESSIBILITY_OPENED",
+    });
+    const phoneThenTree = reduce(
+      open,
+      { type: "AX_TARGET_HOVERED", key: "phone@0.1", origin: "phone" },
+      { type: "AX_TARGET_HOVERED", key: "tree@0.2", origin: "tree" },
+      { type: "AX_TARGET_HOVERED", key: null, origin: "phone" },
+    );
+    expect(phoneThenTree).toMatchObject({
+      highlightedKey: "tree@0.2",
+      highlightedOrigin: "tree",
+    });
+
+    const treeThenPhone = reduce(
+      open,
+      { type: "AX_TARGET_HOVERED", key: "tree@0.2", origin: "tree" },
+      { type: "AX_TARGET_HOVERED", key: "phone@0.1", origin: "phone" },
+      { type: "AX_TARGET_HOVERED", key: null, origin: "tree" },
+    );
+    expect(treeThenPhone).toMatchObject({
+      highlightedKey: "phone@0.1",
+      highlightedOrigin: "phone",
+    });
   });
 });
 

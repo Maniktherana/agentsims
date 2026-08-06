@@ -14,6 +14,7 @@ import {
   useAxSnapshot,
   type AnnotationDraft,
   type AnnotationMode,
+  type AxHighlightOrigin,
   type AxSelectionContextValue,
 } from "./device-annotation-state";
 import {
@@ -25,6 +26,7 @@ import type { ReviewState } from "./review-state";
 
 export function AxStateProvider({
   endpoint,
+  refreshSignal,
   reviewActive = false,
   reviewState,
   dispatchReview,
@@ -33,6 +35,7 @@ export function AxStateProvider({
   children,
 }: {
   endpoint?: string;
+  refreshSignal?: number;
   reviewActive?: boolean;
   reviewState: ReviewState;
   dispatchReview: (event: ReviewEvent) => void;
@@ -43,10 +46,16 @@ export function AxStateProvider({
   const annotationValue = useDeviceAnnotations(deviceId, annotationEndpoint);
   const keepMarkersCurrent =
     annotationValue.markersVisible && annotationValue.annotations.length > 0;
-  const { snapshot, status } = useAxSnapshot(
+  const { snapshot, status, refreshing, refresh, sourceEndpoint } = useAxSnapshot(
     reviewActive || keepMarkersCurrent ? endpoint : undefined,
+    refreshSignal,
   );
-  const [highlightedKey, setHighlightedKeyState] = useState<string | null>(null);
+  const highlightedKey = reviewState.kind === "closed"
+    ? null
+    : reviewState.highlightedKey;
+  const highlightedOrigin = reviewState.kind === "closed"
+    ? null
+    : reviewState.highlightedOrigin;
   const [selectedKey, setSelectedKeyState] = useState<string | null>(null);
   const [draft, setDraft] = useState<AnnotationDraft | null>(null);
   const annotationMode = (selectReviewTool(reviewState) ??
@@ -59,15 +68,17 @@ export function AxStateProvider({
     [annotationMode, reviewState],
   );
 
+  const setHighlightedKey = useCallback((
+    key: string | null,
+    origin?: Exclude<AxHighlightOrigin, null>,
+  ) => {
+    dispatchReview({ type: "AX_TARGET_HOVERED", key, origin: origin ?? null });
+  }, [dispatchReview]);
+
   useEffect(() => {
-    setHighlightedKeyState(null);
     setSelectedKeyState(null);
     setDraft(null);
   }, [deviceId]);
-
-  const setHighlightedKey = useCallback((key: string | null) => {
-    setHighlightedKeyState((current) => current === key ? current : key);
-  }, []);
   const setSelectedKey = useCallback((key: string | null) => {
     setSelectedKeyState((current) => current === key ? current : key);
   }, []);
@@ -84,34 +95,34 @@ export function AxStateProvider({
     dispatchReview({ type: "ANNOTATION_MULTI_SELECTION_CLEARED" });
   }, [dispatchReview]);
   const openComposer = useCallback((key: string | null) => {
-    setHighlightedKeyState(null);
+    setHighlightedKey(null);
     setSelectedKeyState(key);
     setDraft({ kind: key ? "element" : "screen", elementKeys: key ? [key] : [] });
-  }, []);
+  }, [setHighlightedKey]);
   const openAreaComposer = useCallback((bounds: AnnotationDraft["bounds"]) => {
     if (!bounds) return;
-    setHighlightedKeyState(null);
+    setHighlightedKey(null);
     setSelectedKeyState(null);
     setDraft({ kind: "area", elementKeys: [], bounds });
-  }, []);
+  }, [setHighlightedKey]);
   const openScreenComposer = useCallback(() => {
-    setHighlightedKeyState(null);
+    setHighlightedKey(null);
     setSelectedKeyState(null);
     setDraft({ kind: "screen", elementKeys: [] });
-  }, []);
+  }, [setHighlightedKey]);
   const openMultiComposer = useCallback(() => {
     if (multiSelectedKeys.length === 0) return;
-    setHighlightedKeyState(null);
+    setHighlightedKey(null);
     setDraft({ kind: "multi", elementKeys: multiSelectedKeys });
-  }, [multiSelectedKeys]);
+  }, [multiSelectedKeys, setHighlightedKey]);
   const closeComposer = useCallback(() => {
     setSelectedKeyState(null);
     setDraft(null);
   }, []);
 
   const snapshotValue = useMemo(
-    () => ({ snapshot, status }),
-    [snapshot, status],
+    () => ({ snapshot, status, refreshing, refresh, sourceEndpoint }),
+    [refresh, refreshing, snapshot, sourceEndpoint, status],
   );
   const modeValue = useMemo(
     () => ({
@@ -124,6 +135,7 @@ export function AxStateProvider({
   const selectionValue = useMemo<AxSelectionContextValue>(
     () => ({
       highlightedKey,
+      highlightedOrigin,
       selectedKey,
       annotationMode,
       multiSelectedKeys,
@@ -146,6 +158,7 @@ export function AxStateProvider({
       closeComposer,
       draft,
       highlightedKey,
+      highlightedOrigin,
       multiSelectedKeys,
       openAreaComposer,
       openComposer,

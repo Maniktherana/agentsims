@@ -21,7 +21,7 @@
   --color-warning-soft: #fcd34d;
 
   /* Font families */
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-system: -apple-system, system-ui, sans-serif;
 }
 

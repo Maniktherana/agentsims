@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import {
   useAxSelectionContext,
   useAxSnapshotContext,
+  type AxHighlightOrigin,
 } from "../state/device-annotation-state";
 import type { AxElement } from "../../model";
 import {
@@ -38,6 +39,309 @@ export interface AxOverlayTargetEntry {
   key: string;
 }
 
+export interface AxOverlayTargetProjection {
+  visibleEntries: AxOverlayTargetEntry[];
+  eligibleEntries: AxOverlayTargetEntry[];
+  previewKeyByRawKey: ReadonlyMap<string, string>;
+}
+
+function isDirectSourceMatch(element: AxElement): boolean {
+  const reason = element.source?.matchReason;
+  return reason !== "ancestor-owner" &&
+    reason !== "nearby-visible-text" &&
+    reason !== "nearby-accessibility-label" &&
+    reason !== "nearby-placeholder" &&
+    reason !== "nearby-carrier-text" &&
+    reason !== "nearby-host-type";
+}
+
+function hasNativeAxAction(element: AxElement): boolean {
+  const role = `${element.role} ${element.type}`.toLowerCase();
+  const traits = (element.traits ?? []).map((trait) => trait.toLowerCase());
+  return traits.some((trait) =>
+    trait.includes("clickable") ||
+    trait.includes("long press") ||
+    trait.includes("button") ||
+    trait.includes("link") ||
+    trait.includes("adjustable")
+  ) ||
+    role.includes("button") ||
+    role.includes("edittext") ||
+    role.includes("textfield") ||
+    role.includes("text field") ||
+    role.includes("switch") ||
+    role.includes("checkbox") ||
+    role.includes("radiobutton") ||
+    role.includes("radio button") ||
+    role.includes("spinner") ||
+    role.includes("seekbar") ||
+    role.includes("slider") ||
+    role.includes("link") ||
+    role.includes("menuitem");
+}
+
+function hasDirectSourceAction(element: AxElement): boolean {
+  const sourceName = isDirectSourceMatch(element)
+    ? (element.source?.elementName ?? "").toLowerCase()
+    : "";
+  return sourceName.includes("pressable") ||
+    sourceName.includes("touchable") ||
+    sourceName.includes("button") ||
+    sourceName.includes("input");
+}
+
+/** True for a control the user can actually act on, not visual descendants. */
+export function isActionableAxOverlayElement(element: AxElement): boolean {
+  return hasNativeAxAction(element) || hasDirectSourceAction(element);
+}
+
+function parentAxPath(path: string): string | null {
+  const separator = Math.max(path.lastIndexOf("."), path.lastIndexOf("/"));
+  return separator > 0 ? path.slice(0, separator) : null;
+}
+
+function axPathDepth(path: string): number {
+  return path.split(/[./]/).filter(Boolean).length;
+}
+
+function actionableSemanticRank(element: AxElement): number {
+  const role = `${element.role} ${element.type}`.toLowerCase();
+  if (
+    role.includes("button") ||
+    role.includes("edittext") ||
+    role.includes("textfield") ||
+    role.includes("text field") ||
+    role.includes("switch") ||
+    role.includes("checkbox") ||
+    role.includes("radiobutton") ||
+    role.includes("radio button") ||
+    role.includes("spinner") ||
+    role.includes("seekbar") ||
+    role.includes("slider") ||
+    role.includes("link") ||
+    role.includes("menuitem")
+  ) {
+    return 3;
+  }
+  if (hasDirectSourceAction(element)) return 2;
+  const traits = (element.traits ?? []).map((trait) => trait.toLowerCase());
+  return traits.some((trait) =>
+      trait.includes("button") ||
+      trait.includes("link") ||
+      trait.includes("adjustable") ||
+      trait.includes("long press")
+    )
+    ? 2
+    : 1;
+}
+
+function compareDuplicateTargetPreference(
+  left: AxOverlayTargetEntry,
+  right: AxOverlayTargetEntry,
+): number {
+  const rankDifference =
+    actionableSemanticRank(left.element) - actionableSemanticRank(right.element);
+  if (rankDifference !== 0) return -rankDifference;
+  const depthDifference =
+    axPathDepth(left.element.path) - axPathDepth(right.element.path);
+  if (depthDifference !== 0) return -depthDifference;
+  return left.index - right.index;
+}
+
+function axFramesAreDuplicateBounds(
+  left: AxElement["frame"],
+  right: AxElement["frame"],
+  screen: { width: number; height: number },
+): boolean {
+  const leftFrame = clampAxFrameForScreen(left, screen);
+  const rightFrame = clampAxFrameForScreen(right, screen);
+  if (!leftFrame || !rightFrame) return false;
+
+  // Native AX frames are quantized in screen coordinates. Tolerate one native
+  // coordinate unit on each rendered edge, but require at least 90% overlap so
+  // a real nested action with a smaller hit area remains independently usable.
+  const edgeEpsilon = 1 + Number.EPSILON;
+  const leftRight = leftFrame.x + leftFrame.width;
+  const rightRight = rightFrame.x + rightFrame.width;
+  const leftBottom = leftFrame.y + leftFrame.height;
+  const rightBottom = rightFrame.y + rightFrame.height;
+  if (
+    Math.abs(leftFrame.x - rightFrame.x) > edgeEpsilon ||
+    Math.abs(leftFrame.y - rightFrame.y) > edgeEpsilon ||
+    Math.abs(leftRight - rightRight) > edgeEpsilon ||
+    Math.abs(leftBottom - rightBottom) > edgeEpsilon
+  ) {
+    return false;
+  }
+
+  const intersectionWidth = Math.max(
+    0,
+    Math.min(leftRight, rightRight) - Math.max(leftFrame.x, rightFrame.x),
+  );
+  const intersectionHeight = Math.max(
+    0,
+    Math.min(leftBottom, rightBottom) - Math.max(leftFrame.y, rightFrame.y),
+  );
+  const intersectionArea = intersectionWidth * intersectionHeight;
+  const unionArea =
+    leftFrame.width * leftFrame.height +
+    rightFrame.width * rightFrame.height -
+    intersectionArea;
+  return unionArea > 0 && intersectionArea / unionArea >= 0.9;
+}
+
+function collapseDuplicateAxOverlayTargets(
+  entries: AxOverlayTargetEntry[],
+  screen: { width: number; height: number },
+): {
+  entries: AxOverlayTargetEntry[];
+  retainedKeyByCandidateKey: ReadonlyMap<string, string>;
+} {
+  const duplicateNeighbors = entries.map(() => new Set<number>());
+  const candidateIndexByPath = new Map(
+    entries.map((entry, index) => [entry.element.path, index]),
+  );
+  for (let descendantIndex = 0; descendantIndex < entries.length; descendantIndex += 1) {
+    const descendant = entries[descendantIndex]!;
+    let ancestorPath = parentAxPath(descendant.element.path);
+    while (ancestorPath) {
+      const ancestorIndex = candidateIndexByPath.get(ancestorPath);
+      const ancestor = ancestorIndex === undefined
+        ? null
+        : entries[ancestorIndex]!;
+      if (
+        ancestor &&
+        axFramesAreDuplicateBounds(
+          ancestor.element.frame,
+          descendant.element.frame,
+          screen,
+        )
+      ) {
+        duplicateNeighbors[ancestorIndex!]!.add(descendantIndex);
+        duplicateNeighbors[descendantIndex]!.add(ancestorIndex!);
+      }
+      ancestorPath = parentAxPath(ancestorPath);
+    }
+  }
+
+  // Build deterministic winner-centered groups instead of connected
+  // components. Every collapsed member must directly satisfy the bounds
+  // predicate against its retained winner; near-match chains cannot widen the
+  // tolerated edge drift transitively.
+  const preferredCandidateIndexes = entries
+    .map((_, index) => index)
+    .sort((left, right) =>
+      compareDuplicateTargetPreference(entries[left]!, entries[right]!)
+    );
+  const retainedIndexByCandidateIndex = entries.map(() => -1);
+  for (const winnerIndex of preferredCandidateIndexes) {
+    if (retainedIndexByCandidateIndex[winnerIndex] !== -1) continue;
+    retainedIndexByCandidateIndex[winnerIndex] = winnerIndex;
+    for (const candidateIndex of duplicateNeighbors[winnerIndex]!) {
+      if (retainedIndexByCandidateIndex[candidateIndex] === -1) {
+        retainedIndexByCandidateIndex[candidateIndex] = winnerIndex;
+      }
+    }
+  }
+
+  const retainedKeyByCandidateKey = new Map<string, string>();
+  for (let index = 0; index < entries.length; index += 1) {
+    retainedKeyByCandidateKey.set(
+      entries[index]!.key,
+      entries[retainedIndexByCandidateIndex[index]!]!.key,
+    );
+  }
+  const retainedKeys = new Set(
+    retainedIndexByCandidateIndex.map((index) => entries[index]!.key),
+  );
+  return {
+    entries: entries.filter((entry) => retainedKeys.has(entry.key)),
+    retainedKeyByCandidateKey,
+  };
+}
+
+export function buildAxOverlayTargetEntries(
+  elements: AxElement[],
+  screen: { width: number; height: number },
+  { actionableOnly = true }: { actionableOnly?: boolean } = {},
+): AxOverlayTargetProjection {
+  const visibleEntries = elements.flatMap((element, index) =>
+    clampAxFrameForScreen(element.frame, screen)
+      ? [{ element, index, key: axElementKey(element) }]
+      : []
+  );
+  const meaningfulKeys = actionableOnly
+    ? null
+    : new Set(annotationTargetElements(elements, screen).map(axElementKey));
+  const actionCandidates = actionableOnly
+    ? visibleEntries.filter((entry) => {
+        const element = entry.element;
+        if (element.visibleToUser === false) return false;
+        const areaRatio = (element.frame.width * element.frame.height) /
+          Math.max(1, screen.width * screen.height);
+        return areaRatio <= 0.72 && isActionableAxOverlayElement(element);
+      })
+    : [];
+  const actionCandidateByPath = new Map(
+    actionCandidates.map((entry) => [entry.element.path, entry]),
+  );
+  const undeduplicatedEntries = actionableOnly
+    ? actionCandidates.filter((entry) => {
+        // Source ownership can be inherited by visual children. If a source-only
+        // candidate sits under a real actionable ancestor, the ancestor owns the
+        // one phone box. Native actionable descendants remain independently
+        // targetable.
+        if (hasNativeAxAction(entry.element)) return true;
+        let path = parentAxPath(entry.element.path);
+        while (path) {
+          if (actionCandidateByPath.has(path)) return false;
+          path = parentAxPath(path);
+        }
+        return true;
+      })
+    : visibleEntries.filter((entry) => meaningfulKeys?.has(entry.key));
+  const collapsedTargets = actionableOnly
+    ? collapseDuplicateAxOverlayTargets(undeduplicatedEntries, screen)
+    : {
+        entries: undeduplicatedEntries,
+        retainedKeyByCandidateKey: new Map(
+          undeduplicatedEntries.map((entry) => [entry.key, entry.key]),
+        ),
+      };
+  const eligibleEntries = collapsedTargets.entries;
+  const eligibleByKey = new Map(
+    eligibleEntries.map((entry) => [entry.key, entry]),
+  );
+  const eligibleByPath = new Map(
+    eligibleEntries.map((entry) => [entry.element.path, entry]),
+  );
+  const projectedTargetByCandidatePath = new Map(
+    undeduplicatedEntries.flatMap((entry) => {
+      const retainedKey = collapsedTargets.retainedKeyByCandidateKey.get(entry.key);
+      const retainedEntry = retainedKey ? eligibleByKey.get(retainedKey) : null;
+      return retainedEntry ? [[entry.element.path, retainedEntry] as const] : [];
+    }),
+  );
+  const previewKeyByRawKey = new Map<string, string>();
+  for (const entry of visibleEntries) {
+    let path: string | null = entry.element.path;
+    while (path) {
+      const target = projectedTargetByCandidatePath.get(path) ??
+        eligibleByPath.get(path);
+      if (target) {
+        previewKeyByRawKey.set(entry.key, target.key);
+        break;
+      }
+      path = parentAxPath(path);
+    }
+  }
+  return {
+    visibleEntries,
+    eligibleEntries,
+    previewKeyByRawKey,
+  };
+}
+
 export function selectRenderedAxTargetEntries(
   entries: AxOverlayTargetEntry[],
   {
@@ -46,26 +350,37 @@ export function selectRenderedAxTargetEntries(
     showAllOutlines,
     highlightedKey,
     selectedKeys,
-    entryByKey,
   }: {
     interactive: boolean;
     inspecting: boolean;
     showAllOutlines: boolean;
     highlightedKey: string | null;
     selectedKeys: ReadonlySet<string>;
-    entryByKey?: ReadonlyMap<string, AxOverlayTargetEntry>;
   },
 ): AxOverlayTargetEntry[] {
-  if (interactive || (inspecting && showAllOutlines)) return entries;
   const keys = new Set<string>();
   if (highlightedKey) keys.add(highlightedKey);
   for (const key of selectedKeys) keys.add(key);
-  const entriesByKey =
-    entryByKey ?? new Map(entries.map((entry) => [entry.key, entry]));
-  return [...keys].flatMap((key) => {
+  // `entries` is already the meaningful/actionable overlay set. Resolve active
+  // state against that set too: selecting a raw tree carrier must not smuggle a
+  // hidden, screen-sized, or otherwise ineligible node back onto the phone.
+  const entriesByKey = new Map(entries.map((entry) => [entry.key, entry]));
+  const activeEntries = [...keys].flatMap((key) => {
     const entry = entriesByKey.get(key);
     return entry ? [entry] : [];
   });
+  if (!interactive && !(inspecting && showAllOutlines)) return activeEntries;
+
+  return entries;
+}
+
+export function projectAxOverlayTargetKeys(
+  rawKeys: ReadonlySet<string>,
+  previewKeyByRawKey: ReadonlyMap<string, string>,
+): ReadonlySet<string> {
+  return new Set(
+    [...rawKeys].map((key) => previewKeyByRawKey.get(key) ?? key),
+  );
 }
 
 function hoverContext(element: AxElement) {
@@ -84,10 +399,17 @@ function hoverContext(element: AxElement) {
 
 export type AxDomOverlayMode = "annotate" | "inspect-passive" | "inspect-select";
 
+export function shouldShowAxPhoneTooltip(
+  mode: AxDomOverlayMode,
+  origin: AxHighlightOrigin,
+): boolean {
+  return origin === "phone" && mode !== "inspect-passive";
+}
+
 export function AxDomOverlay({
   onSelectTarget,
   mode = "annotate",
-  showAllOutlines = true,
+  showAllOutlines = false,
   locked = false,
 }: {
   onSelectTarget?: (key: string) => void;
@@ -99,6 +421,7 @@ export function AxDomOverlay({
   const { snapshot } = useAxSnapshotContext();
   const {
     highlightedKey,
+    highlightedOrigin,
     selectedKey,
     annotationMode,
     multiSelectedKeys,
@@ -116,6 +439,7 @@ export function AxDomOverlay({
     toggleMultiSelectedKey,
     openComposer,
     onSelectTarget,
+    setHighlightedKey,
   });
   selectionBehaviorRef.current = {
     inspecting,
@@ -124,10 +448,12 @@ export function AxDomOverlay({
     toggleMultiSelectedKey,
     openComposer,
     onSelectTarget,
+    setHighlightedKey,
   };
   const handleTargetSelect = useCallback((key: string) => {
     const current = selectionBehaviorRef.current;
     if (current.inspecting) {
+      current.setHighlightedKey(null, "phone");
       current.setSelectedKey(key);
       current.onSelectTarget?.(key);
       return;
@@ -138,40 +464,46 @@ export function AxDomOverlay({
     }
     current.openComposer(key);
   }, []);
+  const handlePhoneHighlight = useCallback((key: string | null) => {
+    setHighlightedKey(key, "phone");
+  }, [setHighlightedKey]);
 
   const screenWidth = snapshot?.screen.width ?? 0;
   const screenHeight = snapshot?.screen.height ?? 0;
-  const targets = useMemo(
-    () =>
-      snapshot && screenWidth > 0 && screenHeight > 0
-        ? inspecting
-          ? snapshot.elements.filter((element) =>
-              clampAxFrameForScreen(element.frame, snapshot.screen) !== null
-            )
-          : annotationTargetElements(snapshot.elements, snapshot.screen)
-        : [],
+  const overlayEntries = useMemo(
+    () => snapshot && screenWidth > 0 && screenHeight > 0
+      ? buildAxOverlayTargetEntries(snapshot.elements, snapshot.screen, {
+          actionableOnly: inspecting,
+        })
+      : {
+          visibleEntries: [],
+          eligibleEntries: [],
+          previewKeyByRawKey: new Map<string, string>(),
+        },
     [inspecting, screenHeight, screenWidth, snapshot],
   );
-  const targetEntries = useMemo(
-    () =>
-      targets.map((element, index) => ({
-        element,
-        index,
-        key: axElementKey(element),
-      })),
-    [targets],
+  const eligibleEntries = overlayEntries.eligibleEntries;
+  const eligibleByKey = useMemo(
+    () => new Map(eligibleEntries.map((entry) => [entry.key, entry])),
+    [eligibleEntries],
   );
-  const targetByKey = useMemo(
-    () => new Map(targetEntries.map((entry) => [entry.key, entry])),
-    [targetEntries],
+  const eligibleKeys = useMemo(
+    () => new Set(eligibleEntries.map((entry) => entry.key)),
+    [eligibleEntries],
   );
-  const highlightedElement = highlightedKey
-    ? targetByKey.get(highlightedKey)?.element ?? null
+  const previewHighlightedKey = highlightedKey
+    ? overlayEntries.previewKeyByRawKey.get(highlightedKey) ?? null
+    : null;
+  const highlightedElement = previewHighlightedKey
+    ? eligibleByKey.get(previewHighlightedKey)?.element ?? null
     : null;
   const highlightedFrame = highlightedElement
     ? clampAxFrameForScreen(highlightedElement.frame, { width: screenWidth, height: screenHeight })
     : null;
-  const hover = highlightedElement ? hoverContext(highlightedElement) : null;
+  const hover = highlightedElement &&
+      shouldShowAxPhoneTooltip(mode, highlightedOrigin)
+    ? hoverContext(highlightedElement)
+    : null;
   const selectedKeys = useMemo(
     () =>
       new Set(
@@ -191,23 +523,28 @@ export function AxDomOverlay({
       selectedKey,
     ],
   );
+  const projectedSelectedKeys = useMemo(
+    () => projectAxOverlayTargetKeys(
+      selectedKeys,
+      overlayEntries.previewKeyByRawKey,
+    ),
+    [overlayEntries.previewKeyByRawKey, selectedKeys],
+  );
   const renderedEntries = useMemo(() => {
-    return selectRenderedAxTargetEntries(targetEntries, {
+    return selectRenderedAxTargetEntries(eligibleEntries, {
       interactive,
       inspecting,
       showAllOutlines,
-      highlightedKey,
-      selectedKeys,
-      entryByKey: targetByKey,
+      highlightedKey: previewHighlightedKey,
+      selectedKeys: projectedSelectedKeys,
     });
   }, [
-    highlightedKey,
+    previewHighlightedKey,
     inspecting,
     interactive,
-    selectedKeys,
+    projectedSelectedKeys,
     showAllOutlines,
-    targetByKey,
-    targetEntries,
+    eligibleEntries,
   ]);
   const [overlayRect, setOverlayRect] = useState<OverlayViewportRect | null>(null);
 
@@ -297,13 +634,13 @@ export function AxDomOverlay({
               element={element}
               index={index}
               screen={snapshot.screen}
-              highlighted={key === highlightedKey}
+              highlighted={key === previewHighlightedKey}
               selected={
-                selectedKeys.has(key)
+                projectedSelectedKeys.has(key)
               }
-              interactive={interactive}
-              outlined={inspecting && showAllOutlines}
-              onHighlight={setHighlightedKey}
+              interactive={interactive && eligibleKeys.has(key)}
+              outlined={interactive || (inspecting && showAllOutlines)}
+              onHighlight={handlePhoneHighlight}
               onSelect={handleTargetSelect}
             />
           );

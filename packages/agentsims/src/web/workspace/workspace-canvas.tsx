@@ -1,14 +1,25 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { DevicePlaceholder } from "../components/device-placeholder";
-import { RESET_WORKSPACE_LAYOUT_EVENT } from "../layout-events";
+import {
+  RESET_WORKSPACE_LAYOUT_EVENT,
+  WORKSPACE_DEVICE_GEOMETRY_EVENT,
+} from "../layout-events";
 import type { GridDevice } from "../utils/grid";
+import {
+  EMPTY_WORKSPACE_REVIEW_EXTENTS,
+  getWorkspaceReviewExtentsSnapshot,
+  subscribeWorkspaceReviewExtents,
+  type WorkspaceReviewExtents,
+} from "./workspace-review-extent-store";
 import type { PreviewConfig } from "./workspace-state";
 
 export interface WorkspaceDeviceRenderContext {
@@ -25,13 +36,12 @@ const WORKSPACE_PADDING = {
   paddingBottom: 24,
 } as const;
 
-interface WorkspaceOffset {
+export interface WorkspaceOffset {
   x: number;
   y: number;
 }
 
 type WorkspaceOffsets = Record<string, WorkspaceOffset>;
-
 const WORKSPACE_OFFSETS_KEY = "agentsims:workspace-device-offsets";
 
 function readWorkspaceOffsets(): WorkspaceOffsets {
@@ -62,18 +72,19 @@ function writeWorkspaceOffsets(offsets: WorkspaceOffsets) {
   window.localStorage.setItem(WORKSPACE_OFFSETS_KEY, JSON.stringify(offsets));
 }
 
-function clampOffset(
-  element: HTMLElement,
+export function clampWorkspaceDeviceOffset(
+  rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
   current: WorkspaceOffset,
   next: WorkspaceOffset,
+  viewportWidth: number,
+  viewportHeight: number,
 ): WorkspaceOffset {
   const margin = 12;
   const dockReserve = 72;
-  const rect = element.getBoundingClientRect();
   const originLeft = rect.left - current.x;
   const originTop = rect.top - current.y;
-  const maxRight = window.innerWidth - margin;
-  const maxBottom = window.innerHeight - dockReserve;
+  const maxRight = viewportWidth - margin;
+  const maxBottom = viewportHeight - dockReserve;
   return {
     x: Math.min(
       maxRight - originLeft - rect.width,
@@ -84,6 +95,32 @@ function clampOffset(
       Math.max(margin - originTop, next.y),
     ),
   };
+}
+
+export function resolveWorkspaceReviewScrollExtent(
+  viewportWidth: number,
+  viewportHeight: number,
+  extents: WorkspaceReviewExtents,
+): { width: number; height: number } {
+  const values = Object.values(extents);
+  return {
+    width: Math.max(viewportWidth, ...values.map((extent) => extent.right)),
+    height: Math.max(viewportHeight, ...values.map((extent) => extent.bottom)),
+  };
+}
+
+function clampOffset(
+  element: HTMLElement,
+  current: WorkspaceOffset,
+  next: WorkspaceOffset,
+): WorkspaceOffset {
+  return clampWorkspaceDeviceOffset(
+    element.getBoundingClientRect(),
+    current,
+    next,
+    window.innerWidth,
+    window.innerHeight,
+  );
 }
 
 function DraggableDevice({
@@ -104,12 +141,19 @@ function DraggableDevice({
   singleDevice: boolean;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
     startY: number;
     offset: WorkspaceOffset;
   } | null>(null);
+
+  useLayoutEffect(() => {
+    window.dispatchEvent(new CustomEvent(WORKSPACE_DEVICE_GEOMETRY_EVENT, {
+      detail: { deviceId },
+    }));
+  }, [deviceId, dragging, offset.x, offset.y]);
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -127,6 +171,7 @@ function DraggableDevice({
         offset,
       };
       ref.current.dataset.dragging = "true";
+      setDragging(true);
     },
     [deviceId, offset, onFocus],
   );
@@ -151,6 +196,7 @@ function DraggableDevice({
       if (!drag || drag.pointerId !== event.pointerId) return;
       dragRef.current = null;
       if (ref.current) delete ref.current.dataset.dragging;
+      setDragging(false);
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
@@ -170,7 +216,9 @@ function DraggableDevice({
           : "min(420px, 42vw)",
         minWidth: singleDevice ? 360 : 320,
         transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
-        transition: "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
+        transition: dragging
+          ? "none"
+          : "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
       }}
       onPointerDownCapture={onPointerDown}
       onPointerMove={onPointerMove}
@@ -209,9 +257,31 @@ export function WorkspaceCanvas({
   onStart: (deviceId: string) => void;
   renderDevice: (context: WorkspaceDeviceRenderContext) => ReactNode;
 }) {
+  const [workspaceElement, setWorkspaceElement] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [offsets, setOffsets] = useState<WorkspaceOffsets>(readWorkspaceOffsets);
   const offsetsRef = useRef(offsets);
   offsetsRef.current = offsets;
+
+  const setWorkspaceRef = useCallback((element: HTMLDivElement | null) => {
+    setWorkspaceElement((current) => current === element ? current : element);
+  }, []);
+  const subscribeReviewExtents = useCallback((listener: () => void) => {
+    return workspaceElement
+      ? subscribeWorkspaceReviewExtents(workspaceElement, listener)
+      : () => {};
+  }, [workspaceElement]);
+  const getReviewExtents = useCallback(() => {
+    return workspaceElement
+      ? getWorkspaceReviewExtentsSnapshot(workspaceElement)
+      : EMPTY_WORKSPACE_REVIEW_EXTENTS;
+  }, [workspaceElement]);
+  const reviewExtents = useSyncExternalStore(
+    subscribeReviewExtents,
+    getReviewExtents,
+    () => EMPTY_WORKSPACE_REVIEW_EXTENTS,
+  );
 
   useEffect(() => {
     const reset = () => {
@@ -270,13 +340,29 @@ export function WorkspaceCanvas({
   }
 
   const singleDevice = visibleDeviceIds.length === 1;
+  const scrollExtent = resolveWorkspaceReviewScrollExtent(
+    0,
+    0,
+    reviewExtents,
+  );
   return (
     <div
-      className="h-screen overflow-hidden bg-page font-system box-border"
+      ref={setWorkspaceRef}
+      data-agentsims-workspace-scroll
+      className="relative h-screen overflow-x-auto overflow-y-hidden bg-page font-system box-border [scrollbar-width:thin]"
       style={WORKSPACE_PADDING}
     >
+      <div
+        aria-hidden="true"
+        data-agentsims-review-scroll-extent
+        className="pointer-events-none absolute left-0 top-0"
+        style={{ width: scrollExtent.width, height: scrollExtent.height }}
+      />
       <div className="h-full min-h-0 overflow-hidden">
-        <div className="flex h-full min-w-full items-center justify-center gap-5 px-2">
+        <div
+          data-agentsims-centered-device-row
+          className="flex h-full min-w-full items-center justify-center gap-5 px-2"
+        >
           {visibleDeviceIds.map((deviceId) => {
             const device = devices?.find((candidate) => candidate.device === deviceId) ?? null;
             const config =

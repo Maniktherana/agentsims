@@ -13,7 +13,7 @@ export interface ReviewIconButtonProps
   active?: boolean;
   tone?: "neutral" | "danger";
   surface?: "default" | "toolbar" | "dock";
-  size?: "default" | "compact" | "dock" | "toolbar" | "row" | "picker" | "launcher";
+  size?: "default" | "compact" | "dock" | "toolbar" | "panel" | "row" | "picker" | "launcher";
   badge?: number | string | null;
   draft?: boolean;
   children: ReactNode;
@@ -61,7 +61,9 @@ export const ReviewIconButton = forwardRef<HTMLButtonElement, ReviewIconButtonPr
         ? "size-10 rounded-[8px]"
       : size === "toolbar"
         ? "size-8 rounded-md"
-        : size === "row"
+      : size === "panel"
+        ? "size-7 rounded-md"
+      : size === "row"
           ? "size-6 rounded-md"
         : size === "picker"
           ? "h-8 min-w-[84px] rounded-md px-2"

@@ -23,6 +23,9 @@ import {
 } from "../../model";
 import { axElementKey, axElementsEqual, isAxeUnavailable } from "../core/ax";
 import { openHostEventStream } from "../../../web/utils/exec";
+import type {
+  AxHighlightOrigin as ReviewAxHighlightOrigin,
+} from "./review-state";
 
 const MARKERS_VISIBILITY_KEY = "agentsims:annotation-markers-visible";
 const MARKERS_VISIBILITY_EVENT = "agentsims:annotation-markers-visibility";
@@ -99,18 +102,51 @@ export function axRefreshEndpoint(endpoint: string): string {
   return `${refreshPath}${query}`;
 }
 
-export function useAxSnapshot(endpoint?: string) {
+export function axSourceEndpoint(endpoint: string): string {
+  const queryIndex = endpoint.indexOf("?");
+  const path = queryIndex >= 0 ? endpoint.slice(0, queryIndex) : endpoint;
+  const query = queryIndex >= 0 ? endpoint.slice(queryIndex) : "";
+  const sourcePath = path.endsWith("/ax")
+    ? `${path.slice(0, -3)}/source`
+    : `${path.replace(/\/+$/, "")}/source`;
+  return `${sourcePath}${query}`;
+}
+
+export function useAxSnapshot(
+  endpoint?: string,
+  refreshSignal?: number,
+) {
   const [snapshot, setSnapshot] = useState<AxSnapshot | null>(null);
   const [status, setStatus] = useState("AX off");
+  const [refreshing, setRefreshing] = useState(false);
   const latestEndpointRef = useRef<string | null>(null);
   const latestPayloadRef = useRef<string | null>(null);
   const latestSnapshotRef = useRef<AxSnapshot | null>(null);
   const latestStatusRef = useRef("AX off");
+  const latestRefreshSignalRef = useRef(refreshSignal);
+
+  const refresh = useCallback(async () => {
+    if (!endpoint) return;
+    setRefreshing(true);
+    try {
+      const response = await fetch(axRefreshEndpoint(endpoint), {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`AX refresh failed (${response.status})`);
+      }
+    } catch {
+      latestStatusRef.current = "AX refresh failed";
+      setStatus("AX refresh failed");
+      setRefreshing(false);
+    }
+  }, [endpoint]);
 
   useEffect(() => {
     if (!endpoint) {
       // Keep the last target metadata and status while review is closed. A
       // returning session can render immediately without rebuilding the tree.
+      setRefreshing(false);
       return;
     }
 
@@ -147,6 +183,10 @@ export function useAxSnapshot(endpoint?: string) {
       }
       source = openHostEventStream(endpoint);
       source.onmessage = (event) => {
+        // A forced refresh can legitimately return the same snapshot payload.
+        // Receiving it still completes the refresh even when reconciliation
+        // has no UI work to do.
+        setRefreshing(false);
         try {
           const next = decodeAxSnapshotEvent(
             event.data,
@@ -196,22 +236,48 @@ export function useAxSnapshot(endpoint?: string) {
     };
   }, [endpoint]);
 
-  return { snapshot, status };
+  useEffect(() => {
+    if (
+      refreshSignal === undefined ||
+      latestRefreshSignalRef.current === refreshSignal
+    ) {
+      return;
+    }
+    latestRefreshSignalRef.current = refreshSignal;
+    if (endpoint) void refresh();
+  }, [endpoint, refresh, refreshSignal]);
+
+  return {
+    snapshot,
+    status: refreshing ? "Refreshing AX…" : status,
+    refreshing,
+    refresh,
+    sourceEndpoint: endpoint ? axSourceEndpoint(endpoint) : undefined,
+  };
 }
 
 export interface AxSnapshotContextValue {
   snapshot: AxSnapshot | null;
   status: string;
+  refreshing: boolean;
+  refresh: () => Promise<void>;
+  sourceEndpoint?: string;
 }
+
+export type AxHighlightOrigin = ReviewAxHighlightOrigin;
 
 export interface AxSelectionContextValue {
   highlightedKey: string | null;
+  highlightedOrigin: AxHighlightOrigin;
   selectedKey: string | null;
   annotationMode: AnnotationMode;
   multiSelectedKeys: string[];
   draft: AnnotationDraft | null;
   composerOpen: boolean;
-  setHighlightedKey: (key: string | null) => void;
+  setHighlightedKey: (
+    key: string | null,
+    origin?: Exclude<AxHighlightOrigin, null>,
+  ) => void;
   setSelectedKey: (key: string | null) => void;
   setAnnotationMode: (mode: AnnotationMode) => void;
   toggleMultiSelectedKey: (key: string) => void;
@@ -261,6 +327,9 @@ export interface AnnotationContextValue {
 export const AxSnapshotContext = createContext<AxSnapshotContextValue>({
   snapshot: null,
   status: "AX off",
+  refreshing: false,
+  refresh: async () => {},
+  sourceEndpoint: undefined,
 });
 export const AxSelectionContext = createContext<AxSelectionContextValue | null>(null);
 export const AxModeContext = createContext<AxModeContextValue | null>(null);

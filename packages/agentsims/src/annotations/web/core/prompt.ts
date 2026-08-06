@@ -3,7 +3,7 @@ import { axElementSummary, axFrameString, axNodeForElement } from "./ax";
 
 export function annotationElementLabel(element: AxElement | null) {
   if (!element) return "Screen";
-  if (/^ags_[a-f0-9]+$/i.test((element.label || "").trim()) && element.source) {
+  if (/^ags_[a-z0-9_-]+$/i.test((element.label || "").trim()) && element.source) {
     return element.source.componentName || element.source.elementName || "React Native element";
   }
   return element.label || element.value || element.role || element.type || "Unlabeled element";

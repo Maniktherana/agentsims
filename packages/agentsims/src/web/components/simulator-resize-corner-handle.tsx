@@ -77,6 +77,7 @@ function SimulatorResizeCornerSvg(
 
   return (
     <svg
+      data-agentsims-resize-affordance
       width={vb}
       height={vb}
       viewBox={`0 0 ${vb} ${vb}`}
@@ -128,18 +129,7 @@ function SimulatorResizeCornerSvg(
       <g aria-hidden="true" style={scaleGroupStyle}>
         <g style={{ pointerEvents: "none" }}>
           <path
-            d={d}
-            stroke="#34363b"
-            strokeWidth={mainStrokeW + 2.2 * vw}
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-            style={{
-              opacity: Math.min(1, handleOpacity + 0.08),
-              transition: `${motionStroke}, opacity ${dur} ${ease}`,
-              filter: RESIZE_HANDLE_LIT_SHADOW,
-            }}
-          />
-          <path
+            data-agentsims-resize-main-stroke
             d={d}
             stroke={RESIZE_MAIN_STROKE[phase]}
             strokeWidth={mainStrokeW}
@@ -154,6 +144,29 @@ function SimulatorResizeCornerSvg(
         </g>
       </g>
     </svg>
+  );
+}
+
+/** Shared visual used by simulator frames and floating review surfaces. */
+export function SimulatorResizeCornerAffordance({
+  arc,
+  phase,
+  focusVisible = false,
+}: {
+  arc: SimulatorResizeArc;
+  phase: ResizeVisualPhase;
+  focusVisible?: boolean;
+}) {
+  const reducedMotion = usePrefersReducedMotion();
+  const highContrast = usePrefersMoreContrast();
+  return (
+    <SimulatorResizeCornerSvg
+      arc={arc}
+      phase={phase}
+      reducedMotion={reducedMotion}
+      highContrast={highContrast}
+      focusVisible={focusVisible}
+    />
   );
 }
 
@@ -175,8 +188,6 @@ export function SimulatorResizeCornerHandle({
   containerWidth: number;
   containerHeight: number;
 }) {
-  const reducedMotion = usePrefersReducedMotion();
-  const highContrast = usePrefersMoreContrast();
   const [focusVisible, setFocusVisible] = useState(false);
 
   const arc = useMemo(
@@ -240,11 +251,9 @@ export function SimulatorResizeCornerHandle({
         WebkitTapHighlightColor: "transparent",
       }}
     >
-      <SimulatorResizeCornerSvg
+      <SimulatorResizeCornerAffordance
         arc={arc}
         phase={phase}
-        reducedMotion={reducedMotion}
-        highContrast={highContrast}
         focusVisible={focusVisible}
       />
     </div>

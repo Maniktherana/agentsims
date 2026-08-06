@@ -12,6 +12,7 @@ export const DEFAULT_RN_SOURCE_MANIFEST = join(
 export interface RnSourceManifestEntry {
   testID: string;
   tag: string;
+  elementKind?: "host" | "custom";
   file?: string;
   absoluteFile?: string;
   line?: number;
@@ -27,6 +28,17 @@ export interface RnSourceManifestEntry {
 interface SourceRegistry {
   byTestID: Map<string, RnSourceManifestEntry[]>;
 }
+
+export interface RnSourceFile {
+  file: string;
+  line: number;
+  startLine: number;
+  lines: string[];
+  /** Stable across reads until the approved source file changes on disk. */
+  cacheKey: string;
+}
+
+export const MAX_RN_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
 interface IdentifierCandidate {
   value: string;
@@ -55,6 +67,11 @@ let cache:
     }
   | null = null;
 
+const sourceFileCache = new Map<
+  string,
+  { size: number; mtimeMs: number; source: RnSourceFile }
+>();
+
 export function rnSourceManifestPath(): string {
   return process.env.AGENTSIMS_RN_MANIFEST || DEFAULT_RN_SOURCE_MANIFEST;
 }
@@ -77,6 +94,7 @@ function sourceOwnerKey(entry: RnSourceManifestEntry): string {
     entry.line ?? null,
     entry.column ?? null,
     entry.tag,
+    entry.elementKind || null,
     entry.componentName || null,
     entry.route || null,
   ]);
@@ -112,6 +130,61 @@ function loadRegistry(path = rnSourceManifestPath()): SourceRegistry {
     return { byTestID: new Map() };
   }
 }
+
+export function readRnSourceFile({
+  testID,
+  file,
+  line,
+}: {
+  testID: string;
+  file: string;
+  line: number;
+}): RnSourceFile | null {
+  const entries = loadRegistry().byTestID.get(testID) ?? [];
+  const entry = entries.find((candidate) =>
+    (candidate.absoluteFile === file || candidate.file === file) &&
+    candidate.line === line
+  );
+  const absoluteFile = entry?.absoluteFile;
+  if (!entry || !absoluteFile || !existsSync(absoluteFile)) return null;
+
+  try {
+    const stat = statSync(absoluteFile);
+    if (
+      !stat.isFile() ||
+      stat.size <= 0 ||
+      stat.size > MAX_RN_SOURCE_FILE_BYTES
+    ) {
+      return null;
+    }
+    const cached = sourceFileCache.get(absoluteFile);
+    if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+      return cached.source;
+    }
+    const sourceLines = readFileSync(absoluteFile, "utf-8").split(/\r?\n/);
+    if (!sourceLines.some((sourceLine) => sourceLine.trim().length > 0)) {
+      return null;
+    }
+    const source: RnSourceFile = {
+      file: entry.file || absoluteFile,
+      line,
+      startLine: 1,
+      lines: sourceLines,
+      cacheKey: `${stat.mtimeMs}:${stat.size}:${entry.file || absoluteFile}`,
+    };
+    sourceFileCache.set(absoluteFile, {
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      source,
+    });
+    return source;
+  } catch {
+    return null;
+  }
+}
+
+/** @deprecated Kept for integrations compiled against the earlier API name. */
+export const readRnSourceExcerpt = readRnSourceFile;
 
 function identifierCandidates(element: AxElement): IdentifierCandidate[] {
   const candidates = new Map<string, IdentifierCandidate>();
@@ -159,6 +232,7 @@ function sourceFromEntry(
     kind: "react-native",
     confidence,
     matchReason,
+    elementKind: entry.elementKind,
     testID: entry.testID,
     componentName: entry.componentName,
     ownerStack: entry.ownerStack,
@@ -278,6 +352,50 @@ function isNearbyPreorderNode(
   return true;
 }
 
+function nearestAncestorSourceForElement(
+  target: AxElement,
+  elements: AxElement[],
+  directResults: DirectSourceResult[],
+): AxSourceContext | null {
+  const targetParts = hierarchicalPathParts(target.path);
+  if (!targetParts) return null;
+
+  const candidates: Array<DirectSourceMatch & { depth: number }> = [];
+  for (let index = 0; index < elements.length; index++) {
+    const direct = directResults[index]?.match;
+    if (!direct) continue;
+    const carrier = elements[index]!;
+    if (
+      direct.entry.injected !== true &&
+      !/^ags_[a-z0-9_-]+$/i.test(direct.entry.testID)
+    ) {
+      continue;
+    }
+    const carrierParts = hierarchicalPathParts(carrier.path);
+    if (
+      !carrierParts ||
+      carrierParts.length >= targetParts.length ||
+      !carrierParts.every((part, partIndex) => targetParts[partIndex] === part)
+    ) {
+      continue;
+    }
+    candidates.push({ ...direct, depth: carrierParts.length });
+  }
+
+  if (candidates.length === 0) return null;
+  const nearestDepth = Math.max(...candidates.map((candidate) => candidate.depth));
+  const nearest = candidates.filter(
+    (candidate) => candidate.depth === nearestDepth,
+  );
+  const owners = new Set(nearest.map((candidate) => candidate.ownerKey));
+  if (owners.size !== 1) return null;
+  return sourceFromEntry(
+    nearest[0]!.entry,
+    "related-native-id",
+    "ancestor-owner",
+  );
+}
+
 function nativeHostMatches(entry: RnSourceManifestEntry, element: AxElement): boolean {
   const tag = entry.tag.split(".").at(-1);
   const nativeType = `${element.role} ${element.type}`.toLowerCase();
@@ -353,6 +471,13 @@ function relatedSourceForElement(
   elements: AxElement[],
   directResults: DirectSourceResult[],
 ): AxSourceContext | null {
+  const ancestorSource = nearestAncestorSourceForElement(
+    target,
+    elements,
+    directResults,
+  );
+  if (ancestorSource) return ancestorSource;
+
   const candidates: Array<{
     direct: DirectSourceMatch;
     evidence: RelatedEvidence;

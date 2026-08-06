@@ -42,6 +42,7 @@ export interface ReviewTargetSourceContext {
     | "test-id"
     | "native-id"
     | "element-id"
+    | "ancestor-owner"
     | "nearby-visible-text"
     | "nearby-accessibility-label"
     | "nearby-placeholder"

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { unlinkSync, writeFileSync } from "fs";
+import type { IncomingMessage, ServerResponse } from "http";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 import type { AxSnapshot } from "../annotations/model";
@@ -8,6 +9,7 @@ import {
   rnSourceManifestPath,
 } from "../annotations/rn-source";
 import { expoRoute } from "../rn/babel-plugin";
+import { simMiddleware } from "../middleware";
 
 const originalManifest = process.env.AGENTSIMS_RN_MANIFEST;
 const manifests = new Set<string>();
@@ -22,6 +24,39 @@ function useManifest(entries: object[]): string {
   process.env.AGENTSIMS_RN_MANIFEST = manifest;
   manifests.add(manifest);
   return manifest;
+}
+
+async function getFromMiddleware(
+  url: string,
+  requestHeaders: Record<string, string> = {},
+) {
+  const middleware = simMiddleware({
+    basePath: "/",
+    execToken: "source-route-test",
+    previewAssets: {},
+  });
+  const request = {
+    method: "GET",
+    url,
+    headers: requestHeaders,
+    socket: { localPort: 3200 },
+  } as IncomingMessage;
+  let status = 0;
+  let body = "";
+  let responseHeaders: Record<string, string> = {};
+  const response = {
+    writeHead(nextStatus: number, headers?: Record<string, string>) {
+      status = nextStatus;
+      responseHeaders = headers ?? {};
+      return this;
+    },
+    end(chunk?: string | Buffer) {
+      body = chunk?.toString() ?? "";
+      return this;
+    },
+  } as unknown as ServerResponse;
+  await middleware(request, response);
+  return { status, body, headers: responseHeaders };
 }
 
 afterEach(() => {
@@ -53,6 +88,7 @@ describe("React Native source context", () => {
     useManifest([{
       testID: "ags_pay",
       tag: "Pressable",
+      elementKind: "host",
       file: "app/(tabs)/checkout.tsx",
       absoluteFile: "/repo/app/(tabs)/checkout.tsx",
       line: 88,
@@ -83,12 +119,61 @@ describe("React Native source context", () => {
 
     expect(enriched.elements[0]?.source).toMatchObject({
       testID: "ags_pay",
+      elementKind: "host",
       componentName: "PayButton",
       ownerStack: ["CheckoutScreen", "PaymentFooter", "PayButton"],
       route: "/checkout",
       visibleText: "Pay now",
       props: { accessibilityRole: "button", disabled: false },
     });
+  });
+
+  test("serves and revalidates the complete approved source file", async () => {
+    const sourceFile = join(
+      tmpdir(),
+      `agentsims-source-route-${process.pid}-${manifestSequence}.tsx`,
+    );
+    writeFileSync(
+      sourceFile,
+      [
+        "export function Composer() {",
+        "  return <Textarea testID=\"composer\" />;",
+        "}",
+      ].join("\n"),
+    );
+    manifests.add(sourceFile);
+    useManifest([{
+      testID: "composer",
+      tag: "Textarea",
+      file: "src/chat/Composer.tsx",
+      absoluteFile: sourceFile,
+      line: 2,
+      componentName: "Textarea",
+    }]);
+    const query = new URLSearchParams({
+      testID: "composer",
+      file: sourceFile,
+      line: "2",
+    });
+
+    const response = await getFromMiddleware(`/source?${query}`);
+    expect(response.status).toBe(200);
+    const source = JSON.parse(response.body) as {
+      startLine: number;
+      lines: string[];
+      cacheKey: string;
+    };
+    expect(source.startLine).toBe(1);
+    expect(source.lines).toHaveLength(3);
+    expect(source.lines.join("\n")).toContain("Textarea");
+    expect(source.cacheKey.length).toBeGreaterThan(0);
+    const etag = response.headers.ETag;
+    expect(etag).toBe(JSON.stringify(source.cacheKey));
+    const revalidated = await getFromMiddleware(`/source?${query}`, {
+      "if-none-match": etag!,
+    });
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.body).toBe("");
   });
 
   test("matches an Android leaf through a nearby injected source carrier", () => {
@@ -142,6 +227,54 @@ describe("React Native source context", () => {
       componentName: "Composer",
       file: "components/composer/composer.tsx",
       line: 38,
+    });
+  });
+
+  test("inherits an unambiguous RN owner through the native hierarchy", () => {
+    useManifest([{
+      testID: "ags_checkout",
+      tag: "Pressable",
+      file: "components/checkout-button.tsx",
+      line: 24,
+      componentName: "CheckoutButton",
+      injected: true,
+    }]);
+    const snapshot: AxSnapshot = {
+      screen: { width: 390, height: 844 },
+      elements: [
+        {
+          id: "app:id/ags_checkout",
+          path: "0.1",
+          label: "",
+          value: "",
+          role: "android.view.View",
+          type: "android.view.View",
+          enabled: true,
+          frame: { x: 24, y: 700, width: 342, height: 52 },
+          nativeId: "app:id/ags_checkout",
+        },
+        {
+          id: "emulator-5554:0.1.0",
+          path: "0.1.0",
+          label: "",
+          value: "",
+          role: "android.widget.TextView",
+          type: "android.widget.TextView",
+          enabled: true,
+          frame: { x: 40, y: 714, width: 180, height: 24 },
+        },
+      ],
+    };
+
+    const enriched = enrichAxSnapshotWithRnSource(snapshot);
+
+    expect(enriched.elements[1]?.source).toMatchObject({
+      confidence: "related-native-id",
+      matchReason: "ancestor-owner",
+      testID: "ags_checkout",
+      componentName: "CheckoutButton",
+      file: "components/checkout-button.tsx",
+      line: 24,
     });
   });
 

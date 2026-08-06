@@ -35,6 +35,7 @@ function axSourcesEqual(a: AxElement["source"], b: AxElement["source"]) {
       b &&
       a.kind === b.kind &&
       a.confidence === b.confidence &&
+      a.elementKind === b.elementKind &&
       a.matchReason === b.matchReason &&
       a.testID === b.testID &&
       a.componentName === b.componentName &&
@@ -63,6 +64,7 @@ export function axElementsEqual(a: AxElement, b: AxElement) {
     a.enabled !== b.enabled ||
     a.testId !== b.testId ||
     a.nativeId !== b.nativeId ||
+    !sameStringArray(a.traits, b.traits) ||
     !axSourcesEqual(a.source, b.source)
   ) return false;
   const fa = a.frame, fb = b.frame;
@@ -73,7 +75,7 @@ export function axElementsEqual(a: AxElement, b: AxElement) {
 }
 
 export function axNodeForElement(element: AxElement, index: number) {
-  const generatedLabel = /^ags_[a-f0-9]+$/i.test((element.label || "").trim());
+  const generatedLabel = /^ags_[a-z0-9_-]+$/i.test((element.label || "").trim());
   const sourceLabel = element.source?.componentName || element.source?.elementName;
   const label = generatedLabel
     ? sourceLabel || element.role || `element ${index + 1}`
@@ -90,6 +92,7 @@ export function axNodeForElement(element: AxElement, index: number) {
     frame: element.frame,
     testId: element.testId,
     nativeId: element.nativeId,
+    traits: element.traits,
     source: element.source,
   };
 }
@@ -134,6 +137,7 @@ export function axElementSummary(axNode: ReturnType<typeof axNodeForElement>) {
     axNode.value ? `value: ${axNode.value}` : "",
     axNode.testId ? `testID: ${axNode.testId}` : "",
     axNode.id ? `id: ${axNode.id}` : "",
+    axNode.traits?.length ? `traits: ${axNode.traits.join(", ")}` : "",
     `path: ${axNode.path}`,
     `frame: ${axFrameString(axNode.frame)}`,
   ];
@@ -144,7 +148,7 @@ function area(frame: AxRect) {
   return Math.max(0, frame.width) * Math.max(0, frame.height);
 }
 
-function isMeaningfulRole(element: AxElement) {
+export function isMeaningfulRole(element: AxElement) {
   const role = `${element.role} ${element.type}`.toLowerCase();
   return (
     role.includes("button") ||
@@ -159,7 +163,7 @@ function isMeaningfulRole(element: AxElement) {
   );
 }
 
-function isContainerRole(element: AxElement) {
+export function isContainerRole(element: AxElement) {
   const role = `${element.role} ${element.type}`.toLowerCase();
   return (
     role.includes("viewgroup") ||
@@ -170,8 +174,10 @@ function isContainerRole(element: AxElement) {
   );
 }
 
-function isMeaningfulSourceElement(element: AxElement) {
-  const name = `${element.source?.elementName ?? ""} ${element.source?.componentName ?? ""}`.toLowerCase();
+export function isMeaningfulSourceElement(element: AxElement) {
+  // `componentName` describes ownership, not the native host. A propagated
+  // PushSidebarLayout source must not turn its screen-sized View into a target.
+  const name = (element.source?.elementName ?? "").toLowerCase();
   return (
     name.includes("text") ||
     name.includes("button") ||
@@ -184,10 +190,10 @@ function isMeaningfulSourceElement(element: AxElement) {
   );
 }
 
-function hasHumanLabel(element: AxElement) {
+export function hasHumanLabel(element: AxElement) {
   const label = (element.label || element.value || "").trim();
   if (!label) return false;
-  return label !== element.testId && !/^ags_[a-f0-9]+$/i.test(label);
+  return label !== element.testId && !/^ags_[a-z0-9_-]+$/i.test(label);
 }
 
 export function annotationTargetElements(
@@ -196,6 +202,10 @@ export function annotationTargetElements(
 ) {
   const screenArea = Math.max(1, screen.width * screen.height);
   const useful = elements.filter((element) => {
+    // Android reports hidden descendants so the raw DevTools tree stays
+    // complete. They are not phone overlay or pointer targets. Undefined is
+    // intentionally still eligible for iOS and older Android snapshots.
+    if (element.visibleToUser === false) return false;
     const frame = clampAxFrameForScreen(element.frame, screen);
     if (!frame) return false;
     const areaRatio = area(frame) / screenArea;
@@ -204,7 +214,10 @@ export function annotationTargetElements(
     const meaningfulSource = isMeaningfulSourceElement(element);
     const sourceName = `${element.source?.elementName ?? ""} ${element.source?.componentName ?? ""}`.toLowerCase();
 
-    if (areaRatio > 0.72 && !meaningfulRole) return false;
+    // Screen-sized controls are usually invisible dismissal/backdrop carriers.
+    // Even when Android reports one as a Button/Pressable, targeting it makes
+    // every useful child unreachable under the pointer.
+    if (areaRatio > 0.72) return false;
     if (areaRatio > 0.35 && isContainerRole(element) && !meaningfulRole) return false;
     if (
       !human &&
