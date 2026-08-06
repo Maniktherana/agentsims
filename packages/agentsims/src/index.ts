@@ -5,8 +5,7 @@ import { existsSync, mkdirSync, openSync, closeSync, readSync, readFileSync, unl
 import { createHash } from "crypto";
 import { networkInterfaces } from "os";
 import { join, resolve } from "path";
-import { STATE_DIR, stateFileForDevice, listStateFiles, inProcessDeviceState, type DeviceState } from "./shared/state";
-import { textToKeyEvents, UnsupportedCharacterError, sendKeyEventsToWs } from "./shared/text-to-keys";
+import { STATE_DIR, stateFileForDevice, listStateFiles, inProcessDeviceState } from "./shared/state";
 import { dirnameOf, sleepSync, isPortFree, servePreview } from "./shared/runtime";
 import { killPortHolder } from "./shared/ports";
 import { findBootedDevice, resolveDevice } from "./ios/device";
@@ -18,6 +17,12 @@ import {
 import { permissions } from "./ios/permissions";
 import { uiSettings } from "./ios/ui-settings";
 import { debugCli, debugHelper, debugState } from "./shared/debug";
+import {
+  readAllStates,
+  readState,
+  type ServerState,
+} from "./cli/device-state";
+import { registerDeviceCommands } from "./cli/register-device-commands";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
@@ -42,122 +47,10 @@ function resolveVersion(): string {
 // real file on disk; inside a compiled binary it points at bun's virtual FS
 // and we extract the bytes to a cached location on first use.
 
-type ServerState = DeviceState;
-
 function ensureStateDir() {
   if (!existsSync(STATE_DIR)) {
     mkdirSync(STATE_DIR, { recursive: true });
   }
-}
-
-function readState(udid?: string): ServerState | null {
-  if (udid) {
-    return readStateFile(stateFileForDevice(udid));
-  }
-  // No udid: return the first live device state
-  for (const file of listStateFiles()) {
-    const state = readStateFile(file);
-    if (state) return state;
-  }
-  return null;
-}
-
-/**
- * Snapshot simctl's boot state once per `readStateFile` batch. A full
- * `simctl list devices -j` is ~50ms; doing it per-state multiplied the cost
- * by the number of running helpers. We cache for 1 second so a flurry of
- * readStateFile() calls (e.g. readAllStates loop) shares one lookup.
- */
-let bootedSnapshot: { at: number; booted: Set<string> | null } = { at: 0, booted: null };
-function getBootedUdids(): Set<string> | null {
-  const now = Date.now();
-  if (bootedSnapshot.booted && now - bootedSnapshot.at < 1000) {
-    return bootedSnapshot.booted;
-  }
-  try {
-    const output = execSync("xcrun simctl list devices booted -j", {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 3_000,
-    });
-    const data = JSON.parse(output) as {
-      devices: Record<string, Array<{ udid: string; state: string }>>;
-    };
-    const booted = new Set<string>();
-    for (const runtime of Object.values(data.devices)) {
-      for (const device of runtime) {
-        if (device.state === "Booted") booted.add(device.udid);
-      }
-    }
-    bootedSnapshot = { at: now, booted };
-    return booted;
-  } catch {
-    // simctl lookup failed (Xcode offline, etc.) — we can't prove the device
-    // is shutdown, so don't treat as stale. Returns null so caller skips the
-    // booted check for this invocation.
-    return null;
-  }
-}
-
-function readStateFile(file: string): ServerState | null {
-  try {
-    if (!existsSync(file)) {
-      debugState("state file missing %s", file);
-      return null;
-    }
-    const state = JSON.parse(readFileSync(file, "utf-8")) as ServerState;
-    try {
-      process.kill(state.pid, 0);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EPERM") return state;
-      // Helper process is gone — drop the file.
-      debugState("helper pid %d dead, removing stale state %s", state.pid, file);
-      unlinkSync(file);
-      return null;
-    }
-    // The helper is alive, but the simulator it was bound to may have been
-    // shut down (Simulator.app quit, machine slept, `simctl shutdown`, etc.).
-    // When that happens the helper keeps accepting /stream.mjpeg connections
-    // but never emits frames, so clients hang on "Connecting...". Detect and
-    // recycle here so --detach / --list always return a working stream.
-    const booted = getBootedUdids();
-    if (!androidSerialFromStateId(state.device) && booted && !booted.has(state.device)) {
-      if (state.pid === process.pid) {
-        // The state belongs to *this* process (an in-process/preview server
-        // recorded its own pid via inProcessDeviceState). Never SIGTERM
-        // ourselves — that would take the whole server down. Just drop the
-        // stale file; the live server reaps its own sessions on grid polls.
-        debugState("dropping own stale state for non-booted device %s", state.device);
-        try { unlinkSync(file); } catch {}
-        return null;
-      }
-      debugState(
-        "helper pid %d bound to non-booted device %s — killing stale helper",
-        state.pid,
-        state.device,
-      );
-      console.error(
-        `[agentsims] Helper pid ${state.pid} is bound to device ${state.device} which is no longer booted — killing stale helper.`,
-      );
-      try { process.kill(state.pid, "SIGTERM"); } catch {}
-      try { unlinkSync(file); } catch {}
-      return null;
-    }
-    debugState("state ok pid=%d device=%s port=%d", state.pid, state.device, state.port);
-    return state;
-  } catch (err) {
-    debugState("readStateFile threw for %s: %o", file, err);
-    return null;
-  }
-}
-
-function readAllStates(): ServerState[] {
-  const states: ServerState[] = [];
-  for (const file of listStateFiles()) {
-    const state = readStateFile(file);
-    if (state) states.push(state);
-  }
-  return states;
 }
 
 function writeState(state: ServerState) {
@@ -632,216 +525,6 @@ function killStreams(deviceArg?: string) {
     clearState();
     console.log(JSON.stringify({ disconnected: true, devices }));
   }
-}
-
-async function gesture(jsonStr: string, deviceArg?: string) {
-  const state = readState(deviceArg);
-  if (!state) {
-    console.error("No agentsims server running. Run `agentsims` first.");
-    process.exit(1);
-  }
-
-  let touch: { type: string; x: number; y: number };
-  try {
-    touch = JSON.parse(jsonStr);
-  } catch {
-    console.error("Invalid JSON:", jsonStr);
-    process.exit(1);
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    const ws = new WebSocket(state.wsUrl);
-    ws.binaryType = "arraybuffer";
-
-    ws.onopen = () => {
-      const json = new TextEncoder().encode(JSON.stringify(touch));
-      const msg = new Uint8Array(1 + json.length);
-      msg[0] = 0x03;
-      msg.set(json, 1);
-      ws.send(msg);
-      setTimeout(() => { ws.close(); resolve(); }, 50);
-    };
-
-    ws.onerror = () => {
-      console.error("Failed to connect to agentsims server at", state.wsUrl);
-      reject(new Error("WebSocket connection failed"));
-    };
-  });
-}
-
-async function tap(xArg: string, yArg: string, deviceArg?: string) {
-  const x = Number(xArg);
-  const y = Number(yArg);
-  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) {
-    console.error("Usage: agentsims tap <x> <y> [-d udid]");
-    console.error("  x, y are normalized 0..1 of the simulator screen");
-    console.error("  Example: agentsims tap 0.5 0.9   # near bottom-center");
-    process.exit(1);
-  }
-  const state = readState(deviceArg);
-  if (!state) {
-    console.error("No agentsims server running. Run `agentsims` first.");
-    process.exit(1);
-  }
-  return new Promise<void>((resolve, reject) => {
-    const ws = new WebSocket(state.wsUrl);
-    ws.binaryType = "arraybuffer";
-    const send = (type: "begin" | "end") => {
-      const json = new TextEncoder().encode(JSON.stringify({ type, x, y }));
-      const msg = new Uint8Array(1 + json.length);
-      msg[0] = 0x03;
-      msg.set(json, 1);
-      ws.send(msg);
-    };
-    ws.onopen = () => {
-      send("begin");
-      setTimeout(() => {
-        send("end");
-        setTimeout(() => { ws.close(); resolve(); }, 50);
-      }, 40);
-    };
-    ws.onerror = () => {
-      console.error("Failed to connect to agentsims server at", state.wsUrl);
-      reject(new Error("WebSocket connection failed"));
-    };
-  });
-}
-
-async function typeText(
-  positional: string[],
-  opts: { device?: string; stdin?: boolean; file?: string },
-) {
-  const deviceArg = opts.device;
-  const useStdin = opts.stdin ?? false;
-  const inputFile = opts.file;
-
-  const sourceCount = [positional.length > 0, useStdin, inputFile != null].filter(Boolean).length;
-  if (sourceCount === 0 || sourceCount > 1) {
-    console.error("Usage: agentsims type <text> [-d udid]");
-    console.error("       agentsims type --stdin [-d udid]");
-    console.error("       agentsims type --file <path> [-d udid]");
-    console.error("");
-    console.error("Only US-keyboard ASCII characters are supported (A-Z, a-z, 0-9,");
-    console.error("space, newline, tab, and standard punctuation).");
-    process.exit(1);
-  }
-
-  let text: string;
-  if (useStdin) {
-    text = readFileSync(0, "utf8");
-  } else if (inputFile) {
-    try {
-      text = readFileSync(inputFile, "utf8");
-    } catch (err) {
-      console.error(`Failed to read file '${inputFile}': ${(err as Error).message}`);
-      process.exit(1);
-    }
-  } else {
-    text = positional.join(" ");
-  }
-
-  let events;
-  try {
-    events = textToKeyEvents(text);
-  } catch (err) {
-    if (err instanceof UnsupportedCharacterError) {
-      console.error(err.message);
-      console.error("Supported: A-Z, a-z, 0-9, space, newline, tab, and standard punctuation.");
-      process.exit(1);
-    }
-    throw err;
-  }
-
-  const state = readState(deviceArg);
-  if (!state) {
-    console.error("No agentsims server running. Run `agentsims` first.");
-    process.exit(1);
-  }
-
-  await sendKeyEventsToWs(state.wsUrl, events);
-}
-
-async function rotate(orientation: string, deviceArg?: string) {
-  const state = readState(deviceArg);
-  if (!state) {
-    console.error("No agentsims server running. Run `agentsims` first.");
-    process.exit(1);
-  }
-
-  const valid = new Set([
-    "portrait",
-    "portrait_upside_down",
-    "landscape_left",
-    "landscape_right",
-  ]);
-  if (!orientation || !valid.has(orientation)) {
-    console.error(
-      `Usage: agentsims rotate <${[...valid].join("|")}> [-d udid]`,
-    );
-    process.exit(1);
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    const ws = new WebSocket(state.wsUrl);
-    ws.binaryType = "arraybuffer";
-
-    ws.onopen = () => {
-      const json = new TextEncoder().encode(JSON.stringify({ orientation }));
-      const msg = new Uint8Array(1 + json.length);
-      msg[0] = 0x07;
-      msg.set(json, 1);
-      ws.send(msg);
-      setTimeout(() => { ws.close(); resolve(); }, 50);
-    };
-
-    ws.onerror = () => {
-      console.error("Failed to connect to agentsims server at", state.wsUrl);
-      reject(new Error("WebSocket connection failed"));
-    };
-  });
-}
-
-// HID (page, usage) codes for hardware buttons not backed by a named idb event
-// source, mirroring DeviceKit chrome.json's per-input `usagePage`/`usage`. The
-// helper injects these through IndigoHIDMessageForHIDArbitrary.
-const HID_BUTTON_CODES: Record<string, { page: number; usage: number }> = {
-  power: { page: 12, usage: 48 },
-  "volume-up": { page: 12, usage: 233 },
-  "volume-down": { page: 12, usage: 234 },
-  action: { page: 11, usage: 45 },
-  "side-button": { page: 12, usage: 149 },
-  "digital-crown": { page: 12, usage: 64 },
-  "left-side-button": { page: 65281, usage: 512 },
-};
-
-async function button(buttonName = "home", deviceArg?: string) {
-  const state = readState(deviceArg);
-  if (!state) {
-    console.error("No agentsims server running. Run `agentsims` first.");
-    process.exit(1);
-  }
-
-  const hid = HID_BUTTON_CODES[buttonName];
-  const payload = hid ? { button: buttonName, ...hid } : { button: buttonName };
-
-  return new Promise<void>((resolve, reject) => {
-    const ws = new WebSocket(state.wsUrl);
-    ws.binaryType = "arraybuffer";
-
-    ws.onopen = () => {
-      const json = new TextEncoder().encode(JSON.stringify(payload));
-      const msg = new Uint8Array(1 + json.length);
-      msg[0] = 0x04;
-      msg.set(json, 1);
-      ws.send(msg);
-      setTimeout(() => { ws.close(); resolve(); }, 50);
-    };
-
-    ws.onerror = () => {
-      console.error("Failed to connect to agentsims server at", state.wsUrl);
-      reject(new Error("WebSocket connection failed"));
-    };
-  });
 }
 
 // Send a CoreAnimation debug option toggle to the helper, which invokes
@@ -1777,50 +1460,9 @@ Examples:
     }
   });
 
-const deviceOpt = ["-d, --device <udid>", "Target a specific simulator (udid or name)"] as const;
+registerDeviceCommands(program);
 
-program
-  .command("gesture")
-  .description("Send a touch gesture")
-  .argument("<json>", 'Gesture JSON, e.g. \'{"type":"begin","x":0.5,"y":0.5}\'')
-  .option(...deviceOpt)
-  .action((json: string, opts) => gesture(json, opts.device));
-
-program
-  .command("tap")
-  .description("Tap at normalized 0..1 coords")
-  .argument("<x>", "X coord, normalized 0..1")
-  .argument("<y>", "Y coord, normalized 0..1")
-  .option(...deviceOpt)
-  .action((x: string, y: string, opts) => tap(x, y, opts.device));
-
-program
-  .command("button")
-  .description("Send a hardware button press")
-  .argument("[name]", "Button name", "home")
-  .option(...deviceOpt)
-  .action((name: string, opts) => button(name, opts.device));
-
-program
-  .command("type")
-  .description("Type text (US keyboard only)")
-  .argument("[text...]", "Text to type")
-  .option(...deviceOpt)
-  .option("--stdin", "Read text from stdin")
-  .option("--file <path>", "Read text from a file")
-  .action((text: string[], opts) =>
-    typeText(text, { device: opts.device, stdin: opts.stdin, file: opts.file }),
-  );
-
-program
-  .command("rotate")
-  .description(
-    "Set device orientation " +
-      "(portrait|portrait_upside_down|landscape_left|landscape_right)",
-  )
-  .argument("<orientation>")
-  .option(...deviceOpt)
-  .action((orientation: string, opts) => rotate(orientation, opts.device));
+const deviceOpt = ["-d, --device <id>", "Target a running device id from `agentsims --list`"] as const;
 
 program
   .command("ca-debug")
@@ -1838,14 +1480,6 @@ program
   .description("Simulate a memory warning on the device")
   .option(...deviceOpt)
   .action((opts) => memoryWarning(opts.device));
-
-program
-  .command("mcp")
-  .description("Run the Agentsims annotation MCP server over stdio")
-  .action(async () => {
-    const { runAgentsimsMcp } = await import("./annotations/mcp");
-    await runAgentsimsMcp();
-  });
 
 // `camera` and `permissions` keep their own dedicated argument parsers (the
 // camera verb has nested sub-verbs and source flags; permissions has a

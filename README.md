@@ -201,33 +201,33 @@ Use the annotation control under the focused device to annotate:
 - Multiple elements
 - The whole screen
 
-Annotations can include a note, severity, native accessibility data, React Native source context, and a frozen screenshot. They are stored per device and can be copied as structured prompts or read through the Agentsims MCP server.
+Annotations can include a note, severity, native accessibility data, React Native source context, and a frozen screenshot. They are stored per device and can be copied as structured prompts.
 
-## MCP Setup
+## Agent CLI
 
-Agentsims includes an MCP server over stdio:
+Agents use the same ordinary CLI on iOS and Android. The browser keeps the
+continuous video stream; agents sample the current state only when they need to
+make a decision:
 
 ```bash
-npx agentsims mcp
+# Discover the running device ids.
+npx agentsims --list
+
+# Capture one screenshot plus screen and accessibility/source metadata.
+npx agentsims observe --device android:emulator-5554
+
+# Execute one structured action with normalized 0..1 coordinates.
+npx agentsims act \
+  '{"type":"tap","x":0.5,"y":0.7}' \
+  --device android:emulator-5554
 ```
 
-Example Codex configuration:
+Supported action types are `tap`, `gesture`, `swipe`, `type`, `button`, and
+`rotate`. `observe` writes the screenshot to disk and prints a JSON observation
+containing its path, screen configuration, accessibility tree, and any React
+Native source context available through the Metro bridge.
 
-```toml
-[mcp_servers.agentsims]
-command = "npx"
-args = ["agentsims", "mcp"]
-```
-
-Available tools:
-
-- `agentsims_list_devices`
-- `agentsims_get_annotations`
-- `agentsims_watch_annotations`
-- `agentsims_resolve_annotation`
-- `agentsims_capture_screenshot`
-
-Run the normal `npx agentsims` workspace separately so devices and annotations are available to the MCP process.
+See the [CLI architecture and complete examples](packages/agentsims/src/cli/README.md).
 
 ## CLI Reference
 
@@ -242,6 +242,13 @@ npx agentsims --host 0.0.0.0
 # Inspect or stop helper streams
 npx agentsims --list
 npx agentsims --kill
+
+# Sample the current device state for an agent
+npx agentsims observe --device android:emulator-5554
+
+# Send one structured agent action
+npx agentsims act '{"type":"swipe","x1":0.5,"y1":0.8,"x2":0.5,"y2":0.2}' \
+  --device android:emulator-5554
 
 # Target a device from the command line
 npx agentsims tap 0.5 0.7 --device android:emulator-5554

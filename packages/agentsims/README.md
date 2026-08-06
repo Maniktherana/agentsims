@@ -32,7 +32,7 @@ npx agentsims --port 3210
 - Running devices appear together on a multi-device canvas. The focused device has the blue status outline and owns the right-side tools state.
 - Annotation modes cover a single element, dragged area, multiple elements, and the whole screen.
 - Notes persist per device, carry severity and exact RN/native context, and capture a frozen screenshot on both platforms.
-- `agentsims mcp` exposes the same structured feedback directly to coding agents.
+- `agentsims observe` and `agentsims act` provide one sampled agent loop across iOS and Android.
 - The tools panel includes Android controls plus display, stream, camera, and audio status.
 - Android's remaining backend work is live audio/camera source switching and broader text/clipboard/control parity across Android versions.
 
@@ -89,44 +89,25 @@ npx expo start --clear
 2. Choose element, area, multi-select, or screen mode.
 3. Select the target and write the requested change in the inline composer.
 4. Choose suggestion, important, or blocking severity.
-5. Copy the structured prompt, or let an agent read the session through MCP.
+5. Copy the structured prompt for the coding agent.
 
 An annotation contains device and app identity, exact bounds, native role/label/test ID, RN component and source location when available, the requested change, severity, and an immutable screenshot URL. Marker visibility is independent from the saved data.
 
-## Agent MCP
-
-Run the MCP server over stdio from the same package:
-
-```bash
-npx agentsims mcp
-```
-
-Example Codex configuration:
-
-```toml
-[mcp_servers.agentsims]
-command = "npx"
-args = ["agentsims", "mcp"]
-```
-
-Tools:
-
-- `agentsims_list_devices`
-- `agentsims_get_annotations`
-- `agentsims_watch_annotations`
-- `agentsims_resolve_annotation`
-- `agentsims_capture_screenshot`
-
-The watch tool returns existing pending annotations immediately, or waits up to 30 seconds for annotations newer than a supplied timestamp.
-
-## Device Commands
+## Agent And Device Commands
 
 ```bash
 npx agentsims --list
+npx agentsims observe --device android:emulator-5554
+npx agentsims act '{"type":"tap","x":0.5,"y":0.7}' --device android:emulator-5554
 npx agentsims tap 0.5 0.7 --device android:emulator-5554
 npx agentsims button home --device android:emulator-5554
 npx agentsims rotate landscape_left --device android:emulator-5554
 ```
+
+`observe` writes a current screenshot and prints JSON containing its path,
+screen configuration, accessibility metadata, and React Native source context.
+`act` accepts `tap`, `gesture`, `swipe`, `type`, `button`, and `rotate` actions
+with normalized coordinates. See [`src/cli/README.md`](src/cli/README.md).
 
 The browser also provides per-device Home, Back, Recents, rotate, screenshot, and React Native reload actions where supported.
 
