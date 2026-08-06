@@ -27,7 +27,7 @@ npx agentsims --port 3210
 ## Current Shape
 
 - iOS simulator support is internalized from `serve-sim`: native Swift N-API addon, in-process sessions, MJPEG/AVCC streaming, HID input, AX snapshots, camera helper, simulator settings, and the React device/tools UI.
-- Android emulator support uses a scrcpy-backed H.264 `/stream.avcc` path: Agentsims pushes `scrcpy-server.jar`, opens the reverse tunnel, parses the scrcpy video protocol, feeds the browser's WebCodecs stream surface, and sends touch/scroll/button input over the same scrcpy binary control session. Android has no PNG video fallback. ADB remains responsible for explicit screenshots, discovery, status probes, emulator lifecycle, and UIAutomator snapshots.
+- Android emulators use the emulator gRPC screenshot stream, a shared-memory framebuffer, and VideoToolbox H.264. Physical Android devices use scrcpy H.264 and scrcpy control. Android has no PNG video fallback. ADB remains responsible for explicit screenshots, discovery, status probes, emulator lifecycle, and UIAutomator snapshots.
 - The shipped browser app and local dev server use Vite + React + Tailwind, with no in-app annotation overlay.
 - Running devices appear together on a multi-device canvas. The focused device has the blue status outline and owns the right-side tools state.
 - Annotation modes cover a single element, dragged area, multiple elements, and the whole screen.
