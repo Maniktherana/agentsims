@@ -66,13 +66,30 @@ function execFileResult(
   });
 }
 
+export const DEVICE_SHUTTING_DOWN_ERROR = "Device is shutting down";
+
 export class DeviceLifecycle {
   private iosSnapshot: { at: number; devices: Set<string> | null } = { at: 0, devices: null };
   private androidSnapshot: { at: number; devices: Set<string> | null } = { at: 0, devices: null };
+  private readonly shutdownOperations = new Map<string, Promise<string | null>>();
+  private readonly iosShutdownSuppressed = new Set<string>();
+
+  constructor(private readonly execute = execFileResult) {}
 
   invalidate(): void {
     this.iosSnapshot = { at: 0, devices: null };
     this.androidSnapshot = { at: 0, devices: null };
+  }
+
+  reconcileCatalogState(devices: readonly { device: string; state: string }[]): void {
+    for (const device of devices) {
+      if (
+        device.state !== "Booted"
+        && !this.shutdownOperations.has(device.device)
+      ) {
+        this.iosShutdownSuppressed.delete(device.device);
+      }
+    }
   }
 
   async states(): Promise<DeviceState[]> {
@@ -124,6 +141,7 @@ export class DeviceLifecycle {
     port: number,
     base: string,
   ): Promise<{ error: string | null; device?: string }> {
+    if (this.isStartSuppressed(device)) return { error: DEVICE_SHUTTING_DOWN_ERROR };
     const avdName = androidAvdNameFromStateId(device);
     if (avdName) return this.startAndroidAvd(avdName, port, base);
 
@@ -137,13 +155,35 @@ export class DeviceLifecycle {
   }
 
   async shutdown(device: string): Promise<string | null> {
+    const pending = this.shutdownOperations.get(device);
+    if (pending) return pending;
+    if (isIosSimulatorId(device)) this.iosShutdownSuppressed.add(device);
+    const operation = this.performShutdown(device)
+      .then((error) => {
+        if (error) this.iosShutdownSuppressed.delete(device);
+        return error;
+      })
+      .finally(() => {
+        if (this.shutdownOperations.get(device) === operation) {
+          this.shutdownOperations.delete(device);
+        }
+      });
+    this.shutdownOperations.set(device, operation);
+    return operation;
+  }
+
+  isStartSuppressed(device: string): boolean {
+    return this.shutdownOperations.has(device) || this.iosShutdownSuppressed.has(device);
+  }
+
+  private async performShutdown(device: string): Promise<string | null> {
     const androidSerial = androidSerialFromStateId(device);
     if (androidSerial) {
       closeAndroidSession(androidSerial);
       removeDeviceState(device);
       this.invalidate();
       if (!androidSerial.startsWith("emulator-")) return null;
-      const result = await execFileResult("adb", ["-s", androidSerial, "emu", "kill"], 10_000);
+      const result = await this.execute("adb", ["-s", androidSerial, "emu", "kill"], 10_000);
       return result.error ? result.stderr.trim() || result.error.message : null;
     }
 
@@ -151,15 +191,15 @@ export class DeviceLifecycle {
     closeDeviceSession(device);
     removeDeviceState(device);
     this.invalidate();
-    const result = await execFileResult("xcrun", ["simctl", "shutdown", device], 30_000);
+    const result = await this.execute("xcrun", ["simctl", "shutdown", device], 30_000);
     return result.error ? result.stderr.trim() || result.error.message : null;
   }
 
   private async startIosDevice(udid: string, port: number, base: string): Promise<string | null> {
-    await execFileResult("xcrun", ["simctl", "boot", udid], 30_000);
-    const ready = await execFileResult("xcrun", ["simctl", "bootstatus", udid, "-b"], 180_000);
+    await this.execute("xcrun", ["simctl", "boot", udid], 30_000);
+    const ready = await this.execute("xcrun", ["simctl", "bootstatus", udid, "-b"], 180_000);
     if (ready.error) {
-      const list = await execFileResult("xcrun", ["simctl", "list", "devices", "-j"], 10_000);
+      const list = await this.execute("xcrun", ["simctl", "list", "devices", "-j"], 10_000);
       let booted = false;
       try {
         const data = JSON.parse(list.stdout) as SimctlBootedList;
@@ -247,7 +287,7 @@ export class DeviceLifecycle {
     if (this.iosSnapshot.devices && now - this.iosSnapshot.at < 1_500) {
       return this.iosSnapshot.devices;
     }
-    const result = await execFileResult("xcrun", ["simctl", "list", "devices", "booted", "-j"], 3_000);
+    const result = await this.execute("xcrun", ["simctl", "list", "devices", "booted", "-j"], 3_000);
     if (result.error) return null;
     try {
       const data = JSON.parse(result.stdout) as SimctlBootedList;

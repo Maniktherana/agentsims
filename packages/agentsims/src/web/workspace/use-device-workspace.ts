@@ -13,6 +13,7 @@ import {
   workspaceSelectionReducer,
   type PreviewConfig,
 } from "./workspace-state";
+import { DeviceAutoAttachGuard } from "./device-auto-attach-guard";
 
 interface DeviceActionResponse {
   ok?: boolean;
@@ -70,7 +71,7 @@ export function useDeviceWorkspace() {
   const [shuttingDown, setShuttingDown] = useState<Record<string, boolean>>({});
   const [actionErrors, setActionErrors] = useState<Record<string, string | null>>({});
   const [uiStarted, setUiStarted] = useState<Set<string>>(() => new Set());
-  const autoAttachRequestedRef = useRef<Set<string>>(new Set());
+  const autoAttachGuardRef = useRef(new DeviceAutoAttachGuard());
 
   useEffect(() => {
     consumeUrlDevice();
@@ -150,7 +151,7 @@ export function useDeviceWorkspace() {
     [endpoints.grid],
   );
 
-  const startDevice = useCallback(
+  const requestDeviceStart = useCallback(
     async (deviceId: string, focusDevice = true) => {
       setStarting((current) => ({ ...current, [deviceId]: true }));
       setActionErrors((current) => ({ ...current, [deviceId]: null }));
@@ -195,25 +196,36 @@ export function useDeviceWorkspace() {
     [endpoints.start, grid.refresh, waitForHelper],
   );
 
+  const startDevice = useCallback(
+    async (deviceId: string, focusDevice = true) => {
+      autoAttachGuardRef.current.beginExplicitStart(deviceId);
+      await requestDeviceStart(deviceId, focusDevice);
+    },
+    [requestDeviceStart],
+  );
+
   useEffect(() => {
     if (!grid.devices) return;
-    for (const device of grid.devices) {
-      if (device.helper || device.state !== "Booted") {
-        autoAttachRequestedRef.current.delete(device.device);
-        continue;
-      }
-      if (starting[device.device] || autoAttachRequestedRef.current.has(device.device)) continue;
-      autoAttachRequestedRef.current.add(device.device);
-      void startDevice(device.device, false).finally(() => {
-        window.setTimeout(() => autoAttachRequestedRef.current.delete(device.device), 10_000);
+    const candidates = autoAttachGuardRef.current.collectCandidates(
+      grid.devices,
+      starting,
+      shuttingDown,
+    );
+    for (const deviceId of candidates) {
+      void requestDeviceStart(deviceId, false).finally(() => {
+        window.setTimeout(() => {
+          autoAttachGuardRef.current.releaseAutoAttach(deviceId);
+        }, 10_000);
       });
     }
-  }, [grid.devices, startDevice, starting]);
+  }, [grid.devices, requestDeviceStart, shuttingDown, starting]);
 
   const shutdownDevice = useCallback(
     async (deviceId: string) => {
+      autoAttachGuardRef.current.beginShutdown(deviceId);
       setShuttingDown((current) => ({ ...current, [deviceId]: true }));
       setActionErrors((current) => ({ ...current, [deviceId]: null }));
+      let succeeded = false;
       try {
         const response = await fetch(endpoints.shutdown, {
           method: "POST",
@@ -226,13 +238,16 @@ export function useDeviceWorkspace() {
             ...current,
             [deviceId]: body.error ?? `HTTP ${response.status}`,
           }));
+          return;
         }
+        succeeded = true;
       } catch (error) {
         setActionErrors((current) => ({
           ...current,
           [deviceId]: error instanceof Error ? error.message : "Request failed",
         }));
       } finally {
+        if (!succeeded) autoAttachGuardRef.current.failShutdown(deviceId);
         setShuttingDown((current) => ({ ...current, [deviceId]: false }));
         grid.refresh();
       }

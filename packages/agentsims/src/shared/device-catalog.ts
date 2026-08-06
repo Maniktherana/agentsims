@@ -96,6 +96,13 @@ export class DeviceCatalog {
     const helpers = new Map(states.map((state) => [state.device, state] as const));
     const preferredUdid = this.preferredIosDevice();
 
+    // Reconcile lifecycle intent from the complete native catalog, before
+    // paging or state-based ranking can omit the simulator from this response.
+    this.lifecycle.reconcileCatalogState(simulators.map((device) => ({
+      device: device.udid,
+      state: device.state,
+    })));
+
     const stateRank = (device: SimctlDevice) => {
       if (helpers.has(device.udid)) return 0;
       if (options.selectedDevice === device.udid) return 1;
