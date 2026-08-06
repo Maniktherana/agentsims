@@ -9,17 +9,10 @@ import {
 import {
   SimulatorView,
   digitalCrownDeltaFromWheel,
-  displayStreamConfig,
-  fallbackScreenSize,
-  isLandscapeConfig,
   screenBorderRadius,
   SimulatorToolbar,
-  getDeviceType,
-  simulatorAspectRatio,
-  simulatorMaxWidth,
   ROTATE_LEFT_CYCLE,
   ROTATE_RIGHT_CYCLE,
-  type DeviceType,
   type SimulatorOrientation,
   type StreamConfig,
 } from "../simulator";
@@ -74,13 +67,16 @@ import {
   SIMULATOR_RESIZE_PAGE_TRANSITION,
 } from "../utils/simulator-resize";
 import {
+  EMBEDDED_WORKSPACE_VERTICAL_RESERVE,
+  resolveSimulatorDeviceLayout,
+} from "../utils/simulator-device-layout";
+import {
   flushWsMessageQueue,
   sendOrQueueWsMessage,
   type QueuedWsMessage,
 } from "../utils/ws-send-queue";
 import type { PreviewConfig } from "./workspace-state";
 
-const EMBEDDED_WORKSPACE_VERTICAL_RESERVE = 200;
 type CurrentApp = { bundleId: string; isReactNative: boolean; pid?: number };
 const currentAppCache = new Map<string, CurrentApp>();
 
@@ -142,7 +138,6 @@ export function SimulatorDeviceView({
     document.title = deviceName ? `Simulator - ${deviceName}` : "Simulator Preview";
   }, [deviceName, focused]);
 
-  const deviceType: DeviceType = getDeviceType(deviceName);
   const isAndroidDevice = config.device.startsWith("android:");
   const devtools = useWebKitDevtools(
     config.devtoolsEndpoint ?? simEndpoint("devtools"),
@@ -232,32 +227,26 @@ export function SimulatorDeviceView({
   // connect + on every dimension/orientation change) instead of a 1s /config poll.
   const [wsStreamConfig, setWsStreamConfig] = useState<StreamConfig | null>(null);
   const streamConfig = wsStreamConfig;
-  const activeStreamConfig = liveStreamConfig ?? streamConfig ?? fallbackScreenSize(deviceType, deviceName);
+  const initialDeviceLayout = resolveSimulatorDeviceLayout({
+    deviceName,
+    chrome,
+  });
+  const activeStreamConfig = liveStreamConfig ??
+    streamConfig ??
+    initialDeviceLayout.streamConfig;
+  const deviceLayout = resolveSimulatorDeviceLayout({
+    deviceName,
+    chrome,
+    streamConfig: activeStreamConfig,
+  });
+  const {
+    deviceType,
+    useChrome,
+    defaultWidth: containerDefaultWidth,
+    aspectRatio: containerAspectRatio,
+    aspectRatioValue: containerAspectRatioValue,
+  } = deviceLayout;
   const imgBorderRadius = screenBorderRadius(deviceType, activeStreamConfig);
-  const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
-  const frameAspectRatio = simulatorAspectRatio(activeStreamConfig);
-  const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
-  const frameAspectRatioValue = frameDisplayConfig
-    ? frameDisplayConfig.width / frameDisplayConfig.height
-    : 1;
-
-  // DeviceKit chrome wraps the live stream in the real device bezel (with
-  // working hardware buttons). It's authored portrait, so in landscape we drop
-  // back to the bare rounded screen. When chromed, the on-screen container is
-  // the full frame (bezel + screen): `chromeScale` is how much bigger the frame
-  // is than the screen, so we scale the container up by it while keeping the
-  // *screen* at the same comfortable size — and resize / panel-collision math
-  // all operate on the frame dimensions.
-  const isLandscape = isLandscapeConfig(activeStreamConfig);
-  const useChrome = !!chrome && !isLandscape;
-  const chromeScale = useChrome ? chrome!.frame.width / chrome!.screen.width : 1;
-  const containerDefaultWidth = frameMaxWidth * chromeScale;
-  const containerAspectRatioValue = useChrome
-    ? chrome!.frame.width / chrome!.frame.height
-    : frameAspectRatioValue;
-  const containerAspectRatio = useChrome
-    ? `${chrome!.frame.width} / ${chrome!.frame.height}`
-    : frameAspectRatio;
 
   // Touch/button relay via direct WebSocket
   const wsRef = useRef<WebSocket | null>(null);

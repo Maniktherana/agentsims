@@ -35,6 +35,8 @@ export const DEVICE_FRAMES = {
  * Used to set the correct video aspect ratio so the stream fills the frame perfectly.
  */
 const SIMULATOR_SCREENS: Record<string, { width: number; height: number }> = {
+  // Android emulators used by the workspace before their first config frame.
+  "Pixel 10": { width: 1080, height: 2424 },
   // iPhone 17 series
   "iPhone 17 Pro Max": { width: 1320, height: 2868 },
   "iPhone 17 Pro": { width: 1206, height: 2622 },

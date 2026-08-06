@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DevicePlaceholder } from "../web/components/device-placeholder";
+import { resolveSimulatorDeviceLayout } from "../web/utils/simulator-device-layout";
+import { restoredSimulatorFrameWidth } from "../web/utils/simulator-resize";
 import type {
   DeviceKitChromeDescriptor,
   DevicePlaceholderAssetDescriptor,
@@ -31,56 +33,99 @@ function renderPlaceholder({
 }
 
 describe("DevicePlaceholder", () => {
-  test("uses a headset-shaped Vision fallback instead of the generic blue screen", () => {
+  test("keeps Android loading and live frames on one width and aspect model", () => {
+    const loading = resolveSimulatorDeviceLayout({
+      deviceName: "Pixel 10",
+    });
+    const live = resolveSimulatorDeviceLayout({
+      deviceName: "Pixel 10",
+      streamConfig: { width: 1080, height: 2424, orientation: "portrait" },
+    });
+    const viewport = { width: 1400, height: 900 };
+    const loadingWidth = restoredSimulatorFrameWidth(
+      loading.defaultWidth,
+      viewport.width,
+      viewport.height,
+      loading.aspectRatioValue,
+      1.15,
+    );
+    const liveWidth = restoredSimulatorFrameWidth(
+      live.defaultWidth,
+      viewport.width,
+      viewport.height,
+      live.aspectRatioValue,
+      1.15,
+    );
     const html = renderPlaceholder({
-      placeholderAsset: {
-        name: "com.apple.vision-pro",
-        width: 1023,
-        height: 524,
-      },
+      name: "Pixel 10",
+      runtime: "Android-17",
     });
 
-    expect(html).toContain("grid/api/device-placeholder-asset?name=com.apple.vision-pro");
-    expect(html).toContain("vision-placeholder-shell");
-    expect(html).not.toContain("placeholder-screen");
+    expect(loading.defaultWidth).toBe(live.defaultWidth);
+    expect(loading.aspectRatioValue).toBe(live.aspectRatioValue);
+    expect(loadingWidth).toBe(liveWidth);
+    expect(html).toContain('data-device-placeholder-frame="android"');
+    expect(html).toContain("width:min(100%, 320px)");
+    expect(html).toContain("aspect-ratio:1080 / 2424");
   });
 
-  test("uses Apple preview assets for current device placeholders", () => {
+  test("keeps iOS loading and live frames on one width and chrome model", () => {
     const chrome = {
-      identifier: "watch6",
-      frame: { width: 120, height: 140 },
-      body: { x: 10, y: 10, width: 100, height: 120 },
-      screen: { x: 20, y: 20, width: 80, height: 100 },
-      insets: { top: 10, left: 10, bottom: 10, right: 10 },
-      outerCornerRadius: 16,
-      innerCornerRadius: 12,
-      screenRadius: 10,
-      compositeImage: "WatchComposite",
+      identifier: "phone11",
+      frame: { width: 454, height: 908 },
+      body: { x: 9, y: 0, width: 436, height: 908 },
+      screen: { x: 26, y: 17, width: 402, height: 874 },
+      insets: { top: 18, left: 18, bottom: 18, right: 18 },
+      outerCornerRadius: 80,
+      innerCornerRadius: 62,
+      screenRadius: 61,
+      compositeImage: "PhoneComposite",
       slice: null,
       corner: null,
       buttons: [],
     } satisfies DeviceKitChromeDescriptor;
+    const loading = resolveSimulatorDeviceLayout({
+      deviceName: "iPhone 17",
+      chrome,
+    });
+    const live = resolveSimulatorDeviceLayout({
+      deviceName: "iPhone 17",
+      chrome,
+      streamConfig: { width: 402, height: 874, orientation: "portrait" },
+    });
+    const loadingWidth = restoredSimulatorFrameWidth(
+      loading.defaultWidth,
+      1400,
+      900,
+      loading.aspectRatioValue,
+      0.9,
+    );
+    const liveWidth = restoredSimulatorFrameWidth(
+      live.defaultWidth,
+      1400,
+      900,
+      live.aspectRatioValue,
+      0.9,
+    );
+    const html = renderPlaceholder({
+      name: "iPhone 17",
+      runtime: "iOS-26-5",
+      chrome,
+      placeholderAsset: {
+        name: "com.apple.iphone-17-2",
+        width: 950,
+        height: 1024,
+      },
+    });
 
-    const cases = [
-      ["Apple Watch Series 11 (42mm)", "watchOS-27-0", "com.apple.apple-watch-series-11-4", 492, 792, 250],
-      ["Apple Watch Ultra 3 (49mm)", "watchOS-27-0", "com.apple.apple-watch-ultra-3-8", 499, 795, 255],
-      ["Apple Watch SE 3 (40mm)", "watchOS-27-0", "com.apple.apple-watch-se-3-1", 468, 792, 238],
-      ["iPhone 17 Pro", "iOS-26-5", "com.apple.iphone-17-pro-2", 950, 1024, 280],
-      ["iPad Pro 11-inch (M5)", "iOS-26-5", "com.apple.ipad-pro-11-inch-m5-1", 895, 986, 340],
-    ] as const;
-
-    for (const [name, runtime, assetName, width, height, maxWidth] of cases) {
-      const html = renderPlaceholder({
-        name,
-        runtime,
-        chrome,
-        placeholderAsset: { name: assetName, width, height },
-      });
-      expect(html).toContain(`grid/api/device-placeholder-asset?name=${assetName}`);
-      expect(html).toContain(`width:min(100%, ${maxWidth}px,`);
-      expect(html).toContain(`max-width:${maxWidth}px`);
-      expect(html).not.toContain("WatchComposite");
-    }
+    expect(loading.defaultWidth).toBe(live.defaultWidth);
+    expect(loading.aspectRatioValue).toBe(live.aspectRatioValue);
+    expect(loadingWidth).toBe(liveWidth);
+    expect(loading.aspectRatio).toBe("454 / 908");
+    expect(html).toContain('data-device-placeholder-frame="iphone"');
+    expect(html).toContain("aspect-ratio:454 / 908");
+    expect(html).toContain("PhoneComposite");
+    expect(html).not.toContain("grid/api/device-placeholder-asset");
   });
 
   test("draws all hardware buttons for composite DeviceKit chrome", () => {

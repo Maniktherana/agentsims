@@ -306,6 +306,7 @@ export function WorkspaceCanvas({
                     actionLabel="Connect"
                     error={device ? actionErrors[device.device] ?? null : null}
                     onStart={() => device && onStart(device.device)}
+                    embedded
                   />
                 )}
               </DraggableDevice>

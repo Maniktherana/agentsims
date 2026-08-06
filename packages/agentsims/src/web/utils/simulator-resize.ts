@@ -69,6 +69,18 @@ export const SIMULATOR_RESIZE_VELOCITY_HISTORY_MS = 150;
 export const SIMULATOR_RESIZE_PERSIST_DEBOUNCE_MS = 250;
 export const SIMULATOR_RESIZE_SCALE_STORAGE_KEY = "agentsims:simulator-frame-scale";
 
+export function readSimulatorResizeScale(
+  storage?: Pick<Storage, "getItem"> | null,
+): number {
+  if (!storage) return NaN;
+  try {
+    const raw = storage.getItem(SIMULATOR_RESIZE_SCALE_STORAGE_KEY);
+    return raw != null ? Number(raw) : NaN;
+  } catch {
+    return NaN;
+  }
+}
+
 export function getSimulatorFrameMaxWidth(
   defaultWidth: number,
   viewportWidth: number,

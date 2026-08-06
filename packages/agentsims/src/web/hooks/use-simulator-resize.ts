@@ -21,6 +21,7 @@ import {
   estimateReleaseVelocity,
   getSimulatorFrameMaxWidth,
   restoredSimulatorFrameWidth,
+  readSimulatorResizeScale,
   roundToDevicePixel,
   rubberBandResistance,
   snapToDetent,
@@ -64,11 +65,7 @@ export function useSimulatorResize({
     if (typeof window === "undefined") return defaultWidth;
     // A non-finite scale (storage threw / empty / NaN) falls back to defaultWidth
     // inside restoredSimulatorFrameWidth, so both paths share one call.
-    let scale = NaN;
-    try {
-      const raw = window.localStorage.getItem(SIMULATOR_RESIZE_SCALE_STORAGE_KEY);
-      scale = raw != null ? Number(raw) : NaN;
-    } catch {}
+    const scale = readSimulatorResizeScale(window.localStorage);
     return restoredSimulatorFrameWidth(
       defaultWidth,
       viewportWidth,
