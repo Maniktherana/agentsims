@@ -1,116 +1,200 @@
 # agentsims
 
-Agentation-style simulator workspace for React Native and Expo apps.
+Agentsims is a local browser workspace for controlling, inspecting, and
+reviewing iOS simulators, Android emulators, and connected Android devices
+while developing React Native and Expo apps. It keeps multiple devices on one
+canvas and turns native accessibility targets into source-aware prompts for
+coding agents.
 
-Agentsims is one installable devtool package. It owns the browser UI, device grid, local middleware, iOS and Android sessions, React Native source bridge, annotation store, screenshots, and agent handoff.
+Agentsims runs beside the app. It does not add an overlay, SDK, or runtime
+dependency to the mobile bundle.
 
 ## Install
+
+Add Agentsims to the React Native or Expo project:
 
 ```bash
 npm install --save-dev agentsims
 ```
 
-Start the browser workspace:
+The equivalent pnpm, Yarn, and Bun development-dependency commands also work.
+
+## Quick start
+
+1. Start the app normally on at least one simulator, emulator, or connected
+   Android device.
+
+   ```bash
+   # Expo examples; run the target you need
+   npx expo start --ios
+   npx expo start --android
+   ```
+
+2. Start Agentsims from the app project in another terminal.
+
+   ```bash
+   npx agentsims
+   ```
+
+3. Open the URL printed by the CLI, normally
+   [http://localhost:3200](http://localhost:3200).
+
+When no device is running, use the browser's device picker to start an iOS
+Simulator or Android Virtual Device.
+
+Native accessibility inspection works immediately. To optionally add React
+Native source context, preview and apply the safe Metro config change:
 
 ```bash
-npx agentsims
+npx agentsims setup --dry-run
+npx agentsims setup
 ```
 
-Agentsims opens on `http://localhost:3200`. It attaches every already-running iOS Simulator and Android emulator. When nothing is running, the browser opens on the device picker instead of starting an arbitrary simulator.
+## What `npx agentsims` does
 
-Use another port when needed:
+- Serves a local, multi-device workspace on `127.0.0.1:3200` by default.
+- Discovers running iOS Simulators, Android emulators, and authorized physical
+  Android devices.
+- Streams each selected device and relays supported pointer, keyboard, scroll,
+  rotation, and hardware-button input.
+- Opens a dedicated accessibility tree for native target inspection.
+- Captures Single- or Multi-target annotations with device, accessibility,
+  source, note, severity, and screenshot context.
+
+Agentsims does not start Metro, launch the app bundle, or stop devices when its
+server exits.
+
+## Optional React Native source mapping
+
+Native accessibility inspection works without app integration. To add React
+Native component, file, line, owner, route, and safe-prop context, first preview
+the safe Metro configuration change and then apply it:
 
 ```bash
-npx agentsims --port 3210
+npx agentsims setup --dry-run
+npx agentsims setup
 ```
 
-## Current Shape
+`setup` discovers the Expo or React Native app, shows the proposed diff, asks
+before writing, and creates a timestamped backup when it updates an existing
+config. It is idempotent. Use `--project <directory>` from outside the app,
+`--config <file>` to choose among configs, or `--yes` after reviewing a dry
+run.
 
-- iOS simulator support is internalized from `serve-sim`: native Swift N-API addon, in-process sessions, MJPEG/AVCC streaming, HID input, AX snapshots, camera helper, simulator settings, and the React device/tools UI.
-- Android emulators use the emulator gRPC screenshot stream, a shared-memory framebuffer, and VideoToolbox H.264. Physical Android devices use scrcpy H.264 and scrcpy control. Android has no PNG video fallback. ADB remains responsible for explicit screenshots, discovery, status probes, emulator lifecycle, and UIAutomator snapshots.
-- The shipped browser app and local dev server use Vite + React + Tailwind, with no in-app annotation overlay.
-- Running devices appear together on a multi-device canvas. The focused device has the blue status outline and owns the right-side tools state.
-- Annotation modes cover a single element, dragged area, multiple elements, and the whole screen.
-- Notes persist per device, carry severity and exact RN/native context, and capture a frozen screenshot on both platforms.
-- `agentsims observe` and `agentsims act` provide one sampled agent loop across iOS and Android.
-- The tools panel includes Android controls plus display, stream, camera, and audio status.
-- Android's remaining backend work is live audio/camera source switching and broader text/clipboard/control parity across Android versions.
-
-## Run Locally
-
-```bash
-bun install
-bun run --filter agentsims build
-PORT=3210 bun run --filter agentsims dev
-```
-
-Open `http://localhost:3210`. The dev server stays live with Vite HMR on port `3211`.
-
-## React Native / Expo Source Mapping
-
-Agentsims can enrich simulator AX/UIAutomator targets with React Native source
-context in development. Apply `withAgentsims` after the app's other Metro
-wrappers so it can preserve and extend the final Expo, Sentry, NativeWind, or
-custom transformer configuration.
+For a configuration that cannot be updated safely, wrap the project's final
+Metro config manually with `withAgentsims`:
 
 ```js
-// metro.config.js
+// metro.config.js for Expo
 const { getDefaultConfig } = require("expo/metro-config");
 const { withAgentsims } = require("agentsims/metro");
 
 const config = getDefaultConfig(__dirname);
 
-module.exports = withAgentsims(config, { projectRoot: __dirname });
+module.exports = withAgentsims(config, {
+  projectRoot: __dirname,
+});
 ```
 
-No Babel config change is required. `withAgentsims` delegates to the Babel
-transformer already selected by Metro and adds the source instrumentation only
-for development transforms.
-
-What this does in development:
-
-- Adds project-scoped stable `testID`s to app-owned JSX callsites and React
-  Native host components that do not already have one.
-- Preserves authored static `testID`s and leaves dynamic IDs untouched.
-- Records `testID -> component/file/line/owner stack/route/visible text/safe props` metadata in a temp Agentsims manifest.
-- Exposes the manifest at Metro's `/_agentsims/source-map` endpoint.
-- Lets Agentsims match native AX/UIAutomator elements back to React Native
-  source through an exact ID or a conservative native-child relationship.
-
-No visible in-app overlay is added. Restart Metro with a cleared cache after enabling the bridge:
+Apply `withAgentsims` after existing Expo, NativeWind, Sentry, or custom Metro
+wrappers so it receives the final config. No Babel configuration change is
+required. Restart Metro and reload the app after enabling it:
 
 ```bash
 npx expo start --clear
+# or: npx react-native start --reset-cache
 ```
 
-## Annotate
+Bare React Native projects can pass their final merged
+`@react-native/metro-config` config to `withAgentsims` in the same way.
 
-1. Click the cursor/annotation control under a device.
-2. Choose element, area, multi-select, or screen mode.
-3. Select the target and write the requested change in the inline composer.
-4. Choose suggestion, important, or blocking severity.
-5. Copy the structured prompt for the coding agent.
-
-An annotation contains device and app identity, exact bounds, native role/label/test ID, RN component and source location when available, the requested change, severity, and an immutable screenshot URL. Marker visibility is independent from the saved data.
-
-## Agent And Device Commands
+## First working commands
 
 ```bash
+# Start the default workspace.
+npx agentsims
+
+# Use another browser-server port.
+npx agentsims --port 3210
+
+# List running Agentsims device sessions and their IDs.
 npx agentsims --list
-npx agentsims observe --device android:emulator-5554
-npx agentsims act '{"type":"tap","x":0.5,"y":0.7}' --device android:emulator-5554
-npx agentsims tap 0.5 0.7 --device android:emulator-5554
-npx agentsims button home --device android:emulator-5554
-npx agentsims rotate landscape_left --device android:emulator-5554
 ```
 
-`observe` writes a current screenshot and prints JSON containing its path,
-screen configuration, accessibility metadata, and React Native source context.
-`act` accepts `tap`, `gesture`, `swipe`, `type`, `button`, and `rotate` actions
-with normalized coordinates. See [`src/cli/README.md`](src/cli/README.md).
+Use the browser device picker and the controls around each phone for the normal
+interactive workflow.
 
-The browser also provides per-device Home, Back, Recents, rotate, screenshot, and React Native reload actions where supported.
+## Supported platforms
 
-## Research And Architecture
+Agentsims currently requires a macOS 14 or newer host and Node.js 20 or newer.
+Install Xcode for iOS Simulator support. Install Android Studio or the Android
+SDK and put `adb` on `PATH` for Android support.
 
-See [`../../MOBILE_SIM_AGENTATION_RESEARCH.md`](../../MOBILE_SIM_AGENTATION_RESEARCH.md) for the thorough feature notes, Agentation comparison, `serve-sim` internals, Android backend plan, and current implementation status.
+| Target | Live video and control |
+| --- | --- |
+| iOS Simulator | Native simulator capture and HID control |
+| Android emulator | Emulator capture, H.264, and native input |
+| Physical Android device | scrcpy H.264 and scrcpy control |
+
+Android live video requires browser WebCodecs support and has no MJPEG or ADB
+PNG fallback. iOS Simulator streams can use `--codec mjpeg` when the H.264 path
+is unavailable.
+
+## Agent CLI
+
+Agents and shell scripts use the same cross-platform device IDs and normalized
+coordinates as the browser workspace:
+
+```bash
+# Capture a screenshot plus screen, accessibility, and source metadata.
+npx agentsims observe --device android:emulator-5554
+
+# Execute one structured action.
+npx agentsims act \
+  '{"type":"tap","x":0.5,"y":0.7}' \
+  --device android:emulator-5554
+```
+
+`act` accepts `tap`, `gesture`, `swipe`, `type`, `button`, and `rotate`
+actions. Direct `tap`, `gesture`, `type`, `button`, and `rotate` commands are
+also available. Run `npx agentsims --help` for the complete command list.
+
+## Develop the package
+
+Developing Agentsims itself requires Node.js 24 and Bun 1.3 or newer. From the
+repository root:
+
+```bash
+bun install
+bun run --filter agentsims build
+bun run --filter agentsims dev
+```
+
+The development command runs the same built server that ships to npm through
+[Portless](https://portless.sh), at
+[https://agentsims.localhost](https://agentsims.localhost). To bypass the local
+proxy, run `PORT=3200 bun run --filter agentsims dev:server`.
+
+## Troubleshooting
+
+If a device is missing, confirm that the platform tools can see it:
+
+```bash
+xcrun simctl list devices booted
+adb devices -l
+```
+
+If source context is missing, restart Metro with a cleared cache, reload the
+app, and confirm that `/_agentsims/source-map` on the project's current Metro
+URL returns entries. If port `3200` is occupied, pass `--port 3210`.
+
+`--host 0.0.0.0` exposes the development server to the local network. Use it
+only on a trusted network because Agentsims includes token-protected host
+control routes.
+
+## Reference
+
+- [Complete guide](https://github.com/Maniktherana/agentsims#readme)
+- [Agent CLI observation and action flow](https://github.com/Maniktherana/agentsims/blob/main/packages/agentsims/src/cli/README.md)
+- [Annotation interaction contract](https://github.com/Maniktherana/agentsims/blob/main/.plans/ANNOTATION_EXPERIENCE.md)
+- [Architecture and domain context](https://github.com/Maniktherana/agentsims/blob/main/.plans/CONTEXT.md)
