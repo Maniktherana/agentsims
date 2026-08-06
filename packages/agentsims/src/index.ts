@@ -59,18 +59,6 @@ function previewHostFromEnvironment(): string {
   return process.env.HOST?.trim() || "127.0.0.1";
 }
 
-function portlessPublicUrl(): string | null {
-  const raw = process.env.PORTLESS_URL?.trim();
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    return url.href.replace(/\/$/, "");
-  } catch {
-    return null;
-  }
-}
-
 function ensureStateDir() {
   if (!existsSync(STATE_DIR)) {
     mkdirSync(STATE_DIR, { recursive: true });
@@ -1393,12 +1381,9 @@ async function serve(
 
   const exposedToLan = host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
   const networkIP = getLocalNetworkIP();
-  const publicUrl = portlessPublicUrl();
   console.log("");
   console.log(`  - Local:   http://localhost:${boundPort}`);
-  if (publicUrl) {
-    console.log(`  - Public:  ${publicUrl}`);
-  } else if (exposedToLan && networkIP) {
+  if (exposedToLan && networkIP) {
     console.log(`  - Network: http://${networkIP}:${boundPort}`);
   } else if (networkIP) {
     console.log(`  - Network: \x1b[2muse --host 0.0.0.0 to expose on http://${networkIP}:${boundPort}\x1b[0m`);

@@ -42,6 +42,11 @@ assert.deepEqual(manifest.os, ["darwin"]);
 assert.deepEqual(new Set(manifest.cpu), new Set(["arm64", "x64"]));
 assert.equal(manifest.publishConfig?.access, "public");
 assert.equal(manifest.publishConfig?.registry, "https://registry.npmjs.org/");
+assert.equal(
+  manifest.scripts?.start,
+  "node dist/agentsims.js",
+  "start must execute the built production CLI with Node",
+);
 assert.ok(
   !(manifest.files ?? []).some((file) => file.endsWith(".map")),
   "linked source maps may expose the build machine's checkout path",

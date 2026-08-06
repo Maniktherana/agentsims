@@ -228,14 +228,16 @@ From this repository:
 ```bash
 bun install
 bun run --filter agentsims build
-bun run --filter agentsims dev
+bun run --filter agentsims start
 ```
 
-The development command runs the same built server that ships to npm through
-[Portless](https://portless.sh), at
-[https://agentsims.localhost](https://agentsims.localhost). Portless supplies
-one ephemeral application port for HTTP and WebSockets. To bypass the local
-proxy, run `PORT=3200 bun run --filter agentsims dev:server` instead.
+`start` executes the built production entrypoint directly with Node and prints
+its local URL, normally [http://localhost:3200](http://localhost:3200). Pass CLI
+options after `--`; for example:
+
+```bash
+bun run --filter agentsims start -- --port 3210
+```
 
 Useful checks are:
 

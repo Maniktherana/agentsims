@@ -84,8 +84,7 @@
   },
   "scripts": {
     "build": "bun run build.ts",
-    "dev": "portless agentsims bun run dev:server",
-    "dev:server": "bun run dev.ts",
+    "start": "node dist/agentsims.js",
     "prepack": "bun run build && bun run licenses:third-party && bun run verify:package",
     "licenses:third-party": "node scripts/generate-third-party-licenses.mjs",
     "verify:package": "node scripts/verify-package.mjs",
@@ -113,7 +112,6 @@
     "node-swift": "1.5.1",
     "oxlint": "^1.74.0",
     "preact": "^10.29.1",
-    "portless": "^0.14.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwindcss": "^4.1.7",
