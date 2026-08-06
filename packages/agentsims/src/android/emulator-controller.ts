@@ -24,6 +24,14 @@ export type AndroidEmulatorConfig = {
   orientation: "portrait" | "landscape_left";
 };
 
+/**
+ * The controller still needs screenshot metadata to keep input/configuration
+ * current, but encoding its MMAP framebuffer is useful only to AVCC clients.
+ */
+function shouldSubmitAndroidCaptureFrame(subscriberCount: number): boolean {
+  return subscriberCount > 0;
+}
+
 type ControllerMetadata = {
   pid: number;
   port: number;
@@ -203,6 +211,132 @@ function requestHeaders(method: string, token: string) {
   } as const;
 }
 
+type AndroidCaptureSink = Pick<NativeAndroidCapture, "frame" | "requestKeyframe">;
+
+/**
+ * Coordinates controller metadata, AVCC demand, and the native encoder.
+ * Keeping this policy outside the gRPC session makes the zero-subscriber path
+ * deterministic: configuration remains current without producing video.
+ */
+export class AndroidAvccFrameCoordinator {
+  private readonly subscribers = new Set<AvccSubscriber>();
+  private lastDescription: Buffer | null = null;
+  private lastCaptureSubmitAt = 0;
+  private _currentConfig: AndroidEmulatorConfig | null = null;
+
+  constructor(
+    private readonly capture: AndroidCaptureSink,
+    private readonly onConfig: (config: AndroidEmulatorConfig) => void,
+    private readonly onSubscriberCountChange?: (count: number) => void,
+  ) {}
+
+  get subscriberCount(): number {
+    return this.subscribers.size;
+  }
+
+  get currentConfig(): AndroidEmulatorConfig | null {
+    return this._currentConfig;
+  }
+
+  observeFrameMetadata(dimensions: { width: number; height: number }): AndroidEmulatorConfig {
+    const config: AndroidEmulatorConfig = {
+      ...dimensions,
+      orientation: orientation(dimensions.width, dimensions.height),
+    };
+    if (
+      !this._currentConfig ||
+      config.width !== this._currentConfig.width ||
+      config.height !== this._currentConfig.height
+    ) {
+      this._currentConfig = config;
+      this.onConfig(config);
+    }
+    this.submitCaptureFrame(config);
+    return config;
+  }
+
+  attach(res: ServerResponse): void {
+    const subscriber: AvccSubscriber = {
+      res,
+      waitingForKeyframe: true,
+      needsKeyframe: false,
+    };
+    this.subscribers.add(subscriber);
+    this.onSubscriberCountChange?.(this.subscribers.size);
+    if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
+    this.capture.requestKeyframe();
+    if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
+
+    let attached = true;
+    const cleanup = () => {
+      if (!attached) return;
+      attached = false;
+      this.subscribers.delete(subscriber);
+      this.onSubscriberCountChange?.(this.subscribers.size);
+    };
+    const resume = () => {
+      if (!this.subscribers.has(subscriber) || !subscriber.needsKeyframe) return;
+      subscriber.needsKeyframe = false;
+      this.capture.requestKeyframe();
+      if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
+    };
+    res.on("close", cleanup);
+    res.on("error", cleanup);
+    res.on("drain", resume);
+  }
+
+  publish(chunk: Buffer, isDescription = false): void {
+    if (isDescription) this.lastDescription = chunk;
+    for (const subscriber of this.subscribers) this.writeSubscriber(subscriber, chunk);
+  }
+
+  submitIdleFrame(intervalMs: number, now = Date.now()): void {
+    if (
+      !this._currentConfig ||
+      now - this.lastCaptureSubmitAt < intervalMs
+    ) {
+      return;
+    }
+    this.submitCaptureFrame(this._currentConfig, now);
+  }
+
+  close(): void {
+    for (const subscriber of this.subscribers) {
+      try { subscriber.res.end(); } catch {}
+    }
+    this.subscribers.clear();
+    this.onSubscriberCountChange?.(0);
+  }
+
+  private submitCaptureFrame(config: AndroidEmulatorConfig, now = Date.now()): void {
+    if (!shouldSubmitAndroidCaptureFrame(this.subscribers.size)) return;
+    this.lastCaptureSubmitAt = now;
+    this.capture.frame(config.width, config.height);
+  }
+
+  private writeSubscriber(subscriber: AvccSubscriber, chunk: Buffer): void {
+    if (subscriber.res.writableEnded || subscriber.res.destroyed) return;
+    const tag = chunk[4];
+    if (subscriber.res.writableLength >= MAX_SUBSCRIBER_BUFFER_BYTES) {
+      if (tag === AVCC_TAG_KEYFRAME || tag === AVCC_TAG_DELTA) {
+        subscriber.waitingForKeyframe = true;
+        subscriber.needsKeyframe = true;
+      }
+      return;
+    }
+    if (subscriber.waitingForKeyframe) {
+      if (tag === AVCC_TAG_DESCRIPTION) {
+        subscriber.res.write(chunk);
+      } else if (tag === AVCC_TAG_KEYFRAME) {
+        subscriber.waitingForKeyframe = false;
+        subscriber.res.write(chunk);
+      }
+      return;
+    }
+    subscriber.res.write(chunk);
+  }
+}
+
 export class AndroidEmulatorSession {
   readonly backend = "emulator-controller" as const;
   readonly wireTransport = "mmap-videotoolbox-h264" as const;
@@ -217,11 +351,8 @@ export class AndroidEmulatorSession {
   private startPromise: Promise<void> | null = null;
   private stopped = false;
   private pendingGrpc = Buffer.alloc(0);
-  private subscribers = new Set<AvccSubscriber>();
-  private lastDescription: Buffer | null = null;
-  private currentConfig: AndroidEmulatorConfig | null = null;
+  private frameCoordinator: AndroidAvccFrameCoordinator | null = null;
   private idleFrameTimer: ReturnType<typeof setInterval> | null = null;
-  private lastCaptureSubmitAt = 0;
 
   constructor(
     serial: string,
@@ -243,7 +374,7 @@ export class AndroidEmulatorSession {
   }
 
   get subscriberCount(): number {
-    return this.subscribers.size;
+    return this.frameCoordinator?.subscriberCount ?? 0;
   }
 
   get inputReady(): boolean {
@@ -262,33 +393,7 @@ export class AndroidEmulatorSession {
 
   async attachAvcc(res: ServerResponse): Promise<void> {
     await this.start();
-    const subscriber: AvccSubscriber = {
-      res,
-      waitingForKeyframe: true,
-      needsKeyframe: false,
-    };
-    this.subscribers.add(subscriber);
-    this.onSubscriberCountChange?.(this.subscribers.size);
-    if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
-    this.capture?.requestKeyframe();
-    if (this.currentConfig) this.submitCaptureFrame(this.currentConfig);
-
-    let attached = true;
-    const cleanup = () => {
-      if (!attached) return;
-      attached = false;
-      this.subscribers.delete(subscriber);
-      this.onSubscriberCountChange?.(this.subscribers.size);
-    };
-    const resume = () => {
-      if (!this.subscribers.has(subscriber) || !subscriber.needsKeyframe) return;
-      subscriber.needsKeyframe = false;
-      this.capture?.requestKeyframe();
-      if (this.currentConfig) this.submitCaptureFrame(this.currentConfig);
-    };
-    res.on("close", cleanup);
-    res.on("error", cleanup);
-    res.on("drain", resume);
+    this.frameCoordinator?.attach(res);
   }
 
   resetVideo(): boolean {
@@ -324,11 +429,8 @@ export class AndroidEmulatorSession {
   close(): void {
     if (this.stopped) return;
     this.stopped = true;
-    for (const subscriber of this.subscribers) {
-      try { subscriber.res.end(); } catch {}
-    }
-    this.subscribers.clear();
-    this.onSubscriberCountChange?.(0);
+    this.frameCoordinator?.close();
+    this.frameCoordinator = null;
     if (this.idleFrameTimer) clearInterval(this.idleFrameTimer);
     this.idleFrameTimer = null;
     this.unsubscribeCapture?.();
@@ -351,12 +453,14 @@ export class AndroidEmulatorSession {
     closeSync(file);
 
     this.capture = new NativeAndroidCapture(this.mmapPath);
+    this.frameCoordinator = new AndroidAvccFrameCoordinator(
+      this.capture,
+      this.onConfig,
+      this.onSubscriberCountChange,
+    );
     this.unsubscribeCapture = await this.capture.subscribeAvcc(async (frame) => {
       const chunk = Buffer.from(frame.data);
-      if (frame.isDescription) {
-        this.lastDescription = chunk;
-      }
-      this.broadcast(chunk);
+      this.frameCoordinator?.publish(chunk, frame.isDescription);
     });
     this.client = connect(`http://127.0.0.1:${this.metadata.port}`);
     this.client.on("error", () => this.close());
@@ -365,15 +469,8 @@ export class AndroidEmulatorSession {
       this.input = null;
     });
     this.idleFrameTimer = setInterval(() => {
-      if (
-        this.stopped ||
-        this.subscribers.size === 0 ||
-        !this.currentConfig ||
-        Date.now() - this.lastCaptureSubmitAt < IDLE_FRAME_INTERVAL_MS
-      ) {
-        return;
-      }
-      this.submitCaptureFrame(this.currentConfig);
+      if (this.stopped) return;
+      this.frameCoordinator?.submitIdleFrame(IDLE_FRAME_INTERVAL_MS);
     }, IDLE_FRAME_INTERVAL_MS);
 
     await new Promise<void>((resolve, reject) => {
@@ -399,19 +496,7 @@ export class AndroidEmulatorSession {
           const dimensions = parseImageDimensions(this.pendingGrpc.subarray(5, 5 + length));
           this.pendingGrpc = this.pendingGrpc.subarray(5 + length);
           if (!dimensions.width || !dimensions.height) continue;
-          const config: AndroidEmulatorConfig = {
-            ...dimensions,
-            orientation: orientation(dimensions.width, dimensions.height),
-          };
-          if (
-            !this.currentConfig ||
-            config.width !== this.currentConfig.width ||
-            config.height !== this.currentConfig.height
-          ) {
-            this.currentConfig = config;
-            this.onConfig(config);
-          }
-          this.submitCaptureFrame(config);
+          this.frameCoordinator?.observeFrameMetadata(dimensions);
           if (!resolved) {
             resolved = true;
             resolve();
@@ -432,11 +517,6 @@ export class AndroidEmulatorSession {
     });
   }
 
-  private submitCaptureFrame(config: AndroidEmulatorConfig): void {
-    this.lastCaptureSubmitAt = Date.now();
-    this.capture?.frame(config.width, config.height);
-  }
-
   private writeTouches(
     phase: "begin" | "move" | "end" | "cancel",
     touches: Array<{ x: number; y: number; identifier: number }>,
@@ -451,29 +531,4 @@ export class AndroidEmulatorSession {
     }
   }
 
-  private writeSubscriber(subscriber: AvccSubscriber, chunk: Buffer): void {
-    if (subscriber.res.writableEnded || subscriber.res.destroyed) return;
-    const tag = chunk[4];
-    if (subscriber.res.writableLength >= MAX_SUBSCRIBER_BUFFER_BYTES) {
-      if (tag === AVCC_TAG_KEYFRAME || tag === AVCC_TAG_DELTA) {
-        subscriber.waitingForKeyframe = true;
-        subscriber.needsKeyframe = true;
-      }
-      return;
-    }
-    if (subscriber.waitingForKeyframe) {
-      if (tag === AVCC_TAG_DESCRIPTION) {
-        subscriber.res.write(chunk);
-      } else if (tag === AVCC_TAG_KEYFRAME) {
-        subscriber.waitingForKeyframe = false;
-        subscriber.res.write(chunk);
-      }
-      return;
-    }
-    subscriber.res.write(chunk);
-  }
-
-  private broadcast(chunk: Buffer): void {
-    for (const subscriber of this.subscribers) this.writeSubscriber(subscriber, chunk);
-  }
 }
