@@ -1,14 +1,10 @@
 import { Accessibility as AccessibilityIcon, GripVertical, X } from "lucide-react";
 import {
   useId,
-  useMemo,
-  useState,
   type KeyboardEventHandler,
   type PointerEventHandler,
   type ReactNode,
 } from "react";
-import { SimulatorResizeCornerAffordance } from "../../../web/components/simulator-resize-corner-handle";
-import { simulatorResizeCornerArc } from "../../../web/simulator";
 import { ReviewIconButton } from "./review-icon-button";
 import type { ReviewDeviceIdentity, ReviewView } from "./review-types";
 
@@ -44,14 +40,6 @@ export function ReviewSidecar({
   onResizeKeyDown,
 }: ReviewSidecarProps) {
   const titleId = useId();
-  const [resizeHovered, setResizeHovered] = useState(false);
-  const [resizeFocused, setResizeFocused] = useState(false);
-  const resizeArc = useMemo(() => simulatorResizeCornerArc({
-    type: "iphone",
-    config: null,
-    containerWidth: 0,
-    containerHeight: 0,
-  }), []);
   if (!open) return null;
 
   const title = view === "annotations" ? "Annotations" : "Accessibility";
@@ -132,18 +120,12 @@ export function ReviewSidecar({
           tabIndex={0}
           data-agentsims-review-resize-handle
           onPointerDown={onResizePointerDown}
-          onPointerEnter={() => setResizeHovered(true)}
-          onPointerLeave={() => setResizeHovered(false)}
-          onFocus={(event) =>
-            setResizeFocused(event.currentTarget.matches(":focus-visible"))}
-          onBlur={() => setResizeFocused(false)}
           onKeyDown={onResizeKeyDown}
-          className="group pointer-events-auto absolute bottom-[-14px] right-[-14px] z-50 flex size-[60px] cursor-nwse-resize touch-none items-end justify-end border-0 bg-transparent p-0 outline-none"
+          className="group pointer-events-auto absolute bottom-[-16px] right-[-16px] z-50 grid size-10 cursor-nwse-resize touch-none place-items-center border-0 bg-transparent p-0 outline-none focus-visible:after:absolute focus-visible:after:size-5 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-blue-400/80"
         >
-          <SimulatorResizeCornerAffordance
-            arc={resizeArc}
-            phase={resizeHovered ? "hover" : "idle"}
-            focusVisible={resizeFocused}
+          <span
+            aria-hidden="true"
+            className="relative mb-1 mr-1 size-3 border-b border-r border-white/32 [transition-property:border-color,transform] duration-[110ms] group-hover:border-white/70 group-hover:scale-110 group-active:scale-95 motion-reduce:transition-none"
           />
         </div>
       )}

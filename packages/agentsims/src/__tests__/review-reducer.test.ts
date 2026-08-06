@@ -9,6 +9,7 @@ import {
 } from "../annotations/web/state/review-reducer";
 import {
   selectCapturesSimulatorPointer,
+  selectDismissesForWorkspaceDock,
   selectNeedsAxSnapshot,
   selectReviewDraftId,
   selectReviewPointerCapture,
@@ -30,6 +31,20 @@ function reduce(
 }
 
 describe("reviewReducer accessibility", () => {
+  test("workspace docks preserve Accessibility but dismiss annotation layers", () => {
+    const accessibility = reviewReducer(createClosedReviewState(), {
+      type: "REVIEW_ACCESSIBILITY_OPENED",
+    });
+    const annotation = reviewReducer(createClosedReviewState(), {
+      type: "REVIEW_ANNOTATE_OPENED",
+      tool: "element",
+    });
+
+    expect(selectDismissesForWorkspaceDock(createClosedReviewState())).toBe(false);
+    expect(selectDismissesForWorkspaceDock(accessibility)).toBe(false);
+    expect(selectDismissesForWorkspaceDock(annotation)).toBe(true);
+  });
+
   test("opens accessibility review with independent picking and all-node overlay", () => {
     const state = reviewReducer(createClosedReviewState(), {
       type: "REVIEW_ACCESSIBILITY_OPENED",

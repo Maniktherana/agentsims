@@ -13,14 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import {
-  RESET_WORKSPACE_LAYOUT_EVENT,
-  WORKSPACE_DEVICE_GEOMETRY_EVENT,
-  type WorkspaceReviewExtentDetail,
-} from "../../../web/layout-events";
-import {
-  publishWorkspaceReviewExtent,
-} from "../../../web/workspace/workspace-review-extent-store";
+import { RESET_WORKSPACE_LAYOUT_EVENT } from "../../../web/layout-events";
 import {
   annotationStatus,
   type AnnotationEntry,
@@ -100,17 +93,14 @@ export function ConnectedReviewLaunchers() {
   return useContext(ReviewDeviceUiContext)?.launchers ?? null;
 }
 
-const REVIEW_PANEL_DEFAULT_WIDTH = 560;
-const REVIEW_PANEL_DEFAULT_HEIGHT = 560;
-const REVIEW_PANEL_MIN_WIDTH = 520;
-const REVIEW_PANEL_MIN_HEIGHT = 360;
+const REVIEW_PANEL_DEFAULT_WIDTH = 540;
+const REVIEW_PANEL_DEFAULT_HEIGHT = 520;
+const REVIEW_PANEL_MIN_WIDTH = 460;
+const REVIEW_PANEL_MIN_HEIGHT = 320;
 const REVIEW_PANEL_MAX_WIDTH = 960;
 const REVIEW_PANEL_MAX_HEIGHT = 760;
 const REVIEW_PANEL_GAP = 16;
 const REVIEW_PANEL_MARGIN = 12;
-const REVIEW_PANEL_BOTTOM_RESERVE = 72;
-const REVIEW_PANEL_RESIZE_OUTSET = 14;
-const REVIEW_PANEL_SCROLL_GUTTER = 14;
 
 export interface ReviewPanelGeometry {
   left: number;
@@ -124,7 +114,7 @@ export type ReviewPanelAnchorRect = Pick<
   "left" | "right" | "top" | "bottom"
 >;
 
-interface SavedReviewPanelGeometry {
+export interface SavedReviewPanelGeometry {
   left: number;
   top: number;
   width?: number;
@@ -135,10 +125,12 @@ export function clampReviewPanelGeometry(
   geometry: ReviewPanelGeometry,
   viewportWidth: number,
   viewportHeight: number,
-  reservedRight: number,
+  _reservedRight = 0,
 ): ReviewPanelGeometry {
-  const rightBoundary = viewportWidth - Math.max(REVIEW_PANEL_MARGIN, reservedRight);
-  const bottomBoundary = viewportHeight - REVIEW_PANEL_BOTTOM_RESERVE;
+  // The review surface is a real floating layer. Device tools and the bottom
+  // dock must never move it; only the actual browser viewport bounds it.
+  const rightBoundary = viewportWidth - REVIEW_PANEL_MARGIN;
+  const bottomBoundary = viewportHeight - REVIEW_PANEL_MARGIN;
   const availableWidth = Math.max(240, rightBoundary - REVIEW_PANEL_MARGIN);
   const availableHeight = Math.max(240, bottomBoundary - REVIEW_PANEL_MARGIN);
   const width = Math.min(
@@ -150,7 +142,10 @@ export function clampReviewPanelGeometry(
     Math.min(REVIEW_PANEL_MAX_HEIGHT, availableHeight),
   );
   return {
-    left: Math.max(REVIEW_PANEL_MARGIN, geometry.left),
+    left: Math.min(
+      Math.max(REVIEW_PANEL_MARGIN, geometry.left),
+      Math.max(REVIEW_PANEL_MARGIN, rightBoundary - width),
+    ),
     top: Math.min(
       Math.max(REVIEW_PANEL_MARGIN, bottomBoundary - height),
       Math.max(REVIEW_PANEL_MARGIN, geometry.top),
@@ -160,99 +155,21 @@ export function clampReviewPanelGeometry(
   };
 }
 
-export function reviewPanelScrollExtent(
-  geometry: ReviewPanelGeometry,
-): { right: number; bottom: number } {
-  const gutter = REVIEW_PANEL_RESIZE_OUTSET + REVIEW_PANEL_SCROLL_GUTTER;
-  return {
-    right: Math.ceil(geometry.left + geometry.width + gutter),
-    bottom: Math.ceil(geometry.top + geometry.height + gutter),
-  };
-}
-
-function reviewPanelIntersectsRect(
-  geometry: ReviewPanelGeometry,
-  rect: ReviewPanelAnchorRect,
-): boolean {
-  return geometry.left < rect.right &&
-    geometry.left + geometry.width > rect.left &&
-    geometry.top < rect.bottom &&
-    geometry.top + geometry.height > rect.top;
-}
-
-function reviewPanelCollisionRects(
-  anchorRect: ReviewPanelAnchorRect,
-  occupiedRects: readonly ReviewPanelAnchorRect[],
-): ReviewPanelAnchorRect[] {
-  const seen = new Set<string>();
-  return [anchorRect, ...occupiedRects].filter((rect) => {
-    const key = `${rect.left}:${rect.right}:${rect.top}:${rect.bottom}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function reviewPanelDistance(
-  from: ReviewPanelGeometry,
-  to: ReviewPanelGeometry,
-): number {
-  return Math.abs(to.left - from.left) + Math.abs(to.top - from.top);
-}
-
-/** Keep the panel freely movable, correcting only real device intersections. */
+/** Keep the panel freely movable; its initial placement is device-aware only. */
 export function resolveReviewPanelGeometryForAnchor(
   geometry: ReviewPanelGeometry,
-  anchorRect: ReviewPanelAnchorRect | null,
+  _anchorRect: ReviewPanelAnchorRect | null,
   viewportWidth: number,
   viewportHeight: number,
   reservedRight = 0,
-  occupiedRects: readonly ReviewPanelAnchorRect[] = [],
+  _occupiedRects: readonly ReviewPanelAnchorRect[] = [],
 ): ReviewPanelGeometry {
-  const bounded = clampReviewPanelGeometry(
+  return clampReviewPanelGeometry(
     geometry,
     viewportWidth,
     viewportHeight,
     reservedRight,
   );
-  if (!anchorRect) return bounded;
-  const collisionRects = reviewPanelCollisionRects(anchorRect, occupiedRects);
-  if (!collisionRects.some((rect) => reviewPanelIntersectsRect(bounded, rect))) {
-    return bounded;
-  }
-
-  const candidates = collisionRects.flatMap((rect) => [
-    { ...bounded, left: rect.left - REVIEW_PANEL_GAP - bounded.width },
-    { ...bounded, left: rect.right + REVIEW_PANEL_GAP },
-    { ...bounded, top: rect.top - REVIEW_PANEL_GAP - bounded.height },
-    { ...bounded, top: rect.bottom + REVIEW_PANEL_GAP },
-  ]).map((candidate) =>
-    clampReviewPanelGeometry(
-      candidate,
-      viewportWidth,
-      viewportHeight,
-      reservedRight,
-    )
-  ).filter((candidate) =>
-    !collisionRects.some((rect) => reviewPanelIntersectsRect(candidate, rect))
-  ).sort((a, b) =>
-    reviewPanelDistance(bounded, a) - reviewPanelDistance(bounded, b)
-  );
-  if (candidates[0]) return candidates[0];
-
-  // A very small viewport can make collision-free in-viewport placement
-  // impossible. Preserve access by using the nearest collision-free edge,
-  // even if its far side extends beyond the current viewport.
-  return collisionRects.flatMap((rect) => [
-    { ...bounded, left: rect.left - REVIEW_PANEL_GAP - bounded.width },
-    { ...bounded, left: rect.right + REVIEW_PANEL_GAP },
-    { ...bounded, top: rect.top - REVIEW_PANEL_GAP - bounded.height },
-    { ...bounded, top: rect.bottom + REVIEW_PANEL_GAP },
-  ]).filter((candidate) =>
-    !collisionRects.some((rect) => reviewPanelIntersectsRect(candidate, rect))
-  ).sort((a, b) =>
-    reviewPanelDistance(bounded, a) - reviewPanelDistance(bounded, b)
-  )[0] ?? bounded;
 }
 
 export function moveReviewPanelGeometry(
@@ -352,14 +269,26 @@ export function reviewPanelStorageKey(deviceId: string) {
   return `agentsims:ax-panel:${deviceId}`;
 }
 
-function readReviewPanelGeometry(deviceId: string): SavedReviewPanelGeometry | null {
+export function readReviewPanelGeometry(
+  deviceId: string,
+  storage: Pick<Storage, "getItem"> = window.localStorage,
+): SavedReviewPanelGeometry | null {
   try {
     return parseReviewPanelGeometry(
-      window.localStorage.getItem(reviewPanelStorageKey(deviceId)),
+      storage.getItem(reviewPanelStorageKey(deviceId)),
     );
   } catch {
     return null;
   }
+}
+
+export function clearReviewPanelGeometry(
+  deviceId: string,
+  storage: Pick<Storage, "removeItem">,
+) {
+  try {
+    storage.removeItem(reviewPanelStorageKey(deviceId));
+  } catch {}
 }
 
 function writeReviewPanelGeometry(deviceId: string, geometry: ReviewPanelGeometry) {
@@ -373,90 +302,27 @@ function writeReviewPanelGeometry(deviceId: string, geometry: ReviewPanelGeometr
 
 function defaultReviewPanelGeometry(
   anchor: HTMLElement | null,
-  reservedRight: number,
+  _reservedRight: number,
 ): ReviewPanelGeometry {
   return defaultReviewPanelGeometryForRect(
     reviewPanelAnchorRect(anchor),
     window.innerWidth,
     window.innerHeight,
-    reservedRight,
-    reviewPanelOccupiedRects(anchor),
+    0,
   );
-}
-
-function reviewWorkspace(anchor: HTMLElement | null): HTMLElement | null {
-  return anchor?.closest("[data-agentsims-workspace-scroll]") ?? null;
-}
-
-function reviewPanelRectInCanvas(
-  element: HTMLElement,
-  workspace = reviewWorkspace(element),
-): ReviewPanelAnchorRect {
-  const rect = element.getBoundingClientRect();
-  if (!workspace) {
-    return {
-      left: rect.left,
-      right: rect.right,
-      top: rect.top,
-      bottom: rect.bottom,
-    };
-  }
-  const workspaceRect = workspace.getBoundingClientRect();
-  return {
-    left: rect.left - workspaceRect.left + workspace.scrollLeft,
-    right: rect.right - workspaceRect.left + workspace.scrollLeft,
-    top: rect.top - workspaceRect.top + workspace.scrollTop,
-    bottom: rect.bottom - workspaceRect.top + workspace.scrollTop,
-  };
 }
 
 function reviewPanelAnchorRect(
-  anchor: HTMLElement | null,
+  element: HTMLElement | null,
 ): ReviewPanelAnchorRect | null {
-  return anchor ? reviewPanelRectInCanvas(anchor) : null;
-}
-
-export function reviewPanelViewportPointForScroll(
-  geometry: ReviewPanelGeometry,
-  workspaceLeft: number,
-  workspaceTop: number,
-  scrollLeft: number,
-  scrollTop: number,
-): { left: number; top: number } {
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
   return {
-    left: workspaceLeft + geometry.left - scrollLeft,
-    top: workspaceTop + geometry.top - scrollTop,
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
   };
-}
-
-function reviewPanelViewportPoint(
-  anchor: HTMLElement | null,
-  geometry: ReviewPanelGeometry,
-): { left: number; top: number } {
-  const workspace = reviewWorkspace(anchor);
-  if (!workspace) return { left: geometry.left, top: geometry.top };
-  const rect = workspace.getBoundingClientRect();
-  return reviewPanelViewportPointForScroll(
-    geometry,
-    rect.left,
-    rect.top,
-    workspace.scrollLeft,
-    workspace.scrollTop,
-  );
-}
-
-function setReviewWorkspaceExtent(
-  anchor: HTMLElement | null,
-  deviceId: string,
-  geometry: ReviewPanelGeometry | null,
-) {
-  const workspace = reviewWorkspace(anchor);
-  if (!workspace) return;
-  const extent = geometry ? reviewPanelScrollExtent(geometry) : null;
-  const detail: WorkspaceReviewExtentDetail = extent
-    ? { deviceId, ...extent }
-    : { deviceId, right: 0, bottom: 0, remove: true };
-  publishWorkspaceReviewExtent(workspace, detail);
 }
 
 export function defaultReviewPanelGeometryForRect(
@@ -464,7 +330,7 @@ export function defaultReviewPanelGeometryForRect(
   viewportWidth: number,
   viewportHeight: number,
   reservedRight = 0,
-  occupiedRects: readonly ReviewPanelAnchorRect[] = [],
+  _occupiedRects: readonly ReviewPanelAnchorRect[] = [],
 ): ReviewPanelGeometry {
   const base = {
     width: REVIEW_PANEL_DEFAULT_WIDTH,
@@ -488,30 +354,29 @@ export function defaultReviewPanelGeometryForRect(
     viewportWidth,
     viewportHeight,
     reservedRight,
-    occupiedRects,
+    _occupiedRects,
   );
 }
 
-function reviewPanelOccupiedElements(anchor: HTMLElement | null): HTMLElement[] {
-  const workspace = reviewWorkspace(anchor);
-  if (!workspace) return anchor ? [anchor] : [];
-  return [...workspace.querySelectorAll<HTMLElement>(
-    "[data-agentsims-device-frame]",
-  )];
-}
-
-function reviewPanelOccupiedRects(
-  anchor: HTMLElement | null,
-): ReviewPanelAnchorRect[] {
-  return reviewPanelOccupiedElements(anchor).map((element) => {
-    return reviewPanelRectInCanvas(element);
-  });
+export function resetReviewPanelGeometryForRect(
+  deviceId: string,
+  anchorRect: ReviewPanelAnchorRect | null,
+  viewportWidth: number,
+  viewportHeight: number,
+  storage: Pick<Storage, "removeItem">,
+): ReviewPanelGeometry {
+  clearReviewPanelGeometry(deviceId, storage);
+  return defaultReviewPanelGeometryForRect(
+    anchorRect,
+    viewportWidth,
+    viewportHeight,
+  );
 }
 
 function useReviewPosition(
   anchor: HTMLElement | null,
   open: boolean,
-  reservedRight: number,
+  _reservedRight: number,
   deviceId: string,
 ) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -522,7 +387,11 @@ function useReviewPosition(
     height: REVIEW_PANEL_DEFAULT_HEIGHT,
   });
   const savedGeometryRef = useRef<SavedReviewPanelGeometry | null>(null);
-  const savedGeometryDeviceIdRef = useRef<string | null>(null);
+  const openedDeviceIdRef = useRef<string | null>(null);
+  const pendingGeometryRef = useRef<ReviewPanelGeometry | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const activeGestureCleanupRef = useRef<(() => void) | null>(null);
+  const resetReanchorCleanupRef = useRef<(() => void) | null>(null);
   const [position, setPosition] = useState<ReviewPosition>(() => ({
     placement: "side",
     style: {
@@ -535,164 +404,251 @@ function useReviewPosition(
     },
   }));
 
-  const applyGeometry = useCallback((geometry: ReviewPanelGeometry) => {
+  const applyGeometry = useCallback((geometry: ReviewPanelGeometry, commit = true) => {
     geometryRef.current = geometry;
-    const viewportPoint = reviewPanelViewportPoint(anchor, geometry);
-    setReviewWorkspaceExtent(anchor, deviceId, geometry);
-    setPosition({
-      placement: "side",
-      style: {
-        position: "fixed",
-        left: viewportPoint.left,
-        top: viewportPoint.top,
-        width: geometry.width,
-        height: geometry.height,
-        zIndex: 64,
-      },
+    const style: CSSProperties = {
+      position: "fixed",
+      left: geometry.left,
+      top: geometry.top,
+      width: geometry.width,
+      height: geometry.height,
+      zIndex: 64,
+    };
+    const panel = panelRef.current;
+    if (panel) {
+      panel.style.left = `${geometry.left}px`;
+      panel.style.top = `${geometry.top}px`;
+      panel.style.width = `${geometry.width}px`;
+      panel.style.height = `${geometry.height}px`;
+    }
+    if (commit) setPosition({ placement: "side", style });
+  }, []);
+
+  const queueGeometry = useCallback((geometry: ReviewPanelGeometry) => {
+    pendingGeometryRef.current = geometry;
+    if (frameRef.current !== null) return;
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = null;
+      const pending = pendingGeometryRef.current;
+      pendingGeometryRef.current = null;
+      if (pending) applyGeometry(pending, false);
     });
-  }, [anchor, deviceId]);
+  }, [applyGeometry]);
+
+  const cancelQueuedGeometry = useCallback(() => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    pendingGeometryRef.current = null;
+  }, []);
+
+  const disposeActiveGesture = useCallback(() => {
+    const cleanup = activeGestureCleanupRef.current;
+    activeGestureCleanupRef.current = null;
+    cleanup?.();
+  }, []);
+
+  const cancelResetReanchor = useCallback(() => {
+    const cleanup = resetReanchorCleanupRef.current;
+    resetReanchorCleanupRef.current = null;
+    cleanup?.();
+  }, []);
+
+  const flushGeometry = useCallback(() => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    const pending = pendingGeometryRef.current;
+    pendingGeometryRef.current = null;
+    applyGeometry(pending ?? geometryRef.current);
+  }, [applyGeometry]);
 
   useLayoutEffect(() => {
     if (!open) {
-      setReviewWorkspaceExtent(anchor, deviceId, null);
+      disposeActiveGesture();
+      cancelQueuedGeometry();
+      cancelResetReanchor();
+      openedDeviceIdRef.current = null;
       return;
     }
-    const update = () => {
-      const anchorRect = reviewPanelAnchorRect(anchor);
-      const occupiedRects = reviewPanelOccupiedRects(anchor);
-      if (savedGeometryDeviceIdRef.current !== deviceId) {
-        savedGeometryDeviceIdRef.current = deviceId;
-        savedGeometryRef.current = readReviewPanelGeometry(deviceId);
-      }
+    const initialize = () => {
+      if (openedDeviceIdRef.current === deviceId) return;
+      openedDeviceIdRef.current = deviceId;
+      savedGeometryRef.current = readReviewPanelGeometry(deviceId);
       const saved = savedGeometryRef.current;
-      const fallback = defaultReviewPanelGeometry(anchor, reservedRight);
-      const geometry = resolveReviewPanelGeometryForAnchor(
+      const fallback = defaultReviewPanelGeometry(anchor, 0);
+      applyGeometry(clampReviewPanelGeometry(
         {
           left: saved?.left ?? fallback.left,
           top: saved?.top ?? fallback.top,
           width: saved?.width ?? fallback.width,
           height: saved?.height ?? fallback.height,
         },
-        anchorRect,
         window.innerWidth,
         window.innerHeight,
-        reservedRight,
-        occupiedRects,
-      );
-      applyGeometry(geometry);
+      ));
     };
-    update();
-    const observer = anchor ? new ResizeObserver(update) : null;
-    const workspace = anchor?.closest("[data-agentsims-workspace-scroll]");
-    const observedElements = new Set<HTMLElement>();
-    const transitionElements = new Set<HTMLElement>();
-    const observeWorkspaceDevices = () => {
-      const sizedElements = [
-        ...reviewPanelOccupiedElements(anchor),
-      ];
-      for (const element of sizedElements) {
-        if (observedElements.has(element)) continue;
-        observedElements.add(element);
-        observer?.observe(element);
-      }
-      const workspaceDevices = workspace
-        ? [...workspace.querySelectorAll<HTMLElement>("[data-workspace-device]")]
-        : [];
-      for (const device of workspaceDevices) {
-        if (transitionElements.has(device)) continue;
-        transitionElements.add(device);
-        device.addEventListener("transitionend", update);
-      }
-    };
-    observeWorkspaceDevices();
-    const membershipObserver = workspace
-      ? new MutationObserver(() => {
-          observeWorkspaceDevices();
-          update();
-        })
-      : null;
-    membershipObserver?.observe(workspace!, { childList: true, subtree: true });
-    const layoutFrame = window.requestAnimationFrame(update);
+    initialize();
+    const update = () => applyGeometry(clampReviewPanelGeometry(
+      geometryRef.current,
+      window.innerWidth,
+      window.innerHeight,
+    ));
     window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    window.addEventListener(WORKSPACE_DEVICE_GEOMETRY_EVENT, update);
     return () => {
-      observer?.disconnect();
-      membershipObserver?.disconnect();
-      window.cancelAnimationFrame(layoutFrame);
-      for (const device of transitionElements) {
-        device.removeEventListener("transitionend", update);
-      }
       window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-      window.removeEventListener(WORKSPACE_DEVICE_GEOMETRY_EVENT, update);
-      setReviewWorkspaceExtent(anchor, deviceId, null);
     };
   }, [
     anchor,
     applyGeometry,
+    cancelQueuedGeometry,
+    cancelResetReanchor,
     deviceId,
+    disposeActiveGesture,
     open,
-    reservedRight,
   ]);
 
   useEffect(() => {
-    let resetFrame: number | null = null;
+    return () => {
+      disposeActiveGesture();
+      cancelQueuedGeometry();
+      cancelResetReanchor();
+    };
+  }, [cancelQueuedGeometry, cancelResetReanchor, disposeActiveGesture]);
+
+  useEffect(() => {
     const reset = () => {
+      disposeActiveGesture();
+      cancelQueuedGeometry();
+      cancelResetReanchor();
       savedGeometryRef.current = null;
-      window.localStorage.removeItem(reviewPanelStorageKey(deviceId));
-      applyGeometry(
-        defaultReviewPanelGeometry(anchor, reservedRight),
-      );
-      // Workspace devices reset their translate offset in the same event and
-      // animate for one short CSS transition. Re-read after React commits; the
-      // transitionend listener above performs the final collision-free read.
-      if (resetFrame !== null) window.cancelAnimationFrame(resetFrame);
-      resetFrame = window.requestAnimationFrame(() => {
-        resetFrame = null;
-        applyGeometry(
-          defaultReviewPanelGeometry(anchor, reservedRight),
-        );
-      });
+      openedDeviceIdRef.current = null;
+      clearReviewPanelGeometry(deviceId, window.localStorage);
+      if (!open) return;
+      openedDeviceIdRef.current = deviceId;
+
+      const reanchor = () => applyGeometry(defaultReviewPanelGeometryForRect(
+        reviewPanelAnchorRect(anchor),
+        window.innerWidth,
+        window.innerHeight,
+      ));
+      reanchor();
+
+      const deviceHost = anchor?.closest<HTMLElement>("[data-workspace-device]");
+      if (!deviceHost) return;
+      let settled = false;
+      let fallbackTimer: number | null = null;
+      const finishReanchor = () => {
+        if (settled) return;
+        settled = true;
+        deviceHost.removeEventListener("transitionend", onTransitionEnd);
+        deviceHost.removeEventListener("transitioncancel", finishReanchor);
+        if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+        resetReanchorCleanupRef.current = null;
+        reanchor();
+      };
+      const onTransitionEnd = (event: TransitionEvent) => {
+        if (event.target === deviceHost && event.propertyName === "transform") {
+          finishReanchor();
+        }
+      };
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        deviceHost.removeEventListener("transitionend", onTransitionEnd);
+        deviceHost.removeEventListener("transitioncancel", finishReanchor);
+        if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      };
+      resetReanchorCleanupRef.current = cleanup;
+      deviceHost.addEventListener("transitionend", onTransitionEnd);
+      deviceHost.addEventListener("transitioncancel", finishReanchor);
+      fallbackTimer = window.setTimeout(finishReanchor, 240);
     };
     window.addEventListener(RESET_WORKSPACE_LAYOUT_EVENT, reset);
     return () => {
-      if (resetFrame !== null) window.cancelAnimationFrame(resetFrame);
       window.removeEventListener(RESET_WORKSPACE_LAYOUT_EVENT, reset);
+      cancelResetReanchor();
     };
-  }, [anchor, applyGeometry, deviceId, reservedRight]);
+  }, [
+    anchor,
+    applyGeometry,
+    cancelQueuedGeometry,
+    cancelResetReanchor,
+    deviceId,
+    disposeActiveGesture,
+    open,
+  ]);
 
   const onMovePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if ((event.target as HTMLElement).closest("button")) return;
       event.preventDefault();
+      disposeActiveGesture();
+      const pointerId = event.pointerId;
+      const target = event.currentTarget;
+      try {
+        target.setPointerCapture(pointerId);
+      } catch {}
       const start = geometryRef.current;
       const startX = event.clientX;
       const startY = event.clientY;
+      let disposed = false;
       const move = (moveEvent: PointerEvent) => {
-        applyGeometry(moveReviewPanelGeometry(
+        if (moveEvent.pointerId !== pointerId) return;
+        queueGeometry(moveReviewPanelGeometry(
           start,
           moveEvent.clientX - startX,
           moveEvent.clientY - startY,
           window.innerWidth,
           window.innerHeight,
-          reservedRight,
-          reviewPanelAnchorRect(anchor),
-          reviewPanelOccupiedRects(anchor),
+          0,
         ));
       };
-      const finish = () => {
+      const cleanup = () => {
+        if (disposed) return;
+        disposed = true;
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", finish);
         window.removeEventListener("pointercancel", finish);
+        target.removeEventListener("lostpointercapture", lostPointerCapture);
+        cancelQueuedGeometry();
+        if (activeGestureCleanupRef.current === cleanup) {
+          activeGestureCleanupRef.current = null;
+        }
+        try {
+          if (target.hasPointerCapture(pointerId)) {
+            target.releasePointerCapture(pointerId);
+          }
+        } catch {}
         savedGeometryRef.current = geometryRef.current;
         writeReviewPanelGeometry(deviceId, geometryRef.current);
       };
+      const finish = (finishEvent: PointerEvent) => {
+        if (finishEvent.pointerId !== pointerId) return;
+        if (finishEvent.type === "pointerup") move(finishEvent);
+        flushGeometry();
+        cleanup();
+      };
+      const lostPointerCapture = (lostEvent: PointerEvent) => {
+        if (lostEvent.pointerId !== pointerId) return;
+        flushGeometry();
+        cleanup();
+      };
+      activeGestureCleanupRef.current = cleanup;
       window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", finish, { once: true });
-      window.addEventListener("pointercancel", finish, { once: true });
+      window.addEventListener("pointerup", finish);
+      window.addEventListener("pointercancel", finish);
+      target.addEventListener("lostpointercapture", lostPointerCapture);
     },
-    [anchor, applyGeometry, deviceId, reservedRight],
+    [
+      cancelQueuedGeometry,
+      deviceId,
+      disposeActiveGesture,
+      flushGeometry,
+      queueGeometry,
+    ],
   );
 
   const resizeBy = useCallback((deltaWidth: number, deltaHeight: number) => {
@@ -703,21 +659,23 @@ function useReviewPosition(
       deltaHeight,
       window.innerWidth,
       window.innerHeight,
-      reservedRight,
-      reviewPanelAnchorRect(anchor),
-      reviewPanelOccupiedRects(anchor),
+      0,
     ));
-  }, [anchor, applyGeometry, reservedRight]);
+  }, [applyGeometry]);
 
   const onResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
+      disposeActiveGesture();
       const start = geometryRef.current;
       const startPointer = { x: event.clientX, y: event.clientY };
       const pointerId = event.pointerId;
       const target = event.currentTarget;
-      target.setPointerCapture(pointerId);
+      try {
+        target.setPointerCapture(pointerId);
+      } catch {}
+      let disposed = false;
       const move = (moveEvent: PointerEvent) => {
         if (moveEvent.pointerId !== pointerId) return;
         const next = resizeReviewPanelGeometryFromPointer(
@@ -726,31 +684,55 @@ function useReviewPosition(
           { x: moveEvent.clientX, y: moveEvent.clientY },
           window.innerWidth,
           window.innerHeight,
-          reservedRight,
-          reviewPanelAnchorRect(anchor),
-          reviewPanelOccupiedRects(anchor),
+          0,
         );
-        applyGeometry(next);
+        queueGeometry(next);
+      };
+      const cleanup = () => {
+        if (disposed) return;
+        disposed = true;
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", finish, true);
+        window.removeEventListener("pointercancel", finish, true);
+        target.removeEventListener("lostpointercapture", lostPointerCapture);
+        cancelQueuedGeometry();
+        if (activeGestureCleanupRef.current === cleanup) {
+          activeGestureCleanupRef.current = null;
+        }
+        try {
+          if (target.hasPointerCapture(pointerId)) {
+            target.releasePointerCapture(pointerId);
+          }
+        } catch {}
+        savedGeometryRef.current = geometryRef.current;
+        writeReviewPanelGeometry(deviceId, geometryRef.current);
       };
       const finish = (finishEvent: PointerEvent) => {
         if (finishEvent.pointerId !== pointerId) return;
         if (finishEvent.type === "pointerup") move(finishEvent);
-        savedGeometryRef.current = geometryRef.current;
-        writeReviewPanelGeometry(deviceId, geometryRef.current);
-        if (target.hasPointerCapture(pointerId)) {
-          target.releasePointerCapture(pointerId);
-        }
-        window.removeEventListener("pointermove", move, true);
-        window.removeEventListener("pointerup", finish, true);
-        window.removeEventListener("pointercancel", finish, true);
+        flushGeometry();
+        cleanup();
       };
+      const lostPointerCapture = (lostEvent: PointerEvent) => {
+        if (lostEvent.pointerId !== pointerId) return;
+        flushGeometry();
+        cleanup();
+      };
+      activeGestureCleanupRef.current = cleanup;
       // Listen in the window capture phase so source viewers, splitters, and
       // metadata scrollers cannot swallow the outer panel resize gesture.
       window.addEventListener("pointermove", move, true);
       window.addEventListener("pointerup", finish, true);
       window.addEventListener("pointercancel", finish, true);
+      target.addEventListener("lostpointercapture", lostPointerCapture);
     },
-    [anchor, applyGeometry, deviceId, reservedRight],
+    [
+      cancelQueuedGeometry,
+      deviceId,
+      disposeActiveGesture,
+      flushGeometry,
+      queueGeometry,
+    ],
   );
 
   const onResizeKeyDown = useCallback(

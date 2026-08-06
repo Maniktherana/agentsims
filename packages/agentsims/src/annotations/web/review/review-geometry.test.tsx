@@ -2,119 +2,91 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   clampWorkspaceDeviceOffset,
-  resolveWorkspaceReviewScrollExtent,
-  WorkspaceCanvas,
 } from "../../../web/workspace/workspace-canvas";
 import {
-  getWorkspaceReviewExtentsSnapshot,
-  publishWorkspaceReviewExtent,
-  subscribeWorkspaceReviewExtents,
-} from "../../../web/workspace/workspace-review-extent-store";
-import {
+  clampReviewPanelGeometry,
+  clearReviewPanelGeometry,
+  defaultReviewPanelGeometryForRect,
   moveReviewPanelGeometry,
   parseReviewPanelGeometry,
+  readReviewPanelGeometry,
   resolveReviewPanelGeometryForAnchor,
   resizeReviewPanelGeometry,
   resizeReviewPanelGeometryFromPointer,
-  reviewPanelScrollExtent,
+  resetReviewPanelGeometryForRect,
   reviewPanelStorageKey,
-  reviewPanelViewportPointForScroll,
 } from "./review-device-controller";
 import { ReviewSidecar } from "./review-sidecar";
 
 const noop = () => {};
 
 describe("floating review geometry", () => {
-  test("retains a portaled panel announcement made before canvas subscription", () => {
-    const workspace = {} as HTMLElement;
-
-    publishWorkspaceReviewExtent(workspace, {
-      deviceId: "android:pixel",
-      right: 1622,
-      bottom: 642,
-    });
-    expect(getWorkspaceReviewExtentsSnapshot(workspace)).toEqual({
-      "android:pixel": { right: 1622, bottom: 642 },
-    });
-
-    let notifications = 0;
-    const unsubscribe = subscribeWorkspaceReviewExtents(
-      workspace,
-      () => notifications++,
-    );
-    publishWorkspaceReviewExtent(workspace, {
-      deviceId: "android:pixel",
-      right: 1722,
-      bottom: 662,
-    });
-    expect(notifications).toBe(1);
-    expect(resolveWorkspaceReviewScrollExtent(
-      1149,
-      1044,
-      getWorkspaceReviewExtentsSnapshot(workspace),
-    )).toEqual({ width: 1722, height: 1044 });
-
-    publishWorkspaceReviewExtent(workspace, {
-      deviceId: "android:pixel",
-      right: 0,
-      bottom: 0,
-      remove: true,
-    });
-    expect(notifications).toBe(2);
-    expect(resolveWorkspaceReviewScrollExtent(
-      1149,
-      1044,
-      getWorkspaceReviewExtentsSnapshot(workspace),
-    )).toEqual({ width: 1149, height: 1044 });
-    unsubscribe();
+  test("keeps panel geometry independent from workspace docks and scroll extents", () => {
+    const panel = { left: 300, top: 80, width: 540, height: 520 };
+    expect(clampReviewPanelGeometry(panel, 1200, 900, 0)).toEqual(panel);
+    expect(clampReviewPanelGeometry(panel, 1200, 900, 420)).toEqual(panel);
   });
 
-  test("provides a non-flex scroll extent without changing the device row", () => {
-    const html = renderToStaticMarkup(
-      <WorkspaceCanvas
-        visibleDeviceIds={["android:pixel"]}
-        devices={null}
-        configsByDevice={{
-          "android:pixel": { device: "android:pixel" } as never,
-        }}
-        fallbackConfig={null}
-        focusedDeviceId="android:pixel"
-        selectedDevice={null}
-        runningDeviceCount={1}
-        starting={{}}
-        actionErrors={{}}
-        onFocus={noop}
-        onStart={noop}
-        renderDevice={() => <div data-test-device-frame />}
-      />,
+  test("reset layout clears only this device and restores device-aware placement", () => {
+    const saved = new Map([
+      [reviewPanelStorageKey("android:pixel"), "saved-android"],
+      [reviewPanelStorageKey("ios:iphone"), "saved-ios"],
+    ]);
+    const storage = {
+      removeItem(key: string) {
+        saved.delete(key);
+      },
+    };
+    const device = { left: 80, right: 400, top: 72, bottom: 712 };
+    const reset = resetReviewPanelGeometryForRect(
+      "android:pixel",
+      device,
+      1400,
+      900,
+      storage,
     );
 
-    expect(html).toContain("data-agentsims-review-scroll-extent");
-    expect(html).toContain("data-agentsims-centered-device-row");
-    expect(html.indexOf("data-agentsims-review-scroll-extent"))
-      .toBeLessThan(html.indexOf("data-agentsims-centered-device-row"));
-    expect(html).toContain("pointer-events-none absolute left-0 top-0");
+    expect(reset).toEqual(defaultReviewPanelGeometryForRect(
+      device,
+      1400,
+      900,
+    ));
+    expect(reset.left).toBe(416);
+    expect(saved.has(reviewPanelStorageKey("android:pixel"))).toBe(false);
+    expect(saved.get(reviewPanelStorageKey("ios:iphone"))).toBe("saved-ios");
+  });
 
-    const panel = { left: 836, top: 54, width: 758, height: 560 };
-    const panelExtent = reviewPanelScrollExtent(panel);
-    expect(panelExtent.right).toBe(1622);
-    expect(resolveWorkspaceReviewScrollExtent(1149, 1044, {
-      "android:pixel": panelExtent,
-    })).toEqual({ width: 1622, height: 1044 });
-    expect(resolveWorkspaceReviewScrollExtent(1149, 1044, {}))
-      .toEqual({ width: 1149, height: 1044 });
-    expect(reviewPanelViewportPointForScroll(panel, 0, 0, 459, 0))
-      .toEqual({ left: 377, top: 54 });
+  test("closed-panel reset forgets persisted geometry before the next open", () => {
+    const saved = new Map([
+      [
+        reviewPanelStorageKey("android:pixel"),
+        JSON.stringify({ left: 812, top: 240, width: 640, height: 600 }),
+      ],
+    ]);
+    const storage = {
+      getItem(key: string) {
+        return saved.get(key) ?? null;
+      },
+      removeItem(key: string) {
+        saved.delete(key);
+      },
+    };
+    const device = { left: 80, right: 400, top: 72, bottom: 712 };
 
-    const dragged = moveReviewPanelGeometry(
-      panel,
-      100,
-      20,
-      1149,
-      1044,
-    );
-    expect(dragged).toMatchObject({ left: 936, top: 74 });
-    expect(reviewPanelScrollExtent(dragged).right).toBe(1722);
+    expect(readReviewPanelGeometry("android:pixel", storage)?.left).toBe(812);
+    clearReviewPanelGeometry("android:pixel", storage);
+
+    const reopenedSaved = readReviewPanelGeometry("android:pixel", storage);
+    const fallback = defaultReviewPanelGeometryForRect(device, 1400, 900);
+    const reopened = clampReviewPanelGeometry({
+      left: reopenedSaved?.left ?? fallback.left,
+      top: reopenedSaved?.top ?? fallback.top,
+      width: reopenedSaved?.width ?? fallback.width,
+      height: reopenedSaved?.height ?? fallback.height,
+    }, 1400, 900);
+
+    expect(reopenedSaved).toBeNull();
+    expect(reopened).toEqual(fallback);
   });
 
   test("keeps two pointer-drag destinations free when they miss the device", () => {
@@ -166,7 +138,7 @@ describe("floating review geometry", () => {
     )).toEqual(below);
   });
 
-  test("pushes out only an actual device intersection", () => {
+  test("keeps a deliberate panel overlap instead of docking it away", () => {
     const device = { left: 700, right: 1100, top: 80, bottom: 680 };
     const intersecting = moveReviewPanelGeometry(
       { left: 1116, top: 80, width: 560, height: 560 },
@@ -187,7 +159,7 @@ describe("floating review geometry", () => {
       device,
     );
 
-    expect(intersecting.left).toBe(device.right + 16);
+    expect(intersecting.left).toBe(876);
     expect(verticallyClear).toEqual({
       left: 816,
       top: 740,
@@ -196,7 +168,7 @@ describe("floating review geometry", () => {
     });
   });
 
-  test("does not dock outside the horizontal union of multiple devices", () => {
+  test("does not let other devices change a free panel destination", () => {
     const pixel = { left: 62, right: 366, top: 90, bottom: 690 };
     const iphone = { left: 531, right: 696, top: 278, bottom: 568 };
     const result = moveReviewPanelGeometry(
@@ -263,13 +235,13 @@ describe("floating review geometry", () => {
       </ReviewSidecar>,
     );
     expect(html.match(/data-agentsims-review-resize-handle/g)).toHaveLength(1);
-    expect(html.match(/data-agentsims-resize-affordance/g)).toHaveLength(1);
-    expect(html.match(/data-agentsims-resize-main-stroke/g)).toHaveLength(1);
+    expect(html).not.toContain("data-agentsims-resize-affordance");
+    expect(html).not.toContain("data-agentsims-resize-main-stroke");
     expect(html).toContain("data-agentsims-review-panel-header");
     expect(html).toContain("data-agentsims-review-panel-body");
     expect(html).not.toContain("#34363b");
-    expect(html).toContain("bottom-[-14px]");
-    expect(html).toContain("right-[-14px]");
+    expect(html).toContain("bottom-[-16px]");
+    expect(html).toContain("right-[-16px]");
     expect(html).toContain("pointer-events-auto");
     expect(html).toContain("z-50");
   });

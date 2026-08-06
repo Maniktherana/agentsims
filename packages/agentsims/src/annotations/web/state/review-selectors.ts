@@ -38,6 +38,14 @@ export function selectCapturesSimulatorPointer(state: ReviewState): boolean {
   return selectReviewPointerCapture(state) !== "none";
 }
 
+/**
+ * Workspace docks may overlap annotation targeting/composers and therefore
+ * dismiss them. Accessibility owns a floating panel and stays open.
+ */
+export function selectDismissesForWorkspaceDock(state: ReviewState): boolean {
+  return state.kind === "annotate";
+}
+
 export function selectReviewDraftId(state: ReviewState): DraftId | null {
   if (state.kind === "annotate") {
     if (state.phase === "composing" || state.phase === "submitting") {

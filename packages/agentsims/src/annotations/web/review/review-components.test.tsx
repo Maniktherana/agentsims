@@ -432,7 +432,7 @@ describe("review presentation components", () => {
     expect(html).toContain("data-agentsims-review-resize-handle");
     expect(html).toContain('aria-label="Resize accessibility panel"');
     expect(html.match(/data-agentsims-review-resize-handle/g)).toHaveLength(1);
-    expect(html.match(/data-agentsims-resize-affordance/g)).toHaveLength(1);
+    expect(html).not.toContain("data-agentsims-resize-affordance");
     expect(html).not.toContain("backdrop-blur");
   });
 
@@ -545,7 +545,7 @@ describe("review presentation components", () => {
     )).toEqual(below);
   });
 
-  test("pushes the panel out only when its rectangle intersects a device", () => {
+  test("keeps an explicit panel position when it overlaps a device", () => {
     const savedAnchor = { left: 500, right: 900, top: 80, bottom: 680 };
     const restored = resolveReviewPanelGeometryForAnchor(
       { left: 650, top: 120, width: 560, height: 560 },
@@ -553,7 +553,7 @@ describe("review presentation components", () => {
       1500,
       900,
     );
-    expect(restored.left).toBe(savedAnchor.right + 16);
+    expect(restored.left).toBe(650);
 
     const dragAnchor = { left: 700, right: 1100, top: 80, bottom: 680 };
     const dragged = moveReviewPanelGeometry(
@@ -565,7 +565,7 @@ describe("review presentation components", () => {
       0,
       dragAnchor,
     );
-    expect(dragged.left).toBe(dragAnchor.right + 16);
+    expect(dragged.left).toBe(876);
 
     const verticallyClear = moveReviewPanelGeometry(
       { left: 1116, top: 80, width: 320, height: 240 },
@@ -579,7 +579,7 @@ describe("review presentation components", () => {
     expect(verticallyClear).toMatchObject({ left: 816, top: 740 });
   });
 
-  test("resolves collisions per device instead of docking outside their union", () => {
+  test("uses the focused device only for initial placement", () => {
     const pixel = { left: 62, right: 366, top: 90, bottom: 690 };
     const iphone = { left: 531, right: 696, top: 278, bottom: 568 };
     const occupied = [pixel, iphone];
@@ -600,8 +600,8 @@ describe("review presentation components", () => {
       occupied,
     );
 
-    expect(initial.left).toBe(iphone.right + 16);
-    expect(restored.left).toBe(iphone.right + 16);
+    expect(initial.left).toBe(pixel.right + 16);
+    expect(restored.left).toBe(216);
     const dragged = moveReviewPanelGeometry(
       { left: 712, top: 60, width: 240, height: 200 },
       -300,

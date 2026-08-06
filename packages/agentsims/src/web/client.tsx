@@ -8,6 +8,7 @@ import {
   type DeviceReviewStore,
 } from "../annotations/web/state/device-review-store";
 import type { ReviewEvent } from "../annotations/web/state/review-reducer";
+import { selectDismissesForWorkspaceDock } from "../annotations/web/state/review-selectors";
 import type { ReviewState } from "../annotations/web/state/review-state";
 import { AgentsimsToaster } from "./components/app-toasts";
 import { AgentsimsBrandLink } from "./components/agentsims-brand-link";
@@ -65,6 +66,14 @@ function App() {
   );
   const closeWorkspaceReview = () => {
     for (const deviceId of workspace.visibleDeviceIds) {
+      dispatchReview({ deviceId, event: { type: "REVIEW_CLOSED" } });
+    }
+  };
+  const closeWorkspaceAnnotations = () => {
+    for (const deviceId of workspace.visibleDeviceIds) {
+      if (!selectDismissesForWorkspaceDock(
+        selectDeviceReview(reviewStore, deviceId),
+      )) continue;
       dispatchReview({ deviceId, event: { type: "REVIEW_CLOSED" } });
     }
   };
@@ -138,9 +147,9 @@ function App() {
         onPickerOpenChange={(open) => {
           setDevicePickerOpen(open);
           if (!open) return;
+          closeWorkspaceAnnotations();
           setToolsOpen(false);
           setDevtoolsOpen(false);
-          closeWorkspaceReview();
         }}
         devices={workspace.gridDevices}
         total={workspace.gridTotal}
@@ -163,8 +172,8 @@ function App() {
           const nextOpen = !toolsOpen;
           setDevicePickerOpen(false);
           setDevtoolsOpen(false);
+          if (nextOpen) closeWorkspaceAnnotations();
           setToolsOpen(nextOpen);
-          if (nextOpen) closeWorkspaceReview();
         }}
         onToggleReview={() => {
           if (reviewOpen) {
