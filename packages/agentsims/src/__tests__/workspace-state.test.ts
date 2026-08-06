@@ -8,6 +8,41 @@ import {
 } from "../web/workspace/workspace-state";
 
 describe("workspace selection state", () => {
+  test("reconciles a disappeared live Android serial to its shutdown AVD catalog row", () => {
+    const bootedGrid = [
+      { device: "android:emulator-5556", helper: { port: 3201 } },
+    ];
+    const shutdownGrid = [
+      { device: "android-avd:Pixel_Tablet", helper: null },
+    ];
+    let state = createWorkspaceSelectionState("android:emulator-5556");
+    state = workspaceSelectionReducer(state, {
+      type: "reconcile-devices",
+      devices: bootedGrid,
+    });
+    state = workspaceSelectionReducer(state, {
+      type: "reconcile-devices",
+      devices: shutdownGrid,
+    });
+
+    expect(state.visibleDeviceIds.has("android:emulator-5556")).toBe(false);
+    expect(state.selectedDeviceId).toBe("android-avd:Pixel_Tablet");
+    expect(effectiveDeviceId(state, [], "android:emulator-5556"))
+      .toBe("android-avd:Pixel_Tablet");
+    expect(subscribedWorkspaceDeviceIds([], state.selectedDeviceId, false)).toEqual([]);
+  });
+
+  test("preserves an intentionally selected launchable shutdown AVD", () => {
+    let state = createWorkspaceSelectionState("android-avd:Pixel_Tablet");
+    state = workspaceSelectionReducer(state, {
+      type: "reconcile-devices",
+      devices: [{ device: "android-avd:Pixel_Tablet", helper: null }],
+    });
+
+    expect(state.selectedDeviceId).toBe("android-avd:Pixel_Tablet");
+    expect(state.visibleDeviceIds.size).toBe(0);
+  });
+
   test("new running devices are visible unless the user explicitly hid them", () => {
     let state = createWorkspaceSelectionState(null);
     state = workspaceSelectionReducer(state, {

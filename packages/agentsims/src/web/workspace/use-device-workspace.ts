@@ -95,7 +95,6 @@ export function useDeviceWorkspace() {
     () => runningDevices.map((device) => device.device),
     [runningDevices],
   );
-  const runningDeviceIdKey = runningDeviceIds.join("|");
   const visibleDeviceIds = useMemo(
     () => visibleRunningDeviceIds(runningDeviceIds, selection),
     [runningDeviceIds, selection],
@@ -126,8 +125,8 @@ export function useDeviceWorkspace() {
 
   useEffect(() => {
     if (grid.devices === null) return;
-    dispatchSelection({ type: "reconcile-running", runningDeviceIds });
-  }, [grid.devices, runningDeviceIdKey]);
+    dispatchSelection({ type: "reconcile-devices", devices: grid.devices });
+  }, [grid.devices]);
 
   const waitForHelper = useCallback(
     async (deviceId: string, timeoutMs = 20_000): Promise<boolean> => {

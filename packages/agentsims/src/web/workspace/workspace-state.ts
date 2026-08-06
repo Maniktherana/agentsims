@@ -6,10 +6,16 @@ export interface WorkspaceSelectionState {
   hiddenRunningDeviceIds: Set<string>;
 }
 
+export interface WorkspaceGridDevicePresence {
+  device: string;
+  helper: unknown | null;
+}
+
 export type WorkspaceSelectionAction =
   | { type: "select"; deviceId: string }
   | { type: "set-visible"; deviceId: string; visible: boolean }
   | { type: "reconcile-running"; runningDeviceIds: readonly string[] }
+  | { type: "reconcile-devices"; devices: readonly WorkspaceGridDevicePresence[] }
   | {
       type: "device-started";
       requestedDeviceId: string;
@@ -51,6 +57,28 @@ function updateSelectionSets(
   return { ...state, visibleDeviceIds, hiddenRunningDeviceIds };
 }
 
+function reconcileRunningDevices(
+  state: WorkspaceSelectionState,
+  runningDeviceIds: readonly string[],
+): WorkspaceSelectionState {
+  const running = new Set(runningDeviceIds);
+  const hiddenRunningDeviceIds = new Set(
+    [...state.hiddenRunningDeviceIds].filter((deviceId) => running.has(deviceId)),
+  );
+  const visibleDeviceIds = new Set(
+    [...state.visibleDeviceIds].filter((deviceId) => running.has(deviceId)),
+  );
+  for (const deviceId of runningDeviceIds) {
+    if (!hiddenRunningDeviceIds.has(deviceId)) visibleDeviceIds.add(deviceId);
+  }
+  return updateSelectionSets(state, visibleDeviceIds, hiddenRunningDeviceIds);
+}
+
+function isTransientLiveDeviceId(deviceId: string): boolean {
+  // Android catalog IDs (`android-avd:*`) survive shutdown; live serial IDs do not.
+  return deviceId.startsWith("android:");
+}
+
 export function workspaceSelectionReducer(
   state: WorkspaceSelectionState,
   action: WorkspaceSelectionAction,
@@ -78,17 +106,30 @@ export function workspaceSelectionReducer(
     }
 
     case "reconcile-running": {
-      const running = new Set(action.runningDeviceIds);
-      const hiddenRunningDeviceIds = new Set(
-        [...state.hiddenRunningDeviceIds].filter((deviceId) => running.has(deviceId)),
-      );
-      const visibleDeviceIds = new Set(
-        [...state.visibleDeviceIds].filter((deviceId) => running.has(deviceId)),
-      );
-      for (const deviceId of action.runningDeviceIds) {
-        if (!hiddenRunningDeviceIds.has(deviceId)) visibleDeviceIds.add(deviceId);
+      return reconcileRunningDevices(state, action.runningDeviceIds);
+    }
+
+    case "reconcile-devices": {
+      const runningDeviceIds = action.devices
+        .filter((device) => !!device.helper)
+        .map((device) => device.device);
+      const next = reconcileRunningDevices(state, runningDeviceIds);
+      const selectedDeviceId = next.selectedDeviceId;
+      if (
+        !selectedDeviceId ||
+        !isTransientLiveDeviceId(selectedDeviceId) ||
+        action.devices.some((device) => device.device === selectedDeviceId)
+      ) {
+        return next;
       }
-      return updateSelectionSets(state, visibleDeviceIds, hiddenRunningDeviceIds);
+
+      return {
+        ...next,
+        selectedDeviceId:
+          next.visibleDeviceIds.values().next().value ??
+          action.devices[0]?.device ??
+          null,
+      };
     }
 
     case "device-started": {
