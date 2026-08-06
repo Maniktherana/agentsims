@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DeviceRow } from "../web/components/device-row";
+import {
+  DeviceRow,
+  resolveDeviceLifecyclePhase,
+} from "../web/components/device-row";
 import type { GridDevice } from "../web/utils/grid";
 
 const noop = () => {};
@@ -47,6 +51,152 @@ describe("DeviceRow", () => {
     });
 
     expect(html).toContain("Streaming");
+    expect(html).toContain('data-device-phase="streaming"');
+    expect(html).toContain('data-device-status-glyph="streaming"');
+    expect(html).not.toContain("agentsims-device-status-spin");
+  });
+
+  test("resolves settled and transitional lifecycle phases", () => {
+    expect(resolveDeviceLifecyclePhase({ state: "Shutdown", helper: null }, false, false))
+      .toBe("available");
+    expect(resolveDeviceLifecyclePhase({ state: "Shutdown", helper: null }, true, false))
+      .toBe("booting");
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, true, false))
+      .toBe("connecting");
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, false, false))
+      .toBe("connecting");
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, false, true))
+      .toBe("shutting-down");
+    expect(resolveDeviceLifecyclePhase({ state: "Booting", helper: null }, false, false))
+      .toBe("booting");
+    expect(resolveDeviceLifecyclePhase({ state: "Creating", helper: null }, false, false))
+      .toBe("booting");
+    expect(resolveDeviceLifecyclePhase({ state: "Shutting Down", helper: null }, false, false))
+      .toBe("shutting-down");
+    expect(resolveDeviceLifecyclePhase({
+      state: "Shutting Down",
+      helper: {
+        port: 3100,
+        url: "http://localhost:3100",
+        streamUrl: "http://localhost:3100/stream.mjpeg",
+        wsUrl: "ws://localhost:3100/ws",
+      },
+    }, false, false)).toBe("shutting-down");
+    expect(resolveDeviceLifecyclePhase({ state: "offline", helper: null }, false, false))
+      .toBe("connecting");
+  });
+
+  test("uses a reverse spinner and disables selection while booting", () => {
+    const html = renderToStaticMarkup(
+      <DeviceRow
+        device={{
+          device: "booting",
+          name: "iPhone 17",
+          runtime: "iOS-27-0",
+          state: "Shutdown",
+          helper: null,
+        }}
+        active
+        starting
+        shuttingDown={false}
+        onSelect={noop}
+        onShutdown={noop}
+      />,
+    );
+
+    expect(html).toContain('data-device-phase="booting"');
+    expect(html).toContain('data-device-status-glyph="booting"');
+    expect(html).toContain("agentsims-device-status-spin");
+    expect(html).toContain("Booting… · iOS 27.0");
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('tabindex="-1"');
+  });
+
+  test("uses a pulse and disables visibility and shutdown while connecting", () => {
+    const html = renderToStaticMarkup(
+      <DeviceRow
+        device={{
+          device: "connecting",
+          name: "iPhone 17",
+          runtime: "iOS-27-0",
+          state: "Booted",
+          helper: null,
+        }}
+        active
+        visible={false}
+        showVisibilityControl
+        starting
+        shuttingDown={false}
+        onSelect={noop}
+        onVisibleChange={noop}
+        onShutdown={noop}
+      />,
+    );
+
+    expect(html).toContain('data-device-phase="connecting"');
+    expect(html).toContain("agentsims-device-status-pulse");
+    expect(html).toContain("Connecting… · iOS 27.0");
+    expect(html.match(/ disabled=""/g)).toHaveLength(2);
+  });
+
+  test("shows shutdown immediately even while the stale helper row is still present", () => {
+    const html = renderToStaticMarkup(
+      <DeviceRow
+        device={{
+          device: "streaming",
+          name: "iPhone 16",
+          runtime: "iOS-26-5",
+          state: "Booted",
+          helper: {
+            port: 3100,
+            url: "http://localhost:3100",
+            streamUrl: "http://localhost:3100/stream.mjpeg",
+            wsUrl: "ws://localhost:3100/ws",
+          },
+        }}
+        active
+        starting={false}
+        shuttingDown
+        onSelect={noop}
+        onShutdown={noop}
+      />,
+    );
+
+    expect(html).toContain("Shutting down…");
+    expect(html).not.toContain("Streaming ·");
+    expect(html).not.toContain("text-[#34d399]");
+    expect(html).toContain('data-device-phase="shutting-down"');
+    expect(html).toContain("agentsims-device-status-breathe");
+  });
+
+  test("removes continuous status motion under reduced motion", () => {
+    const css = readFileSync(new URL("../web/global.css", import.meta.url), "utf8");
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css).toContain(".agentsims-device-status-spin,");
+    expect(css).toContain("animation: none;");
+  });
+
+  test("keeps settled status accessible without marking the row busy", () => {
+    const html = renderToStaticMarkup(
+      <DeviceRow
+        device={{
+          device: "available",
+          name: "iPhone 17",
+          runtime: "iOS-27-0",
+          state: "Shutdown",
+          helper: null,
+        }}
+        active={false}
+        starting={false}
+        shuttingDown={false}
+        onSelect={noop}
+        onShutdown={noop}
+      />,
+    );
+
+    expect(html).toContain('aria-label="iPhone 17, Available · iOS 27.0"');
+    expect(html).not.toContain('aria-busy="true"');
   });
 
   test("does not render a live stream thumbnail in the device list", () => {

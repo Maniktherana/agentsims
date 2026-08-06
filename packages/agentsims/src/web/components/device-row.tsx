@@ -1,8 +1,74 @@
 import { getDeviceType } from "../simulator";
-import { Eye, EyeOff, Power } from "lucide-react";
+import { Eye, EyeOff, Power, RotateCcw } from "lucide-react";
 import { type GridDevice, runtimeLabel, runtimeVersion } from "../utils/grid";
 import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
 import { DeviceGlyph } from "./device-glyph";
+
+export type DeviceLifecyclePhase =
+  | "available"
+  | "booting"
+  | "connecting"
+  | "shutting-down"
+  | "streaming";
+
+export function deviceLifecycleStatus(
+  phase: DeviceLifecyclePhase,
+  runtime: string,
+): string {
+  if (phase === "shutting-down") return "Shutting down…";
+  if (phase === "streaming") return `Streaming · ${runtime}`;
+  if (phase === "booting") return `Booting… · ${runtime}`;
+  if (phase === "connecting") return `Connecting… · ${runtime}`;
+  return `Available · ${runtime}`;
+}
+
+export function resolveDeviceLifecyclePhase(
+  device: Pick<GridDevice, "helper" | "state">,
+  starting: boolean,
+  shuttingDown: boolean,
+): DeviceLifecyclePhase {
+  const nativeState = device.state.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+  if (shuttingDown || nativeState === "shutting-down") return "shutting-down";
+  if (nativeState === "booting" || nativeState === "creating") return "booting";
+  if (device.helper) return "streaming";
+  if (starting && nativeState !== "booted") return "booting";
+  if (starting || nativeState === "booted") return "connecting";
+  return nativeState === "shutdown" ? "available" : "connecting";
+}
+
+function DeviceStatusGlyph({ phase }: { phase: DeviceLifecyclePhase }) {
+  if (phase === "available") return null;
+  return (
+    <span
+      aria-hidden="true"
+      data-device-status-glyph={phase}
+      className={`absolute bottom-0.5 right-0.5 grid size-3.5 place-items-center rounded-full ring-2 ring-[#1c1c1e] ${
+        phase === "streaming"
+          ? "text-[#34d399]"
+          : phase === "shutting-down"
+            ? "text-white/45"
+            : "text-amber-300/80"
+      }`}
+    >
+      {phase === "booting" ? (
+        <RotateCcw
+          size={12}
+          strokeWidth={2}
+          className="agentsims-device-status-spin"
+        />
+      ) : phase === "connecting" ? (
+        <span className="relative grid size-3 place-items-center">
+          <span className="agentsims-device-status-pulse absolute inset-0 rounded-full border border-current" />
+          <span className="relative size-1.5 rounded-full bg-current" />
+        </span>
+      ) : phase === "shutting-down" ? (
+        <span className="agentsims-device-status-breathe size-2.5 rounded-full border border-current" />
+      ) : (
+        <span className="size-1.5 rounded-full bg-current" />
+      )}
+    </span>
+  );
+}
 
 // A single horizontal device row in the sidebar (Xcode-style): family glyph,
 // name + status, and the runtime version on the trailing edge. Clicking the row
@@ -34,52 +100,48 @@ export function DeviceRow({
   const type = getDeviceType(device.name);
   const version = runtimeVersion(device.runtime);
   const runtime = runtimeLabel(device.runtime);
-
-  const status = helper
-    ? `Streaming · ${runtime}`
-    : starting
-    ? (isBooted ? `Starting… · ${runtime}` : `Booting… · ${runtime}`)
-    : shuttingDown
-    ? "Shutting down…"
-    : isBooted
-    ? `Booted · ${runtime}`
-    : runtime;
-  const dotColor = helper ? "#34d399" : isBooted ? "#e9a13b" : null;
+  const phase = resolveDeviceLifecyclePhase(device, starting, shuttingDown);
+  const transitioning =
+    phase === "booting" || phase === "connecting" || phase === "shutting-down";
+  const accessibleStatus = deviceLifecycleStatus(phase, runtime);
+  const status = phase === "available" ? runtime : accessibleStatus;
   const canShutdown = helper || isBooted;
   const iconBackingClass = "bg-white/6";
   const iconColorClass = "text-white/55";
-  const rowStateClass = helper
-    ? "text-white/90 focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/25"
-    : active
-      ? "bg-white/10 text-white"
-      : "text-white/90 hover:bg-white/8";
+  const rowStateClass = transitioning
+    ? "cursor-default text-white/70"
+    : helper
+      ? "cursor-pointer text-white/90 focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/25"
+      : active
+        ? "cursor-pointer bg-white/10 text-white"
+        : "cursor-pointer text-white/90 hover:bg-white/8";
 
   return (
     <div
       role="button"
-      tabIndex={0}
+      tabIndex={transitioning ? -1 : 0}
       aria-pressed={active}
-      onClick={onSelect}
+      aria-disabled={transitioning || undefined}
+      aria-busy={transitioning || undefined}
+      aria-label={`${device.name}, ${accessibleStatus}`}
+      data-device-phase={phase}
+      onClick={transitioning ? undefined : onSelect}
       onKeyDown={(e) => {
+        if (transitioning) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect();
         }
       }}
-      className={`group relative flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-pointer select-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] ${rowStateClass}`}
+      className={`group relative flex items-center gap-2.5 px-2 py-1.5 rounded-md select-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] motion-reduce:transition-none ${rowStateClass}`}
     >
       <div
         className={`relative shrink-0 grid place-items-center size-9 rounded-md overflow-hidden ${iconBackingClass}`}
       >
         <span className={iconColorClass}>
-          <DeviceGlyph type={type} screenOn={Boolean(helper)} />
+          <DeviceGlyph type={type} screenOn={phase === "streaming"} />
         </span>
-        {dotColor && !helper && (
-          <span
-            className="absolute bottom-0.5 right-0.5 size-1.5 rounded-full ring-2 ring-[#1c1c1e]"
-            style={{ background: dotColor }}
-          />
-        )}
+        <DeviceStatusGlyph phase={phase} />
       </div>
 
       <div className="min-w-0 flex-1">
@@ -87,7 +149,13 @@ export function DeviceRow({
         {status && (
           <div
             className={`truncate text-[11px] leading-tight ${
-              helper ? "text-[#34d399]" : active ? "text-white/75" : "text-white/45"
+              phase === "streaming"
+                ? "text-[#34d399]"
+                : transitioning
+                ? "text-white/45"
+                : active
+                    ? "text-white/75"
+                    : "text-white/45"
             }`}
           >
             {status}
@@ -112,6 +180,7 @@ export function DeviceRow({
               surface="toolbar"
               size="row"
               className="!border-transparent"
+              disabled={transitioning}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -128,7 +197,7 @@ export function DeviceRow({
                 surface="toolbar"
                 size="row"
                 className="!border-transparent hover:!bg-red-500/20 hover:!text-red-400 focus-visible:!text-red-400"
-                disabled={shuttingDown}
+                disabled={transitioning}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -159,7 +228,7 @@ export function DeviceRow({
                   e.stopPropagation();
                   onShutdown();
                 }}
-                disabled={shuttingDown}
+                disabled={transitioning}
                 className={`absolute right-0 top-1/2 -translate-y-1/2 grid place-items-center size-5 rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [transition:opacity_0.12s,background_0.12s,color_0.12s] ${
                   active ? "text-white/80 hover:bg-white/20" : "text-white/70 hover:bg-white/12 hover:text-white"
                 }`}

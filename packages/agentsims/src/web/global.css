@@ -125,6 +125,54 @@ details.lem-section > summary:hover .lem-chevron {
   to { transform: rotate(360deg); }
 }
 
+@keyframes agentsims-device-status-spin {
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes agentsims-device-status-pulse {
+  0% {
+    opacity: 0.48;
+    transform: scale(0.72);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes agentsims-device-status-breathe {
+  0%,
+  100% {
+    opacity: 0.38;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+.agentsims-device-status-spin {
+  animation: agentsims-device-status-spin 900ms linear infinite;
+}
+
+.agentsims-device-status-pulse {
+  animation: agentsims-device-status-pulse 1.2s linear infinite;
+}
+
+.agentsims-device-status-breathe {
+  animation: agentsims-device-status-breathe 1.15s var(--agentsims-ease-standard) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentsims-device-status-spin,
+  .agentsims-device-status-pulse,
+  .agentsims-device-status-breathe {
+    animation: none;
+  }
+}
+
 @keyframes agentsims-toast-indeterminate {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(250%); }

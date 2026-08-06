@@ -25,10 +25,55 @@ import {
 } from "lucide-react";
 import { type GridDevice, runtimeLabel } from "../utils/grid";
 import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
-import { DeviceRow } from "./device-row";
+import {
+  deviceLifecycleStatus,
+  DeviceRow,
+  resolveDeviceLifecyclePhase,
+  type DeviceLifecyclePhase,
+} from "./device-row";
 import { Tabs, TabsList, TabsTrigger } from "./tabs";
 
 const DEVICE_SKELETON_ROWS = 8;
+
+export function partitionDevicePickerDevices(
+  devices: readonly GridDevice[],
+  starting: Readonly<Record<string, boolean>>,
+  shuttingDown: Readonly<Record<string, boolean>>,
+): { runningDevices: GridDevice[]; availableDevices: GridDevice[] } {
+  const runningDevices: GridDevice[] = [];
+  const availableDevices: GridDevice[] = [];
+  for (const device of devices) {
+    const phase = resolveDeviceLifecyclePhase(
+      device,
+      !!starting[device.device],
+      !!shuttingDown[device.device],
+    );
+    (phase === "available" ? availableDevices : runningDevices).push(device);
+  }
+  return { runningDevices, availableDevices };
+}
+
+export function reconcileDevicePhaseAnnouncements(
+  previous: ReadonlyMap<string, DeviceLifecyclePhase> | null,
+  devices: readonly GridDevice[],
+  starting: Readonly<Record<string, boolean>>,
+  shuttingDown: Readonly<Record<string, boolean>>,
+): { phases: Map<string, DeviceLifecyclePhase>; announcement: string } {
+  const phases = new Map<string, DeviceLifecyclePhase>();
+  const changes: string[] = [];
+  for (const device of devices) {
+    const phase = resolveDeviceLifecyclePhase(
+      device,
+      !!starting[device.device],
+      !!shuttingDown[device.device],
+    );
+    phases.set(device.device, phase);
+    if (previous?.has(device.device) && previous.get(device.device) !== phase) {
+      changes.push(`${device.name}: ${deviceLifecycleStatus(phase, runtimeLabel(device.runtime))}`);
+    }
+  }
+  return { phases, announcement: changes.join(". ") };
+}
 const ISLAND_PANEL_VARIANTS = {
   enter: (direction: number) => ({
     opacity: 0,
@@ -114,14 +159,12 @@ export function WorkspaceHeader({
       runtimeLabel(device.runtime).toLowerCase().includes(normalized)
     );
   }, [devices, query]);
-  const runningDevices = useMemo(
-    () => filtered?.filter((device) => !!device.helper) ?? null,
-    [filtered],
+  const partitionedDevices = useMemo(
+    () => filtered ? partitionDevicePickerDevices(filtered, starting, shuttingDown) : null,
+    [filtered, shuttingDown, starting],
   );
-  const availableDevices = useMemo(
-    () => filtered?.filter((device) => !device.helper) ?? null,
-    [filtered],
-  );
+  const runningDevices = partitionedDevices?.runningDevices ?? null;
+  const availableDevices = partitionedDevices?.availableDevices ?? null;
   const visibleCount = devices?.filter(
     (device) => !!device.helper && visibleUdids.has(device.device),
   ).length ?? 0;
@@ -629,8 +672,26 @@ function DevicePickerContent({
   onStart: (udid: string) => void;
   onShutdown: (udid: string) => void;
 }) {
+  const phaseSnapshotRef = useRef<Map<string, DeviceLifecyclePhase> | null>(null);
+  const [phaseAnnouncement, setPhaseAnnouncement] = useState("");
+
+  useEffect(() => {
+    if (!devices) return;
+    const result = reconcileDevicePhaseAnnouncements(
+      phaseSnapshotRef.current,
+      devices,
+      starting,
+      shuttingDown,
+    );
+    phaseSnapshotRef.current = result.phases;
+    if (result.announcement) setPhaseAnnouncement(result.announcement);
+  }, [devices, shuttingDown, starting]);
+
   return (
     <>
+      <div className="sr-only" aria-atomic="true" aria-live="polite">
+        {phaseAnnouncement}
+      </div>
       <div
         className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 [scrollbar-width:thin]"
         onScroll={(event) => {
