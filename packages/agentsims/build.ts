@@ -16,12 +16,17 @@
  * encoded) is injected into every artifact that could need to serve the UI
  * via the __PREVIEW_HTML_B64__ build-time define.
  */
-import { resolve } from "path";
+import { relative, resolve } from "path";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from "fs";
 import { spawnSync } from "child_process";
 import { build as viteBuild } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import {
+  assertPreviewDynamicImportsEmbedded,
+  assertPreviewManifestAssetsEmbedded,
+  type PreviewViteManifest,
+} from "./src/shared/preview-assets";
 
 const root = import.meta.dir;
 const distDir = resolve(root, "dist");
@@ -34,7 +39,20 @@ function kb(n: number): string {
 
 // ─── 1. Bundle the browser client with Vite + React + Tailwind ────────────
 
-async function buildBrowserClientWithVite(): Promise<{ css: string; js: string }> {
+interface BuiltBrowserClient {
+  css: string;
+  entryPath: string;
+  assets: Record<string, string>;
+}
+
+function outputFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    return entry.isDirectory() ? outputFiles(path) : [path];
+  });
+}
+
+async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
   const outDir = resolve(root, ".agentsims-vite");
   rmSync(outDir, { recursive: true, force: true });
   await viteBuild({
@@ -48,31 +66,72 @@ async function buildBrowserClientWithVite(): Promise<{ css: string; js: string }
       minify: true,
       cssCodeSplit: false,
       codeSplitting: false,
+      manifest: true,
       rollupOptions: {
         input: resolve(root, "src/web/vite-entry.tsx"),
         output: {
-          entryFileNames: "client.js",
+          entryFileNames: "assets/client-[hash].js",
           assetFileNames: "client.[ext]",
         },
       },
     },
   });
 
-  const files = readdirSync(outDir);
-  const jsFile = files.find((file) => file.endsWith(".js"));
-  const cssFile = files.find((file) => file.endsWith(".css"));
+  const files = outputFiles(outDir);
+  const manifestFile = files.find((file) =>
+    relative(outDir, file).replaceAll("\\", "/") === ".vite/manifest.json"
+  );
+  if (!manifestFile) throw new Error("Vite client build did not emit a manifest");
+  const manifest = JSON.parse(
+    readFileSync(manifestFile, "utf-8"),
+  ) as PreviewViteManifest;
+  const entryChunk = Object.values(manifest).find((chunk) => chunk.isEntry);
+  if (!entryChunk) throw new Error("Vite client build manifest omitted its entry");
+  const entryPath = entryChunk.file;
+  const jsFile = files.find((file) =>
+    relative(outDir, file).replaceAll("\\", "/") === entryPath
+  );
+  const cssFile = files.find((file) => relative(outDir, file) === "client.css");
   if (!jsFile) throw new Error("Vite client build did not emit JS");
-  const js = readFileSync(resolve(outDir, jsFile), "utf-8").replace(/<\/script>/gi, "<\\/script>");
-  const css = cssFile ? readFileSync(resolve(outDir, cssFile), "utf-8") : "";
+  const js = readFileSync(jsFile, "utf-8");
+  const css = cssFile ? readFileSync(cssFile, "utf-8") : "";
+  const assetFiles = files.filter((file) => file !== manifestFile);
+  const assets = Object.fromEntries(assetFiles.map((file) => [
+    relative(outDir, file).replaceAll("\\", "/"),
+    readFileSync(file).toString("base64"),
+  ]));
+  const javascript = Object.fromEntries(
+    files.filter((file) => file.endsWith(".js")).map((file) => [
+      relative(outDir, file).replaceAll("\\", "/"),
+      readFileSync(file, "utf-8"),
+    ]),
+  );
+  const literalDynamicImports = assertPreviewDynamicImportsEmbedded(
+    javascript,
+    assets,
+  );
+  const manifestAssets = assertPreviewManifestAssetsEmbedded(
+    manifest,
+    assets,
+  );
   rmSync(outDir, { recursive: true, force: true });
   console.log(`vite css          ${kb(css.length)}`);
   console.log(`vite client       ${kb(js.length)}`);
-  return { css, js };
+  console.log(
+    `vite assets       ${Object.keys(assets).length} ` +
+    `(${manifestAssets.length} manifest files, ` +
+    `${literalDynamicImports.length} literal)`,
+  );
+  return { css, entryPath, assets };
 }
 
-const { css: tailwindCss, js: clientJs } = await buildBrowserClientWithVite();
+const {
+  css: tailwindCss,
+  entryPath: clientEntryPath,
+  assets: previewAssets,
+} = await buildBrowserClientWithVite();
 
-// ─── 2. Inline client into preview HTML, base64-encode for the define ────
+// ─── 2. Reference the embedded client asset from preview HTML ────────────
 
 // Committed ICO copy of Simulator.app's AppIcon, inlined as a data URI so the
 // preview tab shows the same icon as the native app.
@@ -91,10 +150,11 @@ ${faviconTag}
 </head><body>
 <div id="root"></div>
 <!--__SIM_PREVIEW_CONFIG__-->
-<script type="module">${clientJs}</script>
+<script type="module" src="/${clientEntryPath}"></script>
 </body></html>`;
 
 const htmlB64 = Buffer.from(html).toString("base64");
+const previewAssetsB64 = Buffer.from(JSON.stringify(previewAssets)).toString("base64");
 console.log(`preview html      ${kb(html.length)}  (base64 ${kb(htmlB64.length)})`);
 
 const pkgVersion = JSON.parse(
@@ -103,6 +163,7 @@ const pkgVersion = JSON.parse(
 
 const PREVIEW_DEFINE = {
   __PREVIEW_HTML_B64__: JSON.stringify(htmlB64),
+  __PREVIEW_ASSETS_B64__: JSON.stringify(previewAssetsB64),
   __AGENTSIMS_VERSION__: JSON.stringify(pkgVersion),
 };
 
@@ -209,8 +270,9 @@ const binJsSize = (await binJsResult.outputs[0]!.text()).length;
 console.log(`dist/agentsims.js   ${kb(binJsSize)}`);
 
 // ─── 5. Compiled single-file executable ──────────────────────────────────
-// Bun.build doesn't expose --compile yet, so shell out. The define arg carries
-// the base64 HTML (~100 KB) which is well under the macOS ARG_MAX.
+// Bun.build doesn't expose --compile yet, so shell out. Compile the JS bundle
+// from step 4: it already contains the preview HTML and version defines. This
+// also keeps the large embedded preview out of the OS argument list.
 
 const compile = spawnSync(
   "bun",
@@ -218,10 +280,8 @@ const compile = spawnSync(
     "build",
     "--compile",
     "--minify",
-    resolve(root, "src/index.ts"),
+    resolve(distDir, "agentsims.js"),
     "--outfile", resolve(distDir, "agentsims"),
-    "--define", `__PREVIEW_HTML_B64__=${JSON.stringify(htmlB64)}`,
-    "--define", `__AGENTSIMS_VERSION__=${JSON.stringify(pkgVersion)}`,
     // `ws` must stay a runtime-resolved specifier so Bun substitutes its
     // native implementation — bundling the Node implementation breaks
     // upgrades (raw handshake writes never flush under Bun's node:http).

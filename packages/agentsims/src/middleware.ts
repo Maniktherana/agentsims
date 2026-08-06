@@ -27,6 +27,10 @@ import {
 } from "./shared/app-state-router";
 import { PreviewStateRouter } from "./shared/preview-state-router";
 import { UI_OPTIONS, getUiStatus, normalizeUiValue, setUiOption } from "./ios/ui-settings";
+import {
+  resolvePreviewAsset,
+  type PreviewAssetMap,
+} from "./shared/preview-assets";
 
 type SimReq = IncomingMessage;
 type SimRes = ServerResponse;
@@ -38,6 +42,7 @@ export type SimMiddleware = {
 
 // Injected at build time as a base64-encoded string via `define`
 declare const __PREVIEW_HTML_B64__: string;
+declare const __PREVIEW_ASSETS_B64__: string | undefined;
 const DEVTOOLS_FRONTEND_REV = "854a02be78c7ffea104cb523636efa991bef5c5b";
 const INSPECT_WEBKIT_START_PORT = 9222;
 type WebKitBridgeTarget = {
@@ -371,6 +376,7 @@ function devtoolsFrontendUrl(
 }
 
 let _html: string | null = null;
+let _previewAssets: PreviewAssetMap | null = null;
 /**
  * Best-effort absolute path to the running agentsims entry script. Used so
  * the in-page Camera tool can `node <path> camera ...` regardless of PATH.
@@ -389,6 +395,18 @@ function loadHtml(): string {
     _html = Buffer.from(__PREVIEW_HTML_B64__, "base64").toString("utf-8");
   }
   return _html;
+}
+
+function loadPreviewAssets(): PreviewAssetMap {
+  if (_previewAssets) return _previewAssets;
+  if (typeof __PREVIEW_ASSETS_B64__ !== "string") {
+    _previewAssets = {};
+    return _previewAssets;
+  }
+  _previewAssets = JSON.parse(
+    Buffer.from(__PREVIEW_ASSETS_B64__, "base64").toString("utf-8"),
+  ) as PreviewAssetMap;
+  return _previewAssets;
 }
 
 export interface SimMiddlewareOptions {
@@ -423,6 +441,8 @@ export interface SimMiddlewareOptions {
   proxyHelpers?: boolean;
   /** Test hook for supplying a fake inspect-webkit bridge. */
   inspectWebKitBridge?: () => Promise<WebKitBridge>;
+  /** Test hook for the browser assets embedded by the production build. */
+  previewAssets?: PreviewAssetMap;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -456,6 +476,7 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
   const appStateRouter = new AppStateRouter(base);
   const mediaRouter = new MediaRouter(base);
   const deviceGateway = new DeviceGateway(base);
+  const previewAssets = options?.previewAssets ?? loadPreviewAssets();
   // Per-process random token. Anyone who can read the preview HTML same-origin
   // can call /exec; cross-origin pages and LAN clients cannot, because they
   // can't read this value (it's only injected into the preview page's config).
@@ -503,6 +524,21 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
       httpProtocolForRequest(req),
       proxyHelpers,
     );
+
+    const previewAsset = resolvePreviewAsset(rawUrl, base, previewAssets);
+    if (previewAsset === false) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Preview asset not found");
+      return;
+    }
+    if (previewAsset) {
+      res.writeHead(200, {
+        "Content-Type": previewAsset.contentType,
+        "Cache-Control": "public, max-age=31536000, immutable",
+      });
+      res.end(Buffer.from(previewAsset.contentBase64, "base64"));
+      return;
+    }
 
     if (await deviceGateway.handleHttp(req, res, selectedDevice)) return;
 
