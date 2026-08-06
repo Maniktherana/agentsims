@@ -4,7 +4,10 @@ import { createServer as createNetServer } from "net";
 import { randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
 import type { Socket } from "net";
-import { createAxStreamerCache } from "./annotations/snapshot";
+import {
+  createAxStreamerCache,
+  type AxStreamerCache,
+} from "./annotations/snapshot";
 import { AnnotationRouter } from "./annotations/router";
 import { MediaRouter } from "./media/router";
 import type { DeviceState } from "./shared/state";
@@ -443,6 +446,10 @@ export interface SimMiddlewareOptions {
   inspectWebKitBridge?: () => Promise<WebKitBridge>;
   /** Test hook for the browser assets embedded by the production build. */
   previewAssets?: PreviewAssetMap;
+  /** Test hook for deterministic AX route device discovery. */
+  readDeviceStates?: () => Promise<DeviceState[]>;
+  /** Test hook for an isolated AX stream lifecycle. */
+  axStreamerCache?: AxStreamerCache;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -477,6 +484,8 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
   const mediaRouter = new MediaRouter(base);
   const deviceGateway = new DeviceGateway(base);
   const previewAssets = options?.previewAssets ?? loadPreviewAssets();
+  const getAxDeviceStates = options?.readDeviceStates ?? readDeviceStates;
+  const streamers = options?.axStreamerCache ?? axStreamerCache;
   // Per-process random token. Anyone who can read the preview HTML same-origin
   // can call /exec; cross-origin pages and LAN clients cannot, because they
   // can't read this value (it's only injected into the preview page's config).
@@ -794,9 +803,42 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
       return;
     }
 
+    // Trigger a fresh capture for the existing accessibility stream. Android
+    // uses this after a completed device interaction so the expensive
+    // UIAutomator dump starts on demand instead of running continuously.
+    if (url === base + "/ax/refresh" && req.method === "POST") {
+      // An open, device-scoped SSE stream was already validated by GET /ax.
+      // Reuse that exact streamer so interaction completion never waits for a
+      // fresh simctl + adb inventory. Cold, stale, and unknown keys still take
+      // the discovery path below and cannot create arbitrary cache entries.
+      if (selectedDevice && streamers.refreshActive(selectedDevice)) {
+        res.writeHead(202, {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      const states = await getAxDeviceStates();
+      streamers.prune(states.map((item) => item.device));
+      const state = selectDeviceState(states, selectedDevice);
+      if (!state) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No agentsims device" }));
+        return;
+      }
+      streamers.get(state.device).refresh();
+      res.writeHead(202, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
     // SSE: normalized accessibility snapshot stream
     if (url === base + "/ax") {
-      const states = await readDeviceStates();
+      const states = await getAxDeviceStates();
       const state = selectDeviceState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
@@ -810,8 +852,8 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
         "X-Accel-Buffering": "no",
       });
       res.write(":\n\n");
-      axStreamerCache.prune(states.map((s) => s.device));
-      const ax = axStreamerCache.get(state.device);
+      streamers.prune(states.map((s) => s.device));
+      const ax = streamers.get(state.device);
       const removeClient = ax.addClient(res);
       req.on("close", removeClient);
       return;

@@ -1,6 +1,7 @@
 import { AX_UNAVAILABLE_ERROR } from "./model";
 import type { AxElement, AxRect, AxSnapshot } from "./model";
 import { androidSerialFromStateId, collectAndroidAxSnapshot } from "../android/device";
+import { subscribeAndroidAxChanges } from "../android/ax-server";
 import { axDescribeAsync } from "../ios/native";
 import { enrichAxSnapshotWithRnSource } from "./rn-source";
 
@@ -9,8 +10,13 @@ export type { AxElement, AxRect, AxSnapshot } from "./model";
 const MAX_ELEMENTS = 500;
 const POLL_INTERVAL_MS = 500;
 const MAX_POLL_INTERVAL_MS = 2000;
-const ANDROID_POLL_INTERVAL_MS = 1000;
+const ANDROID_POLL_INTERVAL_MS = 5000;
+const ANDROID_MAX_POLL_INTERVAL_MS = 10_000;
 const UNAVAILABLE_RETRY_INTERVAL_MS = 15_000;
+// The first native invalidation captures immediately. Further invalidations
+// share one pending capture at this cadence so AX remains live without taking
+// a full UIAutomator traversal for every animation frame.
+const ANDROID_CHANGE_MIN_INTERVAL_MS = 100;
 
 interface RawAxeNode {
   AXUniqueId: string | null;
@@ -117,7 +123,10 @@ function isUsableAxSnapshot(snapshot: AxSnapshot) {
 async function collectAxSnapshot(udid: string): Promise<AxSnapshot> {
   const androidSerial = androidSerialFromStateId(udid);
   if (androidSerial) {
-    return enrichAxSnapshotWithRnSource(await collectAndroidAxSnapshot(androidSerial));
+    return enrichAxSnapshotWithRnSource(await collectAndroidAxSnapshot(
+      androidSerial,
+      { mode: "fresh" },
+    ));
   }
 
   const errors: string[] = [];
@@ -151,6 +160,8 @@ function sseMessage(payload: unknown) {
 
 interface AxStreamer {
   addClient(res: { write(chunk: string): void }): () => void;
+  hasClients(): boolean;
+  refresh(): void;
   dispose(): void;
 }
 
@@ -158,6 +169,13 @@ export interface AxStreamerCacheOptions {
   collect?: (udid: string) => Promise<AxSnapshot>;
   now?: () => number;
   androidPollIntervalMs?: number;
+  androidChangeMinIntervalMs?: number;
+  setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+  subscribeAndroidChanges?: (
+    serial: string,
+    listener: () => void,
+  ) => () => void;
 }
 
 function createAxStreamer({
@@ -165,43 +183,81 @@ function createAxStreamer({
   collect = collectAxSnapshot,
   now = Date.now,
   androidPollIntervalMs = ANDROID_POLL_INTERVAL_MS,
+  androidChangeMinIntervalMs = ANDROID_CHANGE_MIN_INTERVAL_MS,
+  setTimer = (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimer = (timer) => clearTimeout(timer),
+  subscribeAndroidChanges = subscribeAndroidAxChanges,
 }: {
   udid: string;
 } & AxStreamerCacheOptions): AxStreamer {
   const clients = new Set<{ write(chunk: string): void }>();
-  const basePollIntervalMs = androidSerialFromStateId(udid)
+  const androidSerial = androidSerialFromStateId(udid);
+  const android = androidSerial !== null;
+  const basePollIntervalMs = android
     ? androidPollIntervalMs
     : POLL_INTERVAL_MS;
+  const maxPollIntervalMs = android
+    ? ANDROID_MAX_POLL_INTERVAL_MS
+    : MAX_POLL_INTERVAL_MS;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let androidChangeTimer: ReturnType<typeof setTimeout> | null = null;
   let latestMessage: string | null = null;
   let latestCollectedAt = 0;
   let latestUsable = false;
   let retryNotBefore = 0;
   let pollIntervalMs = basePollIntervalMs;
   let polling = false;
+  let lastAndroidCaptureStartedAt: number | null = null;
+  let forceMessagePending = false;
+  let changeCapturePending = false;
+  let explicitRefreshPending = false;
+  let latestDirty = false;
   let disposed = false;
+  let unsubscribeAndroidChanges = () => {};
 
   const schedule = (delayMs = pollIntervalMs) => {
     if (disposed || clients.size === 0 || timer) return;
-    timer = setTimeout(poll, delayMs);
+    timer = setTimer(poll, delayMs);
   };
 
-  const poll = async () => {
+  const scheduleAndroidChangeCapture = () => {
+    if (disposed || clients.size === 0 || androidChangeTimer) return;
+    const intervalDelay = lastAndroidCaptureStartedAt === null
+      ? 0
+      : Math.max(
+        0,
+        androidChangeMinIntervalMs - (now() - lastAndroidCaptureStartedAt),
+      );
+    if (intervalDelay === 0) {
+      captureAndroidChange();
+      return;
+    }
+    androidChangeTimer = setTimer(captureAndroidChange, intervalDelay);
+  };
+
+  const poll = async (forceMessage = false) => {
     timer = null;
     if (disposed || polling || clients.size === 0) {
       return;
     }
 
     polling = true;
+    if (android) lastAndroidCaptureStartedAt = now();
+    latestDirty = false;
     let retry = true;
     try {
       const next = await collect(udid);
       const nextMessage = sseMessage(next);
-      if (nextMessage !== latestMessage) {
+      if (forceMessage || nextMessage !== latestMessage) {
         for (const client of clients) client.write(nextMessage);
+      }
+      if (nextMessage !== latestMessage) {
         pollIntervalMs = basePollIntervalMs;
       } else {
-        pollIntervalMs = Math.min(pollIntervalMs * 2, MAX_POLL_INTERVAL_MS);
+        pollIntervalMs = Math.min(
+          pollIntervalMs * 2,
+          maxPollIntervalMs,
+        );
       }
       latestMessage = nextMessage;
       latestCollectedAt = now();
@@ -218,9 +274,52 @@ function createAxStreamer({
       }
     } finally {
       polling = false;
-      if (retry) schedule();
+      if (
+        (explicitRefreshPending || changeCapturePending) &&
+        !disposed &&
+        clients.size > 0
+      ) {
+        // Browser refreshes and native changes share one serialized trailing
+        // capture at the bounded cadence. Whichever source starts it consumes
+        // the pending state from both sources.
+        scheduleAndroidChangeCapture();
+      } else if (retry && (!android || !latestUsable)) {
+        // Android review is event-driven once a usable snapshot exists. Keep
+        // periodic polling only for iOS and unavailable-result recovery.
+        schedule();
+      }
     }
   };
+
+  const captureAndroidChange = () => {
+    androidChangeTimer = null;
+    if (disposed || clients.size === 0) return;
+    if (polling) {
+      return;
+    }
+    if (!changeCapturePending && !explicitRefreshPending) return;
+    const forceMessage = forceMessagePending;
+    forceMessagePending = false;
+    changeCapturePending = false;
+    explicitRefreshPending = false;
+    void poll(forceMessage);
+  };
+
+  const onAndroidChange = () => {
+    if (disposed) return;
+    latestDirty = true;
+    if (clients.size === 0) return;
+    changeCapturePending = true;
+    if (polling) return;
+    scheduleAndroidChangeCapture();
+  };
+
+  if (androidSerial) {
+    unsubscribeAndroidChanges = subscribeAndroidChanges(
+      androidSerial,
+      onAndroidChange,
+    );
+  }
 
   return {
     addClient(res) {
@@ -229,39 +328,83 @@ function createAxStreamer({
       if (latestMessage) res.write(latestMessage);
       if (!latestMessage) {
         void poll();
+      } else if (android && latestDirty) {
+        if (androidChangeTimer) {
+          clearTimer(androidChangeTimer);
+          androidChangeTimer = null;
+        }
+        changeCapturePending = true;
+        scheduleAndroidChangeCapture();
       } else if (!latestUsable) {
         const retryDelay = Math.max(0, retryNotBefore - now());
         if (retryDelay === 0) void poll();
         else schedule(retryDelay);
-      } else {
-        // Both platforms stay live while a review client is connected.
-        // Android uses a slower base cadence because UIAutomator snapshots
-        // are materially more expensive than the iOS native AX bridge.
+      } else if (!android) {
         schedule(Math.max(0, basePollIntervalMs - (now() - latestCollectedAt)));
       }
       return () => {
         clients.delete(res);
         if (clients.size === 0 && timer) {
-          clearTimeout(timer);
+          clearTimer(timer);
           timer = null;
         }
+        if (clients.size === 0 && androidChangeTimer) {
+          clearTimer(androidChangeTimer);
+          androidChangeTimer = null;
+        }
+        if (clients.size === 0) {
+          forceMessagePending = false;
+          changeCapturePending = false;
+          explicitRefreshPending = false;
+          latestDirty = false;
+        }
       };
+    },
+    hasClients() {
+      return clients.size > 0;
+    },
+    refresh() {
+      if (disposed || clients.size === 0) return;
+      latestDirty = false;
+      retryNotBefore = 0;
+      pollIntervalMs = basePollIntervalMs;
+      if (timer) {
+        clearTimer(timer);
+        timer = null;
+      }
+      // Explicit interaction completion and native invalidation share the same
+      // pending capture. This caps repeated POST refreshes without losing the
+      // final state, and still confirms an identical forced result over SSE.
+      explicitRefreshPending = true;
+      forceMessagePending = true;
+      if (!polling) scheduleAndroidChangeCapture();
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       if (timer) {
-        clearTimeout(timer);
+        clearTimer(timer);
         timer = null;
       }
+      if (androidChangeTimer) {
+        clearTimer(androidChangeTimer);
+        androidChangeTimer = null;
+      }
+      unsubscribeAndroidChanges();
+      unsubscribeAndroidChanges = () => {};
       clients.clear();
       latestMessage = null;
+      forceMessagePending = false;
+      changeCapturePending = false;
+      latestDirty = false;
+      explicitRefreshPending = false;
     },
   };
 }
 
 export interface AxStreamerCache {
   get(udid: string): AxStreamer;
+  refreshActive(udid: string): boolean;
   prune(activeUdids: Iterable<string>): void;
   size(): number;
 }
@@ -283,6 +426,17 @@ export function createAxStreamerCache(
       const streamer = createAxStreamer({ udid, ...options });
       streamers.set(udid, streamer);
       return streamer;
+    },
+    /**
+     * Refresh an already-validated stream only while its SSE client is live.
+     * This never creates an entry, so arbitrary request keys still require
+     * device discovery before they can enter the cache.
+     */
+    refreshActive(udid) {
+      const streamer = streamers.get(udid);
+      if (!streamer?.hasClients()) return false;
+      streamer.refresh();
+      return true;
     },
     /**
      * Drop streamers for simulators no longer present in `activeUdids`.

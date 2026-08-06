@@ -170,13 +170,33 @@ const PREVIEW_DEFINE = {
 // ─── 2b. Android scrcpy server artifact ──────────────────────────────────
 
 const scrcpyServerSource = resolve(root, "vendor/scrcpy-server/scrcpy-server");
+const androidDistDir = resolve(distDir, "android");
 if (existsSync(scrcpyServerSource)) {
-  const androidDistDir = resolve(distDir, "android");
   mkdirSync(androidDistDir, { recursive: true });
   copyFileSync(scrcpyServerSource, resolve(androidDistDir, "scrcpy-server.jar"));
   console.log(`dist/android/scrcpy-server.jar ${kb(readFileSync(scrcpyServerSource).length)}`);
 } else {
   console.warn("dist/android/scrcpy-server.jar skipped (vendor/scrcpy-server/scrcpy-server missing)");
+}
+
+const androidAxServerSource = resolve(
+  root,
+  "vendor/agentsims-ax-server/agentsims-ax-server.jar",
+);
+if (existsSync(androidAxServerSource)) {
+  mkdirSync(androidDistDir, { recursive: true });
+  copyFileSync(
+    androidAxServerSource,
+    resolve(androidDistDir, "agentsims-ax-server.jar"),
+  );
+  console.log(
+    `dist/android/agentsims-ax-server.jar ${kb(readFileSync(androidAxServerSource).length)}`,
+  );
+} else {
+  console.warn(
+    "dist/android/agentsims-ax-server.jar skipped " +
+    "(run Sources/AndroidAxServer/build.sh)",
+  );
 }
 
 // ─── 3. Middleware ESM (agentsims/middleware) ─────────────────────────────

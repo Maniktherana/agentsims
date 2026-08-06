@@ -27,10 +27,17 @@ export interface AxRect {
 export interface AxSourceContext {
   kind: "react-native";
   confidence: "exact-testid" | "native-id" | "related-native-id";
+  /**
+   * Whether the instrumented JSX callsite is a React Native host element or
+   * an actual custom component boundary. `componentName` is owner context for
+   * host elements; it must not be presented as that native node's identity.
+   */
+  elementKind?: "host" | "custom";
   matchReason?:
     | "test-id"
     | "native-id"
     | "element-id"
+    | "ancestor-owner"
     | "nearby-visible-text"
     | "nearby-accessibility-label"
     | "nearby-placeholder"
@@ -58,9 +65,18 @@ export interface AxElement {
   role: string;
   type: string;
   enabled: boolean;
+  /** Raw Android visibility; consumers decide tree vs hit-target eligibility. */
+  visibleToUser?: boolean;
+  /** Present on Android top-level roots when interactive windows are available. */
+  windowId?: number;
+  windowLayer?: number;
+  windowType?: number;
+  windowActive?: boolean;
+  windowFocused?: boolean;
   frame: AxRect;
   testId?: string;
   nativeId?: string;
+  traits?: string[];
   source?: AxSourceContext;
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AX_UNAVAILABLE_ERROR, type AxSnapshot } from "../annotations/model";
 import {
+  axRefreshEndpoint,
   decodeAxSnapshotEvent,
   reconcileAxSnapshot,
 } from "../annotations/web/state/device-annotation-state";
@@ -40,6 +41,18 @@ describe("decodeAxSnapshotEvent", () => {
     });
 
     expect(decodeAxSnapshotEvent(payload, null)?.status).toBe("AX unavailable");
+  });
+
+  test("surfaces native capture errors instead of reporting an empty tree", () => {
+    const payload = JSON.stringify({
+      screen: { width: 1080, height: 2424 },
+      elements: [],
+      errors: ["UIAutomator timed out"],
+    });
+
+    expect(decodeAxSnapshotEvent(payload, null)?.status).toBe(
+      "UIAutomator timed out",
+    );
   });
 
   test("reuses the full snapshot when a new payload is semantically identical", () => {
@@ -109,5 +122,12 @@ describe("decodeAxSnapshotEvent", () => {
     expect(reconciled.elements[0]).toBe(previous.elements[0]);
     expect(reconciled.elements[1]).toBe(next.elements[1]);
     expect(reconciled.screen).toBe(previous.screen);
+  });
+});
+
+describe("axRefreshEndpoint", () => {
+  test("preserves the selected device query", () => {
+    expect(axRefreshEndpoint("/.sim/ax?device=android%3Aemulator-5554"))
+      .toBe("/.sim/ax/refresh?device=android%3Aemulator-5554");
   });
 });

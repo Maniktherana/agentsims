@@ -44,7 +44,7 @@ export function decodeAxSnapshotEvent(
     snapshot,
     status: isAxeUnavailable(snapshot)
       ? "AX unavailable"
-      : `${snapshot.elements.length} AX elements`,
+      : snapshot.errors?.[0] || `${snapshot.elements.length} AX elements`,
   };
 }
 
@@ -87,6 +87,16 @@ export function reconcileAxSnapshot(
     elements,
     ...(sameErrors ? { errors: previous.errors } : {}),
   };
+}
+
+export function axRefreshEndpoint(endpoint: string): string {
+  const queryIndex = endpoint.indexOf("?");
+  const path = queryIndex >= 0 ? endpoint.slice(0, queryIndex) : endpoint;
+  const query = queryIndex >= 0 ? endpoint.slice(queryIndex) : "";
+  const refreshPath = path.endsWith("/ax")
+    ? `${path}/refresh`
+    : `${path.replace(/\/+$/, "")}/refresh`;
+  return `${refreshPath}${query}`;
 }
 
 export function useAxSnapshot(endpoint?: string) {

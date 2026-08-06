@@ -24,6 +24,11 @@ import {
 } from "./device";
 import { enrichAxSnapshotWithRnSource } from "../annotations/rn-source";
 import { LatestValueScheduler } from "../shared/latest-value-scheduler";
+import {
+  closeAndroidAxServer,
+  warmAndroidAxServer,
+  type AndroidAxMode,
+} from "./ax-server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -99,6 +104,10 @@ export class AndroidSession {
     this.width = config.width;
     this.height = config.height;
     this.orientation = config.orientation === "landscape" ? "landscape_left" : "portrait";
+    // Pay the one-time framework traversal cost in the background while the
+    // live device is starting. Accessibility opens and refreshes then use the
+    // persistent helper's hot path without delaying video/control startup.
+    void warmAndroidAxServer(this.serial);
   }
 
   close(): void {
@@ -109,6 +118,7 @@ export class AndroidSession {
     this.hidSockets.clear();
     this.transport?.close();
     this.transport = null;
+    closeAndroidAxServer(this.serial);
   }
 
   private screenConfig() {
@@ -248,9 +258,20 @@ export class AndroidSession {
     };
   }
 
-  handleAx(_req: IncomingMessage, res: ServerResponse): void {
+  handleAx(req: IncomingMessage, res: ServerResponse): void {
     void (async () => {
-      const snapshot = enrichAxSnapshotWithRnSource(await collectAndroidAxSnapshot(this.serial));
+      const requestedMode = new URL(req.url ?? "/ax", "http://agentsims.local")
+        .searchParams.get("mode");
+      // Direct helper AX is the agent/CLI surface, so its default is a bounded
+      // settled observation. The browser SSE path calls the provider directly
+      // and uses fresh hot snapshots without an idle barrier.
+      const mode: AndroidAxMode = requestedMode === "latest" || requestedMode === "fresh"
+        ? requestedMode
+        : "settled";
+      const snapshot = enrichAxSnapshotWithRnSource(await collectAndroidAxSnapshot(
+        this.serial,
+        { mode },
+      ));
       sendJsonString(res, 200, JSON.stringify(snapshot));
     })();
   }
