@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "http";
-import type { AndroidStatus } from "./types";
+import type { AndroidScreenConfig, AndroidStatus } from "./types";
 import {
+  androidTransportKindForSerial,
   createAndroidTransport,
   type AndroidTransport,
   type AndroidTransportConfig,
@@ -16,9 +17,12 @@ import {
   androidTap,
   captureAndroidPng,
   collectAndroidAxSnapshot,
+  getAndroidEmulatorViewportState,
   getAndroidStatus,
   getAndroidScreenConfig,
+  freeAndroidEmulatorRotation,
   reloadAndroidReactNative,
+  rotateAndroidEmulatorNative,
   toggleAndroidDarkMode,
   toggleAndroidSoftwareKeyboard,
 } from "./device";
@@ -42,8 +46,103 @@ const WS_MSG_MULTI_TOUCH = 0x05;
 const ANDROID_WHEEL_SCALE = 16;
 const TRANSPORT_IDLE_CLOSE_MS = 15_000;
 const ANDROID_INPUT_MOVE_INTERVAL_MS = 1000 / 60;
+const EMULATOR_CONFIG_DEBOUNCE_MS = 50;
+const EMULATOR_VIEWPORT_POLL_MS = 500;
 
 type TouchMessageType = "begin" | "move" | "end" | "cancel";
+type AndroidDisplayOrientation =
+  | "portrait"
+  | "landscape_left"
+  | "portrait_upside_down"
+  | "landscape_right";
+type AndroidRotation = 0 | 1 | 2 | 3;
+
+const ANDROID_ORIENTATION_CYCLE: readonly AndroidDisplayOrientation[] = [
+  "portrait",
+  "landscape_left",
+  "portrait_upside_down",
+  "landscape_right",
+];
+
+function normalizedAndroidRotation(rotation: number | undefined): AndroidRotation {
+  return rotation === 1 || rotation === 2 || rotation === 3 ? rotation : 0;
+}
+
+function nativeSizeForScreen(
+  screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
+): { width: number; height: number } {
+  const rotation = normalizedAndroidRotation(screen.rotation);
+  return rotation === 1 || rotation === 3
+    ? { width: screen.height, height: screen.width }
+    : { width: screen.width, height: screen.height };
+}
+
+export function androidOrientationForScreen(
+  screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
+): AndroidDisplayOrientation {
+  const rotation = normalizedAndroidRotation(screen.rotation);
+  const native = nativeSizeForScreen(screen);
+  const nativeOrientationOffset = native.width > native.height ? 1 : 0;
+  return ANDROID_ORIENTATION_CYCLE[
+    (rotation + nativeOrientationOffset) % ANDROID_ORIENTATION_CYCLE.length
+  ]!;
+}
+
+export function androidRotationForOrientation(
+  orientation: string,
+  screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
+): AndroidRotation {
+  const requestedOrientation = ANDROID_ORIENTATION_CYCLE.indexOf(
+    orientation as AndroidDisplayOrientation,
+  );
+  const native = nativeSizeForScreen(screen);
+  const nativeOrientationOffset = native.width > native.height ? 1 : 0;
+  if (requestedOrientation < 0) return 0;
+  return ((requestedOrientation - nativeOrientationOffset + 4) % 4) as AndroidRotation;
+}
+
+export function androidTouchCoordinatesForTransport(
+  backend: AndroidTransport["backend"],
+  point: { x: number; y: number },
+  screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
+): { x: number; y: number; width: number; height: number } {
+  if (backend === "scrcpy") {
+    return {
+      x: point.x * screen.width,
+      y: point.y * screen.height,
+      width: screen.width,
+      height: screen.height,
+    };
+  }
+
+  const rotation = normalizedAndroidRotation(screen.rotation);
+  const native = nativeSizeForScreen(screen);
+  const physicalPoint =
+    rotation === 1
+      ? { x: 1 - point.y, y: point.x }
+      : rotation === 2
+        ? { x: 1 - point.x, y: 1 - point.y }
+        : rotation === 3
+          ? { x: point.y, y: 1 - point.x }
+          : point;
+  return {
+    x: physicalPoint.x * native.width,
+    y: physicalPoint.y * native.height,
+    width: native.width,
+    height: native.height,
+  };
+}
+
+export function clockwiseAndroidRotationSteps(
+  current: AndroidRotation,
+  requested: AndroidRotation,
+): number {
+  return (requested - current + 4) % 4;
+}
+
+function orientationForRotation(rotation: AndroidRotation): AndroidDisplayOrientation {
+  return ANDROID_ORIENTATION_CYCLE[rotation]!;
+}
 
 function touchMessageType(message: Buffer): TouchMessageType | null {
   if (message[0] !== WS_MSG_TOUCH && message[0] !== WS_MSG_MULTI_TOUCH) return null;
@@ -71,23 +170,65 @@ function sendJsonString(res: ServerResponse, status: number, payload: string): v
   res.end(payload);
 }
 
+export interface AndroidSessionDependencies {
+  readScreenConfig(serial: string): Promise<AndroidScreenConfig>;
+  readEmulatorViewport?(serial: string): Promise<{
+    width: number;
+    height: number;
+    rotation: AndroidRotation;
+  }>;
+  emulatorViewportPollMs?: number;
+  warmAx(serial: string): Promise<void>;
+  createTransport(
+    serial: string,
+    screen: { width: number; height: number },
+    onConfig: (config: AndroidTransportConfig) => void,
+    onSubscriberCountChange: (count: number) => void,
+  ): AndroidTransport;
+  rotate(serial: string, orientation: string): Promise<void>;
+  freeEmulatorRotation(serial: string): Promise<void>;
+  rotateEmulator(serial: string, clockwiseSteps: number): Promise<void>;
+}
+
+const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
+  readScreenConfig: getAndroidScreenConfig,
+  readEmulatorViewport: getAndroidEmulatorViewportState,
+  warmAx: warmAndroidAxServer,
+  createTransport: createAndroidTransport,
+  rotate: androidRotate,
+  freeEmulatorRotation: freeAndroidEmulatorRotation,
+  rotateEmulator: rotateAndroidEmulatorNative,
+};
+
 export class AndroidSession {
   private width = 0;
   private height = 0;
-  private orientation: "portrait" | "landscape_left" = "portrait";
+  private orientation: AndroidDisplayOrientation = "portrait";
+  private rotation: AndroidRotation = 0;
   private readonly hidSockets = new Set<HidSocket>();
   private touchStart: { x: number; y: number; at: number } | null = null;
   private lastMove: { x: number; y: number } | null = null;
   private transport: AndroidTransport | null = null;
   private startPromise: Promise<void> | null = null;
   private transportIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  private emulatorConfigTimer: ReturnType<typeof setTimeout> | null = null;
+  private emulatorConfigRefresh: Promise<void> | null = null;
+  private emulatorConfigRefreshPending = false;
+  private lastEmulatorFrameConfig: string | null = null;
+  private emulatorViewportTimer: ReturnType<typeof setTimeout> | null = null;
+  private emulatorViewportPoll: Promise<void> | null = null;
+  private lastEmulatorViewport: string | null = null;
+  private closed = false;
   private inputQueue: Promise<void> = Promise.resolve();
   private readonly inputMoveScheduler = new LatestValueScheduler<Buffer>(
     ANDROID_INPUT_MOVE_INTERVAL_MS,
     (message) => this.queueHidMessage(message),
   );
 
-  constructor(public readonly serial: string) {}
+  constructor(
+    public readonly serial: string,
+    private readonly dependencies: AndroidSessionDependencies = DEFAULT_SESSION_DEPENDENCIES,
+  ) {}
 
   async start(): Promise<void> {
     if (!this.startPromise) {
@@ -100,19 +241,24 @@ export class AndroidSession {
   }
 
   private async initialize(): Promise<void> {
-    const config = await getAndroidScreenConfig(this.serial);
-    this.width = config.width;
-    this.height = config.height;
-    this.orientation = config.orientation === "landscape" ? "landscape_left" : "portrait";
+    const config = await this.dependencies.readScreenConfig(this.serial);
+    this.applyScreenConfig(config);
     // Pay the one-time framework traversal cost in the background while the
     // live device is starting. Accessibility opens and refreshes then use the
     // persistent helper's hot path without delaying video/control startup.
-    void warmAndroidAxServer(this.serial);
+    void this.dependencies.warmAx(this.serial).catch(() => {});
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     if (this.transportIdleTimer) clearTimeout(this.transportIdleTimer);
     this.transportIdleTimer = null;
+    if (this.emulatorConfigTimer) clearTimeout(this.emulatorConfigTimer);
+    this.emulatorConfigTimer = null;
+    if (this.emulatorViewportTimer) clearTimeout(this.emulatorViewportTimer);
+    this.emulatorViewportTimer = null;
+    this.emulatorConfigRefreshPending = false;
     this.inputMoveScheduler.cancel();
     for (const ws of this.hidSockets) ws.close();
     this.hidSockets.clear();
@@ -123,6 +269,21 @@ export class AndroidSession {
 
   private screenConfig() {
     return { width: this.width, height: this.height, orientation: this.orientation };
+  }
+
+  private applyScreenConfig(config: AndroidScreenConfig): boolean {
+    const nextRotation = normalizedAndroidRotation(config.rotation);
+    const nextOrientation = androidOrientationForScreen(config);
+    const changed = config.width !== this.width ||
+      config.height !== this.height ||
+      nextRotation !== this.rotation ||
+      nextOrientation !== this.orientation;
+    this.width = config.width;
+    this.height = config.height;
+    this.rotation = nextRotation;
+    this.orientation = nextOrientation;
+    this.lastEmulatorViewport = `${nextRotation}:${config.width}x${config.height}`;
+    return changed;
   }
 
   private configFrame(): Buffer | null {
@@ -138,19 +299,132 @@ export class AndroidSession {
   }
 
   private applyTransportConfig(config: AndroidTransportConfig): void {
-    const changed = config.width !== this.width || config.height !== this.height || config.orientation !== this.orientation;
+    const currentIsLandscape =
+      this.orientation === "landscape_left" || this.orientation === "landscape_right";
+    const nextIsLandscape = config.width > config.height;
+    const nextOrientation = currentIsLandscape === nextIsLandscape
+      ? this.orientation
+      : nextIsLandscape
+        ? "landscape_left"
+        : "portrait";
+    const changed = config.width !== this.width || config.height !== this.height || nextOrientation !== this.orientation;
     this.width = config.width;
     this.height = config.height;
-    this.orientation = config.orientation;
+    this.orientation = nextOrientation;
     if (changed) this.broadcastConfig();
+  }
+
+  private observeEmulatorFrameConfig(config: AndroidTransportConfig): void {
+    if (!("rotation" in config)) return;
+    const key = `${config.width}x${config.height}:${config.rotation}`;
+    if (key === this.lastEmulatorFrameConfig) return;
+    const firstObservation = this.lastEmulatorFrameConfig === null;
+    this.lastEmulatorFrameConfig = key;
+    if (firstObservation && config.rotation === this.rotation) return;
+    this.scheduleEmulatorConfigRefresh();
+  }
+
+  private scheduleEmulatorConfigRefresh(): void {
+    if (this.closed) return;
+    if (this.emulatorConfigTimer) clearTimeout(this.emulatorConfigTimer);
+    this.emulatorConfigTimer = setTimeout(() => {
+      this.emulatorConfigTimer = null;
+      void this.refreshEmulatorConfig().catch(() => {});
+    }, EMULATOR_CONFIG_DEBOUNCE_MS);
+  }
+
+  private refreshEmulatorConfig(): Promise<void> {
+    if (this.emulatorConfigRefresh) {
+      this.emulatorConfigRefreshPending = true;
+      return this.emulatorConfigRefresh;
+    }
+    this.emulatorConfigRefresh = (async () => {
+      do {
+        this.emulatorConfigRefreshPending = false;
+        const next = await this.dependencies.readScreenConfig(this.serial);
+        if (!this.closed && this.applyScreenConfig(next)) this.broadcastConfig();
+      } while (this.emulatorConfigRefreshPending && !this.closed);
+    })().finally(() => {
+      this.emulatorConfigRefresh = null;
+    });
+    return this.emulatorConfigRefresh;
+  }
+
+  private refreshEmulatorConfigImmediately(): Promise<void> {
+    if (this.emulatorConfigTimer) clearTimeout(this.emulatorConfigTimer);
+    this.emulatorConfigTimer = null;
+    return this.refreshEmulatorConfig();
+  }
+
+  private emulatorViewportWatchActive(): boolean {
+    return !this.closed &&
+      androidTransportKindForSerial(this.serial) === "emulator-controller" &&
+      (this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0);
+  }
+
+  private updateEmulatorViewportWatch(): void {
+    if (!this.emulatorViewportWatchActive()) {
+      if (this.emulatorViewportTimer) clearTimeout(this.emulatorViewportTimer);
+      this.emulatorViewportTimer = null;
+      return;
+    }
+    if (this.emulatorViewportTimer || this.emulatorViewportPoll) return;
+    this.emulatorViewportTimer = setTimeout(() => {
+      this.emulatorViewportTimer = null;
+      void this.pollEmulatorViewport().finally(() => this.updateEmulatorViewportWatch());
+    }, this.dependencies.emulatorViewportPollMs ?? EMULATOR_VIEWPORT_POLL_MS);
+  }
+
+  private pollEmulatorViewport(): Promise<void> {
+    if (this.emulatorViewportPoll) return this.emulatorViewportPoll;
+    const readViewport = this.dependencies.readEmulatorViewport ??
+      DEFAULT_SESSION_DEPENDENCIES.readEmulatorViewport!;
+    this.emulatorViewportPoll = readViewport(this.serial)
+      .then(async (viewport) => {
+        const key = `${viewport.rotation}:${viewport.width}x${viewport.height}`;
+        if (key === this.lastEmulatorViewport || this.closed) return;
+        const previous = this.lastEmulatorViewport;
+        this.lastEmulatorViewport = key;
+        try {
+          await this.refreshEmulatorConfigImmediately();
+        } catch (error) {
+          if (this.lastEmulatorViewport === key) this.lastEmulatorViewport = previous;
+          throw error;
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.emulatorViewportPoll = null;
+      });
+    return this.emulatorViewportPoll;
+  }
+
+  private async waitForEmulatorViewportChange(
+    previous: string | null,
+    timeoutMs = 500,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      await this.pollEmulatorViewport();
+      if (this.lastEmulatorViewport !== previous) return true;
+      await wait(50);
+    } while (!this.closed && Date.now() < deadline);
+    return false;
   }
 
   private transportSession(): AndroidTransport {
     if (!this.transport || this.transport.closed) {
-      this.transport = createAndroidTransport(
+      const backend = androidTransportKindForSerial(this.serial);
+      this.transport = this.dependencies.createTransport(
         this.serial,
         { width: this.width, height: this.height },
-        (config) => this.applyTransportConfig(config),
+        (config) => {
+          // Emulator screenshot metadata describes its raw encoder buffer.
+          // Android's logical viewport remains authoritative for display and
+          // input, while scrcpy metadata is already in logical coordinates.
+          if (backend === "scrcpy") this.applyTransportConfig(config);
+          else this.observeEmulatorFrameConfig(config);
+        },
         () => this.updateTransportIdleTimer(),
       );
     }
@@ -161,6 +435,7 @@ export class AndroidSession {
   private updateTransportIdleTimer(): void {
     if (this.transportIdleTimer) clearTimeout(this.transportIdleTimer);
     this.transportIdleTimer = null;
+    this.updateEmulatorViewportWatch();
     const session = this.transport;
     if (!session || session.closed || this.hidSockets.size > 0 || session.subscriberCount > 0) return;
     this.transportIdleTimer = setTimeout(() => {
@@ -218,10 +493,8 @@ export class AndroidSession {
     void (async () => {
       try {
         if (!this.width || !this.height) {
-          const config = await getAndroidScreenConfig(this.serial);
-          this.width = config.width;
-          this.height = config.height;
-          this.orientation = config.orientation === "landscape" ? "landscape_left" : "portrait";
+          const config = await this.dependencies.readScreenConfig(this.serial);
+          this.applyScreenConfig(config);
         }
         sendJson(res, 200, this.screenConfig());
       } catch (error) {
@@ -326,7 +599,20 @@ export class AndroidSession {
       const y = m.y * this.height;
       const phase = m.type === "begin" || m.type === "move" || m.type === "end" || m.type === "cancel" ? m.type : null;
       const transport = await this.activeTransport();
-      if (transport && phase && transport.injectTouch(phase, x, y, this.width, this.height)) {
+      const transportPoint = transport
+        ? androidTouchCoordinatesForTransport(
+          transport.backend,
+          { x: m.x, y: m.y },
+          { width: this.width, height: this.height, rotation: this.rotation },
+        )
+        : null;
+      if (transport && phase && transportPoint && transport.injectTouch(
+        phase,
+        transportPoint.x,
+        transportPoint.y,
+        transportPoint.width,
+        transportPoint.height,
+      )) {
         this.touchStart = null;
         this.lastMove = null;
         return;
@@ -375,14 +661,28 @@ export class AndroidSession {
       if (!m) return;
       const phase = m.type === "begin" || m.type === "move" || m.type === "end" || m.type === "cancel" ? m.type : null;
       const transport = await this.activeTransport();
+      const first = transport
+        ? androidTouchCoordinatesForTransport(
+          transport.backend,
+          { x: m.x1, y: m.y1 },
+          { width: this.width, height: this.height, rotation: this.rotation },
+        )
+        : null;
+      const second = transport
+        ? androidTouchCoordinatesForTransport(
+          transport.backend,
+          { x: m.x2, y: m.y2 },
+          { width: this.width, height: this.height, rotation: this.rotation },
+        )
+        : null;
       if (transport && phase && transport.injectMultiTouch(
         phase,
-        m.x1 * this.width,
-        m.y1 * this.height,
-        m.x2 * this.width,
-        m.y2 * this.height,
-        this.width,
-        this.height,
+        first!.x,
+        first!.y,
+        second!.x,
+        second!.y,
+        first!.width,
+        first!.height,
       )) return;
       return;
     }
@@ -401,13 +701,37 @@ export class AndroidSession {
     if (tag === 0x07) {
       const m = json<{ orientation: string }>();
       if (!m?.orientation) return;
-      await androidRotate(this.serial, m.orientation);
+      const backend = androidTransportKindForSerial(this.serial);
+      if (backend === "emulator-controller") {
+        await this.activeTransport();
+        const previousViewport = this.lastEmulatorViewport;
+        await this.dependencies.freeEmulatorRotation(this.serial);
+        const reconciled = await this.waitForEmulatorViewportChange(previousViewport);
+        if (!reconciled) await this.refreshEmulatorConfigImmediately();
+        if (this.closed) return;
+        const requestedRotation = androidRotationForOrientation(m.orientation, {
+          width: this.width,
+          height: this.height,
+          rotation: this.rotation,
+        });
+        await this.dependencies.rotateEmulator(
+          this.serial,
+          clockwiseAndroidRotationSteps(this.rotation, requestedRotation),
+        );
+        this.transport?.resetVideo();
+        this.updateEmulatorViewportWatch();
+        return;
+      }
+      const requestedRotation = androidRotationForOrientation(m.orientation, {
+        width: this.width,
+        height: this.height,
+        rotation: this.rotation,
+      });
+      await this.dependencies.rotate(this.serial, orientationForRotation(requestedRotation));
       this.transport?.resetVideo();
       await wait(350);
-      const config = await getAndroidScreenConfig(this.serial);
-      this.width = config.width;
-      this.height = config.height;
-      this.orientation = config.orientation === "landscape" ? "landscape_left" : "portrait";
+      const config = await this.dependencies.readScreenConfig(this.serial);
+      this.applyScreenConfig(config);
       this.broadcastConfig();
       return;
     }

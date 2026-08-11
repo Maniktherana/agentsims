@@ -22,7 +22,10 @@ export type AndroidEmulatorConfig = {
   width: number;
   height: number;
   orientation: "portrait" | "landscape_left";
+  rotation: AndroidDisplayRotation;
 };
+
+export type AndroidDisplayRotation = 0 | 1 | 2 | 3;
 
 /**
  * The controller still needs screenshot metadata to keep input/configuration
@@ -122,16 +125,32 @@ function numericField(fields: Map<number, bigint | Uint8Array>, field: number): 
   return typeof value === "bigint" ? Number(value) : 0;
 }
 
-function parseImageDimensions(message: Uint8Array): { width: number; height: number } {
+export function parseImageMetadata(message: Uint8Array): {
+  width: number;
+  height: number;
+  rotation: AndroidDisplayRotation;
+} {
   const image = decodeFields(message);
   const encodedFormat = image.get(1);
   if (encodedFormat instanceof Uint8Array) {
     const format = decodeFields(encodedFormat);
     const width = numericField(format, 3);
     const height = numericField(format, 4);
-    if (width && height) return { width, height };
+    const encodedRotation = format.get(2);
+    const rotation = encodedRotation instanceof Uint8Array
+      ? asDisplayRotation(numericField(decodeFields(encodedRotation), 1))
+      : 0;
+    if (width && height) return { width, height, rotation };
   }
-  return { width: numericField(image, 2), height: numericField(image, 3) };
+  return {
+    width: numericField(image, 2),
+    height: numericField(image, 3),
+    rotation: 0,
+  };
+}
+
+function asDisplayRotation(value: number): AndroidDisplayRotation {
+  return value === 1 || value === 2 || value === 3 ? value : 0;
 }
 
 function parseIni(path: string): Map<string, string> {
@@ -238,7 +257,11 @@ export class AndroidAvccFrameCoordinator {
     return this._currentConfig;
   }
 
-  observeFrameMetadata(dimensions: { width: number; height: number }): AndroidEmulatorConfig {
+  observeFrameMetadata(dimensions: {
+    width: number;
+    height: number;
+    rotation: AndroidDisplayRotation;
+  }): AndroidEmulatorConfig {
     const config: AndroidEmulatorConfig = {
       ...dimensions,
       orientation: orientation(dimensions.width, dimensions.height),
@@ -246,7 +269,8 @@ export class AndroidAvccFrameCoordinator {
     if (
       !this._currentConfig ||
       config.width !== this._currentConfig.width ||
-      config.height !== this._currentConfig.height
+      config.height !== this._currentConfig.height ||
+      config.rotation !== this._currentConfig.rotation
     ) {
       this._currentConfig = config;
       this.onConfig(config);
@@ -493,7 +517,7 @@ export class AndroidEmulatorSession {
             fail(new Error("Compressed emulator gRPC frames are unsupported"));
             return;
           }
-          const dimensions = parseImageDimensions(this.pendingGrpc.subarray(5, 5 + length));
+          const dimensions = parseImageMetadata(this.pendingGrpc.subarray(5, 5 + length));
           this.pendingGrpc = this.pendingGrpc.subarray(5 + length);
           if (!dimensions.width || !dimensions.height) continue;
           this.frameCoordinator?.observeFrameMetadata(dimensions);

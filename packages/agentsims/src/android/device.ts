@@ -197,16 +197,91 @@ function parseSettingRotation(output: string): number | undefined {
   return Number.isInteger(value) && value >= 0 && value <= 3 ? value : undefined;
 }
 
-function logicalSizeForRotation(
+function parseActiveInternalDisplayViewport(output: string): {
+  width: number;
+  height: number;
+  rotation: number;
+} | null {
+  for (const match of output.matchAll(/DisplayViewport\{([^}]+)\}/g)) {
+    const viewport = match[1]!;
+    if (!/\btype=INTERNAL\b/.test(viewport)) continue;
+    if (!/\bvalid=true\b/.test(viewport)) continue;
+    if (!/\bisActive=true\b/.test(viewport)) continue;
+    const orientation = viewport.match(/\borientation=([0-3])\b/);
+    const frame = viewport.match(
+      /\blogicalFrame=Rect\(\s*(-?\d+)\s*,\s*(-?\d+)\s*-\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/,
+    );
+    if (!orientation || !frame) continue;
+    const width = Number(frame[3]) - Number(frame[1]);
+    const height = Number(frame[4]) - Number(frame[2]);
+    if (width <= 0 || height <= 0) continue;
+    return { width, height, rotation: Number(orientation[1]) };
+  }
+  return null;
+}
+
+export type AndroidEmulatorViewportState = {
+  width: number;
+  height: number;
+  rotation: 0 | 1 | 2 | 3;
+};
+
+export function parseAndroidEmulatorViewportState(
+  output: string,
+): AndroidEmulatorViewportState | null {
+  const viewport = output
+    .split("\n")
+    .find((line) =>
+      /\bViewport INTERNAL:/i.test(line) && /\bisActive=\[1\]/i.test(line)
+    );
+  if (!viewport) return null;
+  const rotation = viewport.match(/\borientation=([0-3])\b/i);
+  const frame = viewport.match(
+    /\blogicalFrame=\[\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\]/i,
+  );
+  if (!rotation || !frame) return null;
+  const width = Number(frame[3]) - Number(frame[1]);
+  const height = Number(frame[4]) - Number(frame[2]);
+  if (width <= 0 || height <= 0) return null;
+  const value = Number(rotation[1]);
+  const normalizedRotation = value === 1 || value === 2 || value === 3 ? value : 0;
+  return { width, height, rotation: normalizedRotation };
+}
+
+export function androidScreenConfigFromOutputs(
+  sizeOutput: string,
+  densityOutput: string,
+  displayOutput: string,
+  windowRotationOutput: string,
+  rotationSettingOutput: string,
+): AndroidScreenConfig | null {
+  const size = parseWmSize(sizeOutput);
+  if (!size) return null;
+  const activeViewport = parseActiveInternalDisplayViewport(displayOutput);
+  const rotation = activeViewport?.rotation ??
+    parseRotation(windowRotationOutput) ??
+    parseRotation(displayOutput) ??
+    parseSettingRotation(rotationSettingOutput);
+  const logicalSize = activeViewport ?? logicalSizeForRotation(size, rotation);
+  const config: AndroidScreenConfig = {
+    width: logicalSize.width,
+    height: logicalSize.height,
+    orientation: logicalSize.width > logicalSize.height ? "landscape" : "portrait",
+  };
+  const density = parseDensity(densityOutput);
+  if (density !== undefined) config.density = density;
+  if (rotation !== undefined) config.rotation = rotation;
+  return config;
+}
+
+export function logicalSizeForRotation(
   size: { width: number; height: number },
   rotation: number | undefined,
 ): { width: number; height: number } {
   if (rotation == null) return size;
-  const long = Math.max(size.width, size.height);
-  const short = Math.min(size.width, size.height);
   return rotation === 1 || rotation === 3
-    ? { width: long, height: short }
-    : { width: short, height: long };
+    ? { width: size.height, height: size.width }
+    : size;
 }
 
 async function getProp(serial: string, name: string): Promise<string | undefined> {
@@ -504,21 +579,27 @@ export async function getAndroidScreenConfig(serial: string): Promise<AndroidScr
     adbText(["-s", serial, "shell", "cmd", "window", "user-rotation"], 5_000).catch(() => ""),
     adbText(["-s", serial, "shell", "settings", "get", "system", "user_rotation"], 5_000).catch(() => ""),
   ]);
-  const size = parseWmSize(sizeOutput);
-  if (!size) throw new Error(`Unable to read Android screen size for ${serial}`);
-  const rotation =
-    parseRotation(windowRotationOutput) ??
-    parseRotation(displayOutput) ??
-    parseSettingRotation(rotationSettingOutput);
-  const logicalSize = logicalSizeForRotation(size, rotation);
-  const config: AndroidScreenConfig = {
-    ...logicalSize,
-    orientation: logicalSize.width > logicalSize.height ? "landscape" : "portrait",
-  };
-  const density = parseDensity(densityOutput);
-  if (density !== undefined) config.density = density;
-  if (rotation !== undefined) config.rotation = rotation;
+  const config = androidScreenConfigFromOutputs(
+    sizeOutput,
+    densityOutput,
+    displayOutput,
+    windowRotationOutput,
+    rotationSettingOutput,
+  );
+  if (!config) throw new Error(`Unable to read Android screen size for ${serial}`);
   return config;
+}
+
+export async function getAndroidEmulatorViewportState(
+  serial: string,
+): Promise<AndroidEmulatorViewportState> {
+  const output = await adbText(
+    ["-s", serial, "shell", "dumpsys input | grep -m 1 'Viewport INTERNAL:'"],
+    5_000,
+  );
+  const viewport = parseAndroidEmulatorViewportState(output);
+  if (!viewport) throw new Error(`Unable to read active Android viewport for ${serial}`);
+  return viewport;
 }
 
 async function enrichAndroidDevice(device: AndroidDeviceInfo): Promise<AndroidDeviceInfo> {
@@ -805,6 +886,36 @@ export async function androidRotate(serial: string, orientation: string): Promis
   } catch {
     await adbText(["-s", serial, "shell", "settings", "put", "system", "accelerometer_rotation", "0"], 5_000).catch(() => "");
     await adbText(["-s", serial, "shell", "settings", "put", "system", "user_rotation", rotation], 5_000);
+  }
+}
+
+export function androidEmulatorNativeRotationCommands(
+  serial: string,
+  clockwiseSteps: number,
+): string[][] {
+  const steps = Math.max(0, Math.min(3, Math.trunc(clockwiseSteps)));
+  if (steps === 0) return [];
+  const commands: string[][] = [];
+  for (let step = 0; step < steps; step += 1) {
+    commands.push(["-s", serial, "emu", "rotate"]);
+  }
+  return commands;
+}
+
+export function androidEmulatorRotationUnlockCommand(serial: string): string[] {
+  return ["-s", serial, "shell", "cmd", "window", "user-rotation", "free"];
+}
+
+export async function freeAndroidEmulatorRotation(serial: string): Promise<void> {
+  await adbText(androidEmulatorRotationUnlockCommand(serial), 5_000);
+}
+
+export async function rotateAndroidEmulatorNative(
+  serial: string,
+  clockwiseSteps: number,
+): Promise<void> {
+  for (const command of androidEmulatorNativeRotationCommands(serial, clockwiseSteps)) {
+    await adbText(command, 5_000);
   }
 }
 

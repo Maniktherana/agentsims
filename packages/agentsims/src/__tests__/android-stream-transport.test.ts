@@ -5,9 +5,26 @@ import type { IncomingMessage, ServerResponse } from "http";
 import { serveAndroidHelper } from "../android/session";
 import { androidStreamOrientation, resolveScrcpyServer } from "../android/scrcpy";
 import { androidTransportKindForSerial } from "../android/transport";
-import { AndroidAvccFrameCoordinator } from "../android/emulator-controller";
+import {
+  AndroidAvccFrameCoordinator,
+  parseImageMetadata,
+} from "../android/emulator-controller";
 
 describe("Android stream transport", () => {
+  test("decodes exact rotation from emulator screenshot metadata", () => {
+    // Image { format: ImageFormat { format: RGBA8888, rotation:
+    // Rotation { rotation: REVERSE_PORTRAIT }, width: 2560, height: 1600 } }
+    const image = Buffer.from([
+      0x0a, 0x0c, 0x08, 0x01, 0x12, 0x02, 0x08, 0x02, 0x18, 0x80, 0x14, 0x20,
+      0xc0, 0x0c,
+    ]);
+    expect(parseImageMetadata(image)).toEqual({
+      width: 2560,
+      height: 1600,
+      rotation: 2,
+    });
+  });
+
   test("publishes toolbar-compatible stream orientations", () => {
     expect(androidStreamOrientation(1080, 2424)).toBe("portrait");
     expect(androidStreamOrientation(2424, 1080)).toBe("landscape_left");
@@ -39,8 +56,10 @@ describe("Android stream transport", () => {
 
     // Controller metadata remains available to config/input before video is
     // attached, without paying the 60fps RGBA → H.264 cost.
-    coordinator.observeFrameMetadata({ width: 1080, height: 2424 });
-    expect(configs).toEqual([{ width: 1080, height: 2424, orientation: "portrait" }]);
+    coordinator.observeFrameMetadata({ width: 1080, height: 2424, rotation: 0 });
+    expect(configs).toEqual([
+      { width: 1080, height: 2424, orientation: "portrait", rotation: 0 },
+    ]);
     expect(coordinator.currentConfig).toEqual(configs[0]);
     expect(orchestration).toEqual([]);
 
@@ -66,11 +85,12 @@ describe("Android stream transport", () => {
     expect(writes).toEqual([keyframe]);
 
     response.emit("close");
-    coordinator.observeFrameMetadata({ width: 2424, height: 1080 });
+    coordinator.observeFrameMetadata({ width: 2424, height: 1080, rotation: 1 });
     expect(configs.at(-1)).toEqual({
       width: 2424,
       height: 1080,
       orientation: "landscape_left",
+      rotation: 1,
     });
     expect(coordinator.currentConfig).toEqual(configs.at(-1));
     expect(orchestration).toEqual([
@@ -78,6 +98,22 @@ describe("Android stream transport", () => {
       "keyframe",
       "frame:1080x2424",
       "subscribers:0",
+    ]);
+  });
+
+  test("reports a 180-degree rotation even when frame dimensions do not change", () => {
+    const configs: unknown[] = [];
+    const coordinator = new AndroidAvccFrameCoordinator(
+      { requestKeyframe: () => {}, frame: () => {} },
+      (config) => configs.push(config),
+    );
+
+    coordinator.observeFrameMetadata({ width: 2560, height: 1600, rotation: 0 });
+    coordinator.observeFrameMetadata({ width: 2560, height: 1600, rotation: 2 });
+
+    expect(configs).toEqual([
+      { width: 2560, height: 1600, orientation: "landscape_left", rotation: 0 },
+      { width: 2560, height: 1600, orientation: "landscape_left", rotation: 2 },
     ]);
   });
 
