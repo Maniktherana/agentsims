@@ -101,6 +101,18 @@ export function useScreenshotToast(deviceUdid?: string | null) {
     }
   }, [clearDismissTimer, dismiss, pauseDismiss, resumeDismiss, reveal, scheduleDismiss]);
 
+  const reportError = useCallback((message: string) => {
+    const id = crypto.randomUUID();
+    render({ id, status: "error", phase: "in", message }, ERROR_DISMISS_MS);
+  }, [render]);
+
+  const reportSaved = useCallback((path: string) => {
+    render(
+      { id: crypto.randomUUID(), status: "saved", phase: "in", path },
+      SAVED_DISMISS_MS,
+    );
+  }, [render]);
+
   const capture = useCallback(async () => {
     if (!deviceUdid) return;
     const id = crypto.randomUUID();
@@ -152,5 +164,5 @@ export function useScreenshotToast(deviceUdid?: string | null) {
     }
   }, [deviceUdid, render]);
 
-  return { capture, reveal, dismiss };
+  return { capture, reveal, dismiss, reportError, reportSaved };
 }

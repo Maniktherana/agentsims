@@ -15,14 +15,7 @@ import {
   type Transition,
   type Variants,
 } from "motion/react";
-import {
-  MessageSquarePlus,
-  MonitorSmartphone,
-  RotateCcw,
-  Search,
-  Settings,
-  X,
-} from "lucide-react";
+import { MessageSquarePlus, MonitorSmartphone, RotateCcw, Search, Settings, X } from "lucide-react";
 import { type GridDevice, runtimeLabel } from "../utils/grid";
 import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
 import {
@@ -103,6 +96,7 @@ export function WorkspaceHeader({
   onResetPage,
   selectedUdid,
   visibleUdids,
+  streamingByDevice,
   onSelect,
   settingsUdid,
   onSettingsSelect,
@@ -127,6 +121,7 @@ export function WorkspaceHeader({
   onResetPage: () => void;
   selectedUdid: string | null;
   visibleUdids: Set<string>;
+  streamingByDevice: Readonly<Record<string, boolean>>;
   onSelect: (udid: string) => void;
   settingsUdid: string | null;
   onSettingsSelect: (udid: string) => void;
@@ -154,20 +149,20 @@ export function WorkspaceHeader({
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized || !devices) return devices;
-    return devices.filter((device) =>
-      device.name.toLowerCase().includes(normalized) ||
-      runtimeLabel(device.runtime).toLowerCase().includes(normalized)
+    return devices.filter(
+      (device) =>
+        device.name.toLowerCase().includes(normalized) ||
+        runtimeLabel(device.runtime).toLowerCase().includes(normalized),
     );
   }, [devices, query]);
   const partitionedDevices = useMemo(
-    () => filtered ? partitionDevicePickerDevices(filtered, starting, shuttingDown) : null,
+    () => (filtered ? partitionDevicePickerDevices(filtered, starting, shuttingDown) : null),
     [filtered, shuttingDown, starting],
   );
   const runningDevices = partitionedDevices?.runningDevices ?? null;
   const availableDevices = partitionedDevices?.availableDevices ?? null;
-  const visibleCount = devices?.filter(
-    (device) => !!device.helper && visibleUdids.has(device.device),
-  ).length ?? 0;
+  const visibleCount =
+    devices?.filter((device) => !!device.helper && visibleUdids.has(device.device)).length ?? 0;
   const devicesLabel = `Devices, ${visibleCount} shown`;
   const expanded = pickerOpen || toolsOpen;
   const activePanel = pickerOpen ? "devices" : toolsOpen ? "settings" : null;
@@ -175,38 +170,23 @@ export function WorkspaceHeader({
   const panelDirectionRef = useRef(1);
   if (activePanel && activePanel !== previousPanelRef.current) {
     if (previousPanelRef.current) {
-      panelDirectionRef.current =
-        activePanel === "settings" ? 1 : -1;
+      panelDirectionRef.current = activePanel === "settings" ? 1 : -1;
     } else {
       panelDirectionRef.current = activePanel === "settings" ? 1 : -1;
     }
     previousPanelRef.current = activePanel;
   }
   const settingsDevices = useMemo(
-    () =>
-      devices?.filter(
-        (device) => !!device.helper && visibleUdids.has(device.device),
-      ) ?? [],
+    () => devices?.filter((device) => !!device.helper && visibleUdids.has(device.device)) ?? [],
     [devices, visibleUdids],
   );
-  const settingsDeviceId =
-    settingsDevices.some((device) => device.device === settingsUdid)
-      ? settingsUdid
-      : settingsDevices[0]?.device ?? null;
+  const settingsDeviceId = settingsDevices.some((device) => device.device === settingsUdid)
+    ? settingsUdid
+    : (settingsDevices[0]?.device ?? null);
   const compactDockWidth = Math.max(136, reviewControlsWidth + 96);
-  const dockWidth = pickerOpen
-    ? 400
-    : toolsOpen
-      ? 400
-      : compactDockWidth;
+  const dockWidth = pickerOpen ? 400 : toolsOpen ? 400 : compactDockWidth;
   const dockHeight = expanded
-    ? Math.max(
-        320,
-        Math.min(
-          620,
-          (typeof window === "undefined" ? 800 : window.innerHeight) - 24,
-        ),
-      )
+    ? Math.max(320, Math.min(620, (typeof window === "undefined" ? 800 : window.innerHeight) - 24))
     : 50;
 
   useLayoutEffect(() => {
@@ -248,9 +228,7 @@ export function WorkspaceHeader({
         40,
         Math.ceil(Number.isFinite(declaredWidth) ? declaredWidth : measuredWidth),
       );
-      setReviewControlsWidth((current) =>
-        current === nextWidth ? current : nextWidth
-      );
+      setReviewControlsWidth((current) => (current === nextWidth ? current : nextWidth));
     };
     updateWidth();
     const observer = new ResizeObserver(updateWidth);
@@ -302,11 +280,7 @@ export function WorkspaceHeader({
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
-      if (
-        event.key === "Meta" ||
-        event.key === "Control" ||
-        (!event.metaKey && !event.ctrlKey)
-      ) {
+      if (event.key === "Meta" || event.key === "Control" || (!event.metaKey && !event.ctrlKey)) {
         hideCommandHints();
       }
     };
@@ -375,11 +349,7 @@ export function WorkspaceHeader({
               expanded ? "" : "pointer-events-none"
             }`}
           >
-            <AnimatePresence
-              initial={false}
-              mode="popLayout"
-              custom={panelDirectionRef.current}
-            >
+            <AnimatePresence initial={false} mode="popLayout" custom={panelDirectionRef.current}>
               {pickerOpen ? (
                 <motion.div
                   key="devices"
@@ -399,10 +369,7 @@ export function WorkspaceHeader({
                       <span className="text-[10px] tabular-nums text-white/35">
                         {visibleCount} shown
                       </span>
-                      <PanelIconButton
-                        label="Reset canvas positions"
-                        onClick={onResetLayout}
-                      >
+                      <PanelIconButton label="Reset canvas positions" onClick={onResetLayout}>
                         <RotateCcw size={14} strokeWidth={2} />
                       </PanelIconButton>
                     </div>
@@ -420,6 +387,7 @@ export function WorkspaceHeader({
                     onLoadMore={onLoadMore}
                     selectedUdid={selectedUdid}
                     visibleUdids={visibleUdids}
+                    streamingByDevice={streamingByDevice}
                     starting={starting}
                     shuttingDown={shuttingDown}
                     onSelect={onSelect}
@@ -467,10 +435,7 @@ export function WorkspaceHeader({
                         })}
                       </TabsList>
                     </Tabs>
-                    <PanelIconButton
-                      label="Reset canvas positions"
-                      onClick={onResetLayout}
-                    >
+                    <PanelIconButton label="Reset canvas positions" onClick={onResetLayout}>
                       <RotateCcw size={14} strokeWidth={2} />
                     </PanelIconButton>
                     <button
@@ -493,14 +458,10 @@ export function WorkspaceHeader({
 
           <div
             className={`flex h-12 w-full min-w-0 shrink-0 items-center justify-center gap-1 p-1 ${
-              dockWidthAnimating
-                ? "overflow-x-clip overflow-y-visible"
-                : "overflow-visible"
+              dockWidthAnimating ? "overflow-x-clip overflow-y-visible" : "overflow-visible"
             }`}
           >
-            <div
-              className="relative flex h-10 shrink-0 items-center justify-center"
-            >
+            <div className="relative flex h-10 shrink-0 items-center justify-center">
               <div
                 id="agentsims-review-dock-slot"
                 ref={reviewSlotRef}
@@ -522,7 +483,7 @@ export function WorkspaceHeader({
               </ShortcutHint>
             </div>
             <WorkspaceDockButton
-              onClick={() => pickerOpen ? onPickerOpenChange(false) : openPicker()}
+              onClick={() => (pickerOpen ? onPickerOpenChange(false) : openPicker())}
               label={devicesLabel}
               pressed={pickerOpen}
               badge={visibleCount}
@@ -601,9 +562,7 @@ function WorkspaceDockButton({
       size="dock"
     >
       {children}
-      {shortcut && (
-        <ShortcutHint visible={shortcutVisible}>{shortcut}</ShortcutHint>
-      )}
+      {shortcut && <ShortcutHint visible={shortcutVisible}>{shortcut}</ShortcutHint>}
     </ReviewIconButton>
   );
 }
@@ -622,11 +581,7 @@ function ShortcutHint({
       aria-hidden="true"
       className={`pointer-events-none absolute top-1/2 z-20 grid min-w-4 -translate-y-1/2 place-items-center border border-black/15 bg-[#f2f2f2] px-1 py-0.5 font-system text-[8px] font-semibold leading-none text-[#111] shadow-[0_2px_8px_rgba(0,0,0,0.42)] [border-radius:5px] [transition:opacity_80ms_ease,transform_100ms_cubic-bezier(0.16,1,0.3,1)] ${
         anchor === "first-slot" ? "left-[35px]" : "right-[-5px]"
-      } ${
-        visible
-          ? "translate-x-0 opacity-100"
-          : "translate-x-0 opacity-0"
-      }`}
+      } ${visible ? "translate-x-0 opacity-100" : "translate-x-0 opacity-0"}`}
     >
       {children}
     </kbd>
@@ -646,6 +601,7 @@ function DevicePickerContent({
   onLoadMore,
   selectedUdid,
   visibleUdids,
+  streamingByDevice,
   starting,
   shuttingDown,
   onSelect,
@@ -665,6 +621,7 @@ function DevicePickerContent({
   onLoadMore: () => void;
   selectedUdid: string | null;
   visibleUdids: Set<string>;
+  streamingByDevice: Readonly<Record<string, boolean>>;
   starting: Record<string, boolean>;
   shuttingDown: Record<string, boolean>;
   onSelect: (udid: string) => void;
@@ -706,7 +663,9 @@ function DevicePickerContent({
           <>
             <DeviceSectionTitle count={availableDevices.length}>Available</DeviceSectionTitle>
             {availableDevices.length === 0 ? (
-              <EmptyDevices>{query ? "No available devices match." : "No available devices found."}</EmptyDevices>
+              <EmptyDevices>
+                {query ? "No available devices match." : "No available devices found."}
+              </EmptyDevices>
             ) : (
               <div className="flex flex-col gap-0.5">
                 {availableDevices.map((device) => (
@@ -737,7 +696,9 @@ function DevicePickerContent({
         <div className="max-h-44 shrink-0 overflow-x-hidden overflow-y-auto border-t border-white/[0.08] px-2 py-1 [scrollbar-width:thin]">
           <DeviceSectionTitle count={runningDevices.length}>Running</DeviceSectionTitle>
           {runningDevices.length === 0 ? (
-            <EmptyDevices>{query ? "No running devices match." : "No devices are running."}</EmptyDevices>
+            <EmptyDevices>
+              {query ? "No running devices match." : "No devices are running."}
+            </EmptyDevices>
           ) : (
             <div className="flex flex-col gap-0.5">
               {runningDevices.map((device) => (
@@ -747,6 +708,11 @@ function DevicePickerContent({
                   active={device.device === selectedUdid}
                   visible={visibleUdids.has(device.device)}
                   showVisibilityControl
+                  transportConnected={
+                    device.device === selectedUdid && visibleUdids.has(device.device)
+                      ? !!streamingByDevice[device.device]
+                      : undefined
+                  }
                   starting={!!starting[device.device]}
                   shuttingDown={!!shuttingDown[device.device]}
                   onSelect={() => onSelect(device.device)}
@@ -800,7 +766,12 @@ function EmptyDevices({ children }: { children: string }) {
 
 function DeviceListSkeleton() {
   return (
-    <div data-testid="device-list-skeleton" className="py-1" aria-label="Loading devices" aria-busy="true">
+    <div
+      data-testid="device-list-skeleton"
+      className="py-1"
+      aria-label="Loading devices"
+      aria-busy="true"
+    >
       {Array.from({ length: DEVICE_SKELETON_ROWS }, (_, index) => (
         <div
           key={index}

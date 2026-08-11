@@ -1,10 +1,12 @@
 import { existsSync, readFileSync } from "fs";
+import { mkdir, rename, unlink, writeFile } from "fs/promises";
 import { exec, type ExecException } from "child_process";
 import { createServer as createNetServer } from "net";
 import { randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
 import type { Socket } from "net";
-import { dirname, resolve } from "path";
+import { homedir } from "os";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import {
   createAxStreamerCache,
@@ -449,6 +451,12 @@ export interface SimMiddlewareOptions {
   readDeviceStates?: () => Promise<DeviceState[]>;
   /** Test hook for an isolated AX stream lifecycle. */
   axStreamerCache?: AxStreamerCache;
+  /** Test hook for screenshot persistence without writing the host Desktop. */
+  saveScreenshot?: (
+    png: Buffer,
+    deviceId: string,
+    signal: AbortSignal,
+  ) => Promise<string>;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -463,6 +471,36 @@ function isJsonContentType(value: string | undefined): boolean {
   // `application/json; charset=utf-8` etc. — only the media type matters.
   const mediaType = value.split(";", 1)[0]!.trim().toLowerCase();
   return mediaType === "application/json";
+}
+
+const SCREENSHOT_SAVE_MAX_BYTES = 32 * 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+async function saveScreenshotPng(
+  png: Buffer,
+  deviceId: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const desktop = join(homedir(), "Desktop");
+  await mkdir(desktop, { recursive: true });
+  const platform = deviceId.startsWith("android:") ? "android" : "ios";
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const name = `agentsims-${platform}-${timestamp}-${randomBytes(3).toString("hex")}.png`;
+  const destination = join(desktop, name);
+  const temporary = join(desktop, `.${name}.${process.pid}.tmp`);
+  try {
+    await writeFile(temporary, png, { flag: "wx", signal });
+    if (signal.aborted) throw signal.reason;
+    await rename(temporary, destination);
+    if (signal.aborted) {
+      await unlink(destination).catch(() => {});
+      throw signal.reason;
+    }
+    return destination;
+  } catch (error) {
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
 }
 
 /**
@@ -491,6 +529,9 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
   };
   const getAxDeviceStates = options?.readDeviceStates ?? readDeviceStates;
   const streamers = options?.axStreamerCache ?? axStreamerCache;
+  const persistScreenshot = options?.saveScreenshot ?? saveScreenshotPng;
+  const screenshotSaveControllers = new Map<string, AbortController>();
+  const cancelledScreenshotSaves = new Set<string>();
   // Per-process random token. Anyone who can read the preview HTML same-origin
   // can call /exec; cross-origin pages and LAN clients cannot, because they
   // can't read this value (it's only injected into the preview page's config).
@@ -916,6 +957,147 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
       const ax = streamers.get(state.device);
       const removeClient = ax.addClient(res);
       req.on("close", removeClient);
+      return;
+    }
+
+    if (url === base + "/screenshot/save" && req.method === "DELETE") {
+      const origin = req.headers.origin;
+      if (origin) {
+        try {
+          if (new URL(origin).host !== req.headers.host) {
+            res.writeHead(403, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Cross-origin request blocked" }));
+            return;
+          }
+        } catch {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid Origin" }));
+          return;
+        }
+      }
+      const authHeader = req.headers.authorization ?? "";
+      const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+      if (!match || !safeEqualString(match[1]!.trim(), execToken)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      const requestUrl = new URL(rawUrl, "http://agentsims.local");
+      const saveId = requestUrl.searchParams.get("id") ?? "";
+      if (!/^[0-9A-Za-z-]{1,100}$/.test(saveId)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid screenshot save id" }));
+        return;
+      }
+      cancelledScreenshotSaves.add(saveId);
+      screenshotSaveControllers.get(saveId)?.abort();
+      const expiry = setTimeout(() => cancelledScreenshotSaves.delete(saveId), 30_000);
+      expiry.unref?.();
+      res.writeHead(202, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ cancelled: true }));
+      return;
+    }
+
+    if (url === base + "/screenshot/save" && req.method === "POST") {
+      const mediaType = req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+      if (mediaType !== "image/png") {
+        res.writeHead(415, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Screenshot must be an image/png" }));
+        return;
+      }
+      const origin = req.headers.origin;
+      if (origin) {
+        try {
+          if (new URL(origin).host !== req.headers.host) {
+            res.writeHead(403, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Cross-origin request blocked" }));
+            return;
+          }
+        } catch {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid Origin" }));
+          return;
+        }
+      }
+      const authHeader = req.headers.authorization ?? "";
+      const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+      if (!match || !safeEqualString(match[1]!.trim(), execToken)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+
+      const requestUrl = new URL(rawUrl, "http://agentsims.local");
+      const saveId = requestUrl.searchParams.get("id") ?? "";
+      if (!/^[0-9A-Za-z-]{1,100}$/.test(saveId)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid screenshot save id" }));
+        return;
+      }
+
+      const controller = new AbortController();
+      screenshotSaveControllers.set(saveId, controller);
+      if (cancelledScreenshotSaves.delete(saveId)) controller.abort();
+      const chunks: Buffer[] = [];
+      let byteLength = 0;
+      let settled = false;
+      req.on("aborted", () => controller.abort());
+      res.on("close", () => {
+        if (!settled) controller.abort();
+      });
+      req.on("data", (chunk: Buffer | string) => {
+        if (settled) return;
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        byteLength += buffer.length;
+        if (byteLength > SCREENSHOT_SAVE_MAX_BYTES) {
+          settled = true;
+          controller.abort();
+          res.writeHead(413, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Screenshot is too large" }));
+          req.destroy();
+          return;
+        }
+        chunks.push(buffer);
+      });
+      req.on("end", async () => {
+        if (settled || controller.signal.aborted) return;
+        const png = Buffer.concat(chunks, byteLength);
+        if (png.length < PNG_SIGNATURE.length || !png.subarray(0, 8).equals(PNG_SIGNATURE)) {
+          settled = true;
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid PNG data" }));
+          return;
+        }
+        try {
+          const deviceId = requestUrl.searchParams.get("device") ?? selectedDevice ?? "ios";
+          const path = await persistScreenshot(png, deviceId, controller.signal);
+          if (controller.signal.aborted) return;
+          settled = true;
+          res.writeHead(201, {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          });
+          res.end(JSON.stringify({ path }));
+        } catch (error) {
+          if (controller.signal.aborted) {
+            settled = true;
+            if (!res.destroyed) {
+              res.writeHead(409, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Screenshot save cancelled" }));
+            }
+            return;
+          }
+          settled = true;
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            error: error instanceof Error ? error.message : "Screenshot save failed",
+          }));
+        } finally {
+          if (screenshotSaveControllers.get(saveId) === controller) {
+            screenshotSaveControllers.delete(saveId);
+          }
+        }
+      });
       return;
     }
 

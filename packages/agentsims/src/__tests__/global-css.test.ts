@@ -25,4 +25,29 @@ describe("global CSS panel variables", () => {
     expect(globalCss).toContain("--color-accent: var(--agentsims-accent);");
     expect(globalCss).not.toContain("--agentsims-accent: #0a84ff;");
   });
+
+  test("limits screenshot feedback motion to opacity and transform with a reduced-motion fallback", () => {
+    expect(globalCss).toContain(".agentsims-screenshot-flash");
+    expect(globalCss).toContain(".agentsims-screenshot-preview");
+    expect(globalCss).toContain("transition: opacity");
+    expect(globalCss).toContain("transform:");
+    expect(globalCss).not.toMatch(
+      /\.agentsims-screenshot-(?:flash|preview)[^{]*\{[^}]*(?:filter|backdrop-filter)/s,
+    );
+    expect(globalCss).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.agentsims-screenshot-flash[\s\S]*transition: none/,
+    );
+  });
+
+  test("keeps screenshot actions external with accessible hit targets and image-only elevation", () => {
+    expect(globalCss).toMatch(
+      /\.agentsims-screenshot-preview-controls button\s*\{[^}]*width:\s*40px[^}]*height:\s*40px/s,
+    );
+    expect(globalCss).toMatch(
+      /\.agentsims-screenshot-preview-image\s*\{[^}]*border:\s*2px solid #fff[^}]*box-shadow:/s,
+    );
+    expect(globalCss).not.toMatch(
+      /\.agentsims-screenshot-preview\s*\{[^}]*box-shadow:/s,
+    );
+  });
 });

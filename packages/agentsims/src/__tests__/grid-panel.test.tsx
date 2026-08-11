@@ -5,10 +5,7 @@ import {
   reconcileDevicePhaseAnnouncements,
   WorkspaceHeader,
 } from "../web/components/workspace-header";
-import {
-  AGENTSIMS_REPO_URL,
-  AgentsimsBrandLink,
-} from "../web/components/agentsims-brand-link";
+import { AGENTSIMS_REPO_URL, AgentsimsBrandLink } from "../web/components/agentsims-brand-link";
 import type { GridDevice } from "../web/utils/grid";
 
 const devices: GridDevice[] = [
@@ -48,6 +45,7 @@ function renderHeader(override: Partial<Parameters<typeof WorkspaceHeader>[0]> =
       onResetPage={noop}
       selectedUdid="ios-one"
       visibleUdids={new Set(["ios-one"])}
+      streamingByDevice={{ "ios-one": true }}
       onSelect={noop}
       settingsUdid="ios-one"
       onSettingsSelect={noop}
@@ -104,11 +102,9 @@ describe("WorkspaceHeader", () => {
 
   test("moves shutdown progress to Available only after the action settles", () => {
     const shutting = { ...devices[0]!, helper: null };
-    expect(partitionDevicePickerDevices(
-      [shutting],
-      {},
-      { [shutting.device]: true },
-    ).runningDevices).toHaveLength(1);
+    expect(
+      partitionDevicePickerDevices([shutting], {}, { [shutting.device]: true }).runningDevices,
+    ).toHaveLength(1);
 
     const settled = { ...shutting, state: "Shutdown" };
     expect(partitionDevicePickerDevices([settled], {}, {})).toEqual({
@@ -136,21 +132,11 @@ describe("WorkspaceHeader", () => {
     expect(unchanged.announcement).toBe("");
 
     const bootingDevice = { ...devices[1]!, state: "Booting" };
-    const booting = reconcileDevicePhaseAnnouncements(
-      unchanged.phases,
-      [bootingDevice],
-      {},
-      {},
-    );
+    const booting = reconcileDevicePhaseAnnouncements(unchanged.phases, [bootingDevice], {}, {});
     expect(booting.announcement).toBe("Pixel 10: Booting… · Android 17");
 
     const settledDevice = { ...bootingDevice, state: "Shutdown" };
-    const settled = reconcileDevicePhaseAnnouncements(
-      booting.phases,
-      [settledDevice],
-      {},
-      {},
-    );
+    const settled = reconcileDevicePhaseAnnouncements(booting.phases, [settledDevice], {}, {});
     expect(settled.announcement).toBe("Pixel 10: Available · Android 17");
   });
 
@@ -164,6 +150,24 @@ describe("WorkspaceHeader", () => {
     expect(html).toContain("overflow-x-hidden overflow-y-auto");
     expect(html.match(/aria-live="polite"/g)).toHaveLength(1);
     expect(html).not.toContain(">Add sim</button>");
+  });
+
+  test("uses live transport only for the selected visible row", () => {
+    const staleHelperDevice = {
+      ...devices[0]!,
+      device: "ios-stale-helper",
+      name: "Stale helper",
+    };
+    const html = renderHeader({
+      devices: [devices[0]!, staleHelperDevice],
+      total: 2,
+      selectedUdid: "ios-one",
+      visibleUdids: new Set(["ios-one", "ios-stale-helper"]),
+      streamingByDevice: { "ios-one": false, "ios-stale-helper": false },
+    });
+
+    expect(html).toContain('aria-label="iPhone 16, Connecting… · iOS 26.5"');
+    expect(html).toContain('aria-label="Stale helper, Streaming · iOS 26.5"');
   });
 
   test("renders row skeletons while devices load", () => {

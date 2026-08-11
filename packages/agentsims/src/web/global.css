@@ -265,6 +265,103 @@ details.lem-section > summary:hover .lem-chevron {
     opacity var(--agentsims-duration-popover) var(--agentsims-ease-standard);
 }
 
+.agentsims-screenshot-flash {
+  opacity: 0.96;
+  transition: none;
+}
+
+.agentsims-screenshot-flash[data-phase="fading"] {
+  opacity: 0;
+  transition: opacity 145ms var(--agentsims-ease-standard);
+}
+
+.agentsims-screenshot-preview {
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+  transform-origin: center;
+  transition:
+    opacity var(--agentsims-duration-content) var(--agentsims-ease-standard),
+    transform var(--agentsims-duration-panel) var(--agentsims-ease-emphasized);
+}
+
+.agentsims-screenshot-preview[data-phase="visible"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.agentsims-screenshot-preview[data-phase="exit"] {
+  opacity: 0;
+  transform: translateY(4px) scale(0.985);
+}
+
+.agentsims-screenshot-preview-image {
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.agentsims-screenshot-preview-controls[data-side="right"] {
+  left: calc(100% + 6px);
+}
+
+.agentsims-screenshot-preview-controls[data-side="left"] {
+  right: calc(100% + 6px);
+}
+
+.agentsims-screenshot-preview-controls {
+  gap: 3px;
+}
+
+.agentsims-screenshot-preview-controls button {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 7px;
+  background: rgba(12, 12, 12, 0.82);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  transition:
+    background-color var(--agentsims-duration-hover) ease,
+    border-color var(--agentsims-duration-hover) ease,
+    transform var(--agentsims-duration-press) var(--agentsims-ease-standard);
+}
+
+.agentsims-screenshot-preview-controls button:hover:not(:disabled) {
+  background: rgba(30, 30, 30, 0.94);
+}
+
+.agentsims-screenshot-preview-controls button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.agentsims-screenshot-preview-controls button:focus-visible {
+  outline: 2px solid var(--agentsims-accent);
+  outline-offset: 1px;
+}
+
+.agentsims-screenshot-preview-controls button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.agentsims-screenshot-preview-error {
+  overflow: hidden;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 6px;
+  background: rgba(20, 8, 8, 0.88);
+  color: rgb(254, 202, 202);
+  font-size: 10px;
+  line-height: 1.25;
+  padding: 4px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 [data-workspace-device][data-dragging="true"] {
   transition: none !important;
   z-index: 20;
@@ -289,6 +386,15 @@ details.lem-section > summary:hover .lem-chevron {
 
   .agentsims-side-panel {
     transition: none;
+  }
+
+  .agentsims-screenshot-flash,
+  .agentsims-screenshot-preview {
+    transition: none;
+  }
+
+  .agentsims-screenshot-preview {
+    transform: none;
   }
 }
 

@@ -30,15 +30,13 @@ function workspaceReviewReducer(
   return reduceReviewForDevice(store, action.deviceId, action.event);
 }
 
-function isWorkspaceReviewEvent(
-  event: ReviewEvent,
-  currentState: ReviewState,
-): boolean {
-  return event.type === "REVIEW_ANNOTATE_OPENED" ||
+function isWorkspaceReviewEvent(event: ReviewEvent, currentState: ReviewState): boolean {
+  return (
+    event.type === "REVIEW_ANNOTATE_OPENED" ||
     event.type === "ANNOTATION_TOOL_CHANGED" ||
-    ((event.type === "REVIEW_CLOSED" ||
-      event.type === "ESCAPE_REQUESTED") &&
-      currentState.kind === "annotate");
+    ((event.type === "REVIEW_CLOSED" || event.type === "ESCAPE_REQUESTED") &&
+      currentState.kind === "annotate")
+  );
 }
 
 function App() {
@@ -59,7 +57,7 @@ function App() {
   const effectiveSettingsDeviceId =
     settingsDeviceId && workspace.visibleDeviceIds.includes(settingsDeviceId)
       ? settingsDeviceId
-      : workspace.effectiveUdid ?? workspace.visibleDeviceIds[0] ?? null;
+      : (workspace.effectiveUdid ?? workspace.visibleDeviceIds[0] ?? null);
   const settingsDeviceIndex = Math.max(
     0,
     workspace.visibleDeviceIds.indexOf(effectiveSettingsDeviceId ?? ""),
@@ -71,9 +69,7 @@ function App() {
   };
   const closeWorkspaceAnnotations = () => {
     for (const deviceId of workspace.visibleDeviceIds) {
-      if (!selectDismissesForWorkspaceDock(
-        selectDeviceReview(reviewStore, deviceId),
-      )) continue;
+      if (!selectDismissesForWorkspaceDock(selectDeviceReview(reviewStore, deviceId))) continue;
       dispatchReview({ deviceId, event: { type: "REVIEW_CLOSED" } });
     }
   };
@@ -109,9 +105,7 @@ function App() {
         onStart={workspace.startDevice}
         renderDevice={({ deviceId, device, config, focused }) => {
           const deviceIndex = workspace.visibleDeviceIds.indexOf(deviceId);
-          const settingsPosition = Math.sign(
-            deviceIndex - settingsDeviceIndex,
-          ) as -1 | 0 | 1;
+          const settingsPosition = Math.sign(deviceIndex - settingsDeviceIndex) as -1 | 0 | 1;
           return (
             <SimulatorDeviceView
               config={config}
@@ -119,8 +113,7 @@ function App() {
               deviceRuntime={device?.runtime ?? null}
               chrome={device?.chrome ?? null}
               preferMjpeg={
-                workspace.uiStarted.has(config.device) &&
-                !config.device.startsWith("android:")
+                workspace.uiStarted.has(config.device) && !config.device.startsWith("android:")
               }
               reviewState={selectDeviceReview(reviewStore, deviceId)}
               dispatchReview={(event) => dispatchDeviceReview(deviceId, event)}
@@ -131,8 +124,7 @@ function App() {
               selectedDevtoolsTargetId={selectedDevtoolsTargetId}
               setSelectedDevtoolsTargetId={setSelectedDevtoolsTargetId}
               streaming={!!workspace.streamingByDevice[deviceId]}
-              setStreaming={(value) =>
-                workspace.setDeviceStreaming(deviceId, value)}
+              setStreaming={(value) => workspace.setDeviceStreaming(deviceId, value)}
               embedded
               focused={focused}
               settingsPosition={settingsPosition}
@@ -159,6 +151,7 @@ function App() {
         onResetPage={workspace.resetGridPage}
         selectedUdid={workspace.effectiveUdid}
         visibleUdids={workspace.visibleUdids}
+        streamingByDevice={workspace.streamingByDevice}
         onSelect={workspace.selectDevice}
         settingsUdid={effectiveSettingsDeviceId}
         onSettingsSelect={setSettingsDeviceId}
@@ -195,5 +188,7 @@ function App() {
 }
 
 const rootHost = window as Window & { __AGENTSIMS_REACT_ROOT__?: Root };
-const reactRoot = rootHost.__AGENTSIMS_REACT_ROOT__ ??= createRoot(document.getElementById("root")!);
+const reactRoot = (rootHost.__AGENTSIMS_REACT_ROOT__ ??= createRoot(
+  document.getElementById("root")!,
+));
 reactRoot.render(<App />);

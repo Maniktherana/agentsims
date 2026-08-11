@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  DeviceRow,
-  resolveDeviceLifecyclePhase,
-} from "../web/components/device-row";
+import { DeviceRow, resolveDeviceLifecyclePhase } from "../web/components/device-row";
 import type { GridDevice } from "../web/utils/grid";
 
 const noop = () => {};
@@ -57,33 +54,67 @@ describe("DeviceRow", () => {
   });
 
   test("resolves settled and transitional lifecycle phases", () => {
-    expect(resolveDeviceLifecyclePhase({ state: "Shutdown", helper: null }, false, false))
-      .toBe("available");
-    expect(resolveDeviceLifecyclePhase({ state: "Shutdown", helper: null }, true, false))
-      .toBe("booting");
-    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, true, false))
-      .toBe("connecting");
-    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, false, false))
-      .toBe("connecting");
-    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, false, true))
-      .toBe("shutting-down");
-    expect(resolveDeviceLifecyclePhase({ state: "Booting", helper: null }, false, false))
-      .toBe("booting");
-    expect(resolveDeviceLifecyclePhase({ state: "Creating", helper: null }, false, false))
-      .toBe("booting");
-    expect(resolveDeviceLifecyclePhase({ state: "Shutting Down", helper: null }, false, false))
-      .toBe("shutting-down");
-    expect(resolveDeviceLifecyclePhase({
-      state: "Shutting Down",
-      helper: {
-        port: 3100,
-        url: "http://localhost:3100",
-        streamUrl: "http://localhost:3100/stream.mjpeg",
-        wsUrl: "ws://localhost:3100/ws",
-      },
-    }, false, false)).toBe("shutting-down");
-    expect(resolveDeviceLifecyclePhase({ state: "offline", helper: null }, false, false))
-      .toBe("connecting");
+    expect(resolveDeviceLifecyclePhase({ state: "Shutdown", helper: null }, false, false)).toBe(
+      "available",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Shutdown", helper: null }, true, false)).toBe(
+      "booting",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, true, false)).toBe(
+      "connecting",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, false, false)).toBe(
+      "connecting",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, false, true)).toBe(
+      "shutting-down",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Booting", helper: null }, false, false)).toBe(
+      "booting",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Creating", helper: null }, false, false)).toBe(
+      "booting",
+    );
+    expect(
+      resolveDeviceLifecyclePhase({ state: "Shutting Down", helper: null }, false, false),
+    ).toBe("shutting-down");
+    expect(
+      resolveDeviceLifecyclePhase(
+        {
+          state: "Shutting Down",
+          helper: {
+            port: 3100,
+            url: "http://localhost:3100",
+            streamUrl: "http://localhost:3100/stream.mjpeg",
+            wsUrl: "ws://localhost:3100/ws",
+          },
+        },
+        false,
+        false,
+      ),
+    ).toBe("shutting-down");
+    expect(resolveDeviceLifecyclePhase({ state: "offline", helper: null }, false, false)).toBe(
+      "connecting",
+    );
+  });
+
+  test("lets the active browser transport override stale helper state both ways", () => {
+    const helper = {
+      port: 3100,
+      url: "http://localhost:3100",
+      streamUrl: "http://localhost:3100/stream.mjpeg",
+      wsUrl: "ws://localhost:3100/ws",
+    };
+
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper: null }, false, false, true)).toBe(
+      "streaming",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper }, false, false, false)).toBe(
+      "connecting",
+    );
+    expect(resolveDeviceLifecyclePhase({ state: "Booted", helper }, false, false, undefined)).toBe(
+      "streaming",
+    );
   });
 
   test("uses a reverse spinner and disables selection while booting", () => {
@@ -113,7 +144,7 @@ describe("DeviceRow", () => {
     expect(html).toContain('tabindex="-1"');
   });
 
-  test("uses a pulse and disables visibility and shutdown while connecting", () => {
+  test("uses a loader and disables visibility and shutdown while connecting", () => {
     const html = renderToStaticMarkup(
       <DeviceRow
         device={{
@@ -135,9 +166,30 @@ describe("DeviceRow", () => {
     );
 
     expect(html).toContain('data-device-phase="connecting"');
-    expect(html).toContain("agentsims-device-status-pulse");
+    expect(html).toContain("lucide-loader-circle");
     expect(html).toContain("Connecting… · iOS 27.0");
     expect(html.match(/ disabled=""/g)).toHaveLength(2);
+  });
+
+  test("uses a ringless corner status anchor", () => {
+    const html = render({
+      device: "streaming",
+      name: "iPhone 16",
+      runtime: "iOS-26-5",
+      state: "Booted",
+      helper: {
+        port: 3100,
+        url: "http://localhost:3100",
+        streamUrl: "http://localhost:3100/stream.mjpeg",
+        wsUrl: "ws://localhost:3100/ws",
+      },
+    });
+
+    expect(html).toContain("data-device-status-anchor");
+    expect(html).toContain("-bottom-2");
+    expect(html).toContain("-right-2");
+    expect(html).not.toContain("ring-2");
+    expect(html).not.toContain("ring-[#1c1c1e]");
   });
 
   test("shows shutdown immediately even while the stale helper row is still present", () => {
@@ -304,5 +356,4 @@ describe("DeviceRow", () => {
     expect(html).not.toContain("bg-[#26364c]");
     expect(html).not.toContain("shadow-[inset");
   });
-
 });

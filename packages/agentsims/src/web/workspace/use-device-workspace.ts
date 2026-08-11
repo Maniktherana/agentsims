@@ -48,6 +48,16 @@ function setInjectedPreviewConfig(config: PreviewConfig | null): void {
   window.__SIM_PREVIEW__ = { basePath, execToken } as Window["__SIM_PREVIEW__"];
 }
 
+export function reconcileStreamingDeviceVisibility(
+  current: Readonly<Record<string, boolean>>,
+  visibleDeviceIds: readonly string[],
+): Record<string, boolean> {
+  const visible = new Set(visibleDeviceIds);
+  const entries = Object.entries(current).filter(([deviceId]) => visible.has(deviceId));
+  if (entries.length === Object.keys(current).length) return current;
+  return Object.fromEntries(entries);
+}
+
 /**
  * Owns the browser workspace's device catalog, lifecycle actions, selection,
  * visibility, URL state, and per-device helper subscriptions. Rendering and
@@ -101,6 +111,11 @@ export function useDeviceWorkspace() {
     [runningDeviceIds, selection],
   );
   const visibleDeviceIdKey = visibleDeviceIds.join("|");
+  useEffect(() => {
+    setStreamingByDevice((current) =>
+      reconcileStreamingDeviceVisibility(current, visibleDeviceIds),
+    );
+  }, [visibleDeviceIdKey]);
   const selectedUdid = selection.selectedDeviceId;
   const selectedUdidRef = useRef(selectedUdid);
   selectedUdidRef.current = selectedUdid;
@@ -137,9 +152,7 @@ export function useDeviceWorkspace() {
           const response = await fetch(endpoints.grid, { cache: "no-store" });
           const body = (await response.json()) as GridResponse;
           if (
-            (body.devices ?? []).some(
-              (device) => device.device === deviceId && !!device.helper,
-            )
+            (body.devices ?? []).some((device) => device.device === deviceId && !!device.helper)
           ) {
             return true;
           }
@@ -279,9 +292,7 @@ export function useDeviceWorkspace() {
             streamConfigFrom(JSON.parse(event.data) as Window["__SIM_PREVIEW__"] | null),
             window.location,
           );
-          setConfigsByDevice((previous) =>
-            setPreviewConfigForDevice(previous, deviceId, next),
-          );
+          setConfigsByDevice((previous) => setPreviewConfigForDevice(previous, deviceId, next));
           if (selectedUdidRef.current === deviceId) {
             setConfig((previous) => {
               if (previewConfigKey(previous) === previewConfigKey(next)) return previous;
@@ -302,9 +313,7 @@ export function useDeviceWorkspace() {
     if (!selectedUdid) return;
     if (grid.devices === null) return;
     if (!selectedHasHelper) {
-      setConfigsByDevice((previous) =>
-        setPreviewConfigForDevice(previous, selectedUdid, null),
-      );
+      setConfigsByDevice((previous) => setPreviewConfigForDevice(previous, selectedUdid, null));
       setConfig((previous) => {
         if (!previous) return previous;
         setInjectedPreviewConfig(null);
@@ -327,13 +336,8 @@ export function useDeviceWorkspace() {
     selectDevice(visibleDeviceIds[0]!);
   }, [selectDevice, selectedUdid, visibleDeviceIdKey]);
 
-  const effectiveUdid = effectiveDeviceId(
-    selection,
-    visibleDeviceIds,
-    config?.device ?? null,
-  );
-  const selectedDevice =
-    grid.devices?.find((device) => device.device === effectiveUdid) ?? null;
+  const effectiveUdid = effectiveDeviceId(selection, visibleDeviceIds, config?.device ?? null);
+  const selectedDevice = grid.devices?.find((device) => device.device === effectiveUdid) ?? null;
   const setDeviceStreaming = useCallback((deviceId: string, value: boolean) => {
     setStreamingByDevice((current) => {
       if (!!current[deviceId] === value) return current;

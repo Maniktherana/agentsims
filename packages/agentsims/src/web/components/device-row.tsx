@@ -1,5 +1,5 @@
 import { getDeviceType } from "../simulator";
-import { Eye, EyeOff, Power, RotateCcw } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle, Power, RotateCcw } from "lucide-react";
 import { type GridDevice, runtimeLabel, runtimeVersion } from "../utils/grid";
 import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
 import { DeviceGlyph } from "./device-glyph";
@@ -11,10 +11,7 @@ export type DeviceLifecyclePhase =
   | "shutting-down"
   | "streaming";
 
-export function deviceLifecycleStatus(
-  phase: DeviceLifecyclePhase,
-  runtime: string,
-): string {
+export function deviceLifecycleStatus(phase: DeviceLifecyclePhase, runtime: string): string {
   if (phase === "shutting-down") return "Shutting down…";
   if (phase === "streaming") return `Streaming · ${runtime}`;
   if (phase === "booting") return `Booting… · ${runtime}`;
@@ -26,10 +23,16 @@ export function resolveDeviceLifecyclePhase(
   device: Pick<GridDevice, "helper" | "state">,
   starting: boolean,
   shuttingDown: boolean,
+  transportConnected?: boolean,
 ): DeviceLifecyclePhase {
-  const nativeState = device.state.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+  const nativeState = device.state
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "-");
   if (shuttingDown || nativeState === "shutting-down") return "shutting-down";
   if (nativeState === "booting" || nativeState === "creating") return "booting";
+  if (transportConnected === true) return "streaming";
+  if (transportConnected === false && device.helper) return "connecting";
   if (device.helper) return "streaming";
   if (starting && nativeState !== "booted") return "booting";
   if (starting || nativeState === "booted") return "connecting";
@@ -41,8 +44,9 @@ function DeviceStatusGlyph({ phase }: { phase: DeviceLifecyclePhase }) {
   return (
     <span
       aria-hidden="true"
+      data-device-status-anchor
       data-device-status-glyph={phase}
-      className={`absolute bottom-0.5 right-0.5 grid size-3.5 place-items-center rounded-full ring-2 ring-[#1c1c1e] ${
+      className={`pointer-events-none absolute -bottom-2 -right-2 grid size-4 place-items-center ${
         phase === "streaming"
           ? "text-[#34d399]"
           : phase === "shutting-down"
@@ -51,16 +55,9 @@ function DeviceStatusGlyph({ phase }: { phase: DeviceLifecyclePhase }) {
       }`}
     >
       {phase === "booting" ? (
-        <RotateCcw
-          size={12}
-          strokeWidth={2}
-          className="agentsims-device-status-spin"
-        />
+        <RotateCcw size={12} strokeWidth={2} className="agentsims-device-status-spin" />
       ) : phase === "connecting" ? (
-        <span className="relative grid size-3 place-items-center">
-          <span className="agentsims-device-status-pulse absolute inset-0 rounded-full border border-current" />
-          <span className="relative size-1.5 rounded-full bg-current" />
-        </span>
+        <LoaderCircle size={14} strokeWidth={2.5} className="agentsims-device-status-spin" />
       ) : phase === "shutting-down" ? (
         <span className="agentsims-device-status-breathe size-2.5 rounded-full border border-current" />
       ) : (
@@ -81,6 +78,7 @@ export function DeviceRow({
   showVisibilityControl = false,
   starting,
   shuttingDown,
+  transportConnected,
   onSelect,
   onVisibleChange,
   onShutdown,
@@ -91,6 +89,7 @@ export function DeviceRow({
   showVisibilityControl?: boolean;
   starting: boolean;
   shuttingDown: boolean;
+  transportConnected?: boolean;
   onSelect: () => void;
   onVisibleChange?: (visible: boolean) => void;
   onShutdown: () => void;
@@ -100,9 +99,8 @@ export function DeviceRow({
   const type = getDeviceType(device.name);
   const version = runtimeVersion(device.runtime);
   const runtime = runtimeLabel(device.runtime);
-  const phase = resolveDeviceLifecyclePhase(device, starting, shuttingDown);
-  const transitioning =
-    phase === "booting" || phase === "connecting" || phase === "shutting-down";
+  const phase = resolveDeviceLifecyclePhase(device, starting, shuttingDown, transportConnected);
+  const transitioning = phase === "booting" || phase === "connecting" || phase === "shutting-down";
   const accessibleStatus = deviceLifecycleStatus(phase, runtime);
   const status = phase === "available" ? runtime : accessibleStatus;
   const canShutdown = helper || isBooted;
@@ -135,12 +133,13 @@ export function DeviceRow({
       }}
       className={`group relative flex items-center gap-2.5 px-2 py-1.5 rounded-md select-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] motion-reduce:transition-none ${rowStateClass}`}
     >
-      <div
-        className={`relative shrink-0 grid place-items-center size-9 rounded-md overflow-hidden ${iconBackingClass}`}
-      >
-        <span className={iconColorClass}>
+      <div className="relative size-9 shrink-0 overflow-visible" data-device-icon-shell>
+        <div
+          className={`grid size-full place-items-center overflow-hidden rounded-md ${iconBackingClass} ${iconColorClass}`}
+          data-device-icon-tile
+        >
           <DeviceGlyph type={type} screenOn={phase === "streaming"} />
-        </span>
+        </div>
         <DeviceStatusGlyph phase={phase} />
       </div>
 
@@ -152,8 +151,8 @@ export function DeviceRow({
               phase === "streaming"
                 ? "text-[#34d399]"
                 : transitioning
-                ? "text-white/45"
-                : active
+                  ? "text-white/45"
+                  : active
                     ? "text-white/75"
                     : "text-white/45"
             }`}
@@ -230,7 +229,9 @@ export function DeviceRow({
                 }}
                 disabled={transitioning}
                 className={`absolute right-0 top-1/2 -translate-y-1/2 grid place-items-center size-5 rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [transition:opacity_0.12s,background_0.12s,color_0.12s] ${
-                  active ? "text-white/80 hover:bg-white/20" : "text-white/70 hover:bg-white/12 hover:text-white"
+                  active
+                    ? "text-white/80 hover:bg-white/20"
+                    : "text-white/70 hover:bg-white/12 hover:text-white"
                 }`}
               >
                 <Power size={13} strokeWidth={2.2} />
