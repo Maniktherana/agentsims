@@ -14,16 +14,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { RESET_WORKSPACE_LAYOUT_EVENT } from "../../../web/layout-events";
-import {
-  annotationStatus,
-  type AnnotationEntry,
-  type AnnotationSeverity,
-} from "../../model";
-import {
-  annotationTargetElements,
-  axElementKey,
-  axFrameString,
-} from "../core/ax";
+import { annotationStatus, type AnnotationEntry, type AnnotationSeverity } from "../../model";
+import { annotationTargetElements, axElementKey, axFrameString } from "../core/ax";
 import {
   annotationElementLabel,
   annotationEntryElements,
@@ -45,14 +37,8 @@ import {
   AccessibilityDetails,
   AccessibilityTree,
 } from "./accessibility-tree";
-import {
-  AccessibilityHeaderActions,
-  AccessibilityView,
-} from "./accessibility-view";
-import {
-  AnnotationComposerPopover,
-  AnnotationDetailPopover,
-} from "./annotation-popover";
+import { AccessibilityHeaderActions, AccessibilityView } from "./accessibility-view";
+import { AnnotationComposerPopover, AnnotationDetailPopover } from "./annotation-popover";
 import { ReviewLaunchers } from "./review-launchers";
 import { ReviewSidecar } from "./review-sidecar";
 import { createReviewTargetSourceContext } from "./target-source-context";
@@ -109,10 +95,7 @@ export interface ReviewPanelGeometry {
   height: number;
 }
 
-export type ReviewPanelAnchorRect = Pick<
-  DOMRect,
-  "left" | "right" | "top" | "bottom"
->;
+export type ReviewPanelAnchorRect = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
 
 export interface SavedReviewPanelGeometry {
   left: number;
@@ -164,12 +147,7 @@ export function resolveReviewPanelGeometryForAnchor(
   reservedRight = 0,
   _occupiedRects: readonly ReviewPanelAnchorRect[] = [],
 ): ReviewPanelGeometry {
-  return clampReviewPanelGeometry(
-    geometry,
-    viewportWidth,
-    viewportHeight,
-    reservedRight,
-  );
+  return clampReviewPanelGeometry(geometry, viewportWidth, viewportHeight, reservedRight);
 }
 
 export function moveReviewPanelGeometry(
@@ -242,16 +220,22 @@ export function resizeReviewPanelGeometryFromPointer(
   );
 }
 
-export function parseReviewPanelGeometry(
-  value: string | null,
-): SavedReviewPanelGeometry | null {
+export function reviewPanelResizeDeltaForKey(
+  key: string,
+  coarse: boolean,
+): [deltaWidth: number, deltaHeight: number] | null {
+  const step = coarse ? 32 : 8;
+  if (key === "ArrowRight") return [step, 0];
+  if (key === "ArrowLeft") return [-step, 0];
+  if (key === "ArrowDown") return [0, step];
+  if (key === "ArrowUp") return [0, -step];
+  return null;
+}
+
+export function parseReviewPanelGeometry(value: string | null): SavedReviewPanelGeometry | null {
   try {
     const parsed = JSON.parse(value ?? "null") as Partial<SavedReviewPanelGeometry> | null;
-    if (
-      !parsed ||
-      typeof parsed.left !== "number" ||
-      typeof parsed.top !== "number"
-    ) {
+    if (!parsed || typeof parsed.left !== "number" || typeof parsed.top !== "number") {
       return null;
     }
     return {
@@ -274,18 +258,13 @@ export function readReviewPanelGeometry(
   storage: Pick<Storage, "getItem"> = window.localStorage,
 ): SavedReviewPanelGeometry | null {
   try {
-    return parseReviewPanelGeometry(
-      storage.getItem(reviewPanelStorageKey(deviceId)),
-    );
+    return parseReviewPanelGeometry(storage.getItem(reviewPanelStorageKey(deviceId)));
   } catch {
     return null;
   }
 }
 
-export function clearReviewPanelGeometry(
-  deviceId: string,
-  storage: Pick<Storage, "removeItem">,
-) {
+export function clearReviewPanelGeometry(deviceId: string, storage: Pick<Storage, "removeItem">) {
   try {
     storage.removeItem(reviewPanelStorageKey(deviceId));
   } catch {}
@@ -293,10 +272,7 @@ export function clearReviewPanelGeometry(
 
 function writeReviewPanelGeometry(deviceId: string, geometry: ReviewPanelGeometry) {
   try {
-    window.localStorage.setItem(
-      reviewPanelStorageKey(deviceId),
-      JSON.stringify(geometry),
-    );
+    window.localStorage.setItem(reviewPanelStorageKey(deviceId), JSON.stringify(geometry));
   } catch {}
 }
 
@@ -312,9 +288,7 @@ function defaultReviewPanelGeometry(
   );
 }
 
-function reviewPanelAnchorRect(
-  element: HTMLElement | null,
-): ReviewPanelAnchorRect | null {
+function reviewPanelAnchorRect(element: HTMLElement | null): ReviewPanelAnchorRect | null {
   if (!element) return null;
   const rect = element.getBoundingClientRect();
   return {
@@ -366,11 +340,7 @@ export function resetReviewPanelGeometryForRect(
   storage: Pick<Storage, "removeItem">,
 ): ReviewPanelGeometry {
   clearReviewPanelGeometry(deviceId, storage);
-  return defaultReviewPanelGeometryForRect(
-    anchorRect,
-    viewportWidth,
-    viewportHeight,
-  );
+  return defaultReviewPanelGeometryForRect(anchorRect, viewportWidth, viewportHeight);
 }
 
 function useReviewPosition(
@@ -424,16 +394,19 @@ function useReviewPosition(
     if (commit) setPosition({ placement: "side", style });
   }, []);
 
-  const queueGeometry = useCallback((geometry: ReviewPanelGeometry) => {
-    pendingGeometryRef.current = geometry;
-    if (frameRef.current !== null) return;
-    frameRef.current = window.requestAnimationFrame(() => {
-      frameRef.current = null;
-      const pending = pendingGeometryRef.current;
-      pendingGeometryRef.current = null;
-      if (pending) applyGeometry(pending, false);
-    });
-  }, [applyGeometry]);
+  const queueGeometry = useCallback(
+    (geometry: ReviewPanelGeometry) => {
+      pendingGeometryRef.current = geometry;
+      if (frameRef.current !== null) return;
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null;
+        const pending = pendingGeometryRef.current;
+        pendingGeometryRef.current = null;
+        if (pending) applyGeometry(pending, false);
+      });
+    },
+    [applyGeometry],
+  );
 
   const cancelQueuedGeometry = useCallback(() => {
     if (frameRef.current !== null) {
@@ -479,23 +452,24 @@ function useReviewPosition(
       savedGeometryRef.current = readReviewPanelGeometry(deviceId);
       const saved = savedGeometryRef.current;
       const fallback = defaultReviewPanelGeometry(anchor, 0);
-      applyGeometry(clampReviewPanelGeometry(
-        {
-          left: saved?.left ?? fallback.left,
-          top: saved?.top ?? fallback.top,
-          width: saved?.width ?? fallback.width,
-          height: saved?.height ?? fallback.height,
-        },
-        window.innerWidth,
-        window.innerHeight,
-      ));
+      applyGeometry(
+        clampReviewPanelGeometry(
+          {
+            left: saved?.left ?? fallback.left,
+            top: saved?.top ?? fallback.top,
+            width: saved?.width ?? fallback.width,
+            height: saved?.height ?? fallback.height,
+          },
+          window.innerWidth,
+          window.innerHeight,
+        ),
+      );
     };
     initialize();
-    const update = () => applyGeometry(clampReviewPanelGeometry(
-      geometryRef.current,
-      window.innerWidth,
-      window.innerHeight,
-    ));
+    const update = () =>
+      applyGeometry(
+        clampReviewPanelGeometry(geometryRef.current, window.innerWidth, window.innerHeight),
+      );
     window.addEventListener("resize", update);
     return () => {
       window.removeEventListener("resize", update);
@@ -529,11 +503,14 @@ function useReviewPosition(
       if (!open) return;
       openedDeviceIdRef.current = deviceId;
 
-      const reanchor = () => applyGeometry(defaultReviewPanelGeometryForRect(
-        reviewPanelAnchorRect(anchor),
-        window.innerWidth,
-        window.innerHeight,
-      ));
+      const reanchor = () =>
+        applyGeometry(
+          defaultReviewPanelGeometryForRect(
+            reviewPanelAnchorRect(anchor),
+            window.innerWidth,
+            window.innerHeight,
+          ),
+        );
       reanchor();
 
       const deviceHost = anchor?.closest<HTMLElement>("[data-workspace-device]");
@@ -597,14 +574,16 @@ function useReviewPosition(
       let disposed = false;
       const move = (moveEvent: PointerEvent) => {
         if (moveEvent.pointerId !== pointerId) return;
-        queueGeometry(moveReviewPanelGeometry(
-          start,
-          moveEvent.clientX - startX,
-          moveEvent.clientY - startY,
-          window.innerWidth,
-          window.innerHeight,
-          0,
-        ));
+        queueGeometry(
+          moveReviewPanelGeometry(
+            start,
+            moveEvent.clientX - startX,
+            moveEvent.clientY - startY,
+            window.innerWidth,
+            window.innerHeight,
+            0,
+          ),
+        );
       };
       const cleanup = () => {
         if (disposed) return;
@@ -642,26 +621,25 @@ function useReviewPosition(
       window.addEventListener("pointercancel", finish);
       target.addEventListener("lostpointercapture", lostPointerCapture);
     },
-    [
-      cancelQueuedGeometry,
-      deviceId,
-      disposeActiveGesture,
-      flushGeometry,
-      queueGeometry,
-    ],
+    [cancelQueuedGeometry, deviceId, disposeActiveGesture, flushGeometry, queueGeometry],
   );
 
-  const resizeBy = useCallback((deltaWidth: number, deltaHeight: number) => {
-    const current = geometryRef.current;
-    applyGeometry(resizeReviewPanelGeometry(
-      current,
-      deltaWidth,
-      deltaHeight,
-      window.innerWidth,
-      window.innerHeight,
-      0,
-    ));
-  }, [applyGeometry]);
+  const resizeBy = useCallback(
+    (deltaWidth: number, deltaHeight: number) => {
+      const current = geometryRef.current;
+      applyGeometry(
+        resizeReviewPanelGeometry(
+          current,
+          deltaWidth,
+          deltaHeight,
+          window.innerWidth,
+          window.innerHeight,
+          0,
+        ),
+      );
+    },
+    [applyGeometry],
+  );
 
   const onResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -726,23 +704,14 @@ function useReviewPosition(
       window.addEventListener("pointercancel", finish, true);
       target.addEventListener("lostpointercapture", lostPointerCapture);
     },
-    [
-      cancelQueuedGeometry,
-      deviceId,
-      disposeActiveGesture,
-      flushGeometry,
-      queueGeometry,
-    ],
+    [cancelQueuedGeometry, deviceId, disposeActiveGesture, flushGeometry, queueGeometry],
   );
 
   const onResizeKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      const step = event.shiftKey ? 32 : 8;
-      if (event.key === "ArrowRight") resizeBy(step, 0);
-      else if (event.key === "ArrowLeft") resizeBy(-step, 0);
-      else if (event.key === "ArrowDown") resizeBy(0, step);
-      else if (event.key === "ArrowUp") resizeBy(0, -step);
-      else return;
+      const delta = reviewPanelResizeDeltaForKey(event.key, event.shiftKey);
+      if (!delta) return;
+      resizeBy(...delta);
       event.preventDefault();
       savedGeometryRef.current = geometryRef.current;
       writeReviewPanelGeometry(deviceId, geometryRef.current);
@@ -767,17 +736,10 @@ function annotationPopoverPosition(
 ): AnnotationPopoverPosition {
   const edge = 12;
   const width = Math.min(320, window.innerWidth - edge * 2);
-  const dockRect = document
-    .getElementById("agentsims-workspace-dock")
-    ?.getBoundingClientRect();
+  const dockRect = document.getElementById("agentsims-workspace-dock")?.getBoundingClientRect();
   const dockTop = dockRect?.top ?? window.innerHeight - 60;
-  const dockCenter = dockRect
-    ? dockRect.left + dockRect.width / 2
-    : window.innerWidth / 2;
-  const left = Math.max(
-    edge,
-    Math.min(window.innerWidth - width - edge, dockCenter - width / 2),
-  );
+  const dockCenter = dockRect ? dockRect.left + dockRect.width / 2 : window.innerWidth / 2;
+  const left = Math.max(edge, Math.min(window.innerWidth - width - edge, dockCenter - width / 2));
   return {
     placement: "bottom",
     style: {
@@ -800,23 +762,13 @@ function useAnnotationPopoverPosition(
   reservedRight: number,
 ) {
   const [position, setPosition] = useState<AnnotationPopoverPosition>(() =>
-    annotationPopoverPosition(
-      null,
-      selectedKey,
-      selectedAnnotationId,
-      reservedRight,
-    )
+    annotationPopoverPosition(null, selectedKey, selectedAnnotationId, reservedRight),
   );
   useLayoutEffect(() => {
     if (!open) return;
     const update = () =>
       setPosition(
-        annotationPopoverPosition(
-          anchor,
-          selectedKey,
-          selectedAnnotationId,
-          reservedRight,
-        ),
+        annotationPopoverPosition(anchor, selectedKey, selectedAnnotationId, reservedRight),
       );
     update();
     const observer = anchor ? new ResizeObserver(update) : null;
@@ -829,13 +781,7 @@ function useAnnotationPopoverPosition(
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [
-    anchor,
-    open,
-    reservedRight,
-    selectedAnnotationId,
-    selectedKey,
-  ]);
+  }, [anchor, open, reservedRight, selectedAnnotationId, selectedKey]);
   return position;
 }
 
@@ -858,13 +804,14 @@ function targetForDraft(
   reactNativeApp: boolean,
 ): ReviewTargetSummary {
   const element = selectedElements[0] ?? null;
-  const label = draft.kind === "screen"
-    ? "Current screen"
-    : draft.kind === "area"
-      ? "Selected area"
-      : draft.kind === "multi"
-        ? `${selectedElements.length} selected elements`
-        : annotationElementLabel(element);
+  const label =
+    draft.kind === "screen"
+      ? "Current screen"
+      : draft.kind === "area"
+        ? "Selected area"
+        : draft.kind === "multi"
+          ? `${selectedElements.length} selected elements`
+          : annotationElementLabel(element);
   return {
     kind: draft.kind,
     label,
@@ -960,7 +907,9 @@ export function ReviewDeviceController({
   const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [severity, setSeverity] = useState<AnnotationSeverity>("important");
-  const [screenshot, setScreenshot] = useState<ReviewScreenshotState>({ status: "none" });
+  const [screenshot, setScreenshot] = useState<ReviewScreenshotState>({
+    status: "none",
+  });
   const [saving, setSaving] = useState(false);
   const [composerExiting, setComposerExiting] = useState(false);
   const [accessibilityDetailsClosed, setAccessibilityDetailsClosed] = useState(false);
@@ -972,35 +921,22 @@ export function ReviewDeviceController({
   const escapeHandledRef = useRef(false);
   const composerDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidecarOpen = reviewState.kind === "accessibility";
-  const activeView: ReviewView | null = reviewState.kind === "annotate"
-    ? "annotations"
-    : null;
-  const sidecarPosition = useReviewPosition(
-    anchor,
-    sidecarOpen,
-    reservedRight,
-    deviceId,
-  );
+  const activeView: ReviewView | null = reviewState.kind === "annotate" ? "annotations" : null;
+  const sidecarPosition = useReviewPosition(anchor, sidecarOpen, reservedRight, deviceId);
   const elements = useMemo(
-    () => snapshot ? annotationTargetElements(snapshot.elements, snapshot.screen) : [],
+    () => (snapshot ? annotationTargetElements(snapshot.elements, snapshot.screen) : []),
     [snapshot],
   );
-  const selectedDraftElements = useMemo(
-    () => elementsForDraft(draft, elements),
-    [draft, elements],
-  );
+  const selectedDraftElements = useMemo(() => elementsForDraft(draft, elements), [draft, elements]);
   const reviewAnnotations = useMemo(
-    () => annotations.map((annotation, index) =>
-      annotationForReview(
-        annotation,
-        index + 1,
-        currentApp?.isReactNative === true,
-      )),
+    () =>
+      annotations.map((annotation, index) =>
+        annotationForReview(annotation, index + 1, currentApp?.isReactNative === true),
+      ),
     [annotations, currentApp?.isReactNative],
   );
-  const annotationPopoverOpen = focused &&
-    reviewState.kind === "annotate" &&
-    (composerOpen || selectedAnnotationId !== null);
+  const annotationPopoverOpen =
+    focused && reviewState.kind === "annotate" && (composerOpen || selectedAnnotationId !== null);
   const annotationPopoverPositionValue = useAnnotationPopoverPosition(
     anchor,
     annotationPopoverOpen,
@@ -1048,21 +984,27 @@ export function ReviewDeviceController({
     dispatchReview({ type: "ANNOTATION_COMPOSER_DISMISSED" });
   }, [closeComposer, dispatchReview]);
 
-  const dismissComposerWithMotion = useCallback((after?: () => void) => {
-    if (saving || composerExiting || composerDismissTimerRef.current) return;
-    setComposerExiting(true);
-    composerDismissTimerRef.current = setTimeout(() => {
-      composerDismissTimerRef.current = null;
-      discardComposer();
-      after?.();
-    }, 150);
-  }, [composerExiting, discardComposer, saving]);
+  const dismissComposerWithMotion = useCallback(
+    (after?: () => void) => {
+      if (saving || composerExiting || composerDismissTimerRef.current) return;
+      setComposerExiting(true);
+      composerDismissTimerRef.current = setTimeout(() => {
+        composerDismissTimerRef.current = null;
+        discardComposer();
+        after?.();
+      }, 150);
+    },
+    [composerExiting, discardComposer, saving],
+  );
 
-  useEffect(() => () => {
-    if (composerDismissTimerRef.current) {
-      clearTimeout(composerDismissTimerRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (composerDismissTimerRef.current) {
+        clearTimeout(composerDismissTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!focused) return;
@@ -1143,10 +1085,10 @@ export function ReviewDeviceController({
       return;
     }
     const selectionChanged = Boolean(
-      reviewState.selectedKey &&
-      reviewState.selectedKey !== lastAccessibilitySelectionRef.current
+      reviewState.selectedKey && reviewState.selectedKey !== lastAccessibilitySelectionRef.current,
     );
-    const completedPick = previousAccessibilityPickingRef.current &&
+    const completedPick =
+      previousAccessibilityPickingRef.current &&
       !reviewState.picking &&
       Boolean(reviewState.selectedKey);
     if (selectionChanged || completedPick) setAccessibilityDetailsClosed(false);
@@ -1161,11 +1103,7 @@ export function ReviewDeviceController({
       }
       return;
     }
-  }, [
-    reviewState,
-    selectedKey,
-    setSelectedKey,
-  ]);
+  }, [reviewState, selectedKey, setSelectedKey]);
 
   const openAnnotations = () => {
     if (reviewState.kind === "annotate") {
@@ -1197,10 +1135,7 @@ export function ReviewDeviceController({
   };
 
   const selectAnnotationTool = (tool: ReviewTool) => {
-    if (
-      reviewState.kind === "annotate" &&
-      selectReviewTool(reviewState) === tool
-    ) {
+    if (reviewState.kind === "annotate" && selectReviewTool(reviewState) === tool) {
       if (tool === "multi" && multiSelectedKeys.length > 0) {
         openMultiComposer();
       }
@@ -1225,9 +1160,7 @@ export function ReviewDeviceController({
     const captured = await captureScreenshot();
     const entry = addAnnotation({
       kind: draft.kind,
-      elementKey: selectedDraftElements[0]
-        ? axElementKey(selectedDraftElements[0])
-        : null,
+      elementKey: selectedDraftElements[0] ? axElementKey(selectedDraftElements[0]) : null,
       element: selectedDraftElements[0] ?? null,
       elements: selectedDraftElements.length > 1 ? selectedDraftElements : undefined,
       bounds: draft.bounds,
@@ -1244,7 +1177,10 @@ export function ReviewDeviceController({
     currentDraftIdRef.current = null;
     activeDraftRef.current = null;
     dispatchReview({ type: "ANNOTATION_SUBMISSION_SUCCEEDED", draftId: id });
-    dispatchReview({ type: "ANNOTATION_DETAIL_OPENED", annotationId: entry.id });
+    dispatchReview({
+      type: "ANNOTATION_DETAIL_OPENED",
+      annotationId: entry.id,
+    });
     setSelectedAnnotationId(entry.id);
   };
 
@@ -1266,41 +1202,34 @@ export function ReviewDeviceController({
   };
 
   const selectedAxElement = selectedKey
-    ? snapshot?.elements.find((element) =>
-      axElementKey(element) === selectedKey
-    ) ?? null
+    ? (snapshot?.elements.find((element) => axElementKey(element) === selectedKey) ?? null)
     : null;
-  const selectedAxNativeChain = selectedKey && snapshot
-    ? accessibilityNativeChain(snapshot.elements, selectedKey)
-    : [];
+  const selectedAxNativeChain =
+    selectedKey && snapshot ? accessibilityNativeChain(snapshot.elements, selectedKey) : [];
   const activeDraft = draft
-    ? {
-        target: targetForDraft(
-          draft,
-          selectedDraftElements,
-          currentApp?.isReactNative === true,
-        ),
+    ? ({
+        target: targetForDraft(draft, selectedDraftElements, currentApp?.isReactNative === true),
         note,
         severity,
         screenshot,
         dirty: note.trim().length > 0,
-      } satisfies ReviewEditorDraft
+      } satisfies ReviewEditorDraft)
     : null;
   const selectedReviewAnnotation = selectedAnnotationId
-    ? reviewAnnotations.find(
-        (annotation) => annotation.id === selectedAnnotationId,
-      ) ?? null
+    ? (reviewAnnotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null)
     : null;
   const copyEntries = (entries: AnnotationEntry[]) => {
     if (entries.length === 0) return;
-    void copyAnnotationText(buildAnnotationPrompt({
-      udid: deviceId,
-      deviceName,
-      deviceRuntime,
-      currentApp,
-      selectedElement: annotationEntryElements(entries[0]!)[0] ?? null,
-      annotations: entries,
-    }));
+    void copyAnnotationText(
+      buildAnnotationPrompt({
+        udid: deviceId,
+        deviceName,
+        deviceRuntime,
+        currentApp,
+        selectedElement: annotationEntryElements(entries[0]!)[0] ?? null,
+        annotations: entries,
+      }),
+    );
   };
 
   const launchers = (
@@ -1327,12 +1256,7 @@ export function ReviewDeviceController({
       setHoveredAnnotationId,
       launchers,
     }),
-    [
-      hoveredAnnotationId,
-      launchers,
-      openAnnotation,
-      selectedAnnotationId,
-    ],
+    [hoveredAnnotationId, launchers, openAnnotation, selectedAnnotationId],
   );
 
   const sidecar = sidecarOpen
@@ -1360,9 +1284,7 @@ export function ReviewDeviceController({
             onResizeKeyDown={sidecarPosition.onResizeKeyDown}
             headerActions={
               <AccessibilityHeaderActions
-                selecting={
-                  reviewState.kind === "accessibility" && reviewState.picking
-                }
+                selecting={reviewState.kind === "accessibility" && reviewState.picking}
                 onSelectingChange={(picking) => {
                   setHighlightedKey(null);
                   dispatchReview({
@@ -1370,19 +1292,16 @@ export function ReviewDeviceController({
                     picking,
                   });
                 }}
-                allNodesVisible={
-                  reviewState.kind === "accessibility" && reviewState.showAllNodes
-                }
+                allNodesVisible={reviewState.kind === "accessibility" && reviewState.showAllNodes}
                 onAllNodesVisibleChange={(visible) =>
                   dispatchReview({
                     type: "ACCESSIBILITY_ALL_NODES_CHANGED",
                     visible,
-                  })}
+                  })
+                }
                 status={axStatus}
                 elementCount={snapshot?.elements.length}
-                sourceCount={
-                  snapshot?.elements.filter((element) => element.source).length
-                }
+                sourceCount={snapshot?.elements.filter((element) => element.source).length}
                 onRefresh={() => void refreshAx()}
                 refreshing={axRefreshing}
               />
@@ -1395,13 +1314,9 @@ export function ReviewDeviceController({
                   selectedKey={selectedKey}
                   highlightedKey={highlightedKey}
                   phoneSelectionRevealToken={
-                    reviewState.kind === "accessibility"
-                      ? reviewState.phoneSelectionRevealToken
-                      : 0
+                    reviewState.kind === "accessibility" ? reviewState.phoneSelectionRevealToken : 0
                   }
-                  selecting={
-                    reviewState.kind === "accessibility" && reviewState.picking
-                  }
+                  selecting={reviewState.kind === "accessibility" && reviewState.picking}
                   onSelectedKeyChange={(key) => {
                     detailInteractionActiveRef.current = false;
                     setAccessibilityDetailsClosed(false);
@@ -1418,22 +1333,20 @@ export function ReviewDeviceController({
                 />
               }
               details={
-                selectedAxElement && !accessibilityDetailsClosed
-                  ? (
-                    <AccessibilityDetails
-                      element={selectedAxElement}
-                      sourceEndpoint={sourceEndpoint}
-                      nativeChain={selectedAxNativeChain}
-                      onInteract={() => {
-                        detailInteractionActiveRef.current = true;
-                      }}
-                      onClose={() => {
-                        detailInteractionActiveRef.current = false;
-                        setAccessibilityDetailsClosed(true);
-                      }}
-                    />
-                  )
-                  : undefined
+                selectedAxElement && !accessibilityDetailsClosed ? (
+                  <AccessibilityDetails
+                    element={selectedAxElement}
+                    sourceEndpoint={sourceEndpoint}
+                    nativeChain={selectedAxNativeChain}
+                    onInteract={() => {
+                      detailInteractionActiveRef.current = true;
+                    }}
+                    onClose={() => {
+                      detailInteractionActiveRef.current = false;
+                      setAccessibilityDetailsClosed(true);
+                    }}
+                  />
+                ) : undefined
               }
             />
           </ReviewSidecar>
@@ -1445,9 +1358,7 @@ export function ReviewDeviceController({
   const annotationPopover = annotationPopoverOpen
     ? createPortal(
         <div
-          data-annotation-popover-placement={
-            annotationPopoverPositionValue.placement
-          }
+          data-annotation-popover-placement={annotationPopoverPositionValue.placement}
           style={annotationPopoverPositionValue.style}
         >
           {activeDraft ? (
@@ -1466,15 +1377,11 @@ export function ReviewDeviceController({
               onResolve={(id) => setAnnotationStatus(id, "resolved")}
               onReopen={(id) => setAnnotationStatus(id, "open")}
               onCopy={(id) => {
-                const entry = annotations.find(
-                  (annotation) => annotation.id === id,
-                );
+                const entry = annotations.find((annotation) => annotation.id === id);
                 if (entry) copyEntries([entry]);
               }}
               onSendToAgent={(id) => {
-                const entry = annotations.find(
-                  (annotation) => annotation.id === id,
-                );
+                const entry = annotations.find((annotation) => annotation.id === id);
                 if (entry) copyEntries([entry]);
               }}
               onDelete={(id) => {

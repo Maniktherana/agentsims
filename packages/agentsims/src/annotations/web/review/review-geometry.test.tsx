@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { clampWorkspaceDeviceOffset } from "../../../web/workspace/workspace-canvas";
 import {
-  clampWorkspaceDeviceOffset,
-} from "../../../web/workspace/workspace-canvas";
+  SimulatorResizeCornerAffordance,
+  SimulatorResizeCornerSvg,
+} from "../../../web/components/simulator-resize-corner-handle";
+import { simulatorResizeCornerArc } from "../../../web/simulator";
 import {
   clampReviewPanelGeometry,
   clearReviewPanelGeometry,
@@ -10,13 +13,18 @@ import {
   moveReviewPanelGeometry,
   parseReviewPanelGeometry,
   readReviewPanelGeometry,
+  reviewPanelResizeDeltaForKey,
   resolveReviewPanelGeometryForAnchor,
   resizeReviewPanelGeometry,
   resizeReviewPanelGeometryFromPointer,
   resetReviewPanelGeometryForRect,
   reviewPanelStorageKey,
 } from "./review-device-controller";
-import { ReviewSidecar } from "./review-sidecar";
+import {
+  ReviewSidecar,
+  reviewResizeVisualPhase,
+  shouldStartReviewHeaderDrag,
+} from "./review-sidecar";
 
 const noop = () => {};
 
@@ -38,19 +46,9 @@ describe("floating review geometry", () => {
       },
     };
     const device = { left: 80, right: 400, top: 72, bottom: 712 };
-    const reset = resetReviewPanelGeometryForRect(
-      "android:pixel",
-      device,
-      1400,
-      900,
-      storage,
-    );
+    const reset = resetReviewPanelGeometryForRect("android:pixel", device, 1400, 900, storage);
 
-    expect(reset).toEqual(defaultReviewPanelGeometryForRect(
-      device,
-      1400,
-      900,
-    ));
+    expect(reset).toEqual(defaultReviewPanelGeometryForRect(device, 1400, 900));
     expect(reset.left).toBe(416);
     expect(saved.has(reviewPanelStorageKey("android:pixel"))).toBe(false);
     expect(saved.get(reviewPanelStorageKey("ios:iphone"))).toBe("saved-ios");
@@ -78,12 +76,16 @@ describe("floating review geometry", () => {
 
     const reopenedSaved = readReviewPanelGeometry("android:pixel", storage);
     const fallback = defaultReviewPanelGeometryForRect(device, 1400, 900);
-    const reopened = clampReviewPanelGeometry({
-      left: reopenedSaved?.left ?? fallback.left,
-      top: reopenedSaved?.top ?? fallback.top,
-      width: reopenedSaved?.width ?? fallback.width,
-      height: reopenedSaved?.height ?? fallback.height,
-    }, 1400, 900);
+    const reopened = clampReviewPanelGeometry(
+      {
+        left: reopenedSaved?.left ?? fallback.left,
+        top: reopenedSaved?.top ?? fallback.top,
+        width: reopenedSaved?.width ?? fallback.width,
+        height: reopenedSaved?.height ?? fallback.height,
+      },
+      1400,
+      900,
+    );
 
     expect(reopenedSaved).toBeNull();
     expect(reopened).toEqual(fallback);
@@ -92,26 +94,8 @@ describe("floating review geometry", () => {
   test("keeps two pointer-drag destinations free when they miss the device", () => {
     const device = { left: 500, right: 900, top: 80, bottom: 680 };
     const initial = { left: 916, top: 80, width: 520, height: 360 };
-    const fartherRight = moveReviewPanelGeometry(
-      initial,
-      84,
-      40,
-      1600,
-      1000,
-      0,
-      device,
-      [device],
-    );
-    const below = moveReviewPanelGeometry(
-      initial,
-      -416,
-      616,
-      1600,
-      1200,
-      0,
-      device,
-      [device],
-    );
+    const fartherRight = moveReviewPanelGeometry(initial, 84, 40, 1600, 1000, 0, device, [device]);
+    const below = moveReviewPanelGeometry(initial, -416, 616, 1600, 1200, 0, device, [device]);
 
     expect(fartherRight).toEqual({
       left: 1000,
@@ -126,16 +110,10 @@ describe("floating review geometry", () => {
       height: 360,
     });
     expect(parseReviewPanelGeometry(JSON.stringify(below))).toEqual(below);
-    expect(reviewPanelStorageKey("android:pixel"))
-      .not.toBe(reviewPanelStorageKey("ios:iphone"));
-    expect(resolveReviewPanelGeometryForAnchor(
+    expect(reviewPanelStorageKey("android:pixel")).not.toBe(reviewPanelStorageKey("ios:iphone"));
+    expect(resolveReviewPanelGeometryForAnchor(below, device, 1600, 1200, 0, [device])).toEqual(
       below,
-      device,
-      1600,
-      1200,
-      0,
-      [device],
-    )).toEqual(below);
+    );
   });
 
   test("keeps a deliberate panel overlap instead of docking it away", () => {
@@ -192,30 +170,25 @@ describe("floating review geometry", () => {
 
   test("keeps phone pointer drags independent from panel ownership", () => {
     const rect = { left: 300, top: 100, width: 320, height: 600 };
-    expect(clampWorkspaceDeviceOffset(
-      rect,
-      { x: 0, y: 0 },
-      { x: 900, y: 40 },
-      1200,
-      900,
-    )).toEqual({ x: 568, y: 40 });
-    expect(clampWorkspaceDeviceOffset(
-      rect,
-      { x: 0, y: 0 },
-      { x: -500, y: 40 },
-      1200,
-      900,
-    )).toEqual({ x: -288, y: 40 });
+    expect(clampWorkspaceDeviceOffset(rect, { x: 0, y: 0 }, { x: 900, y: 40 }, 1200, 900)).toEqual({
+      x: 568,
+      y: 40,
+    });
+    expect(clampWorkspaceDeviceOffset(rect, { x: 0, y: 0 }, { x: -500, y: 40 }, 1200, 900)).toEqual(
+      { x: -288, y: 40 },
+    );
   });
 
   test("resizes both panel axes and renders one external affordance", () => {
-    expect(resizeReviewPanelGeometry(
-      { left: 100, top: 80, width: 560, height: 560 },
-      120,
-      80,
-      1200,
-      900,
-    )).toEqual({ left: 100, top: 80, width: 680, height: 640 });
+    expect(
+      resizeReviewPanelGeometry(
+        { left: 100, top: 80, width: 560, height: 560 },
+        120,
+        80,
+        1200,
+        900,
+      ),
+    ).toEqual({ left: 100, top: 80, width: 680, height: 640 });
 
     const html = renderToStaticMarkup(
       <ReviewSidecar
@@ -235,25 +208,110 @@ describe("floating review geometry", () => {
       </ReviewSidecar>,
     );
     expect(html.match(/data-agentsims-review-resize-handle/g)).toHaveLength(1);
-    expect(html).not.toContain("data-agentsims-resize-affordance");
-    expect(html).not.toContain("data-agentsims-resize-main-stroke");
+    expect(html).toContain("data-agentsims-resize-affordance");
+    expect(html).toContain("data-agentsims-resize-main-stroke");
     expect(html).toContain("data-agentsims-review-panel-header");
     expect(html).toContain("data-agentsims-review-panel-body");
     expect(html).not.toContain("#34363b");
-    expect(html).toContain("bottom-[-16px]");
-    expect(html).toContain("right-[-16px]");
-    expect(html).toContain("pointer-events-auto");
-    expect(html).toContain("z-50");
+    expect(html).not.toContain("border-b border-r");
+    expect(html).not.toContain("resize:both");
+    expect(html).toContain("right:-14px");
+    expect(html).toContain("bottom:-14px");
+    expect(html).toContain("width:60px");
+    expect(html).toContain("height:60px");
+    expect(html).toContain('data-resize-phase="idle"');
+    expect(html).toContain('data-focus-visible="false"');
+    expect(html).toContain('aria-label="Resize accessibility panel"');
+    expect(html).toContain('tabindex="0"');
+  });
+
+  test("maps keyboard resizing to both axes with the documented coarse step", () => {
+    expect(reviewPanelResizeDeltaForKey("ArrowRight", false)).toEqual([8, 0]);
+    expect(reviewPanelResizeDeltaForKey("ArrowLeft", true)).toEqual([-32, 0]);
+    expect(reviewPanelResizeDeltaForKey("ArrowDown", false)).toEqual([0, 8]);
+    expect(reviewPanelResizeDeltaForKey("ArrowUp", true)).toEqual([0, -32]);
+    expect(reviewPanelResizeDeltaForKey("Enter", false)).toBeNull();
+
+    expect(
+      resizeReviewPanelGeometry(
+        { left: 740, top: 460, width: 540, height: 520 },
+        ...reviewPanelResizeDeltaForKey("ArrowRight", true)!,
+        1280,
+        720,
+      ),
+    ).toEqual({ left: 696, top: 188, width: 572, height: 520 });
+  });
+
+  test("maps hover and active drag to the shared resize affordance phases", () => {
+    expect(reviewResizeVisualPhase(false, false)).toBe("idle");
+    expect(reviewResizeVisualPhase(false, true)).toBe("hover");
+    expect(reviewResizeVisualPhase(true, false)).toBe("drag");
+    expect(reviewResizeVisualPhase(true, true)).toBe("drag");
+
+    const arc = simulatorResizeCornerArc({
+      type: "android",
+      config: null,
+      containerWidth: 540,
+      containerHeight: 520,
+    });
+    const hover = renderToStaticMarkup(<SimulatorResizeCornerAffordance arc={arc} phase="hover" />);
+    const drag = renderToStaticMarkup(<SimulatorResizeCornerAffordance arc={arc} phase="drag" />);
+    const focused = renderToStaticMarkup(
+      <SimulatorResizeCornerAffordance arc={arc} phase="idle" focusVisible />,
+    );
+
+    expect(hover).toContain("#b7bbc2");
+    expect(drag).toContain("#f4f6fa");
+    expect(focused).toContain("opacity:0.95");
+    expect(focused).toContain("rgba(10, 132, 255, 0.95)");
+  });
+
+  test("keeps close and header action buttons out of the panel drag gesture", () => {
+    const closeButton = {};
+    const closeIcon = {
+      closest: (selector: string) => (selector === "button" ? closeButton : null),
+    };
+    const headerSurface = { closest: () => null };
+
+    expect(shouldStartReviewHeaderDrag(closeIcon)).toBe(false);
+    expect(shouldStartReviewHeaderDrag(headerSurface)).toBe(true);
+  });
+
+  test("removes every resize-affordance transition under reduced motion", () => {
+    const arc = simulatorResizeCornerArc({
+      type: "android",
+      config: null,
+      containerWidth: 540,
+      containerHeight: 520,
+    });
+    const html = renderToStaticMarkup(
+      <SimulatorResizeCornerSvg
+        arc={arc}
+        phase="drag"
+        reducedMotion
+        highContrast={false}
+        focusVisible
+      />,
+    );
+
+    expect(html).toContain("transform:translate3d(0,0,0) scale(1)");
+    expect(html).not.toContain("will-change");
+    expect(html).not.toContain("80ms");
+    expect(html).not.toContain("0.16s");
+    expect(html).not.toContain("0.2s");
+    expect(html.match(/transition:none/g)?.length).toBe(4);
   });
 
   test("keeps vertical outer resizing available with the detail pane open", () => {
-    expect(resizeReviewPanelGeometryFromPointer(
-      { left: 100, top: 80, width: 560, height: 480 },
-      { x: 640, y: 560 },
-      { x: 640, y: 664 },
-      1400,
-      1000,
-    )).toEqual({ left: 100, top: 80, width: 560, height: 584 });
+    expect(
+      resizeReviewPanelGeometryFromPointer(
+        { left: 100, top: 80, width: 560, height: 480 },
+        { x: 640, y: 560 },
+        { x: 640, y: 664 },
+        1400,
+        1000,
+      ),
+    ).toEqual({ left: 100, top: 80, width: 560, height: 584 });
 
     const html = renderToStaticMarkup(
       <ReviewSidecar

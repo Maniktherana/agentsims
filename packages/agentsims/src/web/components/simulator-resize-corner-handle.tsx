@@ -4,11 +4,7 @@
 // the arc path.
 
 import { useMemo, useState, type CSSProperties } from "react";
-import {
-  simulatorResizeCornerArc,
-  type DeviceType,
-  type StreamConfig,
-} from "../simulator";
+import { simulatorResizeCornerArc, type DeviceType, type StreamConfig } from "../simulator";
 import { useSimulatorResize } from "../hooks/use-simulator-resize";
 import { usePrefersMoreContrast } from "../hooks/use-prefers-more-contrast";
 import { usePrefersReducedMotion } from "../hooks/use-prefers-reduced-motion";
@@ -39,15 +35,13 @@ type SimulatorResizeCornerSvgProps = {
   focusVisible: boolean;
 };
 
-function SimulatorResizeCornerSvg(
-  {
-    arc,
-    phase,
-    reducedMotion,
-    highContrast,
-    focusVisible,
-  }: SimulatorResizeCornerSvgProps,
-) {
+export function SimulatorResizeCornerSvg({
+  arc,
+  phase,
+  reducedMotion,
+  highContrast,
+  focusVisible,
+}: SimulatorResizeCornerSvgProps) {
   const isHot = phase !== "idle";
 
   const vw = highContrast ? 1.12 : 1;
@@ -61,7 +55,9 @@ function SimulatorResizeCornerSvg(
   // Spring is only used when the engine supports `linear()`.
   const scaleEase = isHot && supportsLinearEasing() ? SIMULATOR_RESIZE_SPRING : ease;
   const motionTransform = reducedMotion ? "none" : `transform ${dur} ${scaleEase}`;
-  const motionStroke = reducedMotion ? "none" : `stroke ${dur} ${ease}, stroke-width ${dur} ${ease}`;
+  const motionStroke = reducedMotion
+    ? "none"
+    : `stroke ${dur} ${ease}, stroke-width ${dur} ${ease}`;
 
   const vb = arc.viewBoxSize;
   const d = arc.d;
@@ -103,9 +99,7 @@ function SimulatorResizeCornerSvg(
           vectorEffect="non-scaling-stroke"
           style={{
             opacity: focusVisible ? 0.95 : 0,
-            transition: reducedMotion
-              ? "opacity 80ms linear"
-              : `opacity 200ms ${SIMULATOR_RESIZE_EASE_OUT}`,
+            transition: reducedMotion ? "none" : `opacity 200ms ${SIMULATOR_RESIZE_EASE_OUT}`,
             filter:
               "drop-shadow(0 0 2px rgba(10,132,255,0.55)) drop-shadow(0 0 4px rgba(10,132,255,0.32))",
           }}
@@ -119,9 +113,7 @@ function SimulatorResizeCornerSvg(
           vectorEffect="non-scaling-stroke"
           style={{
             opacity: focusVisible ? 0.7 : 0,
-            transition: reducedMotion
-              ? "opacity 80ms linear"
-              : `opacity 200ms ${SIMULATOR_RESIZE_EASE_OUT}`,
+            transition: reducedMotion ? "none" : `opacity 200ms ${SIMULATOR_RESIZE_EASE_OUT}`,
           }}
         />
       </g>
@@ -137,7 +129,7 @@ function SimulatorResizeCornerSvg(
             vectorEffect="non-scaling-stroke"
             style={{
               opacity: handleOpacity,
-              transition: `${motionStroke}, opacity ${dur} ${ease}`,
+              transition: reducedMotion ? "none" : `${motionStroke}, opacity ${dur} ${ease}`,
               filter: RESIZE_HANDLE_LIT_SHADOW,
             }}
           />
@@ -181,10 +173,7 @@ export function SimulatorResizeCornerHandle({
 }: {
   simulatorResize: SimulatorResize;
   deviceType: DeviceType;
-  streamConfig:
-    | Pick<StreamConfig, "width" | "height" | "orientation">
-    | null
-    | undefined;
+  streamConfig: Pick<StreamConfig, "width" | "height" | "orientation"> | null | undefined;
   containerWidth: number;
   containerHeight: number;
 }) {
@@ -251,11 +240,7 @@ export function SimulatorResizeCornerHandle({
         WebkitTapHighlightColor: "transparent",
       }}
     >
-      <SimulatorResizeCornerAffordance
-        arc={arc}
-        phase={phase}
-        focusVisible={focusVisible}
-      />
+      <SimulatorResizeCornerAffordance arc={arc} phase={phase} focusVisible={focusVisible} />
     </div>
   );
 }

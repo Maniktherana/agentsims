@@ -48,10 +48,7 @@ import {
   resolveAccessibilityHeaderStatus,
   resolveAccessibilityPaneLayout,
 } from "./accessibility-view";
-import {
-  AnnotationComposerPopover,
-  AnnotationDetailPopover,
-} from "./annotation-popover";
+import { AnnotationComposerPopover, AnnotationDetailPopover } from "./annotation-popover";
 import { ReviewLaunchers } from "./review-launchers";
 import { ReviewSidecar } from "./review-sidecar";
 import {
@@ -61,10 +58,7 @@ import {
   resolveReviewPanelGeometryForAnchor,
   resizeReviewPanelGeometry,
 } from "./review-device-controller";
-import {
-  createReviewTargetSourceContext,
-  shortSourceLocation,
-} from "./target-source-context";
+import { createReviewTargetSourceContext, shortSourceLocation } from "./target-source-context";
 import type { AxElement } from "../../model";
 import type { ReviewAnnotation } from "./review-types";
 import { clampWorkspaceDeviceOffset } from "../../../web/workspace/workspace-canvas";
@@ -242,8 +236,7 @@ describe("review presentation components", () => {
       sourceFile: "apps/mobile/src/components/composer/ComposerInput.tsx",
       sourceLine: 329,
       sourceColumn: 12,
-      location:
-        "apps/mobile/src/components/composer/ComposerInput.tsx:329:12",
+      location: "apps/mobile/src/components/composer/ComposerInput.tsx:329:12",
       route: "/chat/[id]",
       testId: "message-input",
       role: "textbox",
@@ -259,9 +252,7 @@ describe("review presentation components", () => {
       matchReason: "test-id",
     });
     expect(html).toContain("ComposerInput");
-    expect(html).toContain(
-      "apps/mobile/src/components/composer/ComposerInput.tsx:329:12",
-    );
+    expect(html).toContain("apps/mobile/src/components/composer/ComposerInput.tsx:329:12");
     expect(html).toContain("ChatRoute");
     expect(html).toContain("Composer");
     expect(html).toContain(">Host<");
@@ -432,7 +423,9 @@ describe("review presentation components", () => {
     expect(html).toContain("data-agentsims-review-resize-handle");
     expect(html).toContain('aria-label="Resize accessibility panel"');
     expect(html.match(/data-agentsims-review-resize-handle/g)).toHaveLength(1);
-    expect(html).not.toContain("data-agentsims-resize-affordance");
+    expect(html).toContain("data-agentsims-resize-affordance");
+    expect(html).toContain("data-agentsims-resize-main-stroke");
+    expect(html).not.toContain("border-b border-r");
     expect(html).not.toContain("backdrop-blur");
   });
 
@@ -450,9 +443,7 @@ describe("review presentation components", () => {
       />,
     );
     const bodyHtml = renderToStaticMarkup(
-      <AccessibilityView
-        tree={<div role="tree">AX tree</div>}
-      />,
+      <AccessibilityView tree={<div role="tree">AX tree</div>} />,
     );
 
     expect(actionsHtml).toContain("data-accessibility-header-actions");
@@ -466,36 +457,34 @@ describe("review presentation components", () => {
 
   test("preserves draggable and resizable accessibility panel geometry", () => {
     const initial = { left: 100, top: 80, width: 560, height: 560 };
-    expect(
-      moveReviewPanelGeometry(initial, 100, 40, 1200, 800),
-    ).toEqual({ left: 200, top: 120, width: 560, height: 560 });
-    expect(
-      resizeReviewPanelGeometry(initial, 120, 80, 1200, 800),
-    ).toEqual({ left: 100, top: 80, width: 680, height: 640 });
-    expect(
-      parseReviewPanelGeometry(JSON.stringify(initial)),
-    ).toEqual(initial);
-    expect(
-      parseReviewPanelGeometry('{"left":24,"top":36}'),
-    ).toEqual({ left: 24, top: 36 });
+    expect(moveReviewPanelGeometry(initial, 100, 40, 1200, 800)).toEqual({
+      left: 200,
+      top: 120,
+      width: 560,
+      height: 560,
+    });
+    expect(resizeReviewPanelGeometry(initial, 120, 80, 1200, 800)).toEqual({
+      left: 100,
+      top: 80,
+      width: 680,
+      height: 640,
+    });
+    expect(parseReviewPanelGeometry(JSON.stringify(initial))).toEqual(initial);
+    expect(parseReviewPanelGeometry('{"left":24,"top":36}')).toEqual({
+      left: 24,
+      top: 36,
+    });
   });
 
   test("keeps phone drag bounds independent while the sidecar is open", () => {
     const rect = { left: 300, top: 100, width: 320, height: 600 };
-    expect(clampWorkspaceDeviceOffset(
-      rect,
-      { x: 0, y: 0 },
-      { x: 900, y: 40 },
-      1200,
-      900,
-    )).toEqual({ x: 568, y: 40 });
-    expect(clampWorkspaceDeviceOffset(
-      rect,
-      { x: 0, y: 0 },
-      { x: -500, y: 40 },
-      1200,
-      900,
-    )).toEqual({ x: -288, y: 40 });
+    expect(clampWorkspaceDeviceOffset(rect, { x: 0, y: 0 }, { x: 900, y: 40 }, 1200, 900)).toEqual({
+      x: 568,
+      y: 40,
+    });
+    expect(clampWorkspaceDeviceOffset(rect, { x: 0, y: 0 }, { x: -500, y: 40 }, 1200, 900)).toEqual(
+      { x: -288, y: 40 },
+    );
   });
 
   test("recomputes the default panel beside a device after canvas reset", () => {
@@ -511,38 +500,15 @@ describe("review presentation components", () => {
   test("preserves free panel drags at two empty canvas positions", () => {
     const device = { left: 500, right: 900, top: 80, bottom: 680 };
     const initial = { left: 916, top: 80, width: 320, height: 360 };
-    const fartherRight = moveReviewPanelGeometry(
-      initial,
-      84,
-      40,
-      1600,
-      1000,
-      0,
-      device,
-      [device],
-    );
-    const below = moveReviewPanelGeometry(
-      initial,
-      -416,
-      616,
-      1600,
-      1200,
-      0,
-      device,
-      [device],
-    );
+    const fartherRight = moveReviewPanelGeometry(initial, 84, 40, 1600, 1000, 0, device, [device]);
+    const below = moveReviewPanelGeometry(initial, -416, 616, 1600, 1200, 0, device, [device]);
 
     expect(fartherRight).toMatchObject({ left: 1000, top: 120 });
     expect(below).toMatchObject({ left: 500, top: 696 });
     expect(parseReviewPanelGeometry(JSON.stringify(below))).toEqual(below);
-    expect(resolveReviewPanelGeometryForAnchor(
+    expect(resolveReviewPanelGeometryForAnchor(below, device, 1600, 1200, 0, [device])).toEqual(
       below,
-      device,
-      1600,
-      1200,
-      0,
-      [device],
-    )).toEqual(below);
+    );
   });
 
   test("keeps an explicit panel position when it overlaps a device", () => {
@@ -583,13 +549,7 @@ describe("review presentation components", () => {
     const pixel = { left: 62, right: 366, top: 90, bottom: 690 };
     const iphone = { left: 531, right: 696, top: 278, bottom: 568 };
     const occupied = [pixel, iphone];
-    const initial = defaultReviewPanelGeometryForRect(
-      pixel,
-      987,
-      1046,
-      0,
-      occupied,
-    );
+    const initial = defaultReviewPanelGeometryForRect(pixel, 987, 1046, 0, occupied);
     const savedOverlap = { left: 382, top: 60, width: 759, height: 560 };
     const restored = resolveReviewPanelGeometryForAnchor(
       savedOverlap,
@@ -624,18 +584,12 @@ describe("review presentation components", () => {
       treeWidth: 440,
       ratio: 440 / 720,
     });
-    expect(resolveAccessibilityPaneLayout(460, 0.5, true).detailsVisible)
-      .toBe(false);
+    expect(resolveAccessibilityPaneLayout(460, 0.5, true).detailsVisible).toBe(false);
     const html = renderToStaticMarkup(
-      <AccessibilityView
-        tree={<div>Tree</div>}
-        details={<div>Details</div>}
-      />,
+      <AccessibilityView tree={<div>Tree</div>} details={<div>Details</div>} />,
     );
     expect(html).toContain("data-accessibility-splitter");
-    expect(html).toContain(
-      'aria-label="Resize accessibility tree and detail panes"',
-    );
+    expect(html).toContain('aria-label="Resize accessibility tree and detail panes"');
   });
 
   test("keeps every deep hierarchy level visually distinct", () => {
@@ -649,7 +603,7 @@ describe("review presentation components", () => {
 
     for (const pane of [detailsOpen, detailsClosed]) {
       const levels = [20, 21, 22, 23].map((level) =>
-        resolveAccessibilityTreeRowLayout(level, pane.treeWidth)
+        resolveAccessibilityTreeRowLayout(level, pane.treeWidth),
       );
       expect(levels.map((row) => row.visualIndent)).toEqual([
         19 * ACCESSIBILITY_TREE_INDENT_STEP_PX,
@@ -743,25 +697,39 @@ describe("review presentation components", () => {
   test("refreshes streamed metadata without resetting an unchanged hierarchy", () => {
     const initial: AxElement[] = [
       {
-        id: "root", path: "0", label: "", value: "",
-        role: "android.widget.FrameLayout", type: "android.widget.FrameLayout",
-        enabled: true, frame: { x: 0, y: 0, width: 320, height: 640 },
+        id: "root",
+        path: "0",
+        label: "",
+        value: "",
+        role: "android.widget.FrameLayout",
+        type: "android.widget.FrameLayout",
+        enabled: true,
+        frame: { x: 0, y: 0, width: 320, height: 640 },
       },
       {
-        id: "save", path: "0.0", label: "Save draft", value: "",
-        role: "android.widget.Button", type: "android.widget.Button",
-        enabled: true, frame: { x: 12, y: 24, width: 120, height: 44 },
+        id: "save",
+        path: "0.0",
+        label: "Save draft",
+        value: "",
+        role: "android.widget.Button",
+        type: "android.widget.Button",
+        enabled: true,
+        frame: { x: 12, y: 24, width: 120, height: 44 },
       },
     ];
     const updated: AxElement[] = [
       { ...initial[0]!, frame: { x: 1, y: 2, width: 318, height: 638 } },
       {
-        ...initial[1]!, label: "Save changes",
+        ...initial[1]!,
+        label: "Save changes",
         frame: { x: 24, y: 48, width: 180, height: 52 },
         source: {
-          kind: "react-native", confidence: "exact-testid",
-          componentName: "SaveButton", elementName: "Pressable",
-          file: "src/SaveButton.tsx", line: 42,
+          kind: "react-native",
+          confidence: "exact-testid",
+          componentName: "SaveButton",
+          elementName: "Pressable",
+          file: "src/SaveButton.tsx",
+          line: 42,
         },
       },
     ];
@@ -769,8 +737,9 @@ describe("review presentation components", () => {
     const refreshed = refreshAccessibilityTreeProjection(projection, updated);
     const savePath = projection.pathsByKey.get("save@0.0")!;
 
-    expect(accessibilityTreeProjectionStructureSignature(updated))
-      .toBe(accessibilityTreeProjectionStructureSignature(initial));
+    expect(accessibilityTreeProjectionStructureSignature(updated)).toBe(
+      accessibilityTreeProjectionStructureSignature(initial),
+    );
     expect(refreshed.paths).toBe(projection.paths);
     expect(refreshed.pathsByKey).toBe(projection.pathsByKey);
     expect(refreshed.entriesByPath.get(savePath)?.element).toMatchObject({
@@ -778,14 +747,15 @@ describe("review presentation components", () => {
       frame: { x: 24, y: 48, width: 180, height: 52 },
       source: { file: "src/SaveButton.tsx", line: 42 },
     });
-    expect(accessibilityTreeTooltipForPath(refreshed, savePath))
-      .toBe('Button "Save changes"\nSaveButton.tsx');
-    expect(accessibilityTreeProjectionStructureSignature([
-      updated[1]!, updated[0]!,
-    ])).not.toBe(accessibilityTreeProjectionStructureSignature(updated));
-    expect(accessibilityTreeProjectionStructureSignature([
-      updated[0]!, { ...updated[1]!, path: "0.1" },
-    ])).not.toBe(accessibilityTreeProjectionStructureSignature(updated));
+    expect(accessibilityTreeTooltipForPath(refreshed, savePath)).toBe(
+      'Button "Save changes"\nSaveButton.tsx',
+    );
+    expect(accessibilityTreeProjectionStructureSignature([updated[1]!, updated[0]!])).not.toBe(
+      accessibilityTreeProjectionStructureSignature(updated),
+    );
+    expect(
+      accessibilityTreeProjectionStructureSignature([updated[0]!, { ...updated[1]!, path: "0.1" }]),
+    ).not.toBe(accessibilityTreeProjectionStructureSignature(updated));
   });
 
   test("renders guide fragments from mounted rows without scanning the full tree", () => {
@@ -832,16 +802,20 @@ describe("review presentation components", () => {
     };
 
     expect(sameAccessibilityTreeVisibleRows([row], [{ ...row }])).toBe(true);
-    expect(sameAccessibilityTreeVisibleRows([row], [{ ...row, setSize: 2 }]))
-      .toBe(false);
-    expect(sameAccessibilityTreeVisibleRows([row], [{ ...row, posInSet: 1 }]))
-      .toBe(false);
-    expect(sameAccessibilityTreeVisibleRows([row], [{ ...row, index: 2 }]))
-      .toBe(false);
-    expect(sameAccessibilityTreeVisibleRows([row], [{
-      ...row,
-      ancestorPaths: ["Root/", "Root/Group/"],
-    }])).toBe(false);
+    expect(sameAccessibilityTreeVisibleRows([row], [{ ...row, setSize: 2 }])).toBe(false);
+    expect(sameAccessibilityTreeVisibleRows([row], [{ ...row, posInSet: 1 }])).toBe(false);
+    expect(sameAccessibilityTreeVisibleRows([row], [{ ...row, index: 2 }])).toBe(false);
+    expect(
+      sameAccessibilityTreeVisibleRows(
+        [row],
+        [
+          {
+            ...row,
+            ancestorPaths: ["Root/", "Root/Group/"],
+          },
+        ],
+      ),
+    ).toBe(false);
   });
 
   test("refreshes a stable 1k window through off-window sibling resets", () => {
@@ -875,12 +849,8 @@ describe("review presentation components", () => {
         label: "Off-window sibling",
       },
     ];
-    const prepareProjection = (
-      projection: ReturnType<typeof buildAccessibilityTreeProjection>,
-    ) => {
-      const rawOrder = new Map(
-        projection.paths.map((path, index) => [path, index]),
-      );
+    const prepareProjection = (projection: ReturnType<typeof buildAccessibilityTreeProjection>) => {
+      const rawOrder = new Map(projection.paths.map((path, index) => [path, index]));
       return prepareFileTreeInput(projection.paths, {
         sort: (left, right) => {
           const leftOrder = rawOrder.get(left.path);
@@ -906,26 +876,22 @@ describe("review presentation components", () => {
       500 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX,
       10 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX,
     );
-    const snapshotWindow = () => model.getVisibleRows(
-      rowWindow.startRow,
-      rowWindow.endRow,
-    ).map((row) => ({
-      ...row,
-      ancestorPaths: [...row.ancestorPaths],
-    }));
+    const snapshotWindow = () =>
+      model.getVisibleRows(rowWindow.startRow, rowWindow.endRow).map((row) => ({
+        ...row,
+        ancestorPaths: [...row.ancestorPaths],
+      }));
 
     try {
       const before = snapshotWindow();
       const beforePaths = before.map((row) => row.path);
-      const beforeGuides = accessibilityTreeWindowGuideSegments(
-        before,
-        rowWindow.startRow,
-      );
+      const beforeGuides = accessibilityTreeWindowGuideSegments(before, rowWindow.startRow);
       expect(before).toHaveLength(30);
       expect(new Set(before.map((row) => row.setSize))).toEqual(new Set([999]));
 
-      expect(accessibilityTreeProjectionStructureSignature(addedElements))
-        .not.toBe(accessibilityTreeProjectionStructureSignature(initialElements));
+      expect(accessibilityTreeProjectionStructureSignature(addedElements)).not.toBe(
+        accessibilityTreeProjectionStructureSignature(initialElements),
+      );
       model.resetPaths({
         preparedInput: addedPreparedInput,
         initialExpandedPaths: accessibilityTreeExpandablePaths(addedProjection),
@@ -934,24 +900,26 @@ describe("review presentation components", () => {
       expect(afterAdd).toHaveLength(30);
       expect(afterAdd.map((row) => row.path)).toEqual(beforePaths);
       expect(sameAccessibilityTreeVisibleRows(before, afterAdd)).toBe(false);
-      expect(afterAdd.map((row) => ({
-        index: row.index,
-        ariaPosInSet: row.posInSet + 1,
-        ancestorPaths: row.ancestorPaths,
-      }))).toEqual(before.map((row) => ({
-        index: row.index,
-        ariaPosInSet: row.posInSet + 1,
-        ancestorPaths: row.ancestorPaths,
-      })));
-      expect(new Set(afterAdd.map((row) => row.setSize)))
-        .toEqual(new Set([1_000]));
-      expect(accessibilityTreeWindowGuideSegments(afterAdd, rowWindow.startRow))
-        .toEqual(beforeGuides);
-      expect(afterAdd.map((row) =>
-        addedProjection.entriesByPath.get(row.path)?.element.path
-      )).toEqual(before.map((row) =>
-        initialProjection.entriesByPath.get(row.path)?.element.path
-      ));
+      expect(
+        afterAdd.map((row) => ({
+          index: row.index,
+          ariaPosInSet: row.posInSet + 1,
+          ancestorPaths: row.ancestorPaths,
+        })),
+      ).toEqual(
+        before.map((row) => ({
+          index: row.index,
+          ariaPosInSet: row.posInSet + 1,
+          ancestorPaths: row.ancestorPaths,
+        })),
+      );
+      expect(new Set(afterAdd.map((row) => row.setSize))).toEqual(new Set([1_000]));
+      expect(accessibilityTreeWindowGuideSegments(afterAdd, rowWindow.startRow)).toEqual(
+        beforeGuides,
+      );
+      expect(
+        afterAdd.map((row) => addedProjection.entriesByPath.get(row.path)?.element.path),
+      ).toEqual(before.map((row) => initialProjection.entriesByPath.get(row.path)?.element.path));
 
       model.resetPaths({
         preparedInput: initialPreparedInput,
@@ -961,31 +929,23 @@ describe("review presentation components", () => {
       expect(afterRemove).toHaveLength(30);
       expect(afterRemove.map((row) => row.path)).toEqual(beforePaths);
       expect(sameAccessibilityTreeVisibleRows(afterAdd, afterRemove)).toBe(false);
-      expect(new Set(afterRemove.map((row) => row.setSize)))
-        .toEqual(new Set([999]));
-      expect(accessibilityTreeWindowGuideSegments(afterRemove, rowWindow.startRow))
-        .toEqual(beforeGuides);
+      expect(new Set(afterRemove.map((row) => row.setSize))).toEqual(new Set([999]));
+      expect(accessibilityTreeWindowGuideSegments(afterRemove, rowWindow.startRow)).toEqual(
+        beforeGuides,
+      );
     } finally {
       model.cleanUp();
     }
   });
 
   test("reconciles reordered launcher duplicates without reading new directories from the old model", () => {
-    const element = (
-      id: string,
-      path: string,
-      children: boolean,
-    ): AxElement => ({
+    const element = (id: string, path: string, children: boolean): AxElement => ({
       id,
       path,
       label: "",
       value: "",
-      role: children
-        ? "android.widget.FrameLayout"
-        : "android.widget.TextView",
-      type: children
-        ? "android.widget.FrameLayout"
-        : "android.widget.TextView",
+      role: children ? "android.widget.FrameLayout" : "android.widget.TextView",
+      type: children ? "android.widget.FrameLayout" : "android.widget.TextView",
       enabled: true,
       frame: { x: 0, y: 0, width: 320, height: 44 },
     });
@@ -996,9 +956,7 @@ describe("review presentation components", () => {
       element("retained-file", "0.1", false),
       element("drawer", "0.2", true),
       element("drawer-section", "0.2.0", true),
-      ...Array.from({ length: 40 }, (_, index) =>
-        element(`app-${index}`, `0.2.0.${index}`, false)
-      ),
+      ...Array.from({ length: 40 }, (_, index) => element(`app-${index}`, `0.2.0.${index}`, false)),
       element("moved-file", "0.3", false),
     ];
     const nextElements: AxElement[] = [
@@ -1006,17 +964,11 @@ describe("review presentation components", () => {
       element("moved-file", "0.0", false),
       element("drawer", "0.1", true),
       element("drawer-section", "0.1.0", true),
-      ...Array.from({ length: 40 }, (_, index) =>
-        element(`app-${index}`, `0.1.0.${index}`, false)
-      ),
+      ...Array.from({ length: 40 }, (_, index) => element(`app-${index}`, `0.1.0.${index}`, false)),
       element("retained-file", "0.2", false),
     ];
-    const prepareProjection = (
-      projection: ReturnType<typeof buildAccessibilityTreeProjection>,
-    ) => {
-      const rawOrder = new Map(
-        projection.paths.map((path, index) => [path, index]),
-      );
+    const prepareProjection = (projection: ReturnType<typeof buildAccessibilityTreeProjection>) => {
+      const rawOrder = new Map(projection.paths.map((path, index) => [path, index]));
       return prepareFileTreeInput(projection.paths, {
         sort: (left, right) => {
           const leftOrder = rawOrder.get(left.path);
@@ -1044,27 +996,23 @@ describe("review presentation components", () => {
         model,
         accessibilityTreeExpandablePaths(initialProjection),
       );
-      expect(expandedPaths).toEqual(
-        accessibilityTreeExpandablePaths(initialProjection),
-      );
+      expect(expandedPaths).toEqual(accessibilityTreeExpandablePaths(initialProjection));
 
-      expect(() => model.resetPaths({
-        preparedInput: prepareProjection(nextProjection),
-        initialExpandedPaths: accessibilityTreeExpandablePaths(nextProjection),
-      })).not.toThrow();
-      synchronizeAccessibilityTreeModelSelection(
-        model,
-        nextProjection,
-        removedSelectionKey,
-      );
+      expect(() =>
+        model.resetPaths({
+          preparedInput: prepareProjection(nextProjection),
+          initialExpandedPaths: accessibilityTreeExpandablePaths(nextProjection),
+        }),
+      ).not.toThrow();
+      synchronizeAccessibilityTreeModelSelection(model, nextProjection, removedSelectionKey);
 
       const rows = model.getVisibleRows(0, model.getVisibleCount() - 1);
-      expect(rows.map((row) =>
-        nextProjection.entriesByPath.get(row.path)?.element.id
-      )).toEqual(nextElements.map((element) => element.id));
-      expect(rows.filter((row) => row.kind === "directory").every((row) =>
-        row.isExpanded
-      )).toBe(true);
+      expect(rows.map((row) => nextProjection.entriesByPath.get(row.path)?.element.id)).toEqual(
+        nextElements.map((element) => element.id),
+      );
+      expect(rows.filter((row) => row.kind === "directory").every((row) => row.isExpanded)).toBe(
+        true,
+      );
       expect(model.getSelectedPaths()).toEqual([]);
 
       const rowWindow = accessibilityTreeWindow(
@@ -1073,8 +1021,7 @@ describe("review presentation components", () => {
         15 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX,
       );
       expect(rowWindow).toMatchObject({ startRow: 0, endRow: 24 });
-      expect(model.getVisibleRows(rowWindow.startRow, rowWindow.endRow))
-        .toHaveLength(25);
+      expect(model.getVisibleRows(rowWindow.startRow, rowWindow.endRow)).toHaveLength(25);
     } finally {
       model.cleanUp();
     }
@@ -1082,8 +1029,9 @@ describe("review presentation components", () => {
 
   test("scrolls only keyboard or phone targets into a virtual window", () => {
     const viewportHeight = 10 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX;
-    expect(accessibilityTreeScrollTopForVisibleRow(500, 1_000, 0, viewportHeight))
-      .toBe(491 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX);
+    expect(accessibilityTreeScrollTopForVisibleRow(500, 1_000, 0, viewportHeight)).toBe(
+      491 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX,
+    );
     expect(
       accessibilityTreeScrollTopForVisibleRow(
         500,
@@ -1093,7 +1041,12 @@ describe("review presentation components", () => {
       ),
     ).toBe(500 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX);
     expect(
-      accessibilityTreeScrollTopForVisibleRow(0, 1_000, 500 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX, viewportHeight),
+      accessibilityTreeScrollTopForVisibleRow(
+        0,
+        1_000,
+        500 * ACCESSIBILITY_TREE_ROW_HEIGHT_PX,
+        viewportHeight,
+      ),
     ).toBe(0);
   });
 
@@ -1104,12 +1057,8 @@ describe("review presentation components", () => {
       path: Array.from({ length: index + 1 }, () => "0").join("."),
       label: index === 7 ? longName : "",
       value: "",
-      role: index === 7
-        ? "android.widget.Button"
-        : "android.widget.FrameLayout",
-      type: index === 7
-        ? "android.widget.Button"
-        : "android.widget.FrameLayout",
+      role: index === 7 ? "android.widget.Button" : "android.widget.FrameLayout",
+      type: index === 7 ? "android.widget.Button" : "android.widget.FrameLayout",
       enabled: true,
       frame: { x: 0, y: 0, width: 100, height: 40 },
       traits: index === 7 ? ["clickable"] : undefined,
@@ -1246,12 +1195,7 @@ describe("review presentation components", () => {
   });
 
   test("preserves raw AX sibling order while normalizing expandable duplicate paths", () => {
-    const element = (
-      id: string,
-      path: string,
-      label: string,
-      type: string,
-    ): AxElement => ({
+    const element = (id: string, path: string, label: string, type: string): AxElement => ({
       id,
       path,
       label,
@@ -1295,10 +1239,7 @@ describe("review presentation components", () => {
   });
 
   test("builds the accessibility hierarchy from stable AX paths", () => {
-    const element = (
-      id: string,
-      path: string,
-    ) => ({
+    const element = (id: string, path: string) => ({
       id,
       path,
       label: id,
@@ -1317,14 +1258,9 @@ describe("review presentation components", () => {
 
     expect(tree).toHaveLength(1);
     expect(tree[0]?.element.id).toBe("root");
-    expect(tree[0]?.children.map((node) => node.element.id)).toEqual([
-      "group",
-      "sibling",
-    ]);
+    expect(tree[0]?.children.map((node) => node.element.id)).toEqual(["group", "sibling"]);
     expect(tree[0]?.children[0]?.children[0]?.element.id).toBe("label");
-    expect(
-      accessibilityAncestorKeys(tree, tree[0]!.children[0]!.children[0]!.key),
-    ).toEqual([
+    expect(accessibilityAncestorKeys(tree, tree[0]!.children[0]!.children[0]!.key)).toEqual([
       tree[0]!.key,
       tree[0]!.children[0]!.key,
     ]);
@@ -1339,35 +1275,21 @@ describe("review presentation components", () => {
         ]),
         tree[0]!.children[0]!.children[0]!.key,
       ),
-    ).toEqual([
-      "android.view.View",
-      "android.view.View",
-      "android.view.View",
-    ]);
+    ).toEqual(["android.view.View", "android.view.View", "android.view.View"]);
 
     const projection = buildAccessibilityTreeProjection([
       element("root", "0"),
       element("item", "0.0"),
       element("item", "0.1"),
     ]);
-    expect(projection.paths).toEqual([
-      "View/",
-      "View/View",
-      "View/View · 2",
-    ]);
-    expect(projection.pathsByKey.get("item@0.1")).toBe(
-      "View/View · 2",
-    );
-    expect(accessibilityTreeKeyForPath(projection, "View"))
-      .toBe("root@0");
-    expect(accessibilityTreeKeyForPath(projection, "View/"))
-      .toBe("root@0");
+    expect(projection.paths).toEqual(["View/", "View/View", "View/View · 2"]);
+    expect(projection.pathsByKey.get("item@0.1")).toBe("View/View · 2");
+    expect(accessibilityTreeKeyForPath(projection, "View")).toBe("root@0");
+    expect(accessibilityTreeKeyForPath(projection, "View/")).toBe("root@0");
   });
 
   test("keeps host identity separate from RN ownership and path uniqueness", () => {
-    const projection = buildAccessibilityTreeProjection(
-      bottomSheetOwnershipFixture,
-    );
+    const projection = buildAccessibilityTreeProjection(bottomSheetOwnershipFixture);
     expect(projection.paths).toEqual([
       "FrameLayout/",
       "FrameLayout/BottomSheet/",
@@ -1376,29 +1298,23 @@ describe("review presentation components", () => {
       "FrameLayout/BottomSheet/View · 2",
       "FrameLayout/BottomSheet · 2",
     ]);
-    expect(projection.paths.map((path) =>
-      accessibilityTreeVisibleLabelForPath(projection, path)
-    )).toEqual([
-      "FrameLayout",
-      "BottomSheet",
-      "View",
-      "Text",
-      "View",
-      "BottomSheet",
-    ]);
-    expect(projection.paths.map((path) =>
-      accessibilityTreeVisibleLabelForPath(projection, path)
-    ).every((label) => !label?.includes(" · "))).toBe(true);
-    expect(projection.pathsByKey.get("sheet-a@0.0"))
-      .toBe("FrameLayout/BottomSheet/");
-    expect(projection.pathsByKey.get("sheet-b@0.1"))
-      .toBe("FrameLayout/BottomSheet · 2");
+    expect(
+      projection.paths.map((path) => accessibilityTreeVisibleLabelForPath(projection, path)),
+    ).toEqual(["FrameLayout", "BottomSheet", "View", "Text", "View", "BottomSheet"]);
+    expect(
+      projection.paths
+        .map((path) => accessibilityTreeVisibleLabelForPath(projection, path))
+        .every((label) => !label?.includes(" · ")),
+    ).toBe(true);
+    expect(projection.pathsByKey.get("sheet-a@0.0")).toBe("FrameLayout/BottomSheet/");
+    expect(projection.pathsByKey.get("sheet-b@0.1")).toBe("FrameLayout/BottomSheet · 2");
     expect(accessibilityTreeExpandablePaths(projection)).toEqual([
       "FrameLayout/",
       "FrameLayout/BottomSheet/",
     ]);
-    expect(accessibilityTreeRowTooltip(bottomSheetOwnershipFixture[4]!))
-      .toBe("View — inside BottomSheet");
+    expect(accessibilityTreeRowTooltip(bottomSheetOwnershipFixture[4]!)).toBe(
+      "View — inside BottomSheet",
+    );
     expect(bottomSheetOwnershipFixture[4]?.source?.line).toBe(151);
     const contentPath = projection.pathsByKey.get("sheet-a-content@0.0.2")!;
     const tooltip = accessibilityTreeTooltipForPath(projection, contentPath)!;
@@ -1487,80 +1403,104 @@ describe("review presentation components", () => {
       ...overrides,
     });
 
-    expect(accessibilityTreeRowLabel(row({
-      label: "How can I help?",
-      source: {
-        kind: "react-native",
-        confidence: "exact-testid",
-        elementKind: "custom",
-        testID: "empty-state",
-        componentName: "ChatEmptyState",
-        elementName: "ChatEmptyState",
-      },
-    }))).toBe("ChatEmptyState");
-    expect(accessibilityTreeRowLabel(row({
-      label: "How can I help?",
-      role: "android.widget.TextView",
-      type: "android.widget.TextView",
-      source: {
-        kind: "react-native",
-        confidence: "related-native-id",
-        testID: "empty-copy",
-        componentName: "ChatEmptyState",
-        elementName: "Text",
-      },
-    }))).toBe("Text");
-    expect(accessibilityTreeRowLabel(row({
-      label: "Toggle sidebar",
-      role: "android.widget.Button",
-      type: "android.widget.Button",
-      source: {
-        kind: "react-native",
-        confidence: "exact-testid",
-        elementKind: "custom",
-        testID: "sidebar-toggle",
-        componentName: "PushSidebarLayout",
-        elementName: "PushSidebarLayout",
-      },
-    }))).toBe("PushSidebarLayout");
-    expect(accessibilityTreeRowLabel(row({
-      label: "Ask Vartalaap",
-      role: "android.widget.EditText",
-      type: "android.widget.EditText",
-      source: {
-        kind: "react-native",
-        confidence: "exact-testid",
-        elementKind: "custom",
-        testID: "composer",
-        componentName: "Textarea",
-        elementName: "Textarea",
-      },
-    }))).toBe("Textarea");
-    expect(accessibilityTreeRowLabel(row({
-      label: "Toggle sidebar",
-      role: "android.widget.Button",
-      type: "android.widget.Button",
-      source: {
-        kind: "react-native",
-        confidence: "exact-testid",
-        elementKind: "host",
-        testID: "sidebar-toggle-host",
-        componentName: "PushSidebarLayout",
-        elementName: "Pressable",
-      },
-    }))).toBe("Button");
-    expect(accessibilityTreeRowTooltip(row({
-      label: "How can I help?",
-      role: "android.widget.TextView",
-      type: "android.widget.TextView",
-      source: {
-        kind: "react-native",
-        confidence: "related-native-id",
-        testID: "empty-copy",
-        componentName: "ChatEmptyState",
-        elementName: "ChatEmptyState",
-      },
-    }))).toBe("Text — “How can I help?” · inside ChatEmptyState");
+    expect(
+      accessibilityTreeRowLabel(
+        row({
+          label: "How can I help?",
+          source: {
+            kind: "react-native",
+            confidence: "exact-testid",
+            elementKind: "custom",
+            testID: "empty-state",
+            componentName: "ChatEmptyState",
+            elementName: "ChatEmptyState",
+          },
+        }),
+      ),
+    ).toBe("ChatEmptyState");
+    expect(
+      accessibilityTreeRowLabel(
+        row({
+          label: "How can I help?",
+          role: "android.widget.TextView",
+          type: "android.widget.TextView",
+          source: {
+            kind: "react-native",
+            confidence: "related-native-id",
+            testID: "empty-copy",
+            componentName: "ChatEmptyState",
+            elementName: "Text",
+          },
+        }),
+      ),
+    ).toBe("Text");
+    expect(
+      accessibilityTreeRowLabel(
+        row({
+          label: "Toggle sidebar",
+          role: "android.widget.Button",
+          type: "android.widget.Button",
+          source: {
+            kind: "react-native",
+            confidence: "exact-testid",
+            elementKind: "custom",
+            testID: "sidebar-toggle",
+            componentName: "PushSidebarLayout",
+            elementName: "PushSidebarLayout",
+          },
+        }),
+      ),
+    ).toBe("PushSidebarLayout");
+    expect(
+      accessibilityTreeRowLabel(
+        row({
+          label: "Ask Vartalaap",
+          role: "android.widget.EditText",
+          type: "android.widget.EditText",
+          source: {
+            kind: "react-native",
+            confidence: "exact-testid",
+            elementKind: "custom",
+            testID: "composer",
+            componentName: "Textarea",
+            elementName: "Textarea",
+          },
+        }),
+      ),
+    ).toBe("Textarea");
+    expect(
+      accessibilityTreeRowLabel(
+        row({
+          label: "Toggle sidebar",
+          role: "android.widget.Button",
+          type: "android.widget.Button",
+          source: {
+            kind: "react-native",
+            confidence: "exact-testid",
+            elementKind: "host",
+            testID: "sidebar-toggle-host",
+            componentName: "PushSidebarLayout",
+            elementName: "Pressable",
+          },
+        }),
+      ),
+    ).toBe("Button");
+    expect(
+      accessibilityTreeRowTooltip(
+        row({
+          label: "How can I help?",
+          role: "android.widget.TextView",
+          type: "android.widget.TextView",
+          source: {
+            kind: "react-native",
+            confidence: "related-native-id",
+            testID: "empty-copy",
+            componentName: "ChatEmptyState",
+            elementName: "ChatEmptyState",
+          },
+        }),
+      ),
+    ).toBe("Text — “How can I help?” · inside ChatEmptyState");
   });
 
   test("derives honest native semantics and renders clean adjacent row fields", () => {
@@ -1582,26 +1522,12 @@ describe("review presentation components", () => {
       traits,
     });
     const frame = native("root", "0", "android.widget.FrameLayout");
-    const launcherAction = native(
-      "play",
-      "0.0",
-      "android.widget.TextView",
-      "Play Store",
-      ["clickable", "long press"],
-    );
-    const staticText = native(
-      "copy",
-      "0.1",
-      "android.widget.TextView",
-      "Welcome",
-    );
-    const scrollArea = native(
-      "scroll",
-      "0.2",
-      "android.widget.ScrollView",
-      "",
-      ["scrollable"],
-    );
+    const launcherAction = native("play", "0.0", "android.widget.TextView", "Play Store", [
+      "clickable",
+      "long press",
+    ]);
+    const staticText = native("copy", "0.1", "android.widget.TextView", "Welcome");
+    const scrollArea = native("scroll", "0.2", "android.widget.ScrollView", "", ["scrollable"]);
     const linear = native("linear", "0.3", "android.widget.LinearLayout");
     const group = native("group", "0.4", "android.view.ViewGroup");
 
@@ -1624,9 +1550,7 @@ describe("review presentation components", () => {
       group,
     ]);
     const launcherPath = projection.pathsByKey.get("play@0.0")!;
-    expect(accessibilityTreeTooltipForPath(projection, launcherPath)).toBe(
-      'Button "Play Store"',
-    );
+    expect(accessibilityTreeTooltipForPath(projection, launcherPath)).toBe('Button "Play Store"');
     const html = renderToStaticMarkup(
       <AccessibilityTree
         snapshot={{
@@ -1706,19 +1630,14 @@ describe("review presentation components", () => {
       "FrameLayout/ViewGroup/",
       "FrameLayout/ViewGroup/PushSidebarLayout",
     ]);
-    expect(result.expandedPaths).toEqual([
-      "FrameLayout/",
-      "FrameLayout/ViewGroup/",
-    ]);
+    expect(result.expandedPaths).toEqual(["FrameLayout/", "FrameLayout/ViewGroup/"]);
     expect(result.matchingKeys).toEqual(["toggle@0.0.0"]);
     expect(projection.paths.at(-1)).toBe("FrameLayout/Button");
   });
 
   test("previews a tree-origin hover regardless of Select mode", () => {
-    expect(accessibilityTreePhoneHighlightPath(false, "View/Text"))
-      .toBe("View/Text");
-    expect(accessibilityTreePhoneHighlightPath(true, "View/Text"))
-      .toBe("View/Text");
+    expect(accessibilityTreePhoneHighlightPath(false, "View/Text")).toBe("View/Text");
+    expect(accessibilityTreePhoneHighlightPath(true, "View/Text")).toBe("View/Text");
     expect(accessibilityTreePhoneHighlightPath(false, null)).toBeNull();
   });
 
@@ -1726,15 +1645,14 @@ describe("review presentation components", () => {
     let previousRevealToken = 0;
     let scrollTop = 0;
     let revealCount = 0;
-    const renderSelection = (
-      selectedKey: string | null,
-      phoneSelectionRevealToken: number,
-    ) => {
-      if (shouldRevealAccessibilityTreePhoneSelection(
-        previousRevealToken,
-        phoneSelectionRevealToken,
-        selectedKey,
-      )) {
+    const renderSelection = (selectedKey: string | null, phoneSelectionRevealToken: number) => {
+      if (
+        shouldRevealAccessibilityTreePhoneSelection(
+          previousRevealToken,
+          phoneSelectionRevealToken,
+          selectedKey,
+        )
+      ) {
         scrollTop = 900;
         revealCount += 1;
       }
@@ -1836,43 +1754,31 @@ describe("review presentation components", () => {
       line: 12,
       startLine: 1,
       cacheKey: "composer:1",
-      lines: [
-        "export function Composer() {",
-        "  return <Textarea />;",
-        "}",
-      ],
+      lines: ["export function Composer() {", "  return <Textarea />;", "}"],
     };
     const successStates: AccessibilitySourceState[] = [];
     let sourceRequests = 0;
-    const successLoader = createAccessibilitySourceLoader(
-      (state) => successStates.push(state),
-      {
-        fetcher: async (_url, init) => {
-          sourceRequests += 1;
-          if (sourceRequests === 2) {
-            expect(new Headers(init?.headers).get("If-None-Match"))
-              .toBe(JSON.stringify(excerpt.cacheKey));
-            return new Response(null, { status: 304 });
-          }
-          return new Response(JSON.stringify(excerpt), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        },
-        timeoutMs: 50,
+    const successLoader = createAccessibilitySourceLoader((state) => successStates.push(state), {
+      fetcher: async (_url, init) => {
+        sourceRequests += 1;
+        if (sourceRequests === 2) {
+          expect(new Headers(init?.headers).get("If-None-Match")).toBe(
+            JSON.stringify(excerpt.cacheKey),
+          );
+          return new Response(null, { status: 304 });
+        }
+        return new Response(JSON.stringify(excerpt), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       },
-    );
+      timeoutMs: 50,
+    });
     const ready = await successLoader.load("http://agentsims.test/source");
     const readyHtml = renderToStaticMarkup(
-      <AccessibilitySourceSection
-        location="src/chat/Composer.tsx:12"
-        sourceState={ready}
-      />,
+      <AccessibilitySourceSection location="src/chat/Composer.tsx:12" sourceState={ready} />,
     );
-    expect(successStates.map((state) => state.status)).toEqual([
-      "loading",
-      "ready",
-    ]);
+    expect(successStates.map((state) => state.status)).toEqual(["loading", "ready"]);
     expect(readyHtml).toContain("diffs-container");
     expect(readyHtml).toContain("ax-source-file");
     expect(readyHtml).not.toContain("ax-source-virtualizer");
@@ -1888,20 +1794,13 @@ describe("review presentation components", () => {
     expect(readyHtml).not.toContain("Preview unavailable");
     const warm = await successLoader.load("http://agentsims.test/source");
     expect(warm.status).toBe("ready");
-    expect(successStates.map((state) => state.status)).toEqual([
-      "loading",
-      "ready",
-      "ready",
-    ]);
+    expect(successStates.map((state) => state.status)).toEqual(["loading", "ready", "ready"]);
 
     const missingStates: AccessibilitySourceState[] = [];
-    const missingLoader = createAccessibilitySourceLoader(
-      (state) => missingStates.push(state),
-      {
-        fetcher: async () => new Response("{}", { status: 404 }),
-        timeoutMs: 50,
-      },
-    );
+    const missingLoader = createAccessibilitySourceLoader((state) => missingStates.push(state), {
+      fetcher: async () => new Response("{}", { status: 404 }),
+      timeoutMs: 50,
+    });
     const missing = await missingLoader.load("http://agentsims.test/missing");
     const missingHtml = renderToStaticMarkup(
       <AccessibilitySourceSection location="missing.tsx:1" sourceState={missing} />,
@@ -1920,27 +1819,30 @@ describe("review presentation components", () => {
       cacheKey: "latest:1",
       lines: ["export const Latest = () => <Text>Latest</Text>;"],
     };
-    const loader = createAccessibilitySourceLoader(
-      (state) => states.push(state),
-      {
-        fetcher: (url, init) => {
-          if (String(url).endsWith("first")) {
-            return new Promise((_resolve, reject) => {
-              init?.signal?.addEventListener("abort", () => {
+    const loader = createAccessibilitySourceLoader((state) => states.push(state), {
+      fetcher: (url, init) => {
+        if (String(url).endsWith("first")) {
+          return new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => {
                 const error = new Error("Aborted");
                 error.name = "AbortError";
                 reject(error);
-              }, { once: true });
-            });
-          }
-          return Promise.resolve(new Response(JSON.stringify(latestExcerpt), {
+              },
+              { once: true },
+            );
+          });
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(latestExcerpt), {
             status: 200,
             headers: { "Content-Type": "application/json" },
-          }));
-        },
-        timeoutMs: 50,
+          }),
+        );
       },
-    );
+      timeoutMs: 50,
+    });
     const first = loader.load("http://agentsims.test/first");
     const latest = loader.load("http://agentsims.test/latest");
     await first;
@@ -1950,24 +1852,23 @@ describe("review presentation components", () => {
     expect(states.at(-1)?.status).toBe("ready");
 
     const timeoutStates: AccessibilitySourceState[] = [];
-    const timeoutLoader = createAccessibilitySourceLoader(
-      (state) => timeoutStates.push(state),
-      {
-        fetcher: (_url, init) => new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            const error = new Error("Aborted");
-            error.name = "AbortError";
-            reject(error);
-          }, { once: true });
+    const timeoutLoader = createAccessibilitySourceLoader((state) => timeoutStates.push(state), {
+      fetcher: (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("Aborted");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
         }),
-        timeoutMs: 1,
-      },
-    );
+      timeoutMs: 1,
+    });
     await timeoutLoader.load("http://agentsims.test/timeout");
-    expect(timeoutStates.map((state) => state.status)).toEqual([
-      "loading",
-      "missing",
-    ]);
+    expect(timeoutStates.map((state) => state.status)).toEqual(["loading", "missing"]);
     expect(timeoutStates.at(-1)?.status).not.toBe("loading");
   });
 
@@ -1998,8 +1899,7 @@ describe("review presentation components", () => {
     expect(projection.paths[0]).toBe("FrameLayout/");
     expect(projection.paths.at(-1)?.endsWith("/Button")).toBe(true);
     expect(projection.pathsByKey.get("wrapper-0@0")).toBe("FrameLayout/");
-    expect(Math.max(...projection.paths.map((path) => path.split("/").length)))
-      .toBe(23);
+    expect(Math.max(...projection.paths.map((path) => path.split("/").length))).toBe(23);
     expect(projection.paths.every((path) => path.length > 3)).toBe(true);
     expect(accessibilityTreeRowLabel(leaf)).toBe("Button");
   });
@@ -2085,20 +1985,26 @@ describe("review presentation components", () => {
   });
 
   test("maps internal AX transport wording to compact presentation state", () => {
-    expect(resolveAccessibilityHeaderStatus({
-      status: "Fast Android AX transport connected",
-      elementCount: 68,
-      sourceCount: 12,
-    })).toEqual({ kind: "ready", label: "68 · 12 RN" });
-    expect(resolveAccessibilityHeaderStatus({
-      status: "AX waiting",
-      elementCount: undefined,
-      sourceCount: undefined,
-    })).toEqual({ kind: "loading", label: "Loading accessibility tree" });
-    expect(resolveAccessibilityHeaderStatus({
-      status: "AX refresh failed",
-      elementCount: undefined,
-      sourceCount: undefined,
-    }).kind).toBe("error");
+    expect(
+      resolveAccessibilityHeaderStatus({
+        status: "Fast Android AX transport connected",
+        elementCount: 68,
+        sourceCount: 12,
+      }),
+    ).toEqual({ kind: "ready", label: "68 · 12 RN" });
+    expect(
+      resolveAccessibilityHeaderStatus({
+        status: "AX waiting",
+        elementCount: undefined,
+        sourceCount: undefined,
+      }),
+    ).toEqual({ kind: "loading", label: "Loading accessibility tree" });
+    expect(
+      resolveAccessibilityHeaderStatus({
+        status: "AX refresh failed",
+        elementCount: undefined,
+        sourceCount: undefined,
+      }).kind,
+    ).toBe("error");
   });
 });
