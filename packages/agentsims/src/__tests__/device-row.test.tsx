@@ -324,7 +324,7 @@ describe("DeviceRow", () => {
     expect(html.match(/data-base-ui-tooltip-trigger/g)).toHaveLength(2);
     expect(html).toContain("hover:!text-red-400");
     expect(html).toContain("!border-transparent");
-    expect(html).toContain("group/review-action");
+    expect(html).toContain("group/icon-action");
     expect(html).not.toContain("group-hover:opacity-100");
     expect(html).not.toContain('type="checkbox"');
     expect(html).not.toContain(">26.5</span>");

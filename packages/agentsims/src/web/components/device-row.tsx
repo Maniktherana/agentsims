@@ -1,7 +1,7 @@
 import { getDeviceType } from "../simulator";
 import { Eye, EyeOff, LoaderCircle, Power, RotateCcw } from "lucide-react";
 import { type GridDevice, runtimeLabel, runtimeVersion } from "../utils/grid";
-import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
+import { IconButton } from "./icon-button";
 import { DeviceGlyph } from "./device-glyph";
 
 export type DeviceLifecyclePhase =
@@ -172,7 +172,7 @@ export function DeviceRow({
       >
         {showVisibilityControl ? (
           <>
-            <ReviewIconButton
+            <IconButton
               label={`${visible ? "Hide" : "Show"} ${device.name}`}
               tooltip={visible ? "Hide from canvas" : "Show on canvas"}
               active={!!visible}
@@ -187,9 +187,9 @@ export function DeviceRow({
               }}
             >
               {visible ? <Eye size={14} strokeWidth={2} /> : <EyeOff size={14} strokeWidth={2} />}
-            </ReviewIconButton>
+            </IconButton>
             {canShutdown && (
-              <ReviewIconButton
+              <IconButton
                 label="Shut down device"
                 tooltip={shuttingDown ? "Shutting down…" : "Shut down"}
                 tone="danger"
@@ -204,7 +204,7 @@ export function DeviceRow({
                 }}
               >
                 <Power size={14} strokeWidth={2} />
-              </ReviewIconButton>
+              </IconButton>
             )}
           </>
         ) : (

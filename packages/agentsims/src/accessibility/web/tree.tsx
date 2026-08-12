@@ -19,15 +19,37 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import type { AxElement, AxSnapshot } from "../../model";
+import type { AxElement, AxSnapshot } from "../model";
 import {
   axElementKey,
   axFrameString,
   hasHumanLabel,
   isContainerRole,
   isMeaningfulSourceElement,
-} from "../core/ax";
-import { shortSourceLocation } from "./target-source-context";
+} from "./ax";
+
+function shortSourceLocation(
+  file: string | null | undefined,
+  line?: number | null,
+  column?: number | null,
+): string | null {
+  const normalized = file
+    ?.replace(/^file:\/\//, "")
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/")
+    .trim();
+  if (!normalized) return null;
+  const segments = normalized.split("/").filter(Boolean);
+  const shortPath = segments.length > 3
+    ? segments.slice(-3).join("/")
+    : segments.join("/");
+  const lineSuffix = typeof line === "number" && line > 0 ? `:${line}` : "";
+  const columnSuffix = lineSuffix && typeof column === "number" && column >= 0
+    ? `:${column}`
+    : "";
+  return `${shortPath}${lineSuffix}${columnSuffix}`;
+}
 
 function shortNativeType(element: AxElement): string {
   const type = element.role || element.type || "View";

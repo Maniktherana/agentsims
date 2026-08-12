@@ -1,5 +1,5 @@
-import { AX_UNAVAILABLE_ERROR } from "../../model";
-import type { AxElement, AxRect, AxSnapshot } from "../../model";
+import { AX_UNAVAILABLE_ERROR } from "../model";
+import type { AxElement, AxRect, AxSnapshot } from "../model";
 
 export function isAxeUnavailable(snapshot: AxSnapshot | null) {
   return snapshot?.errors?.includes(AX_UNAVAILABLE_ERROR) ?? false;
@@ -196,7 +196,7 @@ export function hasHumanLabel(element: AxElement) {
   return label !== element.testId && !/^ags_[a-z0-9_-]+$/i.test(label);
 }
 
-export function annotationTargetElements(
+export function meaningfulAxTargetElements(
   elements: AxElement[],
   screen: { width: number; height: number },
 ) {

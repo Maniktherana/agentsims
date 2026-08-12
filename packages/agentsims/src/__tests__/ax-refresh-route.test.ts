@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
 import type { IncomingMessage, ServerResponse } from "http";
-import type { AxSnapshot } from "../annotations/model";
-import { createAxStreamerCache } from "../annotations/snapshot";
+import type { AxSnapshot } from "../accessibility/model";
+import { createAxStreamerCache } from "../accessibility/snapshot";
 import { simMiddleware, type SimMiddleware } from "../middleware";
 import type { DeviceState } from "../shared/state";
 

@@ -56,8 +56,6 @@ function renderHeader(override: Partial<Parameters<typeof WorkspaceHeader>[0]> =
       onShutdown={noop}
       toolsOpen={false}
       onToggleTools={noop}
-      reviewOpen={false}
-      onToggleReview={noop}
       hasActiveDevice
       {...override}
     />,
@@ -179,7 +177,6 @@ describe("WorkspaceHeader", () => {
   test("keeps global actions in one bottom workspace dock", () => {
     const html = renderHeader();
     expect(html).toContain('id="agentsims-workspace-dock"');
-    expect(html).toContain('id="agentsims-review-dock-slot"');
     expect(html).toContain('aria-label="Devices, 1 shown"');
     expect(html).toContain('aria-label="Device settings"');
     expect(html).not.toContain('aria-label="Add simulator"');

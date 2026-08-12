@@ -1,13 +1,24 @@
 import { memo, useRef } from "react";
-import type { AxElement } from "../../model";
+import type { AxElement } from "../model";
 import {
   axElementKey,
   axElementsEqual,
   axFrameString,
   axNodeForElement,
   clampAxFrameForScreen,
-} from "../core/ax";
-import { annotationElementHoverLabel } from "../core/prompt";
+} from "./ax";
+
+function axElementHoverLabel(element: AxElement): string {
+  const generatedLabel = /^ags_[a-z0-9_-]+$/i.test((element.label || "").trim());
+  return (
+    (!generatedLabel ? element.label : "") ||
+    element.source?.componentName ||
+    element.source?.elementName ||
+    element.role ||
+    element.type ||
+    "Accessibility element"
+  );
+}
 
 export interface AxTargetProps {
   element: AxElement;
@@ -144,7 +155,7 @@ export const AxTarget = memo(function AxTarget({
       data-ax-enabled={String(axNode.enabled)}
       data-ax-frame={axFrameString(axNode.frame)}
       data-ax-selected={String(selected)}
-      aria-label={annotationElementHoverLabel(element)}
+      aria-label={axElementHoverLabel(element)}
       aria-hidden={!interactive}
       tabIndex={-1}
       onClick={(event) => {

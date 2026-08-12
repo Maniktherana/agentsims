@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { AX_UNAVAILABLE_ERROR, type AxSnapshot } from "../annotations/model";
+import { AX_UNAVAILABLE_ERROR, type AxSnapshot } from "../accessibility/model";
 import {
   axRefreshEndpoint,
   decodeAxSnapshotEvent,
   reconcileAxSnapshot,
-} from "../annotations/web/state/device-annotation-state";
+} from "../accessibility/web/provider";
 
 describe("decodeAxSnapshotEvent", () => {
   test("skips an identical replay before parsing or replacing the tree", () => {

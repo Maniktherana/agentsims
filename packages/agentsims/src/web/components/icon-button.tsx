@@ -5,7 +5,7 @@ import {
   type ReactNode,
 } from "react";
 
-export interface ReviewIconButtonProps
+export interface IconButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> {
   label: string;
   tooltip?: string | null;
@@ -19,8 +19,8 @@ export interface ReviewIconButtonProps
   children: ReactNode;
 }
 
-export const ReviewIconButton = forwardRef<HTMLButtonElement, ReviewIconButtonProps>(
-  function ReviewIconButton(
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
+  function IconButton(
     {
       label,
       tooltip = label,
@@ -82,10 +82,10 @@ export const ReviewIconButton = forwardRef<HTMLButtonElement, ReviewIconButtonPr
         disabled={disabled}
         aria-label={label}
         aria-pressed={selected || active}
-        className={`group/review-action relative shrink-0 border-0 bg-transparent p-0 outline-none hover:z-10 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-1 focus-visible:ring-offset-[#171719] disabled:pointer-events-none disabled:opacity-35 ${layoutClass} ${sizeClass}`}
+        className={`group/icon-action relative shrink-0 border-0 bg-transparent p-0 outline-none hover:z-10 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-1 focus-visible:ring-offset-[#171719] disabled:pointer-events-none disabled:opacity-35 ${layoutClass} ${sizeClass}`}
       >
         <span
-          className={`relative size-full border [border-radius:inherit] [transition-property:background,color,border-color,transform,opacity] duration-[110ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] group-active/review-action:scale-[0.96] motion-reduce:transition-none motion-reduce:group-active/review-action:scale-100 ${layoutClass} ${stateClass} ${className}`}
+          className={`relative size-full border [border-radius:inherit] [transition-property:background,color,border-color,transform,opacity] duration-[110ms] [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] group-active/icon-action:scale-[0.96] motion-reduce:transition-none motion-reduce:group-active/icon-action:scale-100 ${layoutClass} ${stateClass} ${className}`}
         >
           {children}
           {badge !== null && badge !== undefined && (

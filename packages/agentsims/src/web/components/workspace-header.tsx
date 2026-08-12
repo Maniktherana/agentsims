@@ -15,9 +15,9 @@ import {
   type Transition,
   type Variants,
 } from "motion/react";
-import { MessageSquarePlus, MonitorSmartphone, RotateCcw, Search, Settings, X } from "lucide-react";
+import { MonitorSmartphone, RotateCcw, Search, Settings, X } from "lucide-react";
 import { type GridDevice, runtimeLabel } from "../utils/grid";
-import { ReviewIconButton } from "../../annotations/web/review/review-icon-button";
+import { IconButton } from "./icon-button";
 import {
   deviceLifecycleStatus,
   DeviceRow,
@@ -107,7 +107,6 @@ export function WorkspaceHeader({
   onShutdown,
   toolsOpen,
   onToggleTools,
-  onToggleReview,
   hasActiveDevice,
   onResetLayout,
 }: {
@@ -132,7 +131,6 @@ export function WorkspaceHeader({
   onShutdown: (udid: string) => void;
   toolsOpen: boolean;
   onToggleTools: () => void;
-  onToggleReview: () => void;
   hasActiveDevice: boolean;
   onResetLayout: () => void;
 }) {
@@ -140,10 +138,8 @@ export function WorkspaceHeader({
   const [commandHeld, setCommandHeld] = useState(false);
   const commandHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
-  const reviewSlotRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const wasSearchingRef = useRef(false);
-  const [reviewControlsWidth, setReviewControlsWidth] = useState(40);
   const [dockWidthAnimating, setDockWidthAnimating] = useState(false);
   const previousDockWidthRef = useRef<number | null>(null);
   const filtered = useMemo(() => {
@@ -183,7 +179,7 @@ export function WorkspaceHeader({
   const settingsDeviceId = settingsDevices.some((device) => device.device === settingsUdid)
     ? settingsUdid
     : (settingsDevices[0]?.device ?? null);
-  const compactDockWidth = Math.max(136, reviewControlsWidth + 96);
+  const compactDockWidth = 96;
   const dockWidth = pickerOpen ? 400 : toolsOpen ? 400 : compactDockWidth;
   const dockHeight = expanded
     ? Math.max(320, Math.min(620, (typeof window === "undefined" ? 800 : window.innerHeight) - 24))
@@ -213,29 +209,6 @@ export function WorkspaceHeader({
     };
   }, [onPickerOpenChange, pickerOpen]);
 
-  useLayoutEffect(() => {
-    const slot = reviewSlotRef.current;
-    if (!slot || typeof ResizeObserver === "undefined") return;
-    const updateWidth = () => {
-      // The launcher animates its own inline width. Measuring the slot here
-      // would feed every in-between frame into the dock spring, making the
-      // parent chase the child. Read the declared destination width so both
-      // animations begin together and settle in one pass.
-      const launcher = slot.querySelector<HTMLElement>("[data-review-launcher]");
-      const declaredWidth = Number.parseFloat(launcher?.style.width ?? "");
-      const measuredWidth = slot.getBoundingClientRect().width;
-      const nextWidth = Math.max(
-        40,
-        Math.ceil(Number.isFinite(declaredWidth) ? declaredWidth : measuredWidth),
-      );
-      setReviewControlsWidth((current) => (current === nextWidth ? current : nextWidth));
-    };
-    updateWidth();
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(slot);
-    return () => observer.disconnect();
-  }, []);
-
   useEffect(() => {
     const searching = !!query.trim();
     if (searching && hasMore) onLoadAll();
@@ -264,10 +237,7 @@ export function WorkspaceHeader({
       }
       if (!(event.metaKey || event.ctrlKey) || event.repeat) return;
       const key = event.key.toLowerCase();
-      if (event.shiftKey && key === "a" && hasActiveDevice) {
-        event.preventDefault();
-        onToggleReview();
-      } else if (event.shiftKey && key === "d") {
+      if (event.shiftKey && key === "d") {
         event.preventDefault();
         if (pickerOpen) onPickerOpenChange(false);
         else openPicker();
@@ -304,7 +274,6 @@ export function WorkspaceHeader({
   }, [
     hasActiveDevice,
     onPickerOpenChange,
-    onToggleReview,
     onToggleTools,
     onResetLayout,
     pickerOpen,
@@ -461,27 +430,6 @@ export function WorkspaceHeader({
               dockWidthAnimating ? "overflow-x-clip overflow-y-visible" : "overflow-visible"
             }`}
           >
-            <div className="relative flex h-10 shrink-0 items-center justify-center">
-              <div
-                id="agentsims-review-dock-slot"
-                ref={reviewSlotRef}
-                className="flex shrink-0 items-center"
-              />
-              {!hasActiveDevice && (
-                <button
-                  type="button"
-                  disabled
-                  className="grid size-10 place-items-center text-white/20 [border-radius:8px]"
-                  aria-label="Review interface"
-                  title="Start a simulator to annotate"
-                >
-                  <MessageSquarePlus size={17} strokeWidth={2} />
-                </button>
-              )}
-              <ShortcutHint visible={commandHeld} anchor="first-slot">
-                ⇧A
-              </ShortcutHint>
-            </div>
             <WorkspaceDockButton
               onClick={() => (pickerOpen ? onPickerOpenChange(false) : openPicker())}
               label={devicesLabel}
@@ -551,7 +499,7 @@ function WorkspaceDockButton({
   children: ReactNode;
 }) {
   return (
-    <ReviewIconButton
+    <IconButton
       {...buttonProps}
       disabled={disabled}
       label={label}
@@ -563,7 +511,7 @@ function WorkspaceDockButton({
     >
       {children}
       {shortcut && <ShortcutHint visible={shortcutVisible}>{shortcut}</ShortcutHint>}
-    </ReviewIconButton>
+    </IconButton>
   );
 }
 

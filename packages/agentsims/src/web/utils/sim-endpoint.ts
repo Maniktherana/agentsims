@@ -9,7 +9,6 @@ declare global {
       device: string;
       basePath: string;
       axEndpoint?: string;
-      annotationEndpoint?: string;
       appStateEndpoint?: string;
       devtoolsEndpoint?: string;
       gridApiEndpoint?: string;

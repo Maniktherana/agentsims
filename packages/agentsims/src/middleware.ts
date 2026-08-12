@@ -11,9 +11,8 @@ import { fileURLToPath } from "url";
 import {
   createAxStreamerCache,
   type AxStreamerCache,
-} from "./annotations/snapshot";
-import { readRnSourceFile } from "./annotations/rn-source";
-import { AnnotationRouter } from "./annotations/router";
+} from "./accessibility/snapshot";
+import { readRnSourceFile } from "./accessibility/rn-source";
 import { MediaRouter } from "./media/router";
 import type { DeviceState } from "./shared/state";
 import {
@@ -206,7 +205,6 @@ export function previewConfigForState(
   basePath: string;
   appStateEndpoint: string;
   axEndpoint: string;
-  annotationEndpoint: string;
   devtoolsEndpoint: string;
   agentsimsBin: string;
   gridApiEndpoint: string;
@@ -225,7 +223,6 @@ export function previewConfigForState(
     basePath: base,
     appStateEndpoint: endpoint(base, "/appstate", state.device),
     axEndpoint: endpoint(base, "/ax", state.device),
-    annotationEndpoint: base === "" ? "/annotations" : `${base}/annotations`,
     devtoolsEndpoint: endpoint(base, "/devtools", state.device),
     agentsimsBin,
     gridApiEndpoint: gridApiBase,
@@ -516,7 +513,6 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
   const devtoolsPrefix = devtoolsProxyPrefix(base);
   const proxyHelpers = options?.proxyHelpers ?? false;
   const getInspectWebKitBridge = options?.inspectWebKitBridge ?? ensureInspectWebKitBridge;
-  const annotationRouter = new AnnotationRouter(base);
   const appStateRouter = new AppStateRouter(base);
   const mediaRouter = new MediaRouter(base);
   const deviceGateway = new DeviceGateway(base);
@@ -647,7 +643,6 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
       return;
     }
 
-    if (await annotationRouter.handle(req, res, selectedDevice)) return;
     if (await appStateRouter.handle(req, res, selectedDevice)) return;
     if (await previewStateRouter.handle(req, res, selectedDevice, exposeState)) return;
     if (

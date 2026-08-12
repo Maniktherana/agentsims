@@ -9,16 +9,23 @@ import {
   type PointerEventHandler,
   type ReactNode,
 } from "react";
-import { SimulatorResizeCornerAffordance } from "../../../web/components/simulator-resize-corner-handle";
-import { simulatorResizeCornerArc } from "../../../web/simulator";
-import type { ResizeVisualPhase } from "../../../web/utils/simulator-resize";
-import { ReviewIconButton } from "./review-icon-button";
-import type { ReviewDeviceIdentity, ReviewView } from "./review-types";
+import { IconButton } from "../../web/components/icon-button";
+import { SimulatorResizeCornerAffordance } from "../../web/components/simulator-resize-corner-handle";
+import { simulatorResizeCornerArc } from "../../web/simulator";
+import type { ResizeVisualPhase } from "../../web/utils/simulator-resize";
 
-export interface ReviewSidecarProps {
+export interface AccessibilityDeviceIdentity {
+  id: string;
+  name: string;
+  platform: "ios" | "android";
+  runtime?: string | null;
+  applicationName?: string | null;
+  connected?: boolean;
+}
+
+export interface AccessibilityPanelProps {
   open: boolean;
-  view: ReviewView;
-  device: ReviewDeviceIdentity;
+  device: AccessibilityDeviceIdentity;
   onClose: () => void;
   children: ReactNode;
   placement?: "side" | "bottom";
@@ -31,18 +38,18 @@ export interface ReviewSidecarProps {
   onResizeKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 }
 
-export function shouldStartReviewHeaderDrag(target: unknown): boolean {
+export function shouldStartAccessibilityHeaderDrag(target: unknown): boolean {
   const closest = (target as { closest?: (selector: string) => unknown } | null)?.closest;
   return typeof closest !== "function" || !closest.call(target, "button");
 }
 
-export function reviewResizeVisualPhase(dragging: boolean, hovered: boolean): ResizeVisualPhase {
+export function accessibilityResizeVisualPhase(dragging: boolean, hovered: boolean): ResizeVisualPhase {
   if (dragging) return "drag";
   if (hovered) return "hover";
   return "idle";
 }
 
-function ReviewResizeCornerHandle({
+function AccessibilityResizeCornerHandle({
   onPointerDown,
   onKeyDown,
 }: {
@@ -59,7 +66,7 @@ function ReviewResizeCornerHandle({
   const [focusVisible, setFocusVisible] = useState(false);
 
   useEffect(() => {
-    const panel = handleRef.current?.closest<HTMLElement>("[data-review-sidecar]");
+    const panel = handleRef.current?.closest<HTMLElement>("[data-accessibility-panel]");
     if (!panel || typeof ResizeObserver === "undefined") return;
     const update = () => {
       const bounds = panel.getBoundingClientRect();
@@ -81,7 +88,7 @@ function ReviewResizeCornerHandle({
       }),
     [containerSize],
   );
-  const phase = reviewResizeVisualPhase(dragging, hovered);
+  const phase = accessibilityResizeVisualPhase(dragging, hovered);
 
   return (
     <div
@@ -90,7 +97,7 @@ function ReviewResizeCornerHandle({
       aria-label="Resize accessibility panel"
       aria-orientation="vertical"
       tabIndex={0}
-      data-agentsims-review-resize-handle
+      data-agentsims-accessibility-resize-handle
       data-resize-phase={phase}
       data-focus-visible={focusVisible}
       onPointerDown={(event) => {
@@ -131,9 +138,8 @@ function ReviewResizeCornerHandle({
   );
 }
 
-export function ReviewSidecar({
+export function AccessibilityPanel({
   open,
-  view,
   device,
   onClose,
   children,
@@ -145,11 +151,11 @@ export function ReviewSidecar({
   onMovePointerDown,
   onResizePointerDown,
   onResizeKeyDown,
-}: ReviewSidecarProps) {
+}: AccessibilityPanelProps) {
   const titleId = useId();
   if (!open) return null;
 
-  const title = view === "annotations" ? "Annotations" : "Accessibility";
+  const title = "Accessibility";
   const identityTooltip = [
     title,
     device.platform === "ios" ? "iOS" : "Android",
@@ -167,16 +173,16 @@ export function ReviewSidecar({
       aria-labelledby={titleId}
       data-device-id={device.id}
       data-device-platform={device.platform}
-      data-review-sidecar={view}
-      className={`agentsims-sidecar-enter relative flex min-w-0 flex-col overflow-visible rounded-[14px] border border-white/[0.1] bg-[var(--agentsims-panel-bg,#181818)] text-white shadow-[0_12px_40px_rgba(0,0,0,0.55)] ${placementClass} ${className}`}
+      data-accessibility-panel
+      className={`agentsims-accessibility-panel-enter relative flex min-w-0 flex-col overflow-visible rounded-[14px] border border-white/[0.1] bg-[var(--agentsims-panel-bg,#181818)] text-white shadow-[0_12px_40px_rgba(0,0,0,0.55)] ${placementClass} ${className}`}
     >
       <header
-        data-agentsims-review-panel-header
-        data-agentsims-review-drag-handle={onMovePointerDown ? "true" : undefined}
+        data-agentsims-accessibility-panel-header
+        data-agentsims-accessibility-drag-handle={onMovePointerDown ? "true" : undefined}
         onPointerDown={
           onMovePointerDown
             ? (event) => {
-                if (!shouldStartReviewHeaderDrag(event.target)) return;
+                if (!shouldStartAccessibilityHeaderDrag(event.target)) return;
                 onMovePointerDown(event);
               }
             : undefined
@@ -209,18 +215,18 @@ export function ReviewSidecar({
           <span className="truncate text-[12px] font-semibold text-white/90">{device.name}</span>
         </div>
         {headerActions}
-        <ReviewIconButton
-          label="Close review"
+        <IconButton
+          label="Close accessibility tree"
           tooltip="Close"
           size="panel"
           surface="toolbar"
           onClick={onClose}
         >
           <X size={14} strokeWidth={2} />
-        </ReviewIconButton>
+        </IconButton>
       </header>
       <div
-        data-agentsims-review-panel-body
+        data-agentsims-accessibility-panel-body
         className={`min-h-0 flex-1 overflow-hidden ${bodyClassName}`}
       >
         {children}
@@ -229,7 +235,7 @@ export function ReviewSidecar({
         <footer className="shrink-0 border-t border-white/[0.08] px-3 py-2.5">{footer}</footer>
       )}
       {onResizePointerDown && (
-        <ReviewResizeCornerHandle onPointerDown={onResizePointerDown} onKeyDown={onResizeKeyDown} />
+        <AccessibilityResizeCornerHandle onPointerDown={onResizePointerDown} onKeyDown={onResizeKeyDown} />
       )}
     </aside>
   );

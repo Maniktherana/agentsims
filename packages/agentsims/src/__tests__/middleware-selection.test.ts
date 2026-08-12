@@ -49,7 +49,6 @@ describe("previewConfigForState", () => {
       basePath: "/preview",
       appStateEndpoint: "/preview/appstate?device=DEVICE-B",
       axEndpoint: "/preview/ax?device=DEVICE-B",
-      annotationEndpoint: "/preview/annotations",
       devtoolsEndpoint: "/preview/devtools?device=DEVICE-B",
       agentsimsBin: "/bin/agentsims",
       gridApiEndpoint: "/preview/grid/api",

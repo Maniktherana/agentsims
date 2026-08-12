@@ -29,7 +29,6 @@ describe("ToolsPanel", () => {
     );
 
     expect(html).toContain("background-color:var(--agentsims-panel-bg)");
-    expect(html).not.toContain("Annotate");
   });
 
   test("reserves Android device metadata geometry while status loads", () => {

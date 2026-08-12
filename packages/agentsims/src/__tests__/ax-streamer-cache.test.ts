@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createAxStreamerCache } from "../annotations/snapshot";
-import type { AxSnapshot } from "../annotations/model";
+import { createAxStreamerCache } from "../accessibility/snapshot";
+import type { AxSnapshot } from "../accessibility/model";
 
 function snapshot(label: string): AxSnapshot {
   return {

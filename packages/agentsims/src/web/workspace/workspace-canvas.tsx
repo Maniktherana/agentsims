@@ -4,7 +4,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -14,12 +13,6 @@ import {
   WORKSPACE_DEVICE_GEOMETRY_EVENT,
 } from "../layout-events";
 import type { GridDevice } from "../utils/grid";
-import {
-  EMPTY_WORKSPACE_REVIEW_EXTENTS,
-  getWorkspaceReviewExtentsSnapshot,
-  subscribeWorkspaceReviewExtents,
-  type WorkspaceReviewExtents,
-} from "./workspace-review-extent-store";
 import type { PreviewConfig } from "./workspace-state";
 
 export interface WorkspaceDeviceRenderContext {
@@ -94,18 +87,6 @@ export function clampWorkspaceDeviceOffset(
       maxBottom - originTop - rect.height,
       Math.max(margin - originTop, next.y),
     ),
-  };
-}
-
-export function resolveWorkspaceReviewScrollExtent(
-  viewportWidth: number,
-  viewportHeight: number,
-  extents: WorkspaceReviewExtents,
-): { width: number; height: number } {
-  const values = Object.values(extents);
-  return {
-    width: Math.max(viewportWidth, ...values.map((extent) => extent.right)),
-    height: Math.max(viewportHeight, ...values.map((extent) => extent.bottom)),
   };
 }
 
@@ -257,31 +238,9 @@ export function WorkspaceCanvas({
   onStart: (deviceId: string) => void;
   renderDevice: (context: WorkspaceDeviceRenderContext) => ReactNode;
 }) {
-  const [workspaceElement, setWorkspaceElement] = useState<HTMLDivElement | null>(
-    null,
-  );
   const [offsets, setOffsets] = useState<WorkspaceOffsets>(readWorkspaceOffsets);
   const offsetsRef = useRef(offsets);
   offsetsRef.current = offsets;
-
-  const setWorkspaceRef = useCallback((element: HTMLDivElement | null) => {
-    setWorkspaceElement((current) => current === element ? current : element);
-  }, []);
-  const subscribeReviewExtents = useCallback((listener: () => void) => {
-    return workspaceElement
-      ? subscribeWorkspaceReviewExtents(workspaceElement, listener)
-      : () => {};
-  }, [workspaceElement]);
-  const getReviewExtents = useCallback(() => {
-    return workspaceElement
-      ? getWorkspaceReviewExtentsSnapshot(workspaceElement)
-      : EMPTY_WORKSPACE_REVIEW_EXTENTS;
-  }, [workspaceElement]);
-  const reviewExtents = useSyncExternalStore(
-    subscribeReviewExtents,
-    getReviewExtents,
-    () => EMPTY_WORKSPACE_REVIEW_EXTENTS,
-  );
 
   useEffect(() => {
     const reset = () => {
@@ -340,24 +299,12 @@ export function WorkspaceCanvas({
   }
 
   const singleDevice = visibleDeviceIds.length === 1;
-  const scrollExtent = resolveWorkspaceReviewScrollExtent(
-    0,
-    0,
-    reviewExtents,
-  );
   return (
     <div
-      ref={setWorkspaceRef}
       data-agentsims-workspace-scroll
       className="relative h-screen overflow-x-auto overflow-y-hidden bg-page font-system box-border [scrollbar-width:thin]"
       style={WORKSPACE_PADDING}
     >
-      <div
-        aria-hidden="true"
-        data-agentsims-review-scroll-extent
-        className="pointer-events-none absolute left-0 top-0"
-        style={{ width: scrollExtent.width, height: scrollExtent.height }}
-      />
       <div className="h-full min-h-0 overflow-hidden">
         <div
           data-agentsims-centered-device-row

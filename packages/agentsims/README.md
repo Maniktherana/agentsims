@@ -1,10 +1,9 @@
 # agentsims
 
-Agentsims is a local browser workspace for controlling, inspecting, and
-reviewing iOS simulators, Android emulators, and connected Android devices
-while developing React Native and Expo apps. It keeps multiple devices on one
-canvas and turns native accessibility targets into source-aware prompts for
-coding agents.
+Agentsims is a local browser workspace for controlling and inspecting iOS
+simulators, Android emulators, and connected Android devices while developing
+React Native and Expo apps. It keeps multiple devices on one canvas and maps
+native accessibility targets back to React Native source when available.
 
 Agentsims runs beside the app. It does not add an overlay, SDK, or runtime
 dependency to the mobile bundle.
@@ -58,8 +57,6 @@ npx agentsims setup
 - Streams each selected device and relays supported pointer, keyboard, scroll,
   rotation, and hardware-button input.
 - Opens a dedicated accessibility tree for native target inspection.
-- Captures Single- or Multi-target annotations with device, accessibility,
-  source, note, severity, and screenshot context.
 
 Agentsims does not start Metro, launch the app bundle, or stop devices when its
 server exits.
@@ -200,5 +197,4 @@ control routes.
 
 - [Complete guide](https://github.com/Maniktherana/agentsims#readme)
 - [Agent CLI observation and action flow](https://github.com/Maniktherana/agentsims/blob/main/packages/agentsims/src/cli/README.md)
-- [Annotation interaction contract](https://github.com/Maniktherana/agentsims/blob/main/.plans/ANNOTATION_EXPERIENCE.md)
 - [Architecture and domain context](https://github.com/Maniktherana/agentsims/blob/main/.plans/CONTEXT.md)

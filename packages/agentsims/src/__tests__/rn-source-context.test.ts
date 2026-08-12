@@ -3,11 +3,11 @@ import { unlinkSync, writeFileSync } from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
-import type { AxSnapshot } from "../annotations/model";
+import type { AxSnapshot } from "../accessibility/model";
 import {
   enrichAxSnapshotWithRnSource,
   rnSourceManifestPath,
-} from "../annotations/rn-source";
+} from "../accessibility/rn-source";
 import { expoRoute } from "../rn/babel-plugin";
 import { simMiddleware } from "../middleware";
 

@@ -26,7 +26,7 @@ import {
   toggleAndroidDarkMode,
   toggleAndroidSoftwareKeyboard,
 } from "./device";
-import { enrichAxSnapshotWithRnSource } from "../annotations/rn-source";
+import { enrichAxSnapshotWithRnSource } from "../accessibility/rn-source";
 import { LatestValueScheduler } from "../shared/latest-value-scheduler";
 import {
   closeAndroidAxServer,

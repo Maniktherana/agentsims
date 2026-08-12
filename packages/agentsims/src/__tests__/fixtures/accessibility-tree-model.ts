@@ -1,4 +1,4 @@
-import type { AxElement, AxSourceContext } from "../../annotations/model";
+import type { AxElement, AxSourceContext } from "../../accessibility/model";
 
 const frame = { x: 0, y: 0, width: 320, height: 640 };
 

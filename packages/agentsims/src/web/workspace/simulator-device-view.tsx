@@ -21,15 +21,13 @@ import {
 
 import { ArrowLeft, GripVertical, ListTree, Menu, Upload } from "lucide-react";
 import { ReloadIcon } from "../icons";
+import { AccessibilityInspectorController } from "../../accessibility/web/controller";
+import { AxDomOverlay } from "../../accessibility/web/overlay";
+import { AccessibilityStateProvider } from "../../accessibility/web/provider";
 import {
-  ConnectedReviewLaunchers,
-  ReviewDeviceController,
-} from "../../annotations/web/review/review-device-controller";
-import { AxStateProvider } from "../../annotations/web/state/ax-state-provider";
-import type { ReviewEvent } from "../../annotations/web/state/review-reducer";
-import { selectNeedsAxSnapshot } from "../../annotations/web/state/review-selectors";
-import type { ReviewState } from "../../annotations/web/state/review-state";
-import { AnnotationSurface } from "../../annotations/web/overlay/annotation-surface";
+  accessibilityInspectorReducer,
+  createAccessibilityInspectorState,
+} from "../../accessibility/web/state";
 import { DeviceKitChrome, type ChromeButtonPress } from "../components/device-chrome-frame";
 import {
   DeviceScreenshotPreview,
@@ -96,8 +94,6 @@ export interface SimulatorDeviceViewProps {
   deviceRuntime: string | null;
   chrome: DeviceKitChromeDescriptor | null;
   preferMjpeg: boolean;
-  reviewState: ReviewState;
-  dispatchReview: (event: ReviewEvent) => void;
   toolsOpen: boolean;
   setToolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   devtoolsOpen: boolean;
@@ -118,8 +114,6 @@ export function SimulatorDeviceView({
   deviceRuntime,
   chrome,
   preferMjpeg,
-  reviewState,
-  dispatchReview,
   toolsOpen,
   setToolsOpen,
   devtoolsOpen,
@@ -134,11 +128,15 @@ export function SimulatorDeviceView({
   onFocus,
 }: SimulatorDeviceViewProps) {
   const panelsEnabled = !embedded || focused;
-  const annotationActive = reviewState.kind === "annotate";
-  const accessibilityOpen = reviewState.kind === "accessibility";
-  const accessibilitySelecting = accessibilityOpen && reviewState.picking;
-  const accessibilityShowAll = accessibilityOpen && reviewState.showAllNodes;
-  const needsAxSnapshot = selectNeedsAxSnapshot(reviewState);
+  const [accessibilityState, dispatchAccessibility] = useReducer(
+    accessibilityInspectorReducer,
+    undefined,
+    createAccessibilityInspectorState,
+  );
+  const accessibilityOpen = accessibilityState.open;
+  const accessibilitySelecting = accessibilityState.picking;
+  const accessibilityShowAll = accessibilityState.showAllNodes;
+  const needsAxSnapshot = accessibilityOpen;
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
   const setStreamingRef = useRef(setStreaming);
@@ -828,33 +826,23 @@ export function SimulatorDeviceView({
     onStart: () => setSimFocused(false),
   });
 
-  const rightPanelWidthPx = webkitDevtoolsOpen
-    ? devtoolsPanelWidth
-    : toolsOpen
-      ? toolsPanelWidth
-      : 0;
-
   return (
-    <AxStateProvider
+    <AccessibilityStateProvider
       endpoint={config?.axEndpoint}
       refreshSignal={axRefreshSignal}
-      reviewActive={needsAxSnapshot}
-      reviewState={reviewState}
-      dispatchReview={dispatchReview}
-      annotationEndpoint={config.annotationEndpoint}
-      deviceId={config.device}
+      state={accessibilityState}
+      dispatch={dispatchAccessibility}
     >
-      <ReviewDeviceController
-        reviewState={reviewState}
-        dispatchReview={dispatchReview}
+      <AccessibilityInspectorController
+        state={accessibilityState}
+        dispatch={dispatchAccessibility}
         focused={focused}
         anchor={simContainerRef.current}
         deviceId={config.device}
         deviceName={deviceName}
         deviceRuntime={deviceRuntime}
-        currentApp={currentApp}
+        applicationName={currentApp?.bundleId ?? null}
         connected={streaming}
-        reservedRight={rightPanelWidthPx > 0 ? rightPanelWidthPx + 12 : 0}
       >
         <div
           className={`flex flex-col items-center justify-center gap-3 font-system box-border ${
@@ -990,25 +978,15 @@ export function SimulatorDeviceView({
                 const screenContent = (
                   <>
                     {streamView}
-                    <AnnotationSurface
-                      active={annotationActive}
-                      inspectorMode={
-                        accessibilityOpen ? (accessibilitySelecting ? "select" : "passive") : null
-                      }
-                      inspectorShowAll={accessibilityShowAll}
-                      onInspectorPick={(key) => {
-                        dispatchReview({
-                          type: "ACCESSIBILITY_TARGET_SELECTED",
-                          key,
-                          origin: "phone",
-                        });
-                        dispatchReview({
-                          type: "ACCESSIBILITY_PICKING_CHANGED",
-                          picking: false,
-                        });
-                      }}
-                      screen={activeStreamConfig}
-                    />
+                    {accessibilityOpen ? (
+                      <AxDomOverlay
+                        mode={accessibilitySelecting ? "inspect-select" : "inspect-passive"}
+                        showAllOutlines={accessibilityShowAll}
+                        onSelectTarget={() => {
+                          dispatchAccessibility({ type: "PICKING_CHANGED", picking: false });
+                        }}
+                      />
+                    ) : null}
                     <div
                       ref={screenSurfaceRef}
                       data-agentsims-device-screen={config.device}
@@ -1153,14 +1131,7 @@ export function SimulatorDeviceView({
                     aria-pressed={accessibilityOpen}
                     title="Accessibility tree"
                     onClick={() => {
-                      dispatchReview(
-                        accessibilityOpen
-                          ? { type: "REVIEW_CLOSED" }
-                          : {
-                              type: "REVIEW_ACCESSIBILITY_OPENED",
-                              picking: false,
-                            },
-                      );
+                      dispatchAccessibility({ type: "TOGGLE" });
                     }}
                     style={
                       accessibilityOpen
@@ -1175,7 +1146,6 @@ export function SimulatorDeviceView({
                   </SimulatorToolbar.Button>
                 </SimulatorToolbar.Actions>
               </SimulatorToolbar>
-              {focused && <ConnectedReviewLaunchers />}
             </div>
             <DeviceScreenshotPreview
               deviceId={config.device}
@@ -1233,7 +1203,7 @@ export function SimulatorDeviceView({
             </>
           )}
         </div>
-      </ReviewDeviceController>
-    </AxStateProvider>
+      </AccessibilityInspectorController>
+    </AccessibilityStateProvider>
   );
 }

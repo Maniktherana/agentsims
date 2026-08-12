@@ -1,21 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { AxElement } from "../annotations/model";
+import type { AxElement } from "../accessibility/model";
 import {
   buildAxOverlayTargetEntries,
   projectAxOverlayTargetKeys,
   selectRenderedAxTargetEntries,
   shouldShowAxPhoneTooltip,
   type AxOverlayTargetEntry,
-} from "../annotations/web/overlay/ax-dom-overlay";
+} from "../accessibility/web/overlay";
 import {
   axTargetSpecificityLayer,
   axTargetStackingLayer,
   axTargetPointerHandlers,
   axTargetVisualStyle,
   AxTarget,
-} from "../annotations/web/overlay/ax-target";
+} from "../accessibility/web/target";
 
 function entry(index: number): AxOverlayTargetEntry {
   const element: AxElement = {
@@ -613,8 +613,6 @@ describe("AX overlay presentation", () => {
     expect(shouldShowAxPhoneTooltip("inspect-select", "tree")).toBe(false);
     expect(shouldShowAxPhoneTooltip("inspect-passive", "phone")).toBe(false);
     expect(shouldShowAxPhoneTooltip("inspect-passive", "tree")).toBe(false);
-    // Annotation targeting keeps its established phone-hover label.
-    expect(shouldShowAxPhoneTooltip("annotate", "phone")).toBe(true);
   });
 
   test("uses serve-sim's amber hover", () => {

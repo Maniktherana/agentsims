@@ -15,8 +15,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ReviewIconButton } from "./review-icon-button";
-import { resetAccessibilityTreeHorizontalOrigin } from "./accessibility-tree";
+import { IconButton } from "../../web/components/icon-button";
+import { resetAccessibilityTreeHorizontalOrigin } from "./tree";
 
 const TREE_SPLIT_STORAGE_KEY = "agentsims:ax-tree-split";
 const TREE_SPLIT_MIN = 0.34;
@@ -137,7 +137,7 @@ export function AccessibilityHeaderActions({
       data-accessibility-header-actions
       className="flex min-w-0 items-center gap-1"
     >
-      <ReviewIconButton
+      <IconButton
         label={selecting ? "Stop selecting accessibility elements" : "Select accessibility element"}
         tooltip={selecting ? "Stop selecting" : "Select from phone"}
         selected={selecting}
@@ -146,10 +146,10 @@ export function AccessibilityHeaderActions({
         onClick={() => onSelectingChange(!selecting)}
       >
         <MousePointer2 size={14} strokeWidth={2} />
-      </ReviewIconButton>
+      </IconButton>
 
       {onAllNodesVisibleChange && (
-        <ReviewIconButton
+        <IconButton
           label={allNodesVisible ? "Hide all accessibility outlines" : "Show all accessibility outlines"}
           tooltip={allNodesVisible ? "Hide outlines" : "Show outlines"}
           selected={allNodesVisible}
@@ -162,7 +162,7 @@ export function AccessibilityHeaderActions({
           ) : (
             <EyeOff size={14} strokeWidth={2} />
           )}
-        </ReviewIconButton>
+        </IconButton>
       )}
 
       {visibleStatus.kind === "ready" ? (
@@ -193,7 +193,7 @@ export function AccessibilityHeaderActions({
       )}
 
       {onRefresh && (
-        <ReviewIconButton
+        <IconButton
           label="Refresh accessibility tree"
           tooltip="Refresh"
           disabled={refreshing}
@@ -206,7 +206,7 @@ export function AccessibilityHeaderActions({
             strokeWidth={2}
             className={refreshing ? "animate-spin motion-reduce:animate-none" : ""}
           />
-        </ReviewIconButton>
+        </IconButton>
       )}
     </div>
   );

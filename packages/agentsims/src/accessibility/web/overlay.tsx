@@ -9,16 +9,27 @@ import { createPortal } from "react-dom";
 import {
   useAxSelectionContext,
   useAxSnapshotContext,
-  type AxHighlightOrigin,
-} from "../state/device-annotation-state";
-import type { AxElement } from "../../model";
+} from "./provider";
+import type { AxHighlightOrigin } from "./state";
+import type { AxElement } from "../model";
 import {
-  annotationTargetElements,
+  meaningfulAxTargetElements,
   axElementKey,
   clampAxFrameForScreen,
-} from "../core/ax";
-import { annotationElementHoverLabel } from "../core/prompt";
-import { AxTarget } from "./ax-target";
+} from "./ax";
+import { AxTarget } from "./target";
+
+function axElementHoverLabel(element: AxElement): string {
+  const generatedLabel = /^ags_[a-z0-9_-]+$/i.test((element.label || "").trim());
+  return (
+    (!generatedLabel ? element.label : "") ||
+    element.source?.componentName ||
+    element.source?.elementName ||
+    element.role ||
+    element.type ||
+    "Accessibility element"
+  );
+}
 
 interface HoverPosition {
   left: number;
@@ -272,7 +283,7 @@ export function buildAxOverlayTargetEntries(
   );
   const meaningfulKeys = actionableOnly
     ? null
-    : new Set(annotationTargetElements(elements, screen).map(axElementKey));
+    : new Set(meaningfulAxTargetElements(elements, screen).map(axElementKey));
   const actionCandidates = actionableOnly
     ? visibleEntries.filter((entry) => {
         const element = entry.element;
@@ -386,36 +397,34 @@ export function projectAxOverlayTargetKeys(
 function hoverContext(element: AxElement) {
   const source = element.source;
   if (!source) {
-    return { title: annotationElementHoverLabel(element), location: null };
+    return { title: axElementHoverLabel(element), location: null };
   }
   const location = source.file
     ? `${source.file}${source.line ? `:${source.line}` : ""}`
     : null;
   return {
-    title: annotationElementHoverLabel(element),
+    title: axElementHoverLabel(element),
     location,
   };
 }
 
-export type AxDomOverlayMode = "annotate" | "inspect-passive" | "inspect-select";
+export type AxDomOverlayMode = "inspect-passive" | "inspect-select";
 
 export function shouldShowAxPhoneTooltip(
   mode: AxDomOverlayMode,
   origin: AxHighlightOrigin,
 ): boolean {
-  return origin === "phone" && mode !== "inspect-passive";
+  return origin === "phone" && mode === "inspect-select";
 }
 
 export function AxDomOverlay({
   onSelectTarget,
-  mode = "annotate",
+  mode = "inspect-passive",
   showAllOutlines = false,
-  locked = false,
 }: {
   onSelectTarget?: (key: string) => void;
   mode?: AxDomOverlayMode;
   showAllOutlines?: boolean;
-  locked?: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const { snapshot } = useAxSnapshotContext();
@@ -423,46 +432,26 @@ export function AxDomOverlay({
     highlightedKey,
     highlightedOrigin,
     selectedKey,
-    annotationMode,
-    multiSelectedKeys,
     setHighlightedKey,
     setSelectedKey,
-    openComposer,
-    toggleMultiSelectedKey,
   } = useAxSelectionContext();
-  const inspecting = mode !== "annotate";
-  const interactive = !locked && mode !== "inspect-passive";
+  const inspecting = true;
+  const interactive = mode === "inspect-select";
   const selectionBehaviorRef = useRef({
-    inspecting,
-    annotationMode,
     setSelectedKey,
-    toggleMultiSelectedKey,
-    openComposer,
     onSelectTarget,
     setHighlightedKey,
   });
   selectionBehaviorRef.current = {
-    inspecting,
-    annotationMode,
     setSelectedKey,
-    toggleMultiSelectedKey,
-    openComposer,
     onSelectTarget,
     setHighlightedKey,
   };
   const handleTargetSelect = useCallback((key: string) => {
     const current = selectionBehaviorRef.current;
-    if (current.inspecting) {
-      current.setHighlightedKey(null, "phone");
-      current.setSelectedKey(key);
-      current.onSelectTarget?.(key);
-      return;
-    }
-    if (current.annotationMode === "multi") {
-      current.toggleMultiSelectedKey(key);
-      return;
-    }
-    current.openComposer(key);
+    current.setHighlightedKey(null, "phone");
+    current.setSelectedKey(key, "phone");
+    current.onSelectTarget?.(key);
   }, []);
   const handlePhoneHighlight = useCallback((key: string | null) => {
     setHighlightedKey(key, "phone");
@@ -505,23 +494,8 @@ export function AxDomOverlay({
     ? hoverContext(highlightedElement)
     : null;
   const selectedKeys = useMemo(
-    () =>
-      new Set(
-        inspecting
-          ? selectedKey ? [selectedKey] : []
-          : annotationMode === "multi"
-            ? multiSelectedKeys
-            : locked && selectedKey
-              ? [selectedKey]
-              : [],
-      ),
-    [
-      annotationMode,
-      inspecting,
-      locked,
-      multiSelectedKeys,
-      selectedKey,
-    ],
+    () => new Set(selectedKey ? [selectedKey] : []),
+    [selectedKey],
   );
   const projectedSelectedKeys = useMemo(
     () => projectAxOverlayTargetKeys(
@@ -648,7 +622,7 @@ export function AxDomOverlay({
       </div>
       {hover && hoverPosition && createPortal(
         <div
-          className="agentsims-review-tooltip pointer-events-none fixed z-[90] max-w-[280px] rounded-md bg-[#171719] px-2 py-1.5 text-left shadow-[0_8px_24px_rgba(0,0,0,0.48),0_0_0_1px_rgba(255,255,255,0.12)]"
+          className="agentsims-accessibility-tooltip pointer-events-none fixed z-[90] max-w-[280px] rounded-md bg-[#171719] px-2 py-1.5 text-left shadow-[0_8px_24px_rgba(0,0,0,0.48),0_0_0_1px_rgba(255,255,255,0.12)]"
           style={{
             left: hoverPosition.left,
             top: hoverPosition.top,

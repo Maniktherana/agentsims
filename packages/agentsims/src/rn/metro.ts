@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs
 import { createHash } from "crypto";
 import { dirname, join } from "path";
 import { createRequire } from "module";
-import { DEFAULT_RN_SOURCE_MANIFEST } from "../annotations/rn-source";
+import { DEFAULT_RN_SOURCE_MANIFEST } from "../accessibility/rn-source";
 
 type Middleware = (req: any, res: any, next: (err?: unknown) => void) => void;
 

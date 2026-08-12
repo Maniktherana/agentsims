@@ -1,15 +1,6 @@
 import { Tooltip } from "@base-ui/react/tooltip";
-import { useReducer, useState } from "react";
+import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import {
-  createDeviceReviewStore,
-  reduceReviewForDevice,
-  selectDeviceReview,
-  type DeviceReviewStore,
-} from "../annotations/web/state/device-review-store";
-import type { ReviewEvent } from "../annotations/web/state/review-reducer";
-import { selectDismissesForWorkspaceDock } from "../annotations/web/state/review-selectors";
-import type { ReviewState } from "../annotations/web/state/review-state";
 import { AgentsimsToaster } from "./components/app-toasts";
 import { AgentsimsBrandLink } from "./components/agentsims-brand-link";
 import { WorkspaceHeader } from "./components/workspace-header";
@@ -18,42 +9,13 @@ import { useDeviceWorkspace } from "./workspace/use-device-workspace";
 import { resetWorkspaceLayout } from "./layout-events";
 import { WorkspaceCanvas } from "./workspace/workspace-canvas";
 
-interface WorkspaceReviewAction {
-  deviceId: string;
-  event: ReviewEvent;
-}
-
-function workspaceReviewReducer(
-  store: DeviceReviewStore,
-  action: WorkspaceReviewAction,
-): DeviceReviewStore {
-  return reduceReviewForDevice(store, action.deviceId, action.event);
-}
-
-function isWorkspaceReviewEvent(event: ReviewEvent, currentState: ReviewState): boolean {
-  return (
-    event.type === "REVIEW_ANNOTATE_OPENED" ||
-    event.type === "ANNOTATION_TOOL_CHANGED" ||
-    ((event.type === "REVIEW_CLOSED" || event.type === "ESCAPE_REQUESTED") &&
-      currentState.kind === "annotate")
-  );
-}
-
 function App() {
   const workspace = useDeviceWorkspace();
-  const [reviewStore, dispatchReview] = useReducer(
-    workspaceReviewReducer,
-    undefined,
-    createDeviceReviewStore,
-  );
   const [devicePickerOpen, setDevicePickerOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [settingsDeviceId, setSettingsDeviceId] = useState<string | null>(null);
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   const [selectedDevtoolsTargetId, setSelectedDevtoolsTargetId] = useState<string | null>(null);
-  const reviewOpen = workspace.visibleDeviceIds.some(
-    (deviceId) => selectDeviceReview(reviewStore, deviceId).kind === "annotate",
-  );
   const effectiveSettingsDeviceId =
     settingsDeviceId && workspace.visibleDeviceIds.includes(settingsDeviceId)
       ? settingsDeviceId
@@ -62,32 +24,6 @@ function App() {
     0,
     workspace.visibleDeviceIds.indexOf(effectiveSettingsDeviceId ?? ""),
   );
-  const closeWorkspaceReview = () => {
-    for (const deviceId of workspace.visibleDeviceIds) {
-      dispatchReview({ deviceId, event: { type: "REVIEW_CLOSED" } });
-    }
-  };
-  const closeWorkspaceAnnotations = () => {
-    for (const deviceId of workspace.visibleDeviceIds) {
-      if (!selectDismissesForWorkspaceDock(selectDeviceReview(reviewStore, deviceId))) continue;
-      dispatchReview({ deviceId, event: { type: "REVIEW_CLOSED" } });
-    }
-  };
-  const dispatchDeviceReview = (deviceId: string, event: ReviewEvent) => {
-    if (event.type === "REVIEW_ANNOTATE_OPENED") {
-      setDevicePickerOpen(false);
-      setToolsOpen(false);
-      setDevtoolsOpen(false);
-    }
-    const currentState = selectDeviceReview(reviewStore, deviceId);
-    const targetDeviceIds = isWorkspaceReviewEvent(event, currentState)
-      ? workspace.visibleDeviceIds
-      : [deviceId];
-    for (const targetDeviceId of targetDeviceIds) {
-      dispatchReview({ deviceId: targetDeviceId, event });
-    }
-  };
-
   return (
     <Tooltip.Provider delay={0} closeDelay={0}>
       <AgentsimsBrandLink className="fixed left-3 top-3 z-30 bg-[#181818]/90 px-2 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] [border-radius:8px]" />
@@ -115,8 +51,6 @@ function App() {
               preferMjpeg={
                 workspace.uiStarted.has(config.device) && !config.device.startsWith("android:")
               }
-              reviewState={selectDeviceReview(reviewStore, deviceId)}
-              dispatchReview={(event) => dispatchDeviceReview(deviceId, event)}
               toolsOpen={deviceId === effectiveSettingsDeviceId && toolsOpen}
               setToolsOpen={setToolsOpen}
               devtoolsOpen={focused && devtoolsOpen}
@@ -139,7 +73,6 @@ function App() {
         onPickerOpenChange={(open) => {
           setDevicePickerOpen(open);
           if (!open) return;
-          closeWorkspaceAnnotations();
           setToolsOpen(false);
           setDevtoolsOpen(false);
         }}
@@ -165,20 +98,7 @@ function App() {
           const nextOpen = !toolsOpen;
           setDevicePickerOpen(false);
           setDevtoolsOpen(false);
-          if (nextOpen) closeWorkspaceAnnotations();
           setToolsOpen(nextOpen);
-        }}
-        onToggleReview={() => {
-          if (reviewOpen) {
-            closeWorkspaceReview();
-            return;
-          }
-          const deviceId = workspace.effectiveUdid ?? workspace.visibleDeviceIds[0];
-          if (!deviceId) return;
-          dispatchDeviceReview(deviceId, {
-            type: "REVIEW_ANNOTATE_OPENED",
-            tool: "element",
-          });
         }}
         hasActiveDevice={workspace.visibleDeviceIds.length > 0}
         onResetLayout={resetWorkspaceLayout}

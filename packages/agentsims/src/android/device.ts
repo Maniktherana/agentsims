@@ -2,7 +2,7 @@ import { execFile, spawn } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import type { AxElement, AxRect, AxSnapshot } from "../annotations/model";
+import type { AxElement, AxRect, AxSnapshot } from "../accessibility/model";
 import type {
   AndroidAudioStatus,
   AndroidAvdCameraConfig,

@@ -1,7 +1,7 @@
 # Agentsims
 
-Agentsims is a local browser workspace for controlling, inspecting, and
-reviewing iOS simulators and Android emulators or devices while developing
+Agentsims is a local browser workspace for controlling and inspecting iOS
+simulators and Android emulators or devices while developing
 React Native and Expo apps. It puts multiple devices on one canvas, exposes
 platform-aware controls, and connects native accessibility targets to React
 Native source when source mapping is enabled.
@@ -92,35 +92,15 @@ video fallback. Android live video is H.264-only and requires WebCodecs; its
 
 ## Browser workflow
 
-Use the browser workspace for three related tasks:
+Use the browser workspace for two related tasks:
 
 1. **Run and control the app.** Keep the live app primary while switching
    among devices and platform-specific tools.
 2. **Inspect accessibility.** Use the accessibility-tree toolbar button for a
    device to browse native targets, search them, inspect bounds and state, and
    highlight the corresponding element on the phone.
-3. **Hand work to a coding agent.** Use the annotation toolbar control to
-   select one target or several targets, capture a review note, and copy its
-   structured prompt with device, native, source, and screenshot context.
-
-Selection modes temporarily capture phone taps. Turn the active mode off—or
-press Escape to dismiss the top review layer—to return input to the app.
-
-## Review and annotations
-
-The annotation launcher exposes two modes: **Single** targets one accessibility
-element, while **Multi** collects several elements. A saved annotation can
-include:
-
-- the requested change and its severity;
-- device and app identity;
-- native role, label, identifier, state, and bounds;
-- React Native component and source context when available; and
-- a frozen screenshot captured when the annotation is saved.
-
-Annotations are stored per device. Marker visibility is independent of saved
-data, and copied prompts remain useful when optional source mapping is not
-enabled.
+Accessibility selection temporarily captures phone taps. Turn selection off—or
+press Escape—to return input to the app.
 
 ## Optional React Native source mapping
 
@@ -252,5 +232,3 @@ bun test packages/agentsims/src/__tests__
 - [Package and source-mapping reference](packages/agentsims/README.md)
 - [Agent CLI design and examples](packages/agentsims/src/cli/README.md)
 - [Domain context and architecture](.plans/CONTEXT.md)
-- [Annotation interaction contract](.plans/ANNOTATION_EXPERIENCE.md)
-- [Product and platform research](.plans/MOBILE_SIM_AGENTATION_RESEARCH.md)
