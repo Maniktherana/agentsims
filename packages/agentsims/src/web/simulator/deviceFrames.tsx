@@ -137,8 +137,24 @@ export function simulatorMaxWidth(
 /** Border-radius for the screen clip area, scaled proportionally. */
 export function screenBorderRadius(
   type: DeviceType = "iphone",
-  config?: Pick<StreamConfig, "width" | "height" | "orientation"> | null,
+  config?: Pick<StreamConfig, "width" | "height" | "orientation" | "cornerRadii"> | null,
 ) {
+  if (type === "android" && config?.cornerRadii) {
+    const { topLeft, topRight, bottomRight, bottomLeft } = config.cornerRadii;
+    if (topLeft === 0 && topRight === 0 && bottomRight === 0 && bottomLeft === 0) {
+      return "0px";
+    }
+    const pct = (radius: number, dimension: number) =>
+      `${((Math.max(0, radius) / Math.max(1, dimension)) * 100).toFixed(6)}%`;
+    return [
+      [topLeft, topRight, bottomRight, bottomLeft]
+        .map((radius) => pct(radius, config.width))
+        .join(" "),
+      [topLeft, topRight, bottomRight, bottomLeft]
+        .map((radius) => pct(radius, config.height))
+        .join(" "),
+    ].join(" / ");
+  }
   const f = DEVICE_FRAMES[type];
   const screenW = f.width - 2 * f.bezelX;
   const screenH = f.height - 2 * f.bezelY;
@@ -146,6 +162,15 @@ export function screenBorderRadius(
     return `${(f.innerRadius / screenH) * 100}% / ${(f.innerRadius / screenW) * 100}%`;
   }
   return `${(f.innerRadius / screenW) * 100}% / ${(f.innerRadius / screenH) * 100}%`;
+}
+
+/** Device-model fallback uses the generic superellipse; authoritative Android radii are circular. */
+export function screenCornerShape(
+  type: DeviceType = "iphone",
+  config?: Pick<StreamConfig, "cornerRadii"> | null,
+): "superellipse(1.3)" | undefined {
+  if (type === "android" && config?.cornerRadii !== undefined) return undefined;
+  return "superellipse(1.3)";
 }
 
 /** Screen corner radii in CSS px for the given rendered container size, plus a geometric mean used for arc sizing. */

@@ -17,6 +17,7 @@ const IDLE_FRAME_INTERVAL_MS = 200;
 const AVCC_TAG_DESCRIPTION = 0x01;
 const AVCC_TAG_KEYFRAME = 0x02;
 const AVCC_TAG_DELTA = 0x03;
+const AVCC_TAG_PRESENTATION = 0x05;
 
 export type AndroidEmulatorConfig = {
   width: number;
@@ -26,6 +27,16 @@ export type AndroidEmulatorConfig = {
 };
 
 export type AndroidDisplayRotation = 0 | 1 | 2 | 3;
+
+export function encodeAndroidPresentationMetadata(
+  generation: number,
+): Buffer {
+  const payload = Buffer.from(JSON.stringify({ generation }), "utf8");
+  const header = Buffer.allocUnsafe(5);
+  header.writeUInt32BE(payload.length + 1, 0);
+  header[4] = AVCC_TAG_PRESENTATION;
+  return Buffer.concat([header, payload]);
+}
 
 /**
  * The controller still needs screenshot metadata to keep input/configuration
@@ -242,12 +253,20 @@ export class AndroidAvccFrameCoordinator {
   private lastDescription: Buffer | null = null;
   private lastCaptureSubmitAt = 0;
   private _currentConfig: AndroidEmulatorConfig | null = null;
+  private lastPresentationMetadata: Buffer | null = null;
+  private presentationGeneration: number;
 
   constructor(
     private readonly capture: AndroidCaptureSink,
     private readonly onConfig: (config: AndroidEmulatorConfig) => void,
     private readonly onSubscriberCountChange?: (count: number) => void,
-  ) {}
+    initialPresentationGeneration = 1,
+  ) {
+    this.presentationGeneration = initialPresentationGeneration;
+    this.lastPresentationMetadata = encodeAndroidPresentationMetadata(
+      initialPresentationGeneration,
+    );
+  }
 
   get subscriberCount(): number {
     return this.subscribers.size;
@@ -279,6 +298,19 @@ export class AndroidAvccFrameCoordinator {
     return config;
   }
 
+  setPresentationGeneration(generation: number): void {
+    if (generation === this.presentationGeneration) return;
+    this.presentationGeneration = generation;
+    this.lastPresentationMetadata = encodeAndroidPresentationMetadata(generation);
+    for (const subscriber of this.subscribers) {
+      subscriber.waitingForKeyframe = true;
+      this.writeSubscriber(subscriber, this.lastPresentationMetadata);
+      if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
+    }
+    this.capture.requestKeyframe();
+    if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
+  }
+
   attach(res: ServerResponse): void {
     const subscriber: AvccSubscriber = {
       res,
@@ -287,6 +319,9 @@ export class AndroidAvccFrameCoordinator {
     };
     this.subscribers.add(subscriber);
     this.onSubscriberCountChange?.(this.subscribers.size);
+    if (this.lastPresentationMetadata) {
+      this.writeSubscriber(subscriber, this.lastPresentationMetadata);
+    }
     if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
     this.capture.requestKeyframe();
     if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
@@ -349,7 +384,7 @@ export class AndroidAvccFrameCoordinator {
       return;
     }
     if (subscriber.waitingForKeyframe) {
-      if (tag === AVCC_TAG_DESCRIPTION) {
+      if (tag === AVCC_TAG_DESCRIPTION || tag === AVCC_TAG_PRESENTATION) {
         subscriber.res.write(chunk);
       } else if (tag === AVCC_TAG_KEYFRAME) {
         subscriber.waitingForKeyframe = false;
@@ -366,6 +401,7 @@ export class AndroidEmulatorSession {
   readonly wireTransport = "mmap-videotoolbox-h264" as const;
   private readonly metadata: ControllerMetadata;
   private readonly requested: { width: number; height: number };
+  private readonly initialPresentationGeneration: number;
   private readonly mmapPath: string;
   private client: ClientHttp2Session | null = null;
   private screenshots: ClientHttp2Stream | null = null;
@@ -380,12 +416,13 @@ export class AndroidEmulatorSession {
 
   constructor(
     serial: string,
-    physicalScreen: { width: number; height: number },
+    physicalScreen: { width: number; height: number; presentationGeneration?: number },
     private readonly onConfig: (config: AndroidEmulatorConfig) => void,
     private readonly onSubscriberCountChange?: (count: number) => void,
   ) {
     this.metadata = controllerMetadata(serial);
     this.requested = targetDimensions(physicalScreen.width, physicalScreen.height);
+    this.initialPresentationGeneration = physicalScreen.presentationGeneration ?? 1;
     this.mmapPath = join(tmpdir(), `agentsims-${this.metadata.pid}-${process.pid}.rgba`);
   }
 
@@ -423,6 +460,10 @@ export class AndroidEmulatorSession {
   resetVideo(): boolean {
     this.capture?.requestKeyframe();
     return !!this.capture;
+  }
+
+  setPresentationGeneration(generation: number): void {
+    this.frameCoordinator?.setPresentationGeneration(generation);
   }
 
   injectTouch(
@@ -481,6 +522,7 @@ export class AndroidEmulatorSession {
       this.capture,
       this.onConfig,
       this.onSubscriberCountChange,
+      this.initialPresentationGeneration,
     );
     this.unsubscribeCapture = await this.capture.subscribeAvcc(async (frame) => {
       const chunk = Buffer.from(frame.data);

@@ -24,6 +24,7 @@ export interface AndroidTransport {
   close(): void;
   attachAvcc(res: ServerResponse): Promise<void>;
   resetVideo(): boolean;
+  setPresentationGeneration?(generation: number): void;
   injectTouch(
     phase: AndroidTouchPhase,
     x: number,
@@ -60,7 +61,7 @@ export function androidTransportKindForSerial(
 
 export function createAndroidTransport(
   serial: string,
-  physicalScreen: { width: number; height: number },
+  physicalScreen: { width: number; height: number; presentationGeneration?: number },
   onConfig: (config: AndroidTransportConfig) => void,
   onSubscriberCountChange: (count: number) => void,
 ): AndroidTransport {

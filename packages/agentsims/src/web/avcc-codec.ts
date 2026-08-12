@@ -11,6 +11,7 @@
  *   0x02 keyframe    — IDR (decodable standalone)
  *   0x03 delta       — non-IDR P-frame
  *   0x04 seed        — JPEG painted before the first IDR decodes
+ *   0x05 presentation — Android raw-frame width/height/rotation metadata
  *
  * The stream is read incrementally from a `fetch()` ReadableStream, so chunks
  * arrive split across reads. `AvccDemuxer` buffers partial bytes and yields
@@ -21,8 +22,9 @@ export const AVCC_TAG_DESCRIPTION = 0x01;
 export const AVCC_TAG_KEYFRAME = 0x02;
 export const AVCC_TAG_DELTA = 0x03;
 export const AVCC_TAG_SEED = 0x04;
+export const AVCC_TAG_PRESENTATION = 0x05;
 
-export type AvccChunkType = "description" | "keyframe" | "delta" | "seed";
+export type AvccChunkType = "description" | "keyframe" | "delta" | "seed" | "presentation";
 
 export interface AvccChunk {
   type: AvccChunkType;
@@ -35,7 +37,29 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
   [AVCC_TAG_KEYFRAME]: "keyframe",
   [AVCC_TAG_DELTA]: "delta",
   [AVCC_TAG_SEED]: "seed",
+  [AVCC_TAG_PRESENTATION]: "presentation",
 };
+
+export type AndroidFramePresentation = {
+  generation: number;
+};
+
+export function parseAndroidFramePresentation(
+  payload: Uint8Array,
+): AndroidFramePresentation | null {
+  try {
+    const value = JSON.parse(
+      new TextDecoder().decode(payload),
+    ) as Partial<AndroidFramePresentation>;
+    if (
+      !Number.isSafeInteger(value.generation) ||
+      value.generation! < 1
+    ) return null;
+    return { generation: value.generation! };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Stateful demuxer that turns a byte stream into whole AVCC chunks. Feed it

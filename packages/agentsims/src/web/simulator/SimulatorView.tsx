@@ -5,15 +5,17 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import type { StreamConfig } from "../types.js";
+import type { SimulatorOrientation, StreamConfig } from "../types.js";
 import {
   HID_EDGE_BOTTOM,
   homeIndicatorEdge,
   rawDeltaForDisplayDelta,
   rawEdgeForDisplayEdge,
   rawPointForDisplayPoint,
+  pointForRelayTransport,
   streamDisplayGeometry,
 } from "./orientation.js";
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
@@ -116,6 +118,8 @@ export interface SimulatorViewProps {
   enableDigitalCrown?: boolean;
   /** Caps high-frequency drag updates while keeping gesture boundaries immediate. */
   maxInputFps?: number;
+  /** Coordinate space expected by the relay. Android maps display coordinates server-side. */
+  relayInputCoordinates?: "raw" | "display";
   /** Relay mode: subscribe to frame updates (bypasses React state for performance).
    * Callback receives a blob URL (object URL) pointing to the JPEG frame. */
   subscribeFrame?: (cb: (blobUrl: string) => void) => () => void;
@@ -152,6 +156,22 @@ export interface SimulatorViewProps {
   onAvccError?: () => void;
   /** Supplies a synchronous snapshot of the frame currently presented to the user. */
   onCapturePresentedSurfaceChange?: (capture: (() => RenderedScreenshot | null) | null) => void;
+  /** Called after a decoded frame has actually been painted. */
+  onPresentedFrame?: (size: {
+    width: number;
+    height: number;
+    presentationGeneration?: number;
+  }) => void;
+  /** Exact Android presentation plane style; this wrapper is the sole visual transform owner. */
+  presentationPlaneStyle?: CSSProperties;
+  presentationOrientation?: SimulatorOrientation;
+  presentationRotationDegrees?: number;
+  /** Content (for example AX highlights) that must share the video presentation plane. */
+  presentationOverlay?: ReactNode;
+  /** Temporarily suppress input while visual and canonical rotation generations reconcile. */
+  inputDisabled?: boolean;
+  /** Remaps the optimistically rotated visible plane back into canonical display coordinates. */
+  visibleInputOrientation?: SimulatorOrientation;
 }
 
 /**
@@ -177,6 +197,7 @@ export function SimulatorView({
   onStreamScroll,
   enableDigitalCrown,
   maxInputFps,
+  relayInputCoordinates = "raw",
   subscribeFrame,
   streamFrame: _streamFrame,
   streamConfig,
@@ -188,6 +209,13 @@ export function SimulatorView({
   codec = "avcc",
   onAvccError,
   onCapturePresentedSurfaceChange,
+  onPresentedFrame,
+  presentationPlaneStyle,
+  presentationOrientation,
+  presentationRotationDegrees,
+  presentationOverlay,
+  inputDisabled = false,
+  visibleInputOrientation = "portrait",
 }: SimulatorViewProps) {
   const relayMode = !!onStreamTouch;
   // AVCC decode is independent of input relay: the H.264 pipeline only needs
@@ -400,7 +428,9 @@ export function SimulatorView({
     setConnected(true);
     setError(null);
   }, []);
-  const onAvccFrame = useCallback(() => {
+  const onPresentedFrameRef = useRef(onPresentedFrame);
+  onPresentedFrameRef.current = onPresentedFrame;
+  const onAvccFrame = useCallback((size: { width: number; height: number }) => {
     if (!avccTransportConnectedRef.current) return;
     const hidden = typeof document !== "undefined" && document.hidden;
     if (!hidden) {
@@ -409,6 +439,7 @@ export function SimulatorView({
       presentedFrameRate.record(now);
     }
     lastFrameAtRef.current = Date.now();
+    onPresentedFrameRef.current?.(size);
     // Re-establish "connected" if the relay staleness watchdog tripped during
     // the decoder's startup buffering gap (keyframe + several deltas can land
     // before the first frame is emitted). Mirrors the MJPEG relay path; guarded
@@ -444,8 +475,12 @@ export function SimulatorView({
 
   const sendTouchNow = useCallback(
     (touch: { type: "begin" | "move" | "end"; x: number; y: number; edge?: number }) => {
-      const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
-      const point = rawPointForDisplayPoint(orientation, touch.x, touch.y);
+      const orientation = relayInputCoordinates === "display"
+        ? visibleInputOrientation
+        : streamDisplayGeometry(screenSizeRef.current).inputOrientation;
+      const point = relayInputCoordinates === "display"
+        ? rawPointForDisplayPoint(visibleInputOrientation, touch.x, touch.y)
+        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, touch.x, touch.y);
       const edge =
         touch.edge === undefined ? undefined : rawEdgeForDisplayEdge(orientation, touch.edge);
       const payload =
@@ -463,7 +498,7 @@ export function SimulatorView({
       msg.set(json, 1);
       ws.send(msg);
     },
-    [relayMode, onStreamTouch],
+    [relayInputCoordinates, relayMode, onStreamTouch, visibleInputOrientation],
   );
   const sendTouch = useMoveCoalescedSender(sendTouchNow, maxInputFps);
 
@@ -507,9 +542,13 @@ export function SimulatorView({
       if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
       // Rotate both the delta and the cursor anchor into raw device orientation so
       // scrolling tracks the visible content on landscape / upside-down devices.
-      const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
+      const orientation = relayInputCoordinates === "display"
+        ? visibleInputOrientation
+        : streamDisplayGeometry(screenSizeRef.current).inputOrientation;
       const rawDelta = rawDeltaForDisplayDelta(orientation, dx, dy);
-      const rawAnchor = rawPointForDisplayPoint(orientation, anchorX, anchorY);
+      const rawAnchor = relayInputCoordinates === "display"
+        ? rawPointForDisplayPoint(visibleInputOrientation, anchorX, anchorY)
+        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, anchorX, anchorY);
       const payload = { dx: rawDelta.dx, dy: rawDelta.dy, x: rawAnchor.x, y: rawAnchor.y };
       if (relayMode) {
         onStreamScroll?.(payload);
@@ -523,14 +562,17 @@ export function SimulatorView({
       msg.set(json, 1);
       ws.send(msg);
     },
-    [relayMode, onStreamScroll],
+    [relayInputCoordinates, relayMode, onStreamScroll, visibleInputOrientation],
   );
 
   const sendMultiTouchNow = useCallback(
     (touch: { type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number }) => {
-      const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
-      const p1 = rawPointForDisplayPoint(orientation, touch.x1, touch.y1);
-      const p2 = rawPointForDisplayPoint(orientation, touch.x2, touch.y2);
+      const p1 = relayInputCoordinates === "display"
+        ? rawPointForDisplayPoint(visibleInputOrientation, touch.x1, touch.y1)
+        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, touch.x1, touch.y1);
+      const p2 = relayInputCoordinates === "display"
+        ? rawPointForDisplayPoint(visibleInputOrientation, touch.x2, touch.y2)
+        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, touch.x2, touch.y2);
       const payload = {
         type: touch.type,
         x1: p1.x,
@@ -551,7 +593,7 @@ export function SimulatorView({
       msg.set(json, 1);
       ws.send(msg);
     },
-    [relayMode, onStreamMultiTouch],
+    [relayInputCoordinates, relayMode, onStreamMultiTouch, visibleInputOrientation],
   );
   const sendMultiTouch = useMoveCoalescedSender(sendMultiTouchNow, maxInputFps);
 
@@ -657,13 +699,14 @@ export function SimulatorView({
 
   const handleTouch = useCallback(
     (type: "begin" | "move" | "end", event: ReactPointerEvent<HTMLElement>) => {
+      if (inputDisabled) return;
       const rect = getInputRect();
       if (!rect) return;
       const x = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
       const y = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1);
       sendTouch({ type, x, y });
     },
-    [getInputRect, sendTouch],
+    [getInputRect, inputDisabled, sendTouch],
   );
 
   const handleDigitalCrownWheelDelta = useCallback(
@@ -843,9 +886,25 @@ export function SimulatorView({
 
   // Compute the exact box that fits the stream's aspect ratio inside the
   // viewport, so the <img> matches the video 1:1 (no letterbox, no clipping).
-  const streamGeometry = streamDisplayGeometry(screenSize);
+  // Relay presentation geometry is owned synchronously by the parent-provided
+  // config. The decoded-frame screenSize mirror may update a render later and
+  // must not rotate/refit the media independently from the device frame.
+  const hasPresentationPlane = presentationPlaneStyle !== undefined;
+  const presentationScreenSize = relayMode && streamConfig ? streamConfig : screenSize;
+  const streamGeometry = hasPresentationPlane
+    ? {
+        displayConfig: presentationScreenSize,
+        rotationDegrees: 0,
+        needsCssRotation: false,
+        inputOrientation: undefined,
+      }
+    : streamDisplayGeometry(
+        presentationScreenSize,
+        relayInputCoordinates === "display" ? "display" : "raw",
+      );
   const displayScreenSize = streamGeometry.displayConfig;
   const fittedBox = (() => {
+    if (hasPresentationPlane) return null;
     if (!displayScreenSize || !viewportSize) return null;
     if (viewportSize.width === 0 || viewportSize.height === 0) return null;
     const scale = Math.min(
@@ -858,10 +917,13 @@ export function SimulatorView({
     };
   })();
   const rotationDegrees = streamGeometry.rotationDegrees;
+  const captureRotationDegrees = hasPresentationPlane
+    ? (presentationRotationDegrees ?? 0)
+    : rotationDegrees;
   const capturePresentedSurface = useCallback(() => {
     const source = getViewElement();
-    return source ? captureRenderedScreenshot(source, rotationDegrees) : null;
-  }, [getViewElement, rotationDegrees]);
+    return source ? captureRenderedScreenshot(source, captureRotationDegrees) : null;
+  }, [captureRotationDegrees, getViewElement]);
   useEffect(() => {
     onCapturePresentedSurfaceChange?.(capturePresentedSurface);
     return () => onCapturePresentedSurfaceChange?.(null);
@@ -887,6 +949,23 @@ export function SimulatorView({
     ...(rotationDegrees === 0 ? {} : { borderRadius: 0, cornerShape: undefined }),
   } as CSSProperties;
 
+  const presentedMediaStyle = hasPresentationPlane
+    ? ({
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        cursor: FINGER_CURSOR,
+        display: "block",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "none",
+        ...imageStyle,
+        transform: "none",
+        transformOrigin: "center center",
+      } as CSSProperties)
+    : streamImageStyle;
+
   // A <canvas> is composited as its own GPU layer; when that layer lands on a
   // fractional device-pixel offset (the surface is centered in the viewport at
   // a sub-pixel x), its downscaled texture edge antialiases against the
@@ -895,10 +974,12 @@ export function SimulatorView({
   // AVCC canvas. Overshoot by a hair so the seam falls outside the surface's
   // overflow:hidden clip; the crop is a sub-pixel of content, invisible next
   // to the rounded-corner mask.
-  const canvasStyle: CSSProperties = {
-    ...streamImageStyle,
-    transform: `${streamImageStyle.transform ?? ""} scale(${CANVAS_SEAM_OVERSHOOT})`,
-  };
+  const canvasStyle: CSSProperties = hasPresentationPlane
+    ? presentedMediaStyle
+    : {
+        ...streamImageStyle,
+        transform: `${streamImageStyle.transform ?? ""} scale(${CANVAS_SEAM_OVERSHOOT})`,
+      };
 
   return (
     <div
@@ -930,7 +1011,8 @@ export function SimulatorView({
           ref={surfaceRef}
           style={
             {
-              position: "relative",
+              position: hasPresentationPlane ? "absolute" : "relative",
+              inset: hasPresentationPlane ? 0 : undefined,
               width: fittedBox ? `${fittedBox.width}px` : "100%",
               height: fittedBox ? `${fittedBox.height}px` : "100%",
               overflow: "hidden",
@@ -939,24 +1021,42 @@ export function SimulatorView({
             } as CSSProperties
           }
         >
-          {useAvcc ? (
-            <canvas ref={canvasRef} style={canvasStyle} />
-          ) : (
-            <img
-              ref={imgRef}
-              draggable={false}
-              onLoad={(e) => onMjpegPresented(e.currentTarget)}
-              style={relayMode ? { display: "none" } : streamImageStyle}
-            />
-          )}
-          {relayMode && !useAvcc && (
-            <img
-              ref={relayImgRef}
-              draggable={false}
-              onLoad={(e) => onMjpegPresented(e.currentTarget)}
-              style={streamImageStyle}
-            />
-          )}
+          <div
+            data-agentsims-presentation-plane={hasPresentationPlane ? "true" : undefined}
+            data-display-orientation={presentationOrientation}
+            data-rotation-degrees={presentationRotationDegrees}
+            style={
+              hasPresentationPlane
+                ? ({
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transformOrigin: "center center",
+                    ...presentationPlaneStyle,
+                  } as CSSProperties)
+                : ({ position: "absolute", inset: 0 } as CSSProperties)
+            }
+          >
+            {useAvcc ? (
+              <canvas ref={canvasRef} style={canvasStyle} />
+            ) : (
+              <img
+                ref={imgRef}
+                draggable={false}
+                onLoad={(e) => onMjpegPresented(e.currentTarget)}
+                style={relayMode ? { display: "none" } : presentedMediaStyle}
+              />
+            )}
+            {relayMode && !useAvcc && (
+              <img
+                ref={relayImgRef}
+                draggable={false}
+                onLoad={(e) => onMjpegPresented(e.currentTarget)}
+                style={presentedMediaStyle}
+              />
+            )}
+            {presentationOverlay}
+          </div>
           {/* Interactive overlay — captures all pointer events */}
           <div
             ref={inputLayerRef}

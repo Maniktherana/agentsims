@@ -3,6 +3,7 @@ import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AgentsimsToaster } from "./components/app-toasts";
 import { AgentsimsBrandLink } from "./components/agentsims-brand-link";
+import { resolveDeviceLifecyclePhase } from "./components/device-row";
 import { WorkspaceHeader } from "./components/workspace-header";
 import { SimulatorDeviceView } from "./workspace/simulator-device-view";
 import { useDeviceWorkspace } from "./workspace/use-device-workspace";
@@ -42,6 +43,17 @@ function App() {
         renderDevice={({ deviceId, device, config, focused }) => {
           const deviceIndex = workspace.visibleDeviceIds.indexOf(deviceId);
           const settingsPosition = Math.sign(deviceIndex - settingsDeviceIndex) as -1 | 0 | 1;
+          const transportConnected = !!workspace.streamingByDevice[deviceId];
+          const lifecyclePhase = device
+            ? resolveDeviceLifecyclePhase(
+                device,
+                !!workspace.starting[deviceId],
+                !!workspace.shuttingDown[deviceId],
+                transportConnected,
+              )
+            : transportConnected
+              ? "streaming"
+              : "connecting";
           return (
             <SimulatorDeviceView
               config={config}
@@ -57,7 +69,8 @@ function App() {
               setDevtoolsOpen={setDevtoolsOpen}
               selectedDevtoolsTargetId={selectedDevtoolsTargetId}
               setSelectedDevtoolsTargetId={setSelectedDevtoolsTargetId}
-              streaming={!!workspace.streamingByDevice[deviceId]}
+              streaming={transportConnected}
+              lifecyclePhase={lifecyclePhase}
               setStreaming={(value) => workspace.setDeviceStreaming(deviceId, value)}
               embedded
               focused={focused}

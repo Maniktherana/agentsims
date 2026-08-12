@@ -80,9 +80,13 @@ describe("Android stream transport", () => {
       "frame:1080x2424",
     ]);
 
+    expect(writes).toHaveLength(1);
+    expect(writes[0]![4]).toBe(0x05);
+    expect(JSON.parse(writes[0]!.subarray(5).toString("utf8"))).toEqual({ generation: 1 });
+
     const keyframe = Buffer.from([0, 0, 0, 1, 0x02, 0x2a]);
     coordinator.publish(keyframe);
-    expect(writes).toEqual([keyframe]);
+    expect(writes).toEqual([writes[0], keyframe]);
 
     response.emit("close");
     coordinator.observeFrameMetadata({ width: 2424, height: 1080, rotation: 1 });

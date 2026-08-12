@@ -3,6 +3,7 @@ import {
   getSimulatorFrameMaxWidth,
   RESIZE_MAIN_STROKE_W,
   restoredSimulatorFrameWidth,
+  resolveSimulatorResizeGeometryState,
   SIMULATOR_RESIZE_ABSOLUTE_MIN_WIDTH,
   SIMULATOR_RESIZE_HANDLE_DUR_HOT,
   SIMULATOR_RESIZE_HANDLE_DUR_IDLE,
@@ -32,5 +33,17 @@ describe("simulator resize visual tuning", () => {
 
   test("falls back to the default frame width for invalid persisted scale", () => {
     expect(restoredSimulatorFrameWidth(320, 1280, 900, 1179 / 2556, Number.NaN)).toBe(320);
+  });
+
+  test("resolves portrait and landscape default changes in the same render", () => {
+    const landscape = resolveSimulatorResizeGeometryState(
+      { defaultWidth: 320, width: 320 },
+      620,
+      620,
+    );
+    expect(landscape).toEqual({ defaultWidth: 620, width: 620 });
+
+    const portrait = resolveSimulatorResizeGeometryState(landscape, 320, 320);
+    expect(portrait).toEqual({ defaultWidth: 320, width: 320 });
   });
 });

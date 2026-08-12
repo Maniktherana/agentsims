@@ -1,9 +1,18 @@
+export interface AndroidCornerRadii {
+  topLeft: number;
+  topRight: number;
+  bottomRight: number;
+  bottomLeft: number;
+}
+
 export interface AndroidScreenConfig {
   width: number;
   height: number;
   orientation: "portrait" | "landscape";
   density?: number;
   rotation?: number;
+  /** Logical display-space radii reported by Android. Zero is authoritative square geometry. */
+  cornerRadii?: AndroidCornerRadii;
 }
 
 export interface AndroidAvdCameraConfig {

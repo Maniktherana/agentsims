@@ -14,8 +14,10 @@ const avccStream = readFileSync(
 describe("presented-frame transport contract", () => {
   test("records AVCC only after canvas presentation and routes the JPEG seed through that seam", () => {
     const draw = avccStream.indexOf("ctx.drawImage(source, 0, 0, width, height);");
-    const presented = avccStream.indexOf("callbacks.current.onFrame?.();", draw);
-    const seed = avccStream.indexOf("paint(bitmap, bitmap.width, bitmap.height)");
+    const presented = avccStream.indexOf("callbacks.current.onFrame?.({", draw);
+    const seed = avccStream.indexOf(
+      "paint(bitmap, bitmap.width, bitmap.height, frameGeneration)",
+    );
 
     expect(draw).toBeGreaterThan(-1);
     expect(presented).toBeGreaterThan(draw);

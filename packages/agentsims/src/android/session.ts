@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
-import type { AndroidScreenConfig, AndroidStatus } from "./types";
+import type { AndroidCornerRadii, AndroidScreenConfig, AndroidStatus } from "./types";
 import {
   androidTransportKindForSerial,
   createAndroidTransport,
@@ -23,6 +23,7 @@ import {
   freeAndroidEmulatorRotation,
   reloadAndroidReactNative,
   rotateAndroidEmulatorNative,
+  rotateAndroidEmulatorAbsolute,
   toggleAndroidDarkMode,
   toggleAndroidSoftwareKeyboard,
 } from "./device";
@@ -66,6 +67,17 @@ const ANDROID_ORIENTATION_CYCLE: readonly AndroidDisplayOrientation[] = [
 
 function normalizedAndroidRotation(rotation: number | undefined): AndroidRotation {
   return rotation === 1 || rotation === 2 || rotation === 3 ? rotation : 0;
+}
+
+function sameAndroidCornerRadii(
+  left: AndroidCornerRadii | undefined,
+  right: AndroidCornerRadii | undefined,
+): boolean {
+  return left === right || !!left && !!right &&
+    left.topLeft === right.topLeft &&
+    left.topRight === right.topRight &&
+    left.bottomRight === right.bottomRight &&
+    left.bottomLeft === right.bottomLeft;
 }
 
 function nativeSizeForScreen(
@@ -137,7 +149,16 @@ export function clockwiseAndroidRotationSteps(
   current: AndroidRotation,
   requested: AndroidRotation,
 ): number {
-  return (requested - current + 4) % 4;
+  // `adb emu rotate` rotates the physical device clockwise. Android's
+  // display-rotation enum therefore advances in the opposite direction:
+  // r0 -> r3 -> r2 -> r1 -> r0.
+  return (current - requested + 4) % 4;
+}
+
+export function nextClockwiseAndroidRotation(current: AndroidRotation): AndroidRotation {
+  // Matches the product toolbar cycle: portrait → landscape-left → reverse
+  // portrait → landscape-right → portrait.
+  return ((current + 1) % 4) as AndroidRotation;
 }
 
 function orientationForRotation(rotation: AndroidRotation): AndroidDisplayOrientation {
@@ -181,13 +202,18 @@ export interface AndroidSessionDependencies {
   warmAx(serial: string): Promise<void>;
   createTransport(
     serial: string,
-    screen: { width: number; height: number },
+    screen: { width: number; height: number; presentationGeneration?: number },
     onConfig: (config: AndroidTransportConfig) => void,
     onSubscriberCountChange: (count: number) => void,
   ): AndroidTransport;
   rotate(serial: string, orientation: string): Promise<void>;
   freeEmulatorRotation(serial: string): Promise<void>;
   rotateEmulator(serial: string, clockwiseSteps: number): Promise<void>;
+  rotateEmulatorAbsolute(
+    serial: string,
+    currentRotation: AndroidRotation,
+    targetRotation: AndroidRotation,
+  ): Promise<void>;
 }
 
 const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
@@ -198,6 +224,7 @@ const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
   rotate: androidRotate,
   freeEmulatorRotation: freeAndroidEmulatorRotation,
   rotateEmulator: rotateAndroidEmulatorNative,
+  rotateEmulatorAbsolute: rotateAndroidEmulatorAbsolute,
 };
 
 export class AndroidSession {
@@ -205,6 +232,8 @@ export class AndroidSession {
   private height = 0;
   private orientation: AndroidDisplayOrientation = "portrait";
   private rotation: AndroidRotation = 0;
+  private presentationGeneration = 0;
+  private cornerRadii: AndroidCornerRadii | undefined;
   private readonly hidSockets = new Set<HidSocket>();
   private touchStart: { x: number; y: number; at: number } | null = null;
   private lastMove: { x: number; y: number } | null = null;
@@ -219,6 +248,7 @@ export class AndroidSession {
   private emulatorViewportPoll: Promise<void> | null = null;
   private lastEmulatorViewport: string | null = null;
   private closed = false;
+  private pendingEmulatorRotation: AndroidRotation | null = null;
   private inputQueue: Promise<void> = Promise.resolve();
   private readonly inputMoveScheduler = new LatestValueScheduler<Buffer>(
     ANDROID_INPUT_MOVE_INTERVAL_MS,
@@ -268,21 +298,39 @@ export class AndroidSession {
   }
 
   private screenConfig() {
-    return { width: this.width, height: this.height, orientation: this.orientation };
+    return {
+      width: this.width,
+      height: this.height,
+      orientation: this.orientation,
+      ...(androidTransportKindForSerial(this.serial) === "emulator-controller"
+        ? { presentationGeneration: this.presentationGeneration }
+        : {}),
+      ...(this.cornerRadii ? { cornerRadii: this.cornerRadii } : {}),
+    };
   }
 
   private applyScreenConfig(config: AndroidScreenConfig): boolean {
     const nextRotation = normalizedAndroidRotation(config.rotation);
     const nextOrientation = androidOrientationForScreen(config);
+    const nextCornerRadii = config.cornerRadii;
     const changed = config.width !== this.width ||
       config.height !== this.height ||
       nextRotation !== this.rotation ||
-      nextOrientation !== this.orientation;
+      nextOrientation !== this.orientation ||
+      !sameAndroidCornerRadii(nextCornerRadii, this.cornerRadii);
+    if (changed && androidTransportKindForSerial(this.serial) === "emulator-controller") {
+      this.presentationGeneration += 1;
+    }
     this.width = config.width;
     this.height = config.height;
     this.rotation = nextRotation;
+    if (this.pendingEmulatorRotation === nextRotation) {
+      this.pendingEmulatorRotation = null;
+    }
     this.orientation = nextOrientation;
+    this.cornerRadii = nextCornerRadii;
     this.lastEmulatorViewport = `${nextRotation}:${config.width}x${config.height}`;
+    if (changed) this.transport?.setPresentationGeneration?.(this.presentationGeneration);
     return changed;
   }
 
@@ -417,7 +465,11 @@ export class AndroidSession {
       const backend = androidTransportKindForSerial(this.serial);
       this.transport = this.dependencies.createTransport(
         this.serial,
-        { width: this.width, height: this.height },
+        {
+          width: this.width,
+          height: this.height,
+          presentationGeneration: this.presentationGeneration || 1,
+        },
         (config) => {
           // Emulator screenshot metadata describes its raw encoder buffer.
           // Android's logical viewport remains authoritative for display and
@@ -699,7 +751,7 @@ export class AndroidSession {
     }
 
     if (tag === 0x07) {
-      const m = json<{ orientation: string }>();
+      const m = json<{ orientation: string; nativeStep?: "clockwise" }>();
       if (!m?.orientation) return;
       const backend = androidTransportKindForSerial(this.serial);
       if (backend === "emulator-controller") {

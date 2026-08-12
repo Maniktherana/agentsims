@@ -136,6 +136,28 @@ export function restoredSimulatorFrameWidth(
   );
 }
 
+export type SimulatorResizeGeometryState = {
+  defaultWidth: number;
+  width: number;
+};
+
+/**
+ * Resolve the width for the current device geometry during render. A device
+ * rotation changes `defaultWidth` (phone portrait 320 ↔ landscape 620); using
+ * the previous state until an effect runs produces one painted frame at the
+ * wrong size and makes rounded corners visibly jump. This resolver lets the
+ * hook commit the restored scale in the same render as the new geometry.
+ */
+export function resolveSimulatorResizeGeometryState(
+  current: SimulatorResizeGeometryState,
+  defaultWidth: number,
+  restoredWidth: number,
+): SimulatorResizeGeometryState {
+  return current.defaultWidth === defaultWidth
+    ? current
+    : { defaultWidth, width: restoredWidth };
+}
+
 /** Round to whole device pixels so the frame / stream don't shimmer at sub-pixel widths. */
 export function roundToDevicePixel(value: number): number {
   if (!Number.isFinite(value)) return value;

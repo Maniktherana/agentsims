@@ -7,6 +7,7 @@ import type {
   AndroidAudioStatus,
   AndroidAvdCameraConfig,
   AndroidForegroundApp,
+  AndroidCornerRadii,
   AndroidScreenConfig,
   AndroidStatus,
 } from "./types";
@@ -248,12 +249,73 @@ export function parseAndroidEmulatorViewportState(
   return { width, height, rotation: normalizedRotation };
 }
 
+/**
+ * Reads the internal DisplayDeviceInfo corner geometry in its native axes.
+ * androidScreenConfigFromOutputs maps it into the current logical rotation.
+ */
+export function parseAndroidRoundedCorners(output: string): AndroidCornerRadii | undefined {
+  const internalDevice = output
+    .split("\n")
+    .find((line) => /DisplayDeviceInfo\{/.test(line) && /\b(?:touch|type) INTERNAL\b/.test(line));
+  const defaultDisplayStart = output.search(/(?:^|\n)\s*Display:\s*mDisplayId=0\b/m);
+  const scoped = defaultDisplayStart >= 0 ? output.slice(defaultDisplayStart) : output;
+  const nextDisplay = scoped.slice(1).search(/\n\s*Display:\s*mDisplayId=/m);
+  const defaultDisplay = nextDisplay >= 0 ? scoped.slice(0, nextDisplay + 1) : scoped;
+  const rounded = (internalDevice ?? defaultDisplay)
+    .match(/(?:mRoundedCorners|roundedCorners)\s*=*\s*RoundedCorners\{\[([^\]]*)\]\}/)?.[1];
+  if (!rounded) return undefined;
+  const values = new Map<string, number>();
+  for (const match of rounded.matchAll(/position=(TopLeft|TopRight|BottomRight|BottomLeft),\s*radius=(\d+)/g)) {
+    values.set(match[1]!, Number(match[2]));
+  }
+  const topLeft = values.get("TopLeft");
+  const topRight = values.get("TopRight");
+  const bottomRight = values.get("BottomRight");
+  const bottomLeft = values.get("BottomLeft");
+  if ([topLeft, topRight, bottomRight, bottomLeft].some((value) => value === undefined)) {
+    return undefined;
+  }
+  return { topLeft: topLeft!, topRight: topRight!, bottomRight: bottomRight!, bottomLeft: bottomLeft! };
+}
+
+export function androidCornerRadiiForRotation(
+  native: AndroidCornerRadii,
+  rotation: number | undefined,
+): AndroidCornerRadii {
+  switch (rotation) {
+    case 1:
+      return {
+        topLeft: native.topRight,
+        topRight: native.bottomRight,
+        bottomRight: native.bottomLeft,
+        bottomLeft: native.topLeft,
+      };
+    case 2:
+      return {
+        topLeft: native.bottomRight,
+        topRight: native.bottomLeft,
+        bottomRight: native.topLeft,
+        bottomLeft: native.topRight,
+      };
+    case 3:
+      return {
+        topLeft: native.bottomLeft,
+        topRight: native.topLeft,
+        bottomRight: native.topRight,
+        bottomLeft: native.bottomRight,
+      };
+    default:
+      return native;
+  }
+}
+
 export function androidScreenConfigFromOutputs(
   sizeOutput: string,
   densityOutput: string,
   displayOutput: string,
   windowRotationOutput: string,
   rotationSettingOutput: string,
+  windowDisplayOutput = "",
 ): AndroidScreenConfig | null {
   const size = parseWmSize(sizeOutput);
   if (!size) return null;
@@ -271,6 +333,16 @@ export function androidScreenConfigFromOutputs(
   const density = parseDensity(densityOutput);
   if (density !== undefined) config.density = density;
   if (rotation !== undefined) config.rotation = rotation;
+  const nativeCornerRadii = parseAndroidRoundedCorners(displayOutput);
+  if (nativeCornerRadii) {
+    config.cornerRadii = androidCornerRadiiForRotation(nativeCornerRadii, rotation);
+  } else {
+    // InsetsState exposes an explicit all-zero RoundedCorners value on devices
+    // whose DisplayDeviceInfo omits the field (notably square Pixel tablets).
+    // These positions are already in logical display space, so do not remap.
+    const logicalCornerRadii = parseAndroidRoundedCorners(windowDisplayOutput);
+    if (logicalCornerRadii) config.cornerRadii = logicalCornerRadii;
+  }
   return config;
 }
 
@@ -572,14 +644,20 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
 }
 
 export async function getAndroidScreenConfig(serial: string): Promise<AndroidScreenConfig> {
-  const [sizeOutput, densityOutput, displayOutput, windowRotationOutput, rotationSettingOutput] = await Promise.all([
+  const [
+    sizeOutput,
+    densityOutput,
+    displayOutput,
+    windowRotationOutput,
+    rotationSettingOutput,
+  ] = await Promise.all([
     adbText(["-s", serial, "shell", "wm", "size"], 5_000),
     adbText(["-s", serial, "shell", "wm", "density"], 5_000).catch(() => ""),
     adbText(["-s", serial, "shell", "dumpsys", "display"], 5_000).catch(() => ""),
     adbText(["-s", serial, "shell", "cmd", "window", "user-rotation"], 5_000).catch(() => ""),
     adbText(["-s", serial, "shell", "settings", "get", "system", "user_rotation"], 5_000).catch(() => ""),
   ]);
-  const config = androidScreenConfigFromOutputs(
+  let config = androidScreenConfigFromOutputs(
     sizeOutput,
     densityOutput,
     displayOutput,
@@ -587,14 +665,34 @@ export async function getAndroidScreenConfig(serial: string): Promise<AndroidScr
     rotationSettingOutput,
   );
   if (!config) throw new Error(`Unable to read Android screen size for ${serial}`);
+  if (!config.cornerRadii) {
+    const windowDisplayOutput = await adbText(
+      ["-s", serial, "shell", "dumpsys", "window", "displays"],
+      5_000,
+    ).catch(() => "");
+    config = androidScreenConfigFromOutputs(
+      sizeOutput,
+      densityOutput,
+      displayOutput,
+      windowRotationOutput,
+      rotationSettingOutput,
+      windowDisplayOutput,
+    ) ?? config;
+  }
   return config;
+}
+
+export function androidEmulatorViewportCommand(serial: string): string[] {
+  // Some phones expose inactive zero-sized INTERNAL placeholders before the
+  // active viewport. Keep every INTERNAL line; the parser selects isActive=1.
+  return ["-s", serial, "shell", "dumpsys input | grep 'Viewport INTERNAL:'"];
 }
 
 export async function getAndroidEmulatorViewportState(
   serial: string,
 ): Promise<AndroidEmulatorViewportState> {
   const output = await adbText(
-    ["-s", serial, "shell", "dumpsys input | grep -m 1 'Viewport INTERNAL:'"],
+    androidEmulatorViewportCommand(serial),
     5_000,
   );
   const viewport = parseAndroidEmulatorViewportState(output);
@@ -904,6 +1002,91 @@ export function androidEmulatorNativeRotationCommands(
 
 export function androidEmulatorRotationUnlockCommand(serial: string): string[] {
   return ["-s", serial, "shell", "cmd", "window", "user-rotation", "free"];
+}
+
+export function androidEmulatorAbsoluteRotationCommands(
+  serial: string,
+  currentRotation: 0 | 1 | 2 | 3,
+  targetRotation: 0 | 1 | 2 | 3,
+): { prepare: string[][]; cleanup: string[][] } {
+  const acceleration = [
+    "0:9.81:0",
+    "9.81:0:0",
+    "0:-9.81:0",
+    "-9.81:0:0",
+  ][targetRotation]!;
+  return {
+    prepare: [
+      ["-s", serial, "shell", "wm", "set-ignore-orientation-request", "true"],
+      ["-s", serial, "shell", "cmd", "window", "user-rotation", "lock", String(currentRotation)],
+      ["-s", serial, "shell", "cmd", "window", "fixed-to-user-rotation", "enabled"],
+      ["-s", serial, "emu", "sensor", "set", "acceleration", acceleration],
+      ["-s", serial, "shell", "cmd", "window", "user-rotation", "lock", String(targetRotation)],
+    ],
+    cleanup: [
+      ["-s", serial, "shell", "cmd", "window", "user-rotation", "free"],
+      ["-s", serial, "shell", "cmd", "window", "fixed-to-user-rotation", "default"],
+      ["-s", serial, "shell", "wm", "set-ignore-orientation-request", "reset"],
+    ],
+  };
+}
+
+export function androidPowerNeedsWake(output: string): boolean {
+  if (/\bmWakefulness=(?:Asleep|Dozing)\b/i.test(output)) return true;
+  return /\bmIsInteractive=false\b/i.test(output);
+}
+
+async function wakeAndroidIfNeeded(serial: string): Promise<void> {
+  const power = await adbText(["-s", serial, "shell", "dumpsys", "power"], 5_000)
+    .catch(() => "");
+  if (!androidPowerNeedsWake(power)) return;
+  await adbText(["-s", serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP"], 5_000);
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    const next = await adbText(["-s", serial, "shell", "dumpsys", "power"], 5_000)
+      .catch(() => "");
+    if (!androidPowerNeedsWake(next)) return;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+}
+
+/**
+ * Rotate an emulator window to one exact quarter-turn. Android apps can reject
+ * reverse portrait while autorotate is active, so the transaction temporarily
+ * lets the display manager honor the requested rotation, waits for the active
+ * INTERNAL viewport to prove it, then restores normal autorotate policy.
+ */
+export async function rotateAndroidEmulatorAbsolute(
+  serial: string,
+  currentRotation: 0 | 1 | 2 | 3,
+  targetRotation: 0 | 1 | 2 | 3,
+): Promise<void> {
+  await wakeAndroidIfNeeded(serial);
+  const commands = androidEmulatorAbsoluteRotationCommands(
+    serial,
+    currentRotation,
+    targetRotation,
+  );
+  await adbText(commands.prepare[0]!, 5_000);
+  try {
+    await adbText(commands.prepare[1]!, 5_000);
+    await adbText(commands.prepare[2]!, 5_000);
+    await adbText(commands.prepare[3]!, 5_000);
+    await adbText(commands.prepare[4]!, 5_000);
+    const deadline = Date.now() + 2_000;
+    for (;;) {
+      const viewport = await getAndroidEmulatorViewportState(serial).catch(() => null);
+      if (viewport?.rotation === targetRotation) break;
+      if (Date.now() >= deadline) {
+        throw new Error(`Android emulator did not reach rotation ${targetRotation}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  } finally {
+    await adbText(commands.cleanup[0]!, 5_000).catch(() => "");
+    await adbText(commands.cleanup[1]!, 5_000).catch(() => "");
+    await adbText(commands.cleanup[2]!, 5_000).catch(() => "");
+  }
 }
 
 export async function freeAndroidEmulatorRotation(serial: string): Promise<void> {

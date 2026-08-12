@@ -3,6 +3,7 @@ import {
   AvccDemuxer,
   avcCodecString,
   isAvccSupported,
+  parseAndroidFramePresentation,
   type AvccChunkType,
 } from "../avcc-codec.js";
 
@@ -16,7 +17,7 @@ export interface UseAvccStreamOptions {
   /** Called the first time any frame (seed or decoded) is painted. */
   onFirstFrame?: () => void;
   /** Called on every painted frame — drives the FPS counter / staleness check. */
-  onFrame?: () => void;
+  onFrame?: (size: { width: number; height: number; presentationGeneration?: number }) => void;
   /** Tracks the HTTP stream transport independently from frame cadence. */
   onTransportChange?: (connected: boolean) => void;
   /** Called with a human-readable message when the decode pipeline fails. */
@@ -81,7 +82,10 @@ export function useAvccStream({
     let timestamp = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let decoder: VideoDecoder | null = null;
-    let pendingFrame: VideoFrame | null = null;
+    let pendingFrame: { frame: VideoFrame; generation?: number } | null = null;
+    const decodeGenerations: Array<number | undefined> = [];
+    let frameGeneration: number | undefined;
+    let decoderGeneration: number | undefined;
     let paintFrameRequest = 0;
     let transportConnected = false;
 
@@ -100,7 +104,12 @@ export function useAvccStream({
       else callbacks.current.onError?.(message);
     };
 
-    const paint = (source: CanvasImageSource, width: number, height: number) => {
+    const paint = (
+      source: CanvasImageSource,
+      width: number,
+      height: number,
+      generation?: number,
+    ) => {
       if (!isLive()) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -111,7 +120,11 @@ export function useAvccStream({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.drawImage(source, 0, 0, width, height);
-      callbacks.current.onFrame?.();
+      callbacks.current.onFrame?.({
+        width,
+        height,
+        ...(generation === undefined ? {} : { presentationGeneration: generation }),
+      });
       if (!painted) {
         painted = true;
         callbacks.current.onFirstFrame?.();
@@ -119,12 +132,13 @@ export function useAvccStream({
     };
 
     const queuePaint = (frame: VideoFrame) => {
+      const generation = decodeGenerations.shift();
       if (!isLive()) {
         frame.close();
         return;
       }
-      pendingFrame?.close();
-      pendingFrame = frame;
+      pendingFrame?.frame.close();
+      pendingFrame = { frame, generation };
       if (paintFrameRequest) return;
       paintFrameRequest = requestAnimationFrame(() => {
         paintFrameRequest = 0;
@@ -132,9 +146,16 @@ export function useAvccStream({
         pendingFrame = null;
         if (!latest) return;
         try {
-          if (isLive()) paint(latest, latest.displayWidth, latest.displayHeight);
+          if (isLive()) {
+            paint(
+              latest.frame,
+              latest.frame.displayWidth,
+              latest.frame.displayHeight,
+              latest.generation,
+            );
+          }
         } finally {
-          latest.close();
+          latest.frame.close();
         }
       });
     };
@@ -151,14 +172,20 @@ export function useAvccStream({
         new Blob([jpeg as BlobPart], { type: "image/jpeg" }),
       );
       try {
-        if (isLive()) paint(bitmap, bitmap.width, bitmap.height);
+        if (isLive()) paint(bitmap, bitmap.width, bitmap.height, frameGeneration);
       } finally {
         bitmap.close();
       }
     };
 
     const configureDecoder = (description: Uint8Array) => {
+      if (decoder && decoderGeneration !== frameGeneration) {
+        decoder.close();
+        decoder = null;
+        decodeGenerations.length = 0;
+      }
       if (!decoder || decoder.state === "closed") decoder = makeDecoder();
+      decoderGeneration = frameGeneration;
       try {
         decoder.configure({
           codec: avcCodecString(description),
@@ -175,6 +202,7 @@ export function useAvccStream({
     const decodeFrame = (type: "keyframe" | "delta", data: Uint8Array) => {
       if (decoder?.state !== "configured") return;
       try {
+        decodeGenerations.push(frameGeneration);
         decoder.decode(
           new EncodedVideoChunk({
             type: type === "keyframe" ? "key" : "delta",
@@ -196,6 +224,17 @@ export function useAvccStream({
         case "description":
           configureDecoder(payload);
           return;
+        case "presentation": {
+          const metadata = parseAndroidFramePresentation(payload);
+          if (!metadata) return;
+          frameGeneration = metadata.generation;
+          if (decoderGeneration !== frameGeneration) {
+            decoder?.close();
+            decoder = null;
+            decodeGenerations.length = 0;
+          }
+          return;
+        }
         case "keyframe":
         case "delta":
           decodeFrame(type, payload);
@@ -250,7 +289,7 @@ export function useAvccStream({
       demuxer.reset();
       if (paintFrameRequest) cancelAnimationFrame(paintFrameRequest);
       paintFrameRequest = 0;
-      pendingFrame?.close();
+      pendingFrame?.frame.close();
       pendingFrame = null;
       if (decoder && decoder.state !== "closed") {
         try {

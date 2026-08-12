@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SimulatorToolbar, homeButtonCommand } from "../web/simulator/SimulatorToolbar";
+import {
+  SimulatorToolbar,
+  homeButtonCommand,
+} from "../web/simulator/SimulatorToolbar";
 
 const exec = async () => ({ stdout: "", stderr: "", exitCode: 0 });
 

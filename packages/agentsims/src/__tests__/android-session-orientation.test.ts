@@ -64,8 +64,20 @@ describe("Android session orientation observation", () => {
     let reportConfig: ((config: AndroidTransportConfig) => void) | undefined;
     const touches: Array<{ x: number; y: number; width: number; height: number }> = [];
     const screens: AndroidScreenConfig[] = [
-      { width: 2560, height: 1600, orientation: "landscape", rotation: 0 },
-      { width: 2560, height: 1600, orientation: "landscape", rotation: 2 },
+      {
+        width: 2560,
+        height: 1600,
+        orientation: "landscape",
+        rotation: 0,
+        cornerRadii: { topLeft: 1, topRight: 2, bottomRight: 3, bottomLeft: 4 },
+      },
+      {
+        width: 2560,
+        height: 1600,
+        orientation: "landscape",
+        rotation: 2,
+        cornerRadii: { topLeft: 3, topRight: 4, bottomRight: 1, bottomLeft: 2 },
+      },
     ];
     const dependencies: AndroidSessionDependencies = {
       readScreenConfig: async () => screens[Math.min(reads++, screens.length - 1)]!,
@@ -78,6 +90,7 @@ describe("Android session orientation observation", () => {
       rotate: async () => {},
       freeEmulatorRotation: async () => {},
       rotateEmulator: async () => {},
+      rotateEmulatorAbsolute: async () => {},
     };
     const session = new AndroidSession("emulator-5554", dependencies);
     await session.start();
@@ -101,8 +114,20 @@ describe("Android session orientation observation", () => {
 
     expect(reads).toBe(2);
     expect(socket.sent.map(decodeConfig)).toEqual([
-      { width: 2560, height: 1600, orientation: "landscape_left" },
-      { width: 2560, height: 1600, orientation: "landscape_right" },
+      {
+        width: 2560,
+        height: 1600,
+        orientation: "landscape_left",
+        presentationGeneration: 1,
+        cornerRadii: { topLeft: 1, topRight: 2, bottomRight: 3, bottomLeft: 4 },
+      },
+      {
+        width: 2560,
+        height: 1600,
+        orientation: "landscape_right",
+        presentationGeneration: 2,
+        cornerRadii: { topLeft: 3, topRight: 4, bottomRight: 1, bottomLeft: 2 },
+      },
     ]);
     socket.emit(
       "message",
@@ -134,6 +159,7 @@ describe("Android session orientation observation", () => {
       rotate: async () => {},
       freeEmulatorRotation: async () => {},
       rotateEmulator: async () => {},
+      rotateEmulatorAbsolute: async () => {},
     });
     await session.start();
     const socket = new FakeHidSocket();
@@ -144,6 +170,7 @@ describe("Android session orientation observation", () => {
       width: 1600,
       height: 2560,
       orientation: "portrait",
+      presentationGeneration: 2,
       rotation: 3,
     });
     await Bun.sleep(100);
@@ -152,6 +179,7 @@ describe("Android session orientation observation", () => {
       width: 1600,
       height: 2560,
       orientation: "portrait",
+      presentationGeneration: 2,
     });
     session.close();
   });
@@ -174,6 +202,7 @@ describe("Android session orientation observation", () => {
       rotate: async () => {},
       freeEmulatorRotation: async () => {},
       rotateEmulator: async () => {},
+      rotateEmulatorAbsolute: async () => {},
     });
     await session.start();
     await Bun.sleep(75);
@@ -204,6 +233,7 @@ describe("Android session orientation observation", () => {
       rotate: async () => {},
       freeEmulatorRotation: async () => {},
       rotateEmulator: async () => {},
+      rotateEmulatorAbsolute: async () => {},
     });
     await session.start();
     await session.attachAvcc(response());
@@ -239,6 +269,7 @@ describe("Android session orientation observation", () => {
       rotate: async () => {},
       freeEmulatorRotation: async () => {},
       rotateEmulator: async () => {},
+      rotateEmulatorAbsolute: async () => {},
     });
     await session.start();
     const socket = new FakeHidSocket();
@@ -256,6 +287,7 @@ describe("Android session orientation observation", () => {
       width: 2560,
       height: 1600,
       orientation: "landscape_right",
+      presentationGeneration: 2,
     });
 
     socket.emit("close");
@@ -265,7 +297,7 @@ describe("Android session orientation observation", () => {
     session.close();
   });
 
-  test("uses native emulator rotation and waits for viewport reconciliation before rebroadcast", async () => {
+  test("sends exactly one native emulator rotation without guessing config", async () => {
     let reads = 0;
     let reportConfig: ((config: AndroidTransportConfig) => void) | undefined;
     const nativeRotations: number[] = [];
@@ -286,7 +318,7 @@ describe("Android session orientation observation", () => {
         operations.push(`display:${currentDisplay.rotation}`);
         return { ...currentDisplay };
       },
-      emulatorViewportPollMs: 25,
+      emulatorViewportPollMs: 10_000,
       warmAx: async () => {},
       createTransport: (_serial, _screen, onConfig) => {
         reportConfig = onConfig;
@@ -314,6 +346,12 @@ describe("Android session orientation observation", () => {
           rotation: 3,
         };
       },
+      rotateEmulatorAbsolute: async (_serial, _currentRotation, targetRotation) => {
+        operations.push(`absolute:${targetRotation}`);
+        currentDisplay = targetRotation === 1 || targetRotation === 3
+          ? { width: 1600, height: 2560, orientation: "portrait", rotation: targetRotation }
+          : { width: 2560, height: 1600, orientation: "landscape", rotation: targetRotation };
+      },
     });
     await session.start();
     const socket = new FakeHidSocket();
@@ -328,30 +366,101 @@ describe("Android session orientation observation", () => {
     );
     await Bun.sleep(0);
 
-    expect(operations).toEqual([
-      "free",
-      "display:0",
-      "rotate:3",
-    ]);
-    expect(nativeRotations).toEqual([3]);
+    expect(operations).toEqual(["rotate:1"]);
+    expect(nativeRotations).toEqual([1]);
     expect(contentRotations).toEqual([]);
-    expect(reads).toBe(2);
+    expect(reads).toBe(1);
     expect(socket.sent.map(decodeConfig)).toEqual([
-      { width: 2560, height: 1600, orientation: "landscape_right" },
-      { width: 2560, height: 1600, orientation: "landscape_left" },
+      {
+        width: 2560,
+        height: 1600,
+        orientation: "landscape_right",
+        presentationGeneration: 1,
+      },
     ]);
 
     // No new frame-metadata key is reported here: real emulator screenshot
     // protobufs can retain the old rotation after `adb emu rotate`.
     expect(reportConfig).toBeDefined();
     await Bun.sleep(75);
-    expect(reads).toBe(3);
+    expect(reads).toBe(1);
     expect(decodeConfig(socket.sent.at(-1)!)).toEqual({
-      width: 1600,
-      height: 2560,
-      orientation: "portrait",
+      width: 2560,
+      height: 1600,
+      orientation: "landscape_right",
+      presentationGeneration: 1,
     });
     session.close();
+  });
+
+  test("serializes one native emulator command per toolbar click across phone and tablet rotations", async () => {
+    for (const native of [
+      { width: 1080, height: 2424 },
+      { width: 2560, height: 1600 },
+    ]) {
+      let rotation: 0 | 1 | 2 | 3 = 0;
+      let freeCalls = 0;
+      const absoluteRotations: string[] = [];
+      const nativeSteps: number[] = [];
+      const currentScreen = (): AndroidScreenConfig => ({
+        width: rotation === 1 || rotation === 3 ? native.height : native.width,
+        height: rotation === 1 || rotation === 3 ? native.width : native.height,
+        orientation: rotation === 1 || rotation === 3 ? "portrait" : "landscape",
+        rotation,
+      });
+      const session = new AndroidSession("emulator-5554", {
+        readScreenConfig: async () => currentScreen(),
+        readEmulatorViewport: async () => currentScreen(),
+        warmAx: async () => {},
+        createTransport: () => fakeTransport(),
+        rotate: async (_serial, orientation) => {
+          absoluteRotations.push(orientation);
+          rotation = ((rotation + 3) % 4) as 0 | 1 | 2 | 3;
+        },
+        freeEmulatorRotation: async () => {
+          freeCalls += 1;
+        },
+        rotateEmulator: async (_serial, steps) => {
+          nativeSteps.push(steps);
+        },
+        rotateEmulatorAbsolute: async (_serial, _currentRotation, nextRotation) => {
+          absoluteRotations.push(
+            ["portrait", "landscape_left", "portrait_upside_down", "landscape_right"][nextRotation]!,
+          );
+          rotation = nextRotation;
+        },
+      });
+      await session.start();
+      const socket = new FakeHidSocket();
+      session.attachHidSocket(socket);
+      await session.attachAvcc(response());
+
+      for (let click = 0; click < 4; click += 1) {
+        socket.emit(
+          "message",
+          Buffer.concat([
+            Buffer.from([0x07]),
+            Buffer.from(JSON.stringify({
+              // The browser's target can be stale while clicks are queued;
+              // nativeStep is the toolbar's authoritative one-click contract.
+              orientation: "portrait",
+              // Keyboard and legacy clients omit nativeStep. Emulator 0x07 is
+              // still universally one relative native command.
+              ...(click % 2 === 0 ? { nativeStep: "clockwise" } : {}),
+            })),
+          ]),
+        );
+      }
+      await Bun.sleep(700);
+
+      expect(freeCalls).toBe(0);
+      expect(nativeSteps).toEqual([1, 1, 1, 1]);
+      expect(absoluteRotations).toEqual([]);
+      // Toolbar rotation never pushes a guessed config; only the asynchronous
+      // active-viewport watcher may observe and rebroadcast the native result.
+      expect(socket.sent).toHaveLength(1);
+      session.close();
+    }
   });
 
   test("keeps Android content rotation as the scrcpy fallback", async () => {
@@ -374,6 +483,7 @@ describe("Android session orientation observation", () => {
       rotateEmulator: async (_serial, steps) => {
         nativeRotations.push(steps);
       },
+      rotateEmulatorAbsolute: async () => {},
     });
     await session.start();
     const socket = new FakeHidSocket();

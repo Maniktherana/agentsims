@@ -22,6 +22,7 @@ import {
   getSimulatorFrameMaxWidth,
   restoredSimulatorFrameWidth,
   readSimulatorResizeScale,
+  resolveSimulatorResizeGeometryState,
   roundToDevicePixel,
   rubberBandResistance,
   snapToDetent,
@@ -75,16 +76,24 @@ export function useSimulatorResize({
     );
   }, [aspectRatio, defaultWidth, viewportHeight, viewportWidth]);
   const initialWidth = useMemo(() => readRestoredWidth(), [readRestoredWidth]);
-  const [frameWidth, setFrameWidth] = useState<number | null>(initialWidth);
+  const [frameGeometry, setFrameGeometry] = useState({
+    defaultWidth,
+    width: initialWidth,
+  });
   const lastWidthRef = useRef<number | null>(initialWidth);
-  const restoredDefaultWidthRef = useRef(defaultWidth);
+
+  const resolvedFrameGeometry = resolveSimulatorResizeGeometryState(
+    frameGeometry,
+    defaultWidth,
+    readRestoredWidth(),
+  );
 
   const maxWidth = getSimulatorFrameMaxWidth(defaultWidth, viewportWidth, viewportHeight, aspectRatio);
   const minWidth = Math.min(SIMULATOR_RESIZE_MIN_WIDTH, maxWidth);
 
   // `width` is the displayed width (may include rubber-band overshoot during drag/inertia).
   // `committedWidth` is the bound-clamped value used for aria, keyboard math, and persistence.
-  const width = frameWidth ?? defaultWidth;
+  const width = resolvedFrameGeometry.width;
   const committedWidth = clampSimulatorFrameWidth(
     width,
     defaultWidth,
@@ -96,8 +105,8 @@ export function useSimulatorResize({
   const writeWidth = useCallback((next: number) => {
     const rounded = roundToDevicePixel(next);
     lastWidthRef.current = rounded;
-    setFrameWidth(rounded);
-  }, []);
+    setFrameGeometry({ defaultWidth, width: rounded });
+  }, [defaultWidth]);
 
   const persistNow = useCallback(
     (value: number) => {
@@ -131,11 +140,13 @@ export function useSimulatorResize({
     if (next !== current) writeWidth(next);
   }, [aspectRatio, defaultWidth, isInertia, isResizing, viewportHeight, viewportWidth, writeWidth]);
 
+  // State catches up after the render, but the DOM already used
+  // `resolvedFrameGeometry.width` above, so no stale 620↔320 frame is painted.
   useEffect(() => {
-    if (restoredDefaultWidthRef.current === defaultWidth) return;
-    restoredDefaultWidthRef.current = defaultWidth;
-    writeWidth(readRestoredWidth());
-  }, [defaultWidth, readRestoredWidth, writeWidth]);
+    if (resolvedFrameGeometry === frameGeometry) return;
+    lastWidthRef.current = resolvedFrameGeometry.width;
+    setFrameGeometry(resolvedFrameGeometry);
+  }, [frameGeometry, resolvedFrameGeometry]);
 
   useEffect(() => {
     if (!isResizing && !isInertia) return;

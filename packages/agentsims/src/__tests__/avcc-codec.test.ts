@@ -6,6 +6,8 @@ import {
   AVCC_TAG_KEYFRAME,
   AVCC_TAG_DELTA,
   AVCC_TAG_SEED,
+  AVCC_TAG_PRESENTATION,
+  parseAndroidFramePresentation,
 } from "../web/avcc-codec.js";
 
 // Wall-clock perf assertion — opt-in via RUN_PERF_TESTS so noisy CI runners
@@ -51,6 +53,7 @@ describe("AvccDemuxer", () => {
         frame(AVCC_TAG_KEYFRAME, [9]),
         frame(AVCC_TAG_DELTA, [8, 7]),
         frame(AVCC_TAG_SEED, [0xff, 0xd8, 0xff, 0xd9]),
+        frame(AVCC_TAG_PRESENTATION, [123, 125]),
       ),
     );
     expect(chunks.map((c) => c.type)).toEqual([
@@ -58,7 +61,22 @@ describe("AvccDemuxer", () => {
       "keyframe",
       "delta",
       "seed",
+      "presentation",
     ]);
+  });
+
+  test("demuxes and validates exact Android presentation metadata", () => {
+    const payload = new TextEncoder().encode(
+      JSON.stringify({ generation: 2 }),
+    );
+    const chunk = new AvccDemuxer().push(
+      frame(AVCC_TAG_PRESENTATION, [...payload]),
+    )[0]!;
+    expect(chunk.type).toBe("presentation");
+    expect(parseAndroidFramePresentation(chunk.payload)).toEqual({ generation: 2 });
+    expect(parseAndroidFramePresentation(new TextEncoder().encode(
+      JSON.stringify({ generation: 0 }),
+    ))).toBeNull();
   });
 
   test("buffers a chunk split across reads (header split)", () => {

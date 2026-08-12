@@ -93,6 +93,25 @@ describe("DeviceRow", () => {
         false,
       ),
     ).toBe("shutting-down");
+    expect(
+      resolveDeviceLifecyclePhase(
+        {
+          state: "Shutting Down",
+          helper: {
+            port: 3100,
+            url: "http://localhost:3100",
+            streamUrl: "http://localhost:3100/stream.mjpeg",
+            wsUrl: "ws://localhost:3100/ws",
+          },
+        },
+        false,
+        false,
+        true,
+      ),
+    ).toBe("shutting-down");
+    expect(resolveDeviceLifecyclePhase({ state: "Booting", helper: null }, false, false, true)).toBe(
+      "booting",
+    );
     expect(resolveDeviceLifecyclePhase({ state: "offline", helper: null }, false, false)).toBe(
       "connecting",
     );

@@ -81,8 +81,17 @@ export interface StreamDisplayGeometry {
 
 export function streamDisplayGeometry(
   config?: Pick<StreamConfig, "width" | "height" | "orientation"> | null,
+  frameCoordinates: "raw" | "display" = "raw",
 ): StreamDisplayGeometry {
   const displayConfig = displayStreamConfig(config);
+  if (frameCoordinates === "display") {
+    return {
+      displayConfig,
+      rotationDegrees: 0,
+      needsCssRotation: false,
+      inputOrientation: undefined,
+    };
+  }
   const orientationRotation = rotationDegreesForOrientation(config?.orientation);
   const rotatesSideways = Math.abs(orientationRotation) === 90;
   const rawIsLandscape = !!config && config.width > config.height;
@@ -127,6 +136,22 @@ export function rawPointForDisplayPoint(
     default:
       return { x, y };
   }
+}
+
+/**
+ * Normalizes browser pointer coordinates for a relay. Android's session owns
+ * logical-display → physical-emulator mapping; iOS relay endpoints still take
+ * raw-orientation coordinates from the browser.
+ */
+export function pointForRelayTransport(
+  config: Pick<StreamConfig, "width" | "height" | "orientation"> | null | undefined,
+  coordinateSpace: "raw" | "display",
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  return coordinateSpace === "display"
+    ? { x, y }
+    : rawPointForDisplayPoint(streamDisplayGeometry(config).inputOrientation, x, y);
 }
 
 /**

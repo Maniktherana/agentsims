@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   fallbackScreenSize,
   screenBorderRadius,
+  screenCornerShape,
   simulatorAspectRatio,
   simulatorMaxWidth,
   simulatorResizeCornerArc,
@@ -73,6 +74,42 @@ describe("simulator geometry helpers", () => {
     expect(landscape).toBe(portrait.split(" / ").reverse().join(" / "));
   });
 
+  test("uses authoritative Android corner radii and keeps explicit square displays square", () => {
+    expect(
+      screenBorderRadius("android", {
+        width: 1080,
+        height: 2424,
+        cornerRadii: {
+          topLeft: 132,
+          topRight: 120,
+          bottomRight: 96,
+          bottomLeft: 72,
+        },
+      }),
+    ).toBe(
+      "12.222222% 11.111111% 8.888889% 6.666667% / 5.445545% 4.950495% 3.960396% 2.970297%",
+    );
+    expect(
+      screenBorderRadius("android", {
+        width: 1600,
+        height: 2560,
+        cornerRadii: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+      }),
+    ).toBe("0px");
+    expect(screenBorderRadius("android", { width: 1600, height: 2560 })).not.toBe("0px");
+    expect(
+      screenCornerShape("android", {
+        cornerRadii: { topLeft: 132, topRight: 132, bottomRight: 132, bottomLeft: 132 },
+      }),
+    ).toBeUndefined();
+    expect(
+      screenCornerShape("android", {
+        cornerRadii: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+      }),
+    ).toBeUndefined();
+    expect(screenCornerShape("android", null)).toBe("superellipse(1.3)");
+  });
+
   test("resize corner arc uses opposing sweep flags for d vs dFill", () => {
     const arc = simulatorResizeCornerArc({
       type: "iphone",
@@ -139,5 +176,20 @@ describe("simulator geometry helpers", () => {
       y: 0.75,
     });
     expect(rawEdgeForDisplayEdge(geometry.inputOrientation, HID_EDGE_BOTTOM)).toBe(HID_EDGE_BOTTOM);
+  });
+
+  test("never rotates a frame already presented in Android display coordinates", () => {
+    for (const config of [
+      { width: 1080, height: 2424, orientation: "portrait" as const },
+      { width: 2424, height: 1080, orientation: "landscape_right" as const },
+      { width: 1080, height: 2424, orientation: "portrait_upside_down" as const },
+      { width: 2424, height: 1080, orientation: "landscape_left" as const },
+    ]) {
+      expect(streamDisplayGeometry(config, "display")).toMatchObject({
+        rotationDegrees: 0,
+        needsCssRotation: false,
+        inputOrientation: undefined,
+      });
+    }
   });
 });
