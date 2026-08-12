@@ -704,20 +704,10 @@ export class AndroidSession {
       const backend = androidTransportKindForSerial(this.serial);
       if (backend === "emulator-controller") {
         await this.activeTransport();
-        const previousViewport = this.lastEmulatorViewport;
-        await this.dependencies.freeEmulatorRotation(this.serial);
-        const reconciled = await this.waitForEmulatorViewportChange(previousViewport);
-        if (!reconciled) await this.refreshEmulatorConfigImmediately();
-        if (this.closed) return;
-        const requestedRotation = androidRotationForOrientation(m.orientation, {
-          width: this.width,
-          height: this.height,
-          rotation: this.rotation,
-        });
-        await this.dependencies.rotateEmulator(
-          this.serial,
-          clockwiseAndroidRotationSteps(this.rotation, requestedRotation),
-        );
+        // Match mobile-use-devtool exactly: one toolbar action is one native
+        // emulator clockwise step. The viewport watcher owns the resulting
+        // canonical screen config and touch-coordinate update.
+        await this.dependencies.rotateEmulator(this.serial, 1);
         this.transport?.resetVideo();
         this.updateEmulatorViewportWatch();
         return;
