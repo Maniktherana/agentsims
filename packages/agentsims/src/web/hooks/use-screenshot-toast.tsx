@@ -92,7 +92,7 @@ export function useScreenshotToast(deviceUdid?: string | null) {
           onResume={resumeDismiss}
         />
       ),
-      { id: next.id, duration: Infinity },
+      { id: next.id, duration: Infinity, position: "top-center" },
     );
     if (Number.isFinite(duration)) scheduleDismiss(duration);
     else {
