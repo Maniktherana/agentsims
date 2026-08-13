@@ -149,7 +149,6 @@ describe("Android rotated emulator input", () => {
     });
     expect(
       androidTouchCoordinatesForTransport(
-        "emulator-controller",
         { x: 0.25, y: 0.75 },
         config!,
       ),
@@ -314,22 +313,11 @@ describe("Android rotated emulator input", () => {
       const logical = logicalSizeForRotation({ width: 2560, height: 1600 }, rotation);
       expect(
         androidTouchCoordinatesForTransport(
-          "emulator-controller",
           { x: 0.25, y: 0.75 },
           { ...logical, rotation },
         ),
       ).toEqual(expectedByRotation[rotation]);
     }
-  });
-
-  test("leaves scrcpy in logical display coordinates", () => {
-    expect(
-      androidTouchCoordinatesForTransport(
-        "scrcpy",
-        { x: 0.25, y: 0.75 },
-        { width: 1600, height: 2560, rotation: 1 },
-      ),
-    ).toEqual({ x: 400, y: 1920, width: 1600, height: 2560 });
   });
 
   test("maps portrait-native phones through the same physical-axis table", () => {
@@ -344,7 +332,6 @@ describe("Android rotated emulator input", () => {
       const logical = logicalSizeForRotation({ width: 1080, height: 2424 }, rotation);
       expect(
         androidTouchCoordinatesForTransport(
-          "emulator-controller",
           { x: 0.25, y: 0.75 },
           { ...logical, rotation },
         ),
@@ -372,13 +359,11 @@ describe("Android rotated emulator input", () => {
         expect(relayed).toEqual(displayPoint);
         expect(
           androidTouchCoordinatesForTransport(
-            "emulator-controller",
             relayed,
             { ...logical, rotation },
           ),
         ).toEqual(
           androidTouchCoordinatesForTransport(
-            "emulator-controller",
             displayPoint,
             { ...logical, rotation },
           ),
@@ -390,12 +375,10 @@ describe("Android rotated emulator input", () => {
   test("turns a displayed vertical gesture into the matching physical direction", () => {
     const logical = { width: 2560, height: 1600, rotation: 2 } as const;
     const begin = androidTouchCoordinatesForTransport(
-      "emulator-controller",
       { x: 0.4, y: 0.25 },
       logical,
     );
     const end = androidTouchCoordinatesForTransport(
-      "emulator-controller",
       { x: 0.4, y: 0.75 },
       logical,
     );

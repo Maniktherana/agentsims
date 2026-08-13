@@ -28,8 +28,7 @@ function mediaEndpoint(deviceId: string): string {
 }
 
 export function MediaRoutingTool({ udid, bundleId }: { udid: string; bundleId: string | null }) {
-  const expectedAndroidEmulator = /^android:emulator-\d+$/.test(udid);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [state, setState] = useState<DeviceMediaState | null>(null);
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
@@ -67,8 +66,8 @@ export function MediaRoutingTool({ udid, bundleId }: { udid: string; bundleId: s
   }, [refresh]);
 
   useEffect(() => {
-    setOpen(expectedAndroidEmulator);
-  }, [expectedAndroidEmulator, udid]);
+    setOpen(false);
+  }, [udid]);
 
   const apply = useCallback(async (action: MediaRouteAction, key: string) => {
     setPending(key);

@@ -1,17 +1,17 @@
 import { useSyncExternalStore } from "react";
 import { LoaderCircle, RotateCcw } from "lucide-react";
 import {
-  EMPTY_PRESENTED_FRAME_RATE,
-  type PresentedFrameRateStore,
-} from "../utils/presented-frame-rate";
+  EMPTY_SIMULATOR_FRAME_RATE,
+  type SimulatorFrameRateStore,
+} from "../utils/simulator-frame-rate";
 import type { DeviceLifecyclePhase } from "./device-row";
 
 export function StreamStatusPill({
   phase,
-  frameRate = EMPTY_PRESENTED_FRAME_RATE,
+  frameRate = EMPTY_SIMULATOR_FRAME_RATE,
 }: {
   phase: DeviceLifecyclePhase;
-  frameRate?: PresentedFrameRateStore;
+  frameRate?: SimulatorFrameRateStore;
 }) {
   const streaming = phase === "streaming";
   const fps = useSyncExternalStore(
@@ -35,7 +35,7 @@ export function StreamStatusPill({
       </span>
       {streaming ? (
         <span
-          data-testid="stream-presented-fps"
+          data-testid="stream-simulator-fps"
           className={`min-w-[7ch] text-right font-mono text-[11px] font-medium leading-none tabular-nums ${
             fps === 0 ? "text-amber-300/70" : "text-white/38"
           }`}

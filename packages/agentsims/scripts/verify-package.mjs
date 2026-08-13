@@ -51,10 +51,6 @@ assert.ok(
   !(manifest.files ?? []).some((file) => file.endsWith(".map")),
   "linked source maps may expose the build machine's checkout path",
 );
-assert.ok(
-  !(manifest.files ?? []).some((file) => file.includes("scrcpy-server")),
-  "scrcpy is an optional host dependency and must not be vendored in the npm package",
-);
 for (const sourceMap of ["dist/agentsims.js.map", "dist/middleware.js.map"]) {
   assert.ok(!existsSync(join(packageRoot, sourceMap)), `${sourceMap} must not be shipped`);
 }

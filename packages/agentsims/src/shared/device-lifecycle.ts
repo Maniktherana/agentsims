@@ -221,6 +221,7 @@ export class DeviceLifecycle {
   }
 
   private async startAndroidDevice(serial: string, port: number, base: string): Promise<string | null> {
+    if (!/^emulator-\d+$/.test(serial)) return "Agentsims supports Android emulators only";
     try {
       await getAndroidSession(serial);
       writeDeviceState(inProcessDeviceState(androidStateId(serial), port, base));

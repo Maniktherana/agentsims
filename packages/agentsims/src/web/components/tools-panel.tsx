@@ -4,7 +4,6 @@ import { motion } from "motion/react";
 import { LocationEmulationTool } from "../location-emulation-tool";
 import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { execOnHost } from "../utils/exec";
-import { AndroidControlsTool } from "./android-controls-tool";
 import { AndroidSimulatorSettingsTool } from "./android-simulator-settings-tool";
 import { AppDetectionTool } from "./app-detection-tool";
 import { AppPermissionsTool } from "./app-permissions-tool";
@@ -12,6 +11,10 @@ import { MediaRoutingTool } from "./media-routing-tool";
 import { PANEL_BACKGROUND } from "./panel-colors";
 import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StreamSettingsTool, type CodecPreference } from "./stream-settings-tool";
+import {
+  EMPTY_SIMULATOR_FRAME_RATE,
+  type SimulatorFrameRateStore,
+} from "../utils/simulator-frame-rate";
 
 export function ToolsPanel({
   open,
@@ -24,6 +27,7 @@ export function ToolsPanel({
   onCodecPreferenceChange,
   activeCodec,
   avccSupported,
+  frameRate = EMPTY_SIMULATOR_FRAME_RATE,
   width,
   dock = false,
   settingsPosition = 0,
@@ -38,11 +42,13 @@ export function ToolsPanel({
   onCodecPreferenceChange: (next: CodecPreference) => void;
   activeCodec: "h264" | "mjpeg";
   avccSupported: boolean;
+  frameRate?: SimulatorFrameRateStore;
   width: number;
   dock?: boolean;
   settingsPosition?: -1 | 0 | 1;
 }) {
   const isAndroid = udid.startsWith("android:");
+  const isAndroidEmulator = /^android:emulator-\d+$/.test(udid);
   const [dockHost, setDockHost] = useState<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
 
@@ -70,20 +76,21 @@ export function ToolsPanel({
           className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]"
         >
           <AppDetectionTool udid={udid} currentApp={currentApp} />
-          {isAndroid && <AndroidControlsTool udid={udid} />}
-          {/^android:emulator-\d+$/.test(udid) && (
+          {isAndroidEmulator && (
             <AndroidSimulatorSettingsTool udid={udid} />
           )}
           {!isAndroid && <SimulatorSettingsTool udid={udid} runtime={deviceRuntime} />}
           <MediaRoutingTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <LocationEmulationTool udid={udid} exec={execOnHost} />
           {!isAndroid && <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />}
-          {!isAndroid && (
+          {(!isAndroid || isAndroidEmulator) && (
             <StreamSettingsTool
               preference={codecPreference}
               onPreferenceChange={onCodecPreferenceChange}
               activeCodec={activeCodec}
               avccSupported={avccSupported}
+              frameRate={frameRate}
+              showCodecControls={!isAndroid}
             />
           )}
         </div>

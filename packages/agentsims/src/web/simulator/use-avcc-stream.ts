@@ -3,8 +3,9 @@ import {
   AvccDemuxer,
   avcCodecString,
   isAvccSupported,
-  parseAndroidEncodedFrameRate,
   parseAndroidFramePresentation,
+  parseSimulatorFrameTiming,
+  type SimulatorFrameTiming,
   type AvccChunkType,
 } from "../avcc-codec.js";
 
@@ -17,10 +18,10 @@ export interface UseAvccStreamOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** Called the first time any frame (seed or decoded) is painted. */
   onFirstFrame?: () => void;
-  /** Called on every painted frame — drives the FPS counter / staleness check. */
+  /** Called on every painted frame for presentation state and staleness checks. */
   onFrame?: (size: { width: number; height: number; presentationGeneration?: number }) => void;
-  /** Native Android encoder output rate carried in the AVCC stream. */
-  onEncodedFrameRate?: (framesPerSecond: number) => void;
+  /** Native simulator framebuffer timing carried in the AVCC stream. */
+  onSimulatorFrameTiming?: (timing: SimulatorFrameTiming) => void;
   /** Tracks the HTTP stream transport independently from frame cadence. */
   onTransportChange?: (connected: boolean) => void;
   /** Called with a human-readable message when the decode pipeline fails. */
@@ -55,7 +56,7 @@ export function useAvccStream({
   canvasRef,
   onFirstFrame,
   onFrame,
-  onEncodedFrameRate,
+  onSimulatorFrameTiming,
   onTransportChange,
   onError,
   onDecoderError,
@@ -64,7 +65,7 @@ export function useAvccStream({
   const callbacks = useRef({
     onFirstFrame,
     onFrame,
-    onEncodedFrameRate,
+    onSimulatorFrameTiming,
     onTransportChange,
     onError,
     onDecoderError,
@@ -72,7 +73,7 @@ export function useAvccStream({
   callbacks.current = {
     onFirstFrame,
     onFrame,
-    onEncodedFrameRate,
+    onSimulatorFrameTiming,
     onTransportChange,
     onError,
     onDecoderError,
@@ -239,11 +240,9 @@ export function useAvccStream({
           }
           return;
         }
-        case "encoded-frame-rate": {
-          const framesPerSecond = parseAndroidEncodedFrameRate(payload);
-          if (framesPerSecond !== null) {
-            callbacks.current.onEncodedFrameRate?.(framesPerSecond);
-          }
+        case "simulator-frame-timing": {
+          const timing = parseSimulatorFrameTiming(payload);
+          if (timing) callbacks.current.onSimulatorFrameTiming?.(timing);
           return;
         }
         case "keyframe":

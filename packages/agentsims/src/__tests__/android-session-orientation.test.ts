@@ -25,11 +25,10 @@ function decodeConfig(frame: Buffer): unknown {
 
 function fakeTransport(
   touches: Array<{ x: number; y: number; width: number; height: number }> = [],
-  backend: AndroidTransport["backend"] = "emulator-controller",
 ): AndroidTransport {
   return {
-    backend,
-    wireTransport: backend === "emulator-controller" ? "mmap-ffmpeg-h264" : "scrcpy-h264",
+    backend: "emulator-controller",
+    wireTransport: "mmap-ffmpeg-h264",
     closed: false,
     running: true,
     subscriberCount: 1,
@@ -517,49 +516,4 @@ describe("Android session orientation observation", () => {
     }
   });
 
-  test("keeps Android content rotation as the scrcpy fallback", async () => {
-    let reads = 0;
-    const contentRotations: string[] = [];
-    const nativeRotations: number[] = [];
-    const screens: AndroidScreenConfig[] = [
-      { width: 1080, height: 2424, orientation: "portrait", rotation: 0 },
-      { width: 2424, height: 1080, orientation: "landscape", rotation: 1 },
-    ];
-    const session = new AndroidSession("R5CW1234ABC", {
-      readScreenConfig: async () => screens[Math.min(reads++, screens.length - 1)]!,
-      readEmulatorViewport: async () => ({ width: 1080, height: 2424, rotation: 0 }),
-      warmAx: async () => {},
-      createTransport: () => fakeTransport([], "scrcpy"),
-      rotate: async (_serial, orientation) => {
-        contentRotations.push(orientation);
-      },
-      freeEmulatorRotation: async () => {},
-      rotateEmulator: async (_serial, steps) => {
-        nativeRotations.push(steps);
-      },
-      rotateEmulatorAbsolute: async () => {},
-    });
-    await session.start();
-    const socket = new FakeHidSocket();
-    session.attachHidSocket(socket);
-    await session.attachAvcc(response());
-    socket.emit(
-      "message",
-      Buffer.concat([
-        Buffer.from([0x07]),
-        Buffer.from(JSON.stringify({ orientation: "landscape_left" })),
-      ]),
-    );
-    await Bun.sleep(400);
-
-    expect(contentRotations).toEqual(["landscape_left"]);
-    expect(nativeRotations).toEqual([]);
-    expect(reads).toBe(2);
-    expect(decodeConfig(socket.sent.at(-1)!)).toEqual({
-      width: 2424,
-      height: 1080,
-      orientation: "landscape_left",
-    });
-    session.close();
-  });
 });

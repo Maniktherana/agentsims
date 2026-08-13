@@ -31,7 +31,48 @@ describe("ToolsPanel", () => {
     expect(html).toContain("background-color:var(--agentsims-panel-bg)");
   });
 
-  test("reserves Android device metadata geometry while status loads", () => {
+  test("matches iOS section order and opens only Simulator for Android", () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { location: { pathname: "/" } },
+    });
+    let html: string;
+    try {
+      html = renderToStaticMarkup(
+        <ToolsPanel
+          open
+          onClose={noop}
+          udid="android:emulator-5554"
+          deviceRuntime="Android-17"
+          currentApp={null}
+          codecPreference="auto"
+          onCodecPreferenceChange={noop}
+          activeCodec="h264"
+          avccSupported
+          width={320}
+        />,
+      );
+    } finally {
+      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+
+    const simulator = html.indexOf(">Simulator<");
+    const camera = html.indexOf(">Camera<");
+    const audio = html.indexOf(">Audio<");
+    const location = html.indexOf(">Location<");
+    const stream = html.indexOf(">Stream<");
+
+    expect(simulator).toBeGreaterThan(-1);
+    expect(camera).toBeGreaterThan(simulator);
+    expect(audio).toBeGreaterThan(camera);
+    expect(location).toBeGreaterThan(audio);
+    expect(stream).toBeGreaterThan(location);
+    expect(html.match(/<details open/g)?.length ?? 0).toBe(1);
+  });
+
+  test("renders Android device metadata without creating its own accordion", () => {
     const html = renderToStaticMarkup(
       <AndroidControlsStatus
         udid="android:emulator-5554"
@@ -42,13 +83,14 @@ describe("ToolsPanel", () => {
       />,
     );
 
-    expect(html).toContain(">Android<");
     expect(html).toContain('data-android-device-subtitle="true"');
     expect(html).toContain(">Loading<");
     expect(html).toContain("Display");
     expect(html).toContain("Stream");
     expect(html).toContain('data-android-metadata="true"');
     expect(html).toContain("Device ID");
+    expect(html).not.toContain("<details");
+    expect(html).not.toContain(">Android<");
     expect(html).not.toContain("border-t border-white");
     expect(html).not.toContain("border-b border-white");
     expect(html).not.toContain(">Camera<");
@@ -86,11 +128,11 @@ describe("ToolsPanel", () => {
         ...status,
         stream: {
           ...status.stream,
-          backend: "scrcpy",
-          transport: "scrcpy-h264",
+          backend: "unsupported",
+          transport: "none",
         },
       }),
-    ).toBe("H.264 · scrcpy");
+    ).toBe("Live stream unavailable");
   });
 
   test("opens real Android emulator media capabilities with a stable loading footprint", () => {

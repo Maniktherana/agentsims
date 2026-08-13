@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { Liveline } from "liveline";
+import { useState, useSyncExternalStore } from "react";
 import { CollapsibleSection } from "./collapsible-section";
 import { SettingRow, SettingSelect } from "./simulator-settings-tool";
+import type { SimulatorFrameRateStore } from "../utils/simulator-frame-rate";
 
 // Client-side video preference. "auto" decodes H.264 (AVCC via WebCodecs) when
 // the browser supports it; "mjpeg" forces the software JPEG path. H.264 decode
@@ -25,6 +27,74 @@ const VideoIcon = (
   </svg>
 );
 
+const STREAM_CHART_ACCENT = "#1683ff";
+
+function formatFps(value: number): string {
+  return `${Math.round(value)} FPS`;
+}
+
+function formatRecentTime(time: number): string {
+  return `:${Math.floor(time % 60).toString().padStart(2, "0")}`;
+}
+
+export function StreamFrameRateHistory({ frameRate }: { frameRate: SimulatorFrameRateStore }) {
+  const fps = useSyncExternalStore(
+    frameRate.subscribe,
+    frameRate.getSnapshot,
+    frameRate.getServerSnapshot,
+  );
+  const history = useSyncExternalStore(
+    frameRate.subscribe,
+    frameRate.getHistorySnapshot,
+    frameRate.getServerHistorySnapshot,
+  );
+
+  return (
+    <div data-stream-fps-history="" className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-3 px-0.5">
+        <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-white/38">
+          Recent · 30 sec
+        </span>
+        <output
+          aria-label="Current captured simulator frame rate"
+          className="min-w-[7ch] text-right font-mono text-[11px] font-medium tabular-nums text-white/72"
+        >
+          {fps === null ? "— FPS" : formatFps(fps)}
+        </output>
+      </div>
+      <div className="h-[132px] overflow-hidden border-y border-white/[0.06] bg-black/15">
+        <Liveline
+          data={history}
+          value={fps ?? 0}
+          theme="dark"
+          color={STREAM_CHART_ACCENT}
+          window={30}
+          grid
+          badge={false}
+          momentum={false}
+          fill
+          pulse={false}
+          scrub
+          exaggerate={false}
+          emptyText="Waiting for native frames"
+          formatValue={formatFps}
+          formatTime={formatRecentTime}
+          lerpSpeed={0.18}
+          lineWidth={1.5}
+          // Liveline draws grid values to the right of the plotting area. Keep
+          // its documented grid gutter so labels such as "60 FPS" stay inside
+          // the narrow Settings panel instead of being clipped at the edge.
+          padding={{ top: 10, right: 54, bottom: 24, left: 12 }}
+        />
+      </div>
+      <p className="px-0.5 text-[11px] leading-snug text-white/52">
+        Captured FPS measures frames Agentsims receives from the simulator, not necessarily the
+        app’s actual render rate.
+      </p>
+    </div>
+  );
+}
+
 /**
  * Tools-panel section letting the viewer pick the stream codec (H.264 vs MJPEG)
  * and explaining the trade-off. The control reflects the effective codec —
@@ -37,6 +107,8 @@ export function StreamSettingsTool({
   onPreferenceChange,
   activeCodec,
   avccSupported,
+  frameRate,
+  showCodecControls = true,
 }: {
   /** The user's saved codec preference. */
   preference: CodecPreference;
@@ -45,6 +117,10 @@ export function StreamSettingsTool({
   activeCodec: "h264" | "mjpeg";
   /** Whether this browser can decode H.264 (WebCodecs available). */
   avccSupported: boolean;
+  /** Native framebuffer history for the active simulator stream. */
+  frameRate?: SimulatorFrameRateStore;
+  /** Android's emulator transport is fixed, so its section only shows FPS. */
+  showCodecControls?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -73,22 +149,33 @@ export function StreamSettingsTool({
       }
     >
       <div className="flex flex-col gap-1.5 pb-1.5">
-        <SettingRow icon={VideoIcon} label="Codec">
-          <SettingSelect
-            label="Codec"
-            value={value}
-            options={CODEC_OPTIONS}
-            disabled={!avccSupported}
-            onChange={(v) => onPreferenceChange(v as CodecPreference)}
-          />
-        </SettingRow>
-        <p className="text-[11px] text-white/55 leading-snug px-0.5">
-          {!avccSupported
-            ? "This browser can't decode H.264, so the stream uses MJPEG."
-            : downgraded
-              ? "H.264 was unavailable for this stream, so it fell back to MJPEG."
-              : "Switch to MJPEG if the stream stutters or drops while screen recording the browser window."}
-        </p>
+        {showCodecControls && (
+          <>
+            <SettingRow icon={VideoIcon} label="Codec">
+              <SettingSelect
+                label="Codec"
+                value={value}
+                options={CODEC_OPTIONS}
+                disabled={!avccSupported}
+                onChange={(v) => onPreferenceChange(v as CodecPreference)}
+              />
+            </SettingRow>
+            <p className="text-[11px] text-white/55 leading-snug px-0.5">
+              {!avccSupported
+                ? "This browser can't decode H.264, so the stream uses MJPEG."
+                : downgraded
+                  ? "H.264 was unavailable for this stream, so it fell back to MJPEG."
+                  : "Switch to MJPEG if the stream stutters or drops while screen recording the browser window."}
+            </p>
+          </>
+        )}
+        {frameRate && open && (
+          <div
+            className={showCodecControls ? "mt-1 border-t border-white/[0.06] pt-2.5" : ""}
+          >
+            <StreamFrameRateHistory frameRate={frameRate} />
+          </div>
+        )}
       </div>
     </CollapsibleSection>
   );

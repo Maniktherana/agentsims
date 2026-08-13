@@ -23,12 +23,11 @@ import { wheelDeltaToPixels } from "./scroll-wheel.js";
 import { resolveScreenConfigUpdate, type ScreenConfigSource } from "./screen-config-state.js";
 import { useAvccStream } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
+import type { SimulatorFrameTiming } from "../avcc-codec.js";
 import { LatestValueScheduler } from "../../shared/latest-value-scheduler.js";
 import { useMjpegStream } from "../hooks/use-mjpeg-stream.js";
-import {
-  PresentedFrameRateStore,
-  isCurrentMjpegPresentation,
-} from "../utils/presented-frame-rate.js";
+import { isCurrentMjpegPresentation } from "../utils/mjpeg-presentation.js";
+import { SimulatorFrameRateStore } from "../utils/simulator-frame-rate.js";
 import { isPresentedStreamStale } from "../utils/stream-presentation-liveness.js";
 import {
   captureRenderedScreenshot,
@@ -134,9 +133,7 @@ export interface SimulatorViewProps {
   /** Called when streaming state changes (true = frames are flowing). */
   onStreamingChange?: (streaming: boolean) => void;
   /** Device-local FPS store. */
-  frameRate?: PresentedFrameRateStore;
-  /** Selects whether the visible FPS is browser presentation or native encoding rate. */
-  frameRateSource?: "presented" | "encoded";
+  frameRate?: SimulatorFrameRateStore;
   /** Connection quality indicator: green (good), yellow (degraded), red (poor). */
   connectionQuality?: "good" | "degraded" | "poor" | null;
   /**
@@ -207,7 +204,6 @@ export function SimulatorView({
   hideControls,
   onStreamingChange,
   frameRate,
-  frameRateSource = "presented",
   connectionQuality,
   codec = "avcc",
   onAvccError,
@@ -233,8 +229,8 @@ export function SimulatorView({
   const inputLayerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
-  const [internalFrameRate] = useState(() => new PresentedFrameRateStore());
-  const presentedFrameRate = frameRate ?? internalFrameRate;
+  const [internalFrameRate] = useState(() => new SimulatorFrameRateStore());
+  const simulatorFrameRate = frameRate ?? internalFrameRate;
   const [error, setError] = useState<string | null>(null);
   const [screenSize, setScreenSize] = useState<StreamConfig | null>(null);
   const screenSizeRef = useRef<StreamConfig | null>(null);
@@ -370,9 +366,6 @@ export function SimulatorView({
       // release it so blob URLs don't accumulate between animation frames.
       if (pendingBlobUrlRef.current) URL.revokeObjectURL(pendingBlobUrlRef.current);
       pendingBlobUrlRef.current = blobUrl;
-      if (typeof document === "undefined" || !document.hidden) {
-        presentedFrameRate.start(performance.now());
-      }
       if (!rafId) rafId = requestAnimationFrame(paint);
     });
     return () => {
@@ -390,7 +383,7 @@ export function SimulatorView({
       }
       presentedBlobUrlRef.current = null;
     };
-  }, [mjpegSubscribeFrame, presentedFrameRate, relayMode, useAvcc]);
+  }, [mjpegSubscribeFrame, relayMode, useAvcc]);
 
   const onMjpegPresented = useCallback(
     (el: HTMLImageElement) => {
@@ -405,12 +398,6 @@ export function SimulatorView({
         return;
 
       presentedBlobUrlRef.current = loadedUrl;
-      const hidden = typeof document !== "undefined" && document.hidden;
-      if (!hidden) {
-        const now = performance.now();
-        presentedFrameRate.start(now);
-        presentedFrameRate.record(now);
-      }
       lastFrameAtRef.current = Date.now();
       if (mjpegWatchdogRef.current) clearTimeout(mjpegWatchdogRef.current);
       mjpegWatchdogRef.current = null;
@@ -420,7 +407,7 @@ export function SimulatorView({
         updateScreenConfig({ width: el.naturalWidth, height: el.naturalHeight });
       }
     },
-    [presentedFrameRate, updateScreenConfig],
+    [updateScreenConfig],
   );
 
   // AVCC (H.264) decode → canvas. Inert unless `useAvcc`. Works in both
@@ -436,12 +423,6 @@ export function SimulatorView({
   const onAvccFrame = useCallback(
     (size: { width: number; height: number }) => {
       if (!avccTransportConnectedRef.current) return;
-      const hidden = typeof document !== "undefined" && document.hidden;
-      if (!hidden && frameRateSource === "presented") {
-        const now = performance.now();
-        presentedFrameRate.start(now);
-        presentedFrameRate.record(now);
-      }
       lastFrameAtRef.current = Date.now();
       onPresentedFrameRef.current?.(size);
       // Re-establish "connected" if the relay staleness watchdog tripped during
@@ -453,28 +434,27 @@ export function SimulatorView({
         setError(null);
       }
     },
-    [frameRateSource, presentedFrameRate],
+    [],
   );
-  const onAvccEncodedFrameRate = useCallback(
-    (framesPerSecond: number) => {
-      if (frameRateSource !== "encoded") return;
+  const onAvccSimulatorFrameTiming = useCallback(
+    (timing: SimulatorFrameTiming) => {
       if (typeof document !== "undefined" && document.hidden) return;
-      presentedFrameRate.setMeasured(framesPerSecond);
+      simulatorFrameRate.recordTiming(timing.sequence, timing.timestampUs);
     },
-    [frameRateSource, presentedFrameRate],
+    [simulatorFrameRate],
   );
   const onAvccTransportChange = useCallback(
     (transportConnected: boolean) => {
       avccTransportConnectedRef.current = transportConnected;
       if (transportConnected && (typeof document === "undefined" || !document.hidden)) {
-        presentedFrameRate.start(performance.now());
+        simulatorFrameRate.start();
       } else if (!transportConnected) {
-        presentedFrameRate.reset();
+        simulatorFrameRate.reset();
         setConnected(false);
       }
       if (transportConnected) setError(null);
     },
-    [presentedFrameRate],
+    [simulatorFrameRate],
   );
   useAvccStream({
     url,
@@ -482,7 +462,7 @@ export function SimulatorView({
     canvasRef,
     onFirstFrame: onAvccFirstFrame,
     onFrame: onAvccFrame,
-    onEncodedFrameRate: onAvccEncodedFrameRate,
+    onSimulatorFrameTiming: onAvccSimulatorFrameTiming,
     onTransportChange: onAvccTransportChange,
     onError: setError,
     onDecoderError: onAvccError,
@@ -666,12 +646,12 @@ export function SimulatorView({
     };
   }, [url, relayMode, updateScreenConfig, wsUrlProp]);
 
-  // Sample successful presentations into the tiny external-store subscriber.
-  // The interval only exists for a visible, connected stream. MJPEG relay mode
-  // also uses the same tick for stale-frame detection, avoiding a second timer.
+  // Keep native simulator-rate visibility and stream staleness device-local.
+  // The interval performs only the liveness check; FPS arrives with AVCC
+  // metadata immediately after native simulator frames.
   useEffect(() => {
     if (!connected) {
-      presentedFrameRate.reset();
+      simulatorFrameRate.reset();
       return;
     }
 
@@ -690,18 +670,13 @@ export function SimulatorView({
     };
     const start = () => {
       if (interval || (typeof document !== "undefined" && document.hidden)) return;
-      presentedFrameRate.start(performance.now());
-      interval = setInterval(() => {
-        if (frameRateSource === "presented") {
-          presentedFrameRate.sample(performance.now());
-        }
-        checkStaleness();
-      }, 1_000);
+      simulatorFrameRate.start();
+      interval = setInterval(checkStaleness, 1_000);
     };
     const onVisibilityChange = () => {
       if (document.hidden) {
         stop();
-        presentedFrameRate.reset();
+        simulatorFrameRate.reset();
       } else {
         checkStaleness();
         start();
@@ -713,9 +688,9 @@ export function SimulatorView({
     return () => {
       stop();
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      presentedFrameRate.reset();
+      simulatorFrameRate.reset();
     };
-  }, [connected, frameRateSource, presentedFrameRate, relayMode, url, useAvcc]);
+  }, [connected, simulatorFrameRate, relayMode, url, useAvcc]);
 
   const getViewElement = useCallback(() => {
     if (useAvcc) return canvasRef.current;
@@ -1476,7 +1451,7 @@ export function SimulatorView({
           >
             Home
           </button>
-          <LegacyFrameRate frameRate={presentedFrameRate} connectionQuality={connectionQuality} />
+          <LegacyFrameRate frameRate={simulatorFrameRate} connectionQuality={connectionQuality} />
         </div>
       )}
     </div>
@@ -1487,7 +1462,7 @@ function LegacyFrameRate({
   frameRate,
   connectionQuality,
 }: {
-  frameRate: PresentedFrameRateStore;
+  frameRate: SimulatorFrameRateStore;
   connectionQuality: SimulatorViewProps["connectionQuality"];
 }) {
   const fps = useSyncExternalStore(

@@ -9,7 +9,7 @@ const helper = `${base}/helper/${encodeURIComponent(device)}`;
 const wsBase = base.replace(/^http/, "ws");
 const durationMs = Math.max(1_000, Number(process.argv[3] ?? 15_000));
 const inputFps = Math.min(120, Math.max(1, Number(process.argv[4] ?? 60)));
-const inputMode = process.argv[5] === "adb" ? "adb" : "scrcpy";
+const inputMode = process.argv[5] === "adb" ? "adb" : "native";
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -108,7 +108,7 @@ const response = await fetch(`${helper}/stream.avcc`, {
 });
 if (!response.ok || !response.body) throw new Error(`AVCC request failed (${response.status})`);
 
-const ws = inputMode === "scrcpy" ? await openControl() : null;
+const ws = inputMode === "native" ? await openControl() : null;
 const reader = response.body.getReader();
 const demuxer = new AvccDemuxer();
 const counts: Record<AvccChunkType, number> = {
@@ -116,6 +116,8 @@ const counts: Record<AvccChunkType, number> = {
   keyframe: 0,
   delta: 0,
   seed: 0,
+  presentation: 0,
+  "simulator-frame-timing": 0,
 };
 const mediaFrameTimes: number[] = [];
 let bytes = 0;

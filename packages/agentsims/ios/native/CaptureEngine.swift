@@ -13,6 +13,7 @@ import os
 struct Frame: Identifiable {
     let id = UUID()
     let pixelBuffer: CVPixelBuffer
+    let nativeTiming: NativeFrameTiming?
 }
 
 protocol FrameEncoder {
@@ -104,8 +105,8 @@ actor CaptureEngine {
             // drop old frames if there's backpressure
             bufferingPolicy: .bufferingNewest(1)
         )
-        try await frameCapture.start(deviceUDID: deviceUDID) { pixelBuffer, _ in
-            frameContinuation.yield(Frame(pixelBuffer: pixelBuffer))
+        try await frameCapture.start(deviceUDID: deviceUDID) { pixelBuffer, _, nativeTiming in
+            frameContinuation.yield(Frame(pixelBuffer: pixelBuffer, nativeTiming: nativeTiming))
         }
         Task {
             for await frame in frames {
@@ -160,24 +161,31 @@ actor CaptureEngine {
             let flagKeyframe: Int32 = 1 << 1
 
             guard let self else { return }
-            if let description = encoded.description {
+            if let description = encoded.frame.description {
                 await onFrame(
                     screenSize,
                     AVCCEnvelope.description(avcc: description),
                     flagDescription,
                 )
             }
-            switch encoded.kind {
+            if let nativeTiming = encoded.nativeTiming {
+                await onFrame(
+                    screenSize,
+                    AVCCEnvelope.simulatorFrameTiming(nativeTiming),
+                    0,
+                )
+            }
+            switch encoded.frame.kind {
             case .keyframe:
                 await onFrame(
                     screenSize,
-                    AVCCEnvelope.keyframe(avcc: encoded.avcc),
+                    AVCCEnvelope.keyframe(avcc: encoded.frame.avcc),
                     flagKeyframe,
                 )
             case .delta:
                 await onFrame(
                     screenSize,
-                    AVCCEnvelope.delta(avcc: encoded.avcc),
+                    AVCCEnvelope.delta(avcc: encoded.frame.avcc),
                     0,
                 )
             }
@@ -230,14 +238,19 @@ actor AVCCEncoder: FrameEncoder {
 
     init() {}
 
-    func encode(_ frame: Frame) async throws -> H264Encoder.Encoded {
+    struct Encoded {
+        let frame: H264Encoder.Encoded
+        let nativeTiming: NativeFrameTiming?
+    }
+
+    func encode(_ frame: Frame) async throws -> Encoded {
         // TODO: cancel after timeout using TaskGroup
         let result = try await h264Encoder.encode(
             frame.pixelBuffer,
             forceKeyframe: forceKeyframe,
         )
         forceKeyframe = false
-        return result
+        return Encoded(frame: result, nativeTiming: frame.nativeTiming)
     }
 
     func requestKeyframe() async {

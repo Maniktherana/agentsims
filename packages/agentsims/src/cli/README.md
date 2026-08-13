@@ -1,7 +1,7 @@
 # Agentsims CLI
 
 The CLI is the single automation interface for humans and coding agents. It
-controls both iOS simulators and Android emulators/devices through the same
+controls both iOS simulators and Android emulators through the same
 device session used by the browser workspace.
 
 The browser consumes the continuous video stream. Agents use a sampled loop:
@@ -59,6 +59,6 @@ npx agentsims type "Buy milk" --device <id>
 npx agentsims button home --device <id>
 ```
 
-Android emulators use their native gRPC input stream, physical Android devices
-use scrcpy control, and iOS simulators use native HID injection. Platform
+Android emulators use their native gRPC input stream, and iOS simulators use
+native HID injection. Platform
 fallbacks remain internal to the device session; callers use one CLI contract.

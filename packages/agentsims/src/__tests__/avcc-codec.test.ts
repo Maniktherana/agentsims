@@ -7,9 +7,9 @@ import {
   AVCC_TAG_DELTA,
   AVCC_TAG_SEED,
   AVCC_TAG_PRESENTATION,
-  AVCC_TAG_ENCODED_FRAME_RATE,
-  parseAndroidEncodedFrameRate,
+  AVCC_TAG_SIMULATOR_FRAME_TIMING,
   parseAndroidFramePresentation,
+  parseSimulatorFrameTiming,
 } from "../web/avcc-codec.js";
 
 // Wall-clock perf assertion — opt-in via RUN_PERF_TESTS so noisy CI runners
@@ -56,7 +56,7 @@ describe("AvccDemuxer", () => {
         frame(AVCC_TAG_DELTA, [8, 7]),
         frame(AVCC_TAG_SEED, [0xff, 0xd8, 0xff, 0xd9]),
         frame(AVCC_TAG_PRESENTATION, [123, 125]),
-        frame(AVCC_TAG_ENCODED_FRAME_RATE, [0, 60]),
+        frame(AVCC_TAG_SIMULATOR_FRAME_TIMING, Array.from({ length: 16 }, () => 0)),
       ),
     );
     expect(chunks.map((c) => c.type)).toEqual([
@@ -65,15 +65,24 @@ describe("AvccDemuxer", () => {
       "delta",
       "seed",
       "presentation",
-      "encoded-frame-rate",
+      "simulator-frame-timing",
     ]);
   });
 
-  test("demuxes native Android encoded frame rate", () => {
-    const chunk = new AvccDemuxer().push(frame(AVCC_TAG_ENCODED_FRAME_RATE, [0, 47]))[0]!;
-    expect(chunk.type).toBe("encoded-frame-rate");
-    expect(parseAndroidEncodedFrameRate(chunk.payload)).toBe(47);
-    expect(parseAndroidEncodedFrameRate(new Uint8Array([47]))).toBeNull();
+  test("demuxes native simulator frame timing", () => {
+    const payload = new Uint8Array(16);
+    const view = new DataView(payload.buffer);
+    view.setBigUint64(0, 42n, false);
+    view.setBigUint64(8, 1_234_567n, false);
+    const chunk = new AvccDemuxer().push(
+      frame(AVCC_TAG_SIMULATOR_FRAME_TIMING, [...payload]),
+    )[0]!;
+    expect(chunk.type).toBe("simulator-frame-timing");
+    expect(parseSimulatorFrameTiming(chunk.payload)).toEqual({
+      sequence: 42n,
+      timestampUs: 1_234_567n,
+    });
+    expect(parseSimulatorFrameTiming(new Uint8Array([47]))).toBeNull();
   });
 
   test("demuxes and validates exact Android presentation metadata", () => {

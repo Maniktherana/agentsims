@@ -8,14 +8,25 @@ import Foundation
 ///   decoder. Emitted once per encoder session and replayed to late joiners.
 /// - `0x02` keyframe — IDR (decoder can start here).
 /// - `0x03` delta — non-IDR P-frame (depends on prior frames).
+/// - `0x06` simulator frame timing — native framebuffer sequence and monotonic
+///   generation timestamp in microseconds, both big-endian UInt64 values.
 enum AVCCEnvelope {
     static let descriptionTag: UInt8 = 0x01
     static let keyframeTag: UInt8 = 0x02
     static let deltaTag: UInt8 = 0x03
+    static let simulatorFrameTimingTag: UInt8 = 0x06
 
     static func description(avcc: Data) -> Data { wrap(tag: descriptionTag, payload: avcc) }
     static func keyframe(avcc: Data) -> Data { wrap(tag: keyframeTag, payload: avcc) }
     static func delta(avcc: Data) -> Data { wrap(tag: deltaTag, payload: avcc) }
+    static func simulatorFrameTiming(_ timing: NativeFrameTiming) -> Data {
+        var payload = Data(capacity: 16)
+        var sequence = timing.sequence.bigEndian
+        var timestampUs = timing.timestampUs.bigEndian
+        Swift.withUnsafeBytes(of: &sequence) { payload.append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: &timestampUs) { payload.append(contentsOf: $0) }
+        return wrap(tag: simulatorFrameTimingTag, payload: payload)
+    }
 
     private static func wrap(tag: UInt8, payload: Data) -> Data {
         let length = UInt32(payload.count + 1)

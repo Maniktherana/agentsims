@@ -2,10 +2,8 @@ import { Monitor, RefreshCw, Smartphone, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { simEndpoint } from "../utils/sim-endpoint";
 import type { AndroidStatus } from "../../android/types";
-import { CollapsibleSection } from "./collapsible-section";
 import { SettingRow } from "./simulator-settings-tool";
 
-const SECTION_TITLE = "m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50";
 const STATUS_VALUE =
   "min-w-0 max-w-[190px] truncate text-right text-[12px] font-medium tabular-nums text-white/72";
 
@@ -28,7 +26,7 @@ export function formatAndroidStream(status: AndroidStatus | null): string {
   if (status.stream.transport === "mmap-ffmpeg-h264") {
     return "H.264 · emulator framebuffer";
   }
-  return "H.264 · scrcpy";
+  return "Live stream unavailable";
 }
 
 function useAndroidStatus(udid: string) {
@@ -74,7 +72,7 @@ function useAndroidStatus(udid: string) {
   return { status, loading, error, refresh };
 }
 
-export function AndroidControlsTool({ udid }: { udid: string }) {
+export function AndroidDeviceDetailsTool({ udid }: { udid: string }) {
   const { status, loading, error, refresh } = useAndroidStatus(udid);
 
   return (
@@ -101,16 +99,12 @@ export function AndroidControlsStatus({
   error: string | null;
   onRefresh: () => void;
 }) {
-  const [open, setOpen] = useState(true);
   const displayName = status?.camera?.displayName || status?.avdName || status?.model;
 
   return (
-    <CollapsibleSection
-      open={open}
-      onOpenChange={setOpen}
+    <div
       data-android-controls={loading ? "loading" : "ready"}
-      summary={<span className={SECTION_TITLE}>Android</span>}
-      bodyClassName="flex flex-col gap-1.5"
+      className="flex flex-col gap-1.5"
     >
       <div data-android-metadata className="flex flex-col gap-1.5">
         <SettingRow icon={<Smartphone size={14} strokeWidth={2} />} label="Device">
@@ -163,6 +157,6 @@ export function AndroidControlsStatus({
           </button>
         </div>
       )}
-    </CollapsibleSection>
+    </div>
   );
 }

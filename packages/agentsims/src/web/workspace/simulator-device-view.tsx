@@ -68,7 +68,7 @@ import { simEndpoint } from "../utils/sim-endpoint";
 import type { RenderedScreenshot } from "../utils/rendered-screenshot";
 import { startScreenshotCapture } from "../utils/screenshot-capture-flow";
 import { saveScreenshotToHost } from "../utils/screenshot-save";
-import { PresentedFrameRateStore } from "../utils/presented-frame-rate";
+import { SimulatorFrameRateStore } from "../utils/simulator-frame-rate";
 import {
   SIMULATOR_RESIZE_DRAG_TRANSITION,
   SIMULATOR_RESIZE_LAYOUT_TRANSITION,
@@ -153,7 +153,7 @@ export function SimulatorDeviceView({
   focusedRef.current = focused;
   const setStreamingRef = useRef(setStreaming);
   setStreamingRef.current = setStreaming;
-  const presentedFrameRate = useMemo(() => new PresentedFrameRateStore(), [config.device]);
+  const simulatorFrameRate = useMemo(() => new SimulatorFrameRateStore(), [config.device]);
 
   useEffect(() => {
     if (!focused) return;
@@ -966,7 +966,7 @@ export function SimulatorDeviceView({
               <span className="max-w-[min(230px,calc(100vw-170px))] truncate text-[12px] font-semibold text-white/92">
                 {deviceName ?? "Simulator"}
               </span>
-              <StreamStatusPill phase={lifecyclePhase} frameRate={presentedFrameRate} />
+              <StreamStatusPill phase={lifecyclePhase} frameRate={simulatorFrameRate} />
             </SimulatorToolbar>
             <div
               ref={simContainerRef}
@@ -1018,8 +1018,7 @@ export function SimulatorDeviceView({
                     }
                     hideControls
                     onStreamingChange={setStreaming}
-                    frameRate={presentedFrameRate}
-                    frameRateSource={isAndroidDevice ? "encoded" : "presented"}
+                    frameRate={simulatorFrameRate}
                     onStreamTouch={onStreamTouch}
                     onStreamMultiTouch={onStreamMultiTouch}
                     onStreamButton={onStreamButton}
@@ -1269,6 +1268,7 @@ export function SimulatorDeviceView({
               onCodecPreferenceChange={setCodecPreference}
               activeCodec={useAvccVideo ? "h264" : "mjpeg"}
               avccSupported={avcc.supported}
+              frameRate={simulatorFrameRate}
               width={toolsPanelWidth}
               dock={embedded}
               settingsPosition={settingsPosition}

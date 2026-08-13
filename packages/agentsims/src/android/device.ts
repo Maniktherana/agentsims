@@ -628,8 +628,8 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
     serial,
     screen,
     stream: {
-      backend: emulator ? "emulator-controller" : "scrcpy",
-      transport: emulator ? "mmap-ffmpeg-h264" : "scrcpy-h264",
+      backend: emulator ? "emulator-controller" : "unsupported",
+      transport: emulator ? "mmap-ffmpeg-h264" : "none",
       source: "display",
       canChangeSource: false,
     },

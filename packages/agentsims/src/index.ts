@@ -1477,7 +1477,9 @@ function listBootedAppleDevices(): string[] {
 
 /** Resolve which already-running simulators to stream, without spawning anything. */
 async function resolveTargetDevices(devices: string[]): Promise<string[]> {
-  const androidDevices = await listAndroidDevices();
+  const androidDevices = (await listAndroidDevices()).filter((device) =>
+    /^emulator-\d+$/.test(device.serial),
+  );
   if (devices.length > 0) {
     return devices.map((device) => {
       const stateSerial = androidSerialFromStateId(device);

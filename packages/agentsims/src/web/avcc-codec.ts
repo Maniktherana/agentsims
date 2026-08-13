@@ -12,7 +12,7 @@
  *   0x03 delta       — non-IDR P-frame
  *   0x04 seed        — JPEG painted before the first IDR decodes
  *   0x05 presentation — Android canonical presentation generation
- *   0x06 encoded-frame-rate — Android native encoder output frames per second
+ *   0x06 simulator-frame-timing — native simulator framebuffer sequence + timestamp
  *
  * The stream is read incrementally from a `fetch()` ReadableStream, so chunks
  * arrive split across reads. `AvccDemuxer` buffers partial bytes and yields
@@ -24,7 +24,7 @@ export const AVCC_TAG_KEYFRAME = 0x02;
 export const AVCC_TAG_DELTA = 0x03;
 export const AVCC_TAG_SEED = 0x04;
 export const AVCC_TAG_PRESENTATION = 0x05;
-export const AVCC_TAG_ENCODED_FRAME_RATE = 0x06;
+export const AVCC_TAG_SIMULATOR_FRAME_TIMING = 0x06;
 
 export type AvccChunkType =
   | "description"
@@ -32,7 +32,7 @@ export type AvccChunkType =
   | "delta"
   | "seed"
   | "presentation"
-  | "encoded-frame-rate";
+  | "simulator-frame-timing";
 
 export interface AvccChunk {
   type: AvccChunkType;
@@ -46,7 +46,7 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
   [AVCC_TAG_DELTA]: "delta",
   [AVCC_TAG_SEED]: "seed",
   [AVCC_TAG_PRESENTATION]: "presentation",
-  [AVCC_TAG_ENCODED_FRAME_RATE]: "encoded-frame-rate",
+  [AVCC_TAG_SIMULATOR_FRAME_TIMING]: "simulator-frame-timing",
 };
 
 export type AndroidFramePresentation = {
@@ -67,9 +67,18 @@ export function parseAndroidFramePresentation(
   }
 }
 
-export function parseAndroidEncodedFrameRate(payload: Uint8Array): number | null {
-  if (payload.length !== 2) return null;
-  return new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint16(0, false);
+export type SimulatorFrameTiming = {
+  sequence: bigint;
+  timestampUs: bigint;
+};
+
+export function parseSimulatorFrameTiming(payload: Uint8Array): SimulatorFrameTiming | null {
+  if (payload.length !== 16) return null;
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return {
+    sequence: view.getBigUint64(0, false),
+    timestampUs: view.getBigUint64(8, false),
+  };
 }
 
 /**

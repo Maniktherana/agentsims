@@ -1,7 +1,7 @@
 # Agentsims
 
 Agentsims is a local browser workspace for controlling and inspecting iOS
-simulators and Android emulators or devices while developing
+simulators and Android emulators while developing
 React Native and Expo apps. It puts multiple devices on one canvas, exposes
 platform-aware controls, and connects native accessibility targets to React
 Native source when source mapping is enabled.
@@ -35,8 +35,7 @@ The equivalent `pnpm add --save-dev agentsims`, `yarn add --dev agentsims`, or
 
 ## Quick start
 
-1. Start the app normally on at least one simulator, emulator, or connected
-   Android device.
+1. Start the app normally on at least one iOS simulator or Android emulator.
 
    ```bash
    # Examples for Expo projects
@@ -67,7 +66,7 @@ when its browser server exits.
 ## Devices and the workspace
 
 The device picker combines available iOS simulators, Android Virtual Devices,
-connected Android devices, and their running sessions.
+and their running sessions.
 
 - Check a running device to add it to the canvas; uncheck it to hide it.
 - Select a phone or its title to focus it. The focused device has a blue
@@ -83,7 +82,6 @@ Platform transport details stay behind the same workspace and CLI contracts:
 | --- | --- |
 | iOS Simulator | Native simulator capture and HID control |
 | Android emulator | Emulator gRPC capture, shared-memory frames, H.264, and native input |
-| Physical Android device | Optional host-installed scrcpy H.264 and control |
 
 ADB remains responsible for Android discovery, lifecycle operations, explicit
 screenshots, status probes, and discrete fallbacks. There is no ADB PNG live
@@ -214,8 +212,7 @@ bun run --filter agentsims start
 
 The full source build requires Xcode Command Line Tools, a JDK, Android SDK
 platform/build-tools, Rust, and FFmpeg development libraries. It builds every
-shipped browser/server/native artifact from source. scrcpy is not vendored and
-is only an optional host dependency for physical Android devices.
+shipped browser/server/native artifact from source.
 
 `start` executes the built production entrypoint directly with Node and prints
 its local URL, normally [http://localhost:3200](http://localhost:3200). Pass CLI

@@ -1,7 +1,7 @@
 # agentsims
 
 Agentsims is a local browser workspace for controlling and inspecting iOS
-simulators, Android emulators, and connected Android devices while developing
+simulators and Android emulators while developing
 React Native and Expo apps. It keeps multiple devices on one canvas and maps
 native accessibility targets back to React Native source when available.
 
@@ -20,8 +20,7 @@ The equivalent pnpm, Yarn, and Bun development-dependency commands also work.
 
 ## Quick start
 
-1. Start the app normally on at least one simulator, emulator, or connected
-   Android device.
+1. Start the app normally on at least one iOS simulator or Android emulator.
 
    ```bash
    # Expo examples; run the target you need
@@ -52,8 +51,7 @@ npx agentsims setup
 ## What `npx agentsims` does
 
 - Serves a local, multi-device workspace on `127.0.0.1:3200` by default.
-- Discovers running iOS Simulators, Android emulators, and authorized physical
-  Android devices.
+- Discovers running iOS Simulators and Android emulators.
 - Streams each selected device and relays supported pointer, keyboard, scroll,
   rotation, and hardware-button input.
 - Opens a dedicated accessibility tree for native target inspection.
@@ -131,7 +129,6 @@ the Android SDK and put `adb` on `PATH` for Android support.
 | --- | --- |
 | iOS Simulator | Native simulator capture and HID control |
 | Android emulator | Emulator capture, H.264, and native input |
-| Physical Android device | Optional host-installed scrcpy H.264 and control |
 
 Android live video requires browser WebCodecs support and has no MJPEG or ADB
 PNG fallback. iOS Simulator streams can use `--codec mjpeg` when the H.264 path
@@ -170,8 +167,7 @@ bun run --filter agentsims start
 The full source build also requires Xcode Command Line Tools, a JDK, Android
 SDK platform/build-tools, Rust, and FFmpeg 8 development libraries. It builds the
 browser/server bundles, first-party Android AX JAR, iOS/macOS native helpers,
-and Rust Android video addon. scrcpy is not vendored or required for Android
-emulators; it is an optional host dependency for physical devices.
+and Rust Android video addon.
 
 `start` executes the built production entrypoint directly with Node and serves
 the printed local URL, normally

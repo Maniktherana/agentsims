@@ -17,7 +17,7 @@ const AVCC_TAG_DESCRIPTION = 0x01;
 const AVCC_TAG_KEYFRAME = 0x02;
 const AVCC_TAG_DELTA = 0x03;
 const AVCC_TAG_PRESENTATION = 0x05;
-const AVCC_TAG_ENCODED_FRAME_RATE = 0x06;
+const AVCC_TAG_SIMULATOR_FRAME_TIMING = 0x06;
 
 export type AndroidEmulatorConfig = {
   width: number;
@@ -36,12 +36,13 @@ export function encodeAndroidPresentationMetadata(generation: number): Buffer {
   return Buffer.concat([header, payload]);
 }
 
-export function encodeAndroidEncodedFrameRate(framesPerSecond: number): Buffer {
-  const payload = Buffer.allocUnsafe(2);
-  payload.writeUInt16BE(Math.max(0, Math.min(0xffff, Math.round(framesPerSecond))));
+export function encodeSimulatorFrameTiming(sequence: number, timestampUs: number): Buffer {
+  const payload = Buffer.allocUnsafe(16);
+  payload.writeBigUInt64BE(BigInt(sequence), 0);
+  payload.writeBigUInt64BE(BigInt(timestampUs), 8);
   const header = Buffer.allocUnsafe(5);
   header.writeUInt32BE(payload.length + 1, 0);
-  header[4] = AVCC_TAG_ENCODED_FRAME_RATE;
+  header[4] = AVCC_TAG_SIMULATOR_FRAME_TIMING;
   return Buffer.concat([header, payload]);
 }
 
@@ -147,8 +148,12 @@ export function parseImageMetadata(message: Uint8Array): {
   width: number;
   height: number;
   rotation: AndroidDisplayRotation;
+  sequence: number;
+  timestampUs: number;
 } {
   const image = decodeFields(message);
+  const sequence = numericField(image, 5);
+  const timestampUs = numericField(image, 6);
   const encodedFormat = image.get(1);
   if (encodedFormat instanceof Uint8Array) {
     const format = decodeFields(encodedFormat);
@@ -159,12 +164,14 @@ export function parseImageMetadata(message: Uint8Array): {
       encodedRotation instanceof Uint8Array
         ? asDisplayRotation(numericField(decodeFields(encodedRotation), 1))
         : 0;
-    if (width && height) return { width, height, rotation };
+    if (width && height) return { width, height, rotation, sequence, timestampUs };
   }
   return {
     width: numericField(image, 2),
     height: numericField(image, 3),
     rotation: 0,
+    sequence,
+    timestampUs,
   };
 }
 
@@ -266,9 +273,7 @@ export class AndroidAvccFrameCoordinator {
   private lastCaptureSubmitAt = 0;
   private _currentConfig: AndroidEmulatorConfig | null = null;
   private lastPresentationMetadata: Buffer | null = null;
-  private lastEncodedFrameRateMetadata: Buffer | null = null;
-  private encodedFrameRateStartedAt: number | null = null;
-  private encodedFramesInWindow = 0;
+  private lastSimulatorTiming: { sequence: number; timestampUs: number } | null = null;
   private presentationGeneration: number;
 
   constructor(
@@ -295,9 +300,13 @@ export class AndroidAvccFrameCoordinator {
     width: number;
     height: number;
     rotation: AndroidDisplayRotation;
+    sequence?: number;
+    timestampUs?: number;
   }): AndroidEmulatorConfig {
     const config: AndroidEmulatorConfig = {
-      ...dimensions,
+      width: dimensions.width,
+      height: dimensions.height,
+      rotation: dimensions.rotation,
       orientation: orientation(dimensions.width, dimensions.height),
     };
     if (
@@ -308,6 +317,22 @@ export class AndroidAvccFrameCoordinator {
     ) {
       this._currentConfig = config;
       this.onConfig(config);
+    }
+    if (
+      dimensions.timestampUs &&
+      (!this.lastSimulatorTiming ||
+        dimensions.sequence !== this.lastSimulatorTiming.sequence ||
+        dimensions.timestampUs !== this.lastSimulatorTiming.timestampUs)
+    ) {
+      this.lastSimulatorTiming = {
+        sequence: dimensions.sequence ?? 0,
+        timestampUs: dimensions.timestampUs,
+      };
+      const timing = encodeSimulatorFrameTiming(
+        this.lastSimulatorTiming.sequence,
+        this.lastSimulatorTiming.timestampUs,
+      );
+      for (const subscriber of this.subscribers) this.writeSubscriber(subscriber, timing);
     }
     this.submitCaptureFrame(config);
     return config;
@@ -338,9 +363,6 @@ export class AndroidAvccFrameCoordinator {
       this.writeSubscriber(subscriber, this.lastPresentationMetadata);
     }
     if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
-    if (this.lastEncodedFrameRateMetadata) {
-      this.writeSubscriber(subscriber, this.lastEncodedFrameRateMetadata);
-    }
     this.capture.requestKeyframe();
     if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
 
@@ -362,29 +384,9 @@ export class AndroidAvccFrameCoordinator {
     res.on("drain", resume);
   }
 
-  publish(chunk: Buffer, isDescription = false, now = Date.now()): void {
+  publish(chunk: Buffer, isDescription = false): void {
     if (isDescription) this.lastDescription = chunk;
     for (const subscriber of this.subscribers) this.writeSubscriber(subscriber, chunk);
-    const tag = chunk[4];
-    if (tag !== AVCC_TAG_KEYFRAME && tag !== AVCC_TAG_DELTA) return;
-
-    if (this.encodedFrameRateStartedAt === null) {
-      this.encodedFrameRateStartedAt = now;
-      this.encodedFramesInWindow = 1;
-      return;
-    }
-    this.encodedFramesInWindow += 1;
-    const elapsed = now - this.encodedFrameRateStartedAt;
-    if (elapsed < 1_000) return;
-
-    this.lastEncodedFrameRateMetadata = encodeAndroidEncodedFrameRate(
-      (this.encodedFramesInWindow * 1_000) / elapsed,
-    );
-    this.encodedFrameRateStartedAt = now;
-    this.encodedFramesInWindow = 0;
-    for (const subscriber of this.subscribers) {
-      this.writeSubscriber(subscriber, this.lastEncodedFrameRateMetadata);
-    }
   }
 
   submitIdleFrame(intervalMs: number, now = Date.now()): void {
@@ -424,7 +426,7 @@ export class AndroidAvccFrameCoordinator {
       if (
         tag === AVCC_TAG_DESCRIPTION ||
         tag === AVCC_TAG_PRESENTATION ||
-        tag === AVCC_TAG_ENCODED_FRAME_RATE
+        tag === AVCC_TAG_SIMULATOR_FRAME_TIMING
       ) {
         subscriber.res.write(chunk);
       } else if (tag === AVCC_TAG_KEYFRAME) {

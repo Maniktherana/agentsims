@@ -2,11 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
 import type { IncomingMessage, ServerResponse } from "http";
 import { serveAndroidHelper } from "../android/session";
-import { androidStreamOrientation, scrcpyServerCandidates } from "../android/scrcpy";
-import { androidTransportKindForSerial } from "../android/transport";
+import { isAndroidEmulatorSerial } from "../android/transport";
 import {
   AndroidAvccFrameCoordinator,
-  encodeAndroidEncodedFrameRate,
+  encodeSimulatorFrameTiming,
   parseImageMetadata,
 } from "../android/emulator-controller";
 
@@ -21,27 +20,15 @@ describe("Android stream transport", () => {
       width: 2560,
       height: 1600,
       rotation: 2,
+      sequence: 0,
+      timestampUs: 0,
     });
   });
 
-  test("publishes toolbar-compatible stream orientations", () => {
-    expect(androidStreamOrientation(1080, 2424)).toBe("portrait");
-    expect(androidStreamOrientation(2424, 1080)).toBe("landscape_left");
-  });
-
-  test("treats host scrcpy as an optional physical-device dependency", () => {
-    expect(
-      scrcpyServerCandidates(
-        { AGENTSIMS_SCRCPY_SERVER_PATH: "/custom/scrcpy-server" },
-        "/host-prefix",
-      ).slice(0, 2),
-    ).toEqual(["/custom/scrcpy-server", "/host-prefix/share/scrcpy/scrcpy-server"]);
-  });
-
-  test("selects native emulator transport and scrcpy physical-device transport", () => {
-    expect(androidTransportKindForSerial("emulator-5554")).toBe("emulator-controller");
-    expect(androidTransportKindForSerial("R5CW1234ABC")).toBe("scrcpy");
-    expect(androidTransportKindForSerial("192.168.1.8:5555")).toBe("scrcpy");
+  test("accepts only native emulator serials for live Android sessions", () => {
+    expect(isAndroidEmulatorSerial("emulator-5554")).toBe(true);
+    expect(isAndroidEmulatorSerial("R5CW1234ABC")).toBe(false);
+    expect(isAndroidEmulatorSerial("192.168.1.8:5555")).toBe(false);
   });
 
   test("encodes only while an AVCC client is attached", () => {
@@ -119,7 +106,7 @@ describe("Android stream transport", () => {
     ]);
   });
 
-  test("reports native encoded output rate without counting metadata", () => {
+  test("forwards native emulator timing without waiting for encoded output", () => {
     const writes: Buffer[] = [];
     const response = Object.assign(new EventEmitter(), {
       writableEnded: false,
@@ -138,17 +125,27 @@ describe("Android stream transport", () => {
     coordinator.observeFrameMetadata({ width: 1080, height: 2424, rotation: 0 });
     coordinator.attach(response);
 
+    coordinator.observeFrameMetadata({
+      width: 1080,
+      height: 2424,
+      rotation: 0,
+      sequence: 42,
+      timestampUs: 1_234_567,
+    });
+    expect(writes.at(-1)).toEqual(encodeSimulatorFrameTiming(42, 1_234_567));
+    expect(writes.at(-1)?.[4]).toBe(0x06);
+    expect(writes.at(-1)?.readBigUInt64BE(5)).toBe(42n);
+    expect(writes.at(-1)?.readBigUInt64BE(13)).toBe(1_234_567n);
+
+    const writesAfterTiming = writes.length;
     const keyframe = Buffer.from([0, 0, 0, 1, 0x02, 0x2a]);
     const delta = Buffer.from([0, 0, 0, 1, 0x03, 0x2a]);
-    coordinator.publish(keyframe, false, 0);
-    coordinator.publish(delta, false, 250);
-    coordinator.publish(delta, false, 500);
-    coordinator.publish(delta, false, 750);
-    coordinator.publish(delta, false, 1_000);
+    coordinator.publish(keyframe);
+    coordinator.publish(delta);
+    expect(writes).toHaveLength(writesAfterTiming + 2);
 
-    expect(writes.at(-1)).toEqual(encodeAndroidEncodedFrameRate(5));
-    expect(writes.at(-1)?.[4]).toBe(0x06);
-    expect(writes.at(-1)?.readUInt16BE(5)).toBe(5);
+    coordinator.submitIdleFrame(200, 2_000);
+    expect(writes).toHaveLength(writesAfterTiming + 2);
   });
 
   test("rejects MJPEG before opening an Android device session", async () => {

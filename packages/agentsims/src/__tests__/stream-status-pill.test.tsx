@@ -1,13 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StreamStatusPill } from "../web/components/stream-status-pill";
-import { PresentedFrameRateStore } from "../web/utils/presented-frame-rate";
+import { SimulatorFrameRateStore } from "../web/utils/simulator-frame-rate";
 
 function measuredRate(fps: number) {
-  const rate = new PresentedFrameRateStore();
-  rate.start(0);
-  for (let index = 0; index < fps; index++) rate.record(10 + index * (980 / Math.max(fps, 1)));
-  rate.sample(1_000);
+  const rate = new SimulatorFrameRateStore();
+  rate.start();
+  if (fps === 0) {
+    rate.recordTiming(1n, 0n);
+    rate.recordTiming(2n, 1_000_000_000n);
+  } else {
+    rate.recordTiming(1n, 1_000_000n);
+    rate.recordTiming(2n, 1_000_000n + BigInt(Math.round(1_000_000 / fps)));
+  }
   return rate;
 }
 
@@ -29,7 +34,7 @@ describe("StreamStatusPill", () => {
 
   test("reserves the FPS slot and shows an em dash for the first live window", () => {
     const html = renderToStaticMarkup(
-      <StreamStatusPill phase="streaming" frameRate={new PresentedFrameRateStore()} />,
+      <StreamStatusPill phase="streaming" frameRate={new SimulatorFrameRateStore()} />,
     );
 
     expect(html).toContain("— FPS");

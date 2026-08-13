@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import type { AndroidCornerRadii, AndroidScreenConfig, AndroidStatus } from "./types";
 import {
-  androidTransportKindForSerial,
   createAndroidTransport,
+  isAndroidEmulatorSerial,
   type AndroidTransport,
   type AndroidTransportConfig,
 } from "./transport";
@@ -116,19 +116,9 @@ export function androidRotationForOrientation(
 }
 
 export function androidTouchCoordinatesForTransport(
-  backend: AndroidTransport["backend"],
   point: { x: number; y: number },
   screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
 ): { x: number; y: number; width: number; height: number } {
-  if (backend === "scrcpy") {
-    return {
-      x: point.x * screen.width,
-      y: point.y * screen.height,
-      width: screen.width,
-      height: screen.height,
-    };
-  }
-
   const rotation = normalizedAndroidRotation(screen.rotation);
   const native = nativeSizeForScreen(screen);
   const physicalPoint =
@@ -161,10 +151,6 @@ export function nextClockwiseAndroidRotation(current: AndroidRotation): AndroidR
   // Matches the product toolbar cycle: portrait → landscape-left → reverse
   // portrait → landscape-right → portrait.
   return ((current + 1) % 4) as AndroidRotation;
-}
-
-function orientationForRotation(rotation: AndroidRotation): AndroidDisplayOrientation {
-  return ANDROID_ORIENTATION_CYCLE[rotation]!;
 }
 
 function touchMessageType(message: Buffer): TouchMessageType | null {
@@ -277,6 +263,9 @@ export class AndroidSession {
   }
 
   private async initialize(): Promise<void> {
+    if (!isAndroidEmulatorSerial(this.serial)) {
+      throw new Error(`Agentsims live Android sessions require an emulator: ${this.serial}`);
+    }
     const config = await this.dependencies.readScreenConfig(this.serial);
     this.applyScreenConfig(config);
     // Pay the one-time framework traversal cost in the background while the
@@ -309,9 +298,7 @@ export class AndroidSession {
       width: this.width,
       height: this.height,
       orientation: this.orientation,
-      ...(androidTransportKindForSerial(this.serial) === "emulator-controller"
-        ? { presentationGeneration: this.presentationGeneration }
-        : {}),
+      presentationGeneration: this.presentationGeneration,
       ...(this.cornerRadii ? { cornerRadii: this.cornerRadii } : {}),
     };
   }
@@ -326,9 +313,7 @@ export class AndroidSession {
       nextRotation !== this.rotation ||
       nextOrientation !== this.orientation ||
       !sameAndroidCornerRadii(nextCornerRadii, this.cornerRadii);
-    if (changed && androidTransportKindForSerial(this.serial) === "emulator-controller") {
-      this.presentationGeneration += 1;
-    }
+    if (changed) this.presentationGeneration += 1;
     this.width = config.width;
     this.height = config.height;
     this.rotation = nextRotation;
@@ -354,28 +339,7 @@ export class AndroidSession {
     for (const ws of this.hidSockets) ws.send(frame);
   }
 
-  private applyTransportConfig(config: AndroidTransportConfig): void {
-    const currentIsLandscape =
-      this.orientation === "landscape_left" || this.orientation === "landscape_right";
-    const nextIsLandscape = config.width > config.height;
-    const nextOrientation =
-      currentIsLandscape === nextIsLandscape
-        ? this.orientation
-        : nextIsLandscape
-          ? "landscape_left"
-          : "portrait";
-    const changed =
-      config.width !== this.width ||
-      config.height !== this.height ||
-      nextOrientation !== this.orientation;
-    this.width = config.width;
-    this.height = config.height;
-    this.orientation = nextOrientation;
-    if (changed) this.broadcastConfig();
-  }
-
   private observeEmulatorFrameConfig(config: AndroidTransportConfig): void {
-    if (!("rotation" in config)) return;
     const key = `${config.width}x${config.height}:${config.rotation}`;
     if (key === this.lastEmulatorFrameConfig) return;
     const firstObservation = this.lastEmulatorFrameConfig === null;
@@ -419,7 +383,6 @@ export class AndroidSession {
   private emulatorViewportWatchActive(): boolean {
     return (
       !this.closed &&
-      androidTransportKindForSerial(this.serial) === "emulator-controller" &&
       (this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0)
     );
   }
@@ -476,7 +439,6 @@ export class AndroidSession {
 
   private transportSession(): AndroidTransport {
     if (!this.transport || this.transport.closed) {
-      const backend = androidTransportKindForSerial(this.serial);
       this.transport = this.dependencies.createTransport(
         this.serial,
         {
@@ -484,13 +446,7 @@ export class AndroidSession {
           height: this.height,
           presentationGeneration: this.presentationGeneration || 1,
         },
-        (config) => {
-          // Emulator screenshot metadata describes its raw encoder buffer.
-          // Android's logical viewport remains authoritative for display and
-          // input, while scrcpy metadata is already in logical coordinates.
-          if (backend === "scrcpy") this.applyTransportConfig(config);
-          else this.observeEmulatorFrameConfig(config);
-        },
+        (config) => this.observeEmulatorFrameConfig(config),
         () => this.updateTransportIdleTimer(),
       );
     }
@@ -658,7 +614,6 @@ export class AndroidSession {
     y: number,
   ): boolean {
     const point = androidTouchCoordinatesForTransport(
-      transport.backend,
       { x, y },
       { width: this.width, height: this.height, rotation: this.rotation },
     );
@@ -730,7 +685,6 @@ export class AndroidSession {
       const transport = await this.activeTransport();
       const transportPoint = transport
         ? androidTouchCoordinatesForTransport(
-            transport.backend,
             { x: m.x, y: m.y },
             { width: this.width, height: this.height, rotation: this.rotation },
           )
@@ -802,14 +756,12 @@ export class AndroidSession {
       const transport = await this.activeTransport();
       const first = transport
         ? androidTouchCoordinatesForTransport(
-            transport.backend,
             { x: m.x1, y: m.y1 },
             { width: this.width, height: this.height, rotation: this.rotation },
           )
         : null;
       const second = transport
         ? androidTouchCoordinatesForTransport(
-            transport.backend,
             { x: m.x2, y: m.y2 },
             { width: this.width, height: this.height, rotation: this.rotation },
           )
@@ -845,28 +797,12 @@ export class AndroidSession {
     if (tag === 0x07) {
       const m = json<{ orientation: string; nativeStep?: "clockwise" }>();
       if (!m?.orientation) return;
-      const backend = androidTransportKindForSerial(this.serial);
-      if (backend === "emulator-controller") {
-        await this.activeTransport();
-        // Match mobile-use-devtool exactly: one toolbar action is one native
-        // emulator clockwise step. The viewport watcher owns the resulting
-        // canonical screen config and touch-coordinate update.
-        await this.dependencies.rotateEmulator(this.serial, 1);
-        this.transport?.resetVideo();
-        this.updateEmulatorViewportWatch();
-        return;
-      }
-      const requestedRotation = androidRotationForOrientation(m.orientation, {
-        width: this.width,
-        height: this.height,
-        rotation: this.rotation,
-      });
-      await this.dependencies.rotate(this.serial, orientationForRotation(requestedRotation));
+      await this.activeTransport();
+      // One toolbar action is one native emulator clockwise step. The viewport
+      // watcher owns the resulting canonical screen config and touch mapping.
+      await this.dependencies.rotateEmulator(this.serial, 1);
       this.transport?.resetVideo();
-      await wait(350);
-      const config = await this.dependencies.readScreenConfig(this.serial);
-      this.applyScreenConfig(config);
-      this.broadcastConfig();
+      this.updateEmulatorViewportWatch();
       return;
     }
 
@@ -876,10 +812,7 @@ export class AndroidSession {
       const anchorX = m.x * this.width;
       const anchorY = m.y * this.height;
       const transport = await this.activeTransport();
-      if (
-        transport?.backend === "emulator-controller" &&
-        this.injectEmulatorScrollGesture(transport, m)
-      ) {
+      if (transport && this.injectEmulatorScrollGesture(transport, m)) {
         return;
       }
       if (
@@ -920,6 +853,9 @@ export class AndroidSession {
 const sessions = new Map<string, AndroidSession>();
 
 export async function getAndroidSession(serial: string): Promise<AndroidSession> {
+  if (!isAndroidEmulatorSerial(serial)) {
+    throw new Error(`Agentsims live Android sessions require an emulator: ${serial}`);
+  }
   let session = sessions.get(serial);
   if (!session) {
     session = new AndroidSession(serial);

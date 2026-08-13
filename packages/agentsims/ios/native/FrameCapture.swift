@@ -5,6 +5,11 @@ import CoreGraphics
 import IOSurface
 import ObjectiveC
 
+struct NativeFrameTiming: Sendable {
+    let sequence: UInt64
+    let timestampUs: UInt64
+}
+
 /// Headless simulator frame capture via direct IOSurface access.
 ///
 /// Uses SimulatorKit frame callbacks (via objc_msgSend on the IO port descriptor)
@@ -17,8 +22,9 @@ actor FrameCapture {
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
     private var photocopier = Photocopier()
-    private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
+    private var onFrame: ((CVPixelBuffer, CMTime, NativeFrameTiming?) -> Void)?
     private var frameCount: UInt64 = 0
+    private var nativeFrameSequence: UInt64 = 0
     private(set) var capturedWidth: Int = 0
     private(set) var capturedHeight: Int = 0
     private var idleTimer: Task<Void, Never>?
@@ -41,7 +47,10 @@ actor FrameCapture {
     private var callbackUUIDs: [ObjectIdentifier: UUID] = [:]
     private var ioClient: NSObject?
 
-    func start(deviceUDID: String, onFrame: @escaping @Sendable (CVPixelBuffer, CMTime) -> Void) throws {
+    func start(
+        deviceUDID: String,
+        onFrame: @escaping @Sendable (CVPixelBuffer, CMTime, NativeFrameTiming?) -> Void
+    ) throws {
         self.onFrame = onFrame
 
         SimFrameworks.load()
@@ -247,8 +256,18 @@ actor FrameCapture {
         lastCaptureTime = .now
         frameCount += 1
         let timestamp = CMTime(value: CMTimeValue(frameCount), timescale: 60)
+        let nativeTiming: NativeFrameTiming?
+        if seedChanged {
+            nativeFrameSequence += 1
+            nativeTiming = NativeFrameTiming(
+                sequence: nativeFrameSequence,
+                timestampUs: DispatchTime.now().uptimeNanoseconds / 1_000
+            )
+        } else {
+            nativeTiming = nil
+        }
         guard let copy = photocopier.copy(pb) else { return }
-        onFrame?(copy, timestamp)
+        onFrame?(copy, timestamp, nativeTiming)
     }
 
     func getScreenSize() -> (width: Int, height: Int)? {

@@ -1,17 +1,13 @@
 import type { ServerResponse } from "http";
 import { AndroidEmulatorSession, type AndroidEmulatorConfig } from "./emulator-controller";
-import {
-  AndroidScrcpySession,
-  type AndroidButtonPhase,
-  type AndroidScrcpyConfig,
-  type AndroidTouchPhase,
-} from "./scrcpy";
 
-export type AndroidTransportConfig = AndroidEmulatorConfig | AndroidScrcpyConfig;
+export type AndroidTransportConfig = AndroidEmulatorConfig;
+export type AndroidTouchPhase = "begin" | "move" | "end" | "cancel";
+export type AndroidButtonPhase = "down" | "up" | "press";
 
 export interface AndroidTransport {
-  readonly backend: "emulator-controller" | "scrcpy";
-  readonly wireTransport: "mmap-ffmpeg-h264" | "scrcpy-h264";
+  readonly backend: "emulator-controller";
+  readonly wireTransport: "mmap-ffmpeg-h264";
   readonly closed: boolean;
   readonly running: boolean;
   readonly subscriberCount: number;
@@ -50,8 +46,8 @@ export interface AndroidTransport {
   rotateDevice?(): boolean;
 }
 
-export function androidTransportKindForSerial(serial: string): AndroidTransport["backend"] {
-  return /^emulator-\d+$/.test(serial) ? "emulator-controller" : "scrcpy";
+export function isAndroidEmulatorSerial(serial: string): boolean {
+  return /^emulator-\d+$/.test(serial);
 }
 
 export function createAndroidTransport(
@@ -60,8 +56,8 @@ export function createAndroidTransport(
   onConfig: (config: AndroidTransportConfig) => void,
   onSubscriberCountChange: (count: number) => void,
 ): AndroidTransport {
-  if (androidTransportKindForSerial(serial) === "emulator-controller") {
-    return new AndroidEmulatorSession(serial, physicalScreen, onConfig, onSubscriberCountChange);
+  if (!isAndroidEmulatorSerial(serial)) {
+    throw new Error(`Agentsims live Android sessions require an emulator: ${serial}`);
   }
-  return new AndroidScrcpySession(serial, onConfig, onSubscriberCountChange);
+  return new AndroidEmulatorSession(serial, physicalScreen, onConfig, onSubscriberCountChange);
 }

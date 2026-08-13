@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AppWindow, ArrowUpRight, Package } from "lucide-react";
 import { type AppDetails, fetchAppDetails } from "../utils/app-icon";
 import { execOnHost, shellEscape } from "../utils/exec";
+import { AndroidDeviceDetailsTool } from "./android-controls-tool";
 import { CollapsibleSection } from "./collapsible-section";
 
 type AppPlatform = "ios" | "android";
@@ -189,6 +190,11 @@ export function AppDetectionTool({
               }
             />}
           </dl>
+      {isAndroid && (
+        <div className="border-t border-white/[0.06] pt-2.5">
+          <AndroidDeviceDetailsTool udid={udid} />
+        </div>
+      )}
     </CollapsibleSection>
   );
 }
