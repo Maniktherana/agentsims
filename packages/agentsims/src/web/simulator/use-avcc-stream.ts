@@ -3,6 +3,7 @@ import {
   AvccDemuxer,
   avcCodecString,
   isAvccSupported,
+  parseAndroidEncodedFrameRate,
   parseAndroidFramePresentation,
   type AvccChunkType,
 } from "../avcc-codec.js";
@@ -18,6 +19,8 @@ export interface UseAvccStreamOptions {
   onFirstFrame?: () => void;
   /** Called on every painted frame — drives the FPS counter / staleness check. */
   onFrame?: (size: { width: number; height: number; presentationGeneration?: number }) => void;
+  /** Native Android encoder output rate carried in the AVCC stream. */
+  onEncodedFrameRate?: (framesPerSecond: number) => void;
   /** Tracks the HTTP stream transport independently from frame cadence. */
   onTransportChange?: (connected: boolean) => void;
   /** Called with a human-readable message when the decode pipeline fails. */
@@ -52,6 +55,7 @@ export function useAvccStream({
   canvasRef,
   onFirstFrame,
   onFrame,
+  onEncodedFrameRate,
   onTransportChange,
   onError,
   onDecoderError,
@@ -60,6 +64,7 @@ export function useAvccStream({
   const callbacks = useRef({
     onFirstFrame,
     onFrame,
+    onEncodedFrameRate,
     onTransportChange,
     onError,
     onDecoderError,
@@ -67,6 +72,7 @@ export function useAvccStream({
   callbacks.current = {
     onFirstFrame,
     onFrame,
+    onEncodedFrameRate,
     onTransportChange,
     onError,
     onDecoderError,
@@ -168,9 +174,7 @@ export function useAvccStream({
 
     const paintSeed = async (jpeg: Uint8Array) => {
       // JPEG seed — paint immediately for an instant first frame.
-      const bitmap = await createImageBitmap(
-        new Blob([jpeg as BlobPart], { type: "image/jpeg" }),
-      );
+      const bitmap = await createImageBitmap(new Blob([jpeg as BlobPart], { type: "image/jpeg" }));
       try {
         if (isLive()) paint(bitmap, bitmap.width, bitmap.height, frameGeneration);
       } finally {
@@ -232,6 +236,13 @@ export function useAvccStream({
             decoder?.close();
             decoder = null;
             decodeGenerations.length = 0;
+          }
+          return;
+        }
+        case "encoded-frame-rate": {
+          const framesPerSecond = parseAndroidEncodedFrameRate(payload);
+          if (framesPerSecond !== null) {
+            callbacks.current.onEncodedFrameRate?.(framesPerSecond);
           }
           return;
         }

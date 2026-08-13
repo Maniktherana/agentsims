@@ -1,18 +1,13 @@
 import { Monitor, RefreshCw, Smartphone, Video } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { simEndpoint } from "../utils/sim-endpoint";
 import type { AndroidStatus } from "../../android/types";
 import { CollapsibleSection } from "./collapsible-section";
 import { SettingRow } from "./simulator-settings-tool";
 
 const SECTION_TITLE = "m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50";
-const STATUS_VALUE = "min-w-0 max-w-[190px] truncate text-right text-[12px] font-medium tabular-nums text-white/72";
+const STATUS_VALUE =
+  "min-w-0 max-w-[190px] truncate text-right text-[12px] font-medium tabular-nums text-white/72";
 
 function androidSerial(udid: string) {
   return udid.startsWith("android:") ? udid.slice("android:".length) : udid;
@@ -30,7 +25,7 @@ export function formatAndroidDisplay(status: AndroidStatus | null): string {
 
 export function formatAndroidStream(status: AndroidStatus | null): string {
   if (!status?.stream) return "Loading";
-  if (status.stream.transport === "mmap-videotoolbox-h264") {
+  if (status.stream.transport === "mmap-ffmpeg-h264") {
     return "H.264 · emulator framebuffer";
   }
   return "H.264 · scrcpy";
@@ -41,31 +36,31 @@ function useAndroidStatus(udid: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const refreshIdRef = useRef(0);
-  const endpoint = useMemo(
-    () => simEndpoint(`helper/${encodeURIComponent(udid)}/status`),
-    [udid],
-  );
+  const endpoint = useMemo(() => simEndpoint(`helper/${encodeURIComponent(udid)}/status`), [udid]);
 
-  const refresh = useCallback((signal?: AbortSignal) => {
-    const refreshId = ++refreshIdRef.current;
-    setLoading(true);
-    setError(null);
-    fetch(endpoint, { cache: "no-store", signal })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`status ${res.status}`);
-        return res.json() as Promise<AndroidStatus>;
-      })
-      .then((nextStatus) => {
-        if (refreshId === refreshIdRef.current) setStatus(nextStatus);
-      })
-      .catch((err) => {
-        if (err?.name === "AbortError" || refreshId !== refreshIdRef.current) return;
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (refreshId === refreshIdRef.current) setLoading(false);
-      });
-  }, [endpoint]);
+  const refresh = useCallback(
+    (signal?: AbortSignal) => {
+      const refreshId = ++refreshIdRef.current;
+      setLoading(true);
+      setError(null);
+      fetch(endpoint, { cache: "no-store", signal })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`status ${res.status}`);
+          return res.json() as Promise<AndroidStatus>;
+        })
+        .then((nextStatus) => {
+          if (refreshId === refreshIdRef.current) setStatus(nextStatus);
+        })
+        .catch((err) => {
+          if (err?.name === "AbortError" || refreshId !== refreshIdRef.current) return;
+          setError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          if (refreshId === refreshIdRef.current) setLoading(false);
+        });
+    },
+    [endpoint],
+  );
 
   useEffect(() => {
     const ac = new AbortController();
@@ -79,11 +74,7 @@ function useAndroidStatus(udid: string) {
   return { status, loading, error, refresh };
 }
 
-export function AndroidControlsTool({
-  udid,
-}: {
-  udid: string;
-}) {
+export function AndroidControlsTool({ udid }: { udid: string }) {
   const { status, loading, error, refresh } = useAndroidStatus(udid);
 
   return (

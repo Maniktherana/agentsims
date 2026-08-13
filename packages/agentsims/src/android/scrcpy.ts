@@ -1,14 +1,10 @@
-import { spawn, execFile, type ChildProcess } from "child_process";
+import { spawn, execFile, execFileSync, type ChildProcess } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync } from "fs";
 import { createServer, type Server, type Socket } from "net";
 import { dirname, resolve } from "path";
 import type { ServerResponse } from "http";
-import { fileURLToPath } from "url";
-import { configuredDistDirectory } from "../shared/runtime-paths";
 
-const SCRCPY_VERSION = "4.0";
-const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const DEVICE_SERVER_PATH = "/data/local/tmp/agentsims-scrcpy-server.jar";
 const CODEC_H264 = 0x68323634;
 const PACKET_FLAG_SESSION = 1n << 63n;
@@ -50,14 +46,20 @@ export type AndroidScrcpyConfig = {
   orientation: "portrait" | "landscape_left";
 };
 
-export function androidStreamOrientation(width: number, height: number): AndroidScrcpyConfig["orientation"] {
+export function androidStreamOrientation(
+  width: number,
+  height: number,
+): AndroidScrcpyConfig["orientation"] {
   return width > height ? "landscape_left" : "portrait";
 }
 
 export type AndroidTouchPhase = "begin" | "move" | "end" | "cancel";
 export type AndroidButtonPhase = "down" | "up" | "press";
 
-function adb(args: string[], options?: { timeout?: number; encoding?: BufferEncoding }): Promise<string> {
+function adb(
+  args: string[],
+  options?: { timeout?: number; encoding?: BufferEncoding },
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       "adb",
@@ -78,34 +80,59 @@ function adb(args: string[], options?: { timeout?: number; encoding?: BufferEnco
   });
 }
 
-export function scrcpyServerCandidates(): string[] {
-  const configuredDist = configuredDistDirectory();
-  return [
-    ...(configuredDist
-      ? [resolve(configuredDist, "android", "scrcpy-server.jar")]
-      : []),
-    // Source layout: src/android/scrcpy.ts -> package root.
-    resolve(MODULE_DIR, "..", "..", "vendor", "scrcpy-server", "scrcpy-server"),
-    resolve(MODULE_DIR, "..", "..", "dist", "android", "scrcpy-server.jar"),
-    // Bundled layout: dist/middleware.js sits beside dist/android.
-    resolve(MODULE_DIR, "..", "vendor", "scrcpy-server", "scrcpy-server"),
-    resolve(MODULE_DIR, "android", "scrcpy-server.jar"),
-    // Dev commands may run from either the package or monorepo root.
-    resolve(process.cwd(), "vendor", "scrcpy-server", "scrcpy-server"),
-    resolve(process.cwd(), "dist", "android", "scrcpy-server.jar"),
-    resolve(process.cwd(), "packages", "agentsims", "vendor", "scrcpy-server", "scrcpy-server"),
-    resolve(process.cwd(), "packages", "agentsims", "dist", "android", "scrcpy-server.jar"),
-  ];
+function installedScrcpyPrefix(): string | null {
+  try {
+    const binary = execFileSync("sh", ["-c", "command -v scrcpy"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return binary ? dirname(dirname(binary)) : null;
+  } catch {
+    return null;
+  }
 }
 
-export function resolveScrcpyServer(): string {
-  const path = scrcpyServerCandidates().find((candidate) => existsSync(candidate));
+/** scrcpy is an optional host dependency used only for physical Android devices. */
+export function scrcpyServerCandidates(
+  env: NodeJS.ProcessEnv = process.env,
+  installedPrefix = installedScrcpyPrefix(),
+): string[] {
+  return [
+    env.AGENTSIMS_SCRCPY_SERVER_PATH,
+    env.SCRCPY_SERVER_PATH,
+    ...(installedPrefix ? [resolve(installedPrefix, "share", "scrcpy", "scrcpy-server")] : []),
+    "/opt/homebrew/share/scrcpy/scrcpy-server",
+    "/usr/local/share/scrcpy/scrcpy-server",
+    "/usr/share/scrcpy/scrcpy-server",
+  ].filter((candidate): candidate is string => Boolean(candidate));
+}
+
+export function resolveScrcpyServer(env: NodeJS.ProcessEnv = process.env): string {
+  const path = scrcpyServerCandidates(env).find((candidate) => existsSync(candidate));
   if (!path) {
     throw new Error(
-      "scrcpy server artifact not found. Build it with scrcpy/server/build_without_gradle.sh or run the Agentsims build.",
+      "Physical Android support requires a host scrcpy installation. Install scrcpy or set " +
+        "AGENTSIMS_SCRCPY_SERVER_PATH to its scrcpy-server file.",
     );
   }
   return path;
+}
+
+function resolveScrcpyVersion(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.AGENTSIMS_SCRCPY_VERSION?.trim();
+  if (configured) return configured;
+  try {
+    const output = execFileSync("scrcpy", ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const match = output.match(/^scrcpy\s+(\d+(?:\.\d+)+)/m);
+    if (match?.[1]) return match[1];
+  } catch {}
+  throw new Error(
+    "Unable to determine the installed scrcpy version. Install the scrcpy CLI or set " +
+      "AGENTSIMS_SCRCPY_VERSION alongside AGENTSIMS_SCRCPY_SERVER_PATH.",
+  );
 }
 
 function waitForServerListen(server: Server): Promise<number> {
@@ -222,7 +249,8 @@ function findStartCode(buf: Buffer, from: number): { index: number; length: numb
   for (let i = from; i <= buf.length - 3; i++) {
     if (buf[i] === 0 && buf[i + 1] === 0) {
       if (buf[i + 2] === 1) return { index: i, length: 3 };
-      if (i <= buf.length - 4 && buf[i + 2] === 0 && buf[i + 3] === 1) return { index: i, length: 4 };
+      if (i <= buf.length - 4 && buf[i + 2] === 0 && buf[i + 3] === 1)
+        return { index: i, length: 4 };
     }
   }
   return null;
@@ -331,7 +359,14 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.round(clamp(value, min, max));
 }
 
-function writePosition(buf: Buffer, offset: number, x: number, y: number, width: number, height: number): void {
+function writePosition(
+  buf: Buffer,
+  offset: number,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
   const safeWidth = clampInt(width, 1, 0xffff);
   const safeHeight = clampInt(height, 1, 0xffff);
   buf.writeInt32BE(clampInt(x, 0, safeWidth - 1), offset);
@@ -407,7 +442,9 @@ export class AndroidScrcpySession {
   close(): void {
     this.stopped = true;
     for (const subscriber of this.subscribers) {
-      try { subscriber.res.end(); } catch {}
+      try {
+        subscriber.res.end();
+      } catch {}
     }
     this.subscribers.clear();
     this.onSubscriberCountChange?.(0);
@@ -415,7 +452,9 @@ export class AndroidScrcpySession {
     this.control?.destroy();
     this.server?.close();
     this.child?.kill("SIGTERM");
-    void adb(["-s", this.serial, "reverse", "--remove", `localabstract:${this.socketName}`], { timeout: 2_000 }).catch(() => "");
+    void adb(["-s", this.serial, "reverse", "--remove", `localabstract:${this.socketName}`], {
+      timeout: 2_000,
+    }).catch(() => "");
   }
 
   async attachAvcc(res: ServerResponse): Promise<void> {
@@ -448,7 +487,13 @@ export class AndroidScrcpySession {
     if (this.lastKeyframe) this.writeSubscriber(subscriber, this.lastKeyframe);
   }
 
-  injectTouch(phase: AndroidTouchPhase, x: number, y: number, width?: number, height?: number): boolean {
+  injectTouch(
+    phase: AndroidTouchPhase,
+    x: number,
+    y: number,
+    width?: number,
+    height?: number,
+  ): boolean {
     return this.writeTouch(phase, POINTER_ID_GENERIC_FINGER, x, y, width, height);
   }
 
@@ -484,11 +529,15 @@ export class AndroidScrcpySession {
     const screenHeight = height || config?.height || 0;
     if (!screenWidth || !screenHeight) return false;
     const action =
-      phase === "begin" ? MOTION_ACTION_DOWN :
-        phase === "move" ? MOTION_ACTION_MOVE :
-          phase === "cancel" ? MOTION_ACTION_CANCEL :
-            MOTION_ACTION_UP;
-    const pressure = phase === "end" || phase === "cancel" ? TOUCH_PRESSURE_UP : TOUCH_PRESSURE_DOWN;
+      phase === "begin"
+        ? MOTION_ACTION_DOWN
+        : phase === "move"
+          ? MOTION_ACTION_MOVE
+          : phase === "cancel"
+            ? MOTION_ACTION_CANCEL
+            : MOTION_ACTION_UP;
+    const pressure =
+      phase === "end" || phase === "cancel" ? TOUCH_PRESSURE_UP : TOUCH_PRESSURE_DOWN;
     const buf = Buffer.allocUnsafe(32);
     buf[0] = CONTROL_INJECT_TOUCH;
     buf[1] = action;
@@ -500,7 +549,14 @@ export class AndroidScrcpySession {
     return this.writeControl(buf);
   }
 
-  injectScroll(x: number, y: number, hScroll: number, vScroll: number, width?: number, height?: number): boolean {
+  injectScroll(
+    x: number,
+    y: number,
+    hScroll: number,
+    vScroll: number,
+    width?: number,
+    height?: number,
+  ): boolean {
     const config = this.currentConfig;
     const screenWidth = width || config?.width || 0;
     const screenHeight = height || config?.height || 0;
@@ -550,40 +606,47 @@ export class AndroidScrcpySession {
 
   private async startImpl(): Promise<void> {
     const serverPath = resolveScrcpyServer();
+    const serverVersion = resolveScrcpyVersion();
     this.server = createServer();
     const acceptor = createSocketAcceptor(this.server);
     const port = await waitForServerListen(this.server);
     await adb(["-s", this.serial, "push", serverPath, DEVICE_SERVER_PATH], { timeout: 30_000 });
-    await adb(["-s", this.serial, "reverse", `localabstract:${this.socketName}`, `tcp:${port}`], { timeout: 10_000 });
+    await adb(["-s", this.serial, "reverse", `localabstract:${this.socketName}`, `tcp:${port}`], {
+      timeout: 10_000,
+    });
 
-    this.child = spawn("adb", [
-      "-s",
-      this.serial,
-      "shell",
-      `CLASSPATH=${DEVICE_SERVER_PATH}`,
-      "app_process",
-      "/",
-      "com.genymobile.scrcpy.Server",
-      SCRCPY_VERSION,
-      `scid=${this.scid.toString(16).padStart(8, "0")}`,
-      "log_level=info",
-      "audio=false",
-      "control=true",
-      "video=true",
-      "video_codec=h264",
-      // Android emulators commonly expose software-only encoders. Encoding the
-      // full 1080x2424 framebuffer can consume multiple host cores while the UI
-      // is moving, even though the browser renders the device around 400px wide.
-      "max_size=1024",
-      "video_bit_rate=4000000",
-      "max_fps=60",
-      "send_device_meta=false",
-      "send_dummy_byte=false",
-      "send_stream_meta=true",
-      "send_frame_meta=true",
-      "clipboard_autosync=false",
-      "cleanup=false",
-    ], { stdio: ["ignore", "ignore", "pipe"] });
+    this.child = spawn(
+      "adb",
+      [
+        "-s",
+        this.serial,
+        "shell",
+        `CLASSPATH=${DEVICE_SERVER_PATH}`,
+        "app_process",
+        "/",
+        "com.genymobile.scrcpy.Server",
+        serverVersion,
+        `scid=${this.scid.toString(16).padStart(8, "0")}`,
+        "log_level=info",
+        "audio=false",
+        "control=true",
+        "video=true",
+        "video_codec=h264",
+        // Android emulators commonly expose software-only encoders. Encoding the
+        // full 1080x2424 framebuffer can consume multiple host cores while the UI
+        // is moving, even though the browser renders the device around 400px wide.
+        "max_size=1024",
+        "video_bit_rate=4000000",
+        "max_fps=60",
+        "send_device_meta=false",
+        "send_dummy_byte=false",
+        "send_stream_meta=true",
+        "send_frame_meta=true",
+        "clipboard_autosync=false",
+        "cleanup=false",
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
     this.child.stderr?.resume();
     this.child.once("exit", () => {
       if (!this.stopped) this.close();
@@ -642,7 +705,8 @@ export class AndroidScrcpySession {
   private async parseVideo(socket: Socket): Promise<void> {
     const reader = new SocketReader(socket);
     const codec = (await reader.readExactly(4)).readUInt32BE(0);
-    if (codec !== CODEC_H264) throw new Error(`Unsupported scrcpy video codec 0x${codec.toString(16)}`);
+    if (codec !== CODEC_H264)
+      throw new Error(`Unsupported scrcpy video codec 0x${codec.toString(16)}`);
 
     let configPayload: Buffer | null = null;
     for (;;) {

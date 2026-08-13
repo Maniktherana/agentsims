@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { ServerResponse } from "node:http";
 import type { HidSocket } from "../ios/session";
-import {
-  AndroidSession,
-  type AndroidSessionDependencies,
-} from "../android/session";
+import { AndroidSession, type AndroidSessionDependencies } from "../android/session";
 import type { AndroidTransport, AndroidTransportConfig } from "../android/transport";
 import type { AndroidScreenConfig } from "../android/types";
 
@@ -32,9 +29,7 @@ function fakeTransport(
 ): AndroidTransport {
   return {
     backend,
-    wireTransport: backend === "emulator-controller"
-      ? "mmap-videotoolbox-h264"
-      : "scrcpy-h264",
+    wireTransport: backend === "emulator-controller" ? "mmap-ffmpeg-h264" : "scrcpy-h264",
     closed: false,
     running: true,
     subscriberCount: 1,
@@ -59,6 +54,60 @@ function response(): ServerResponse {
 }
 
 describe("Android session orientation observation", () => {
+  test("turns an Android wheel burst into one native touch gesture without ADB swipe queuing", async () => {
+    const scrollTouches: Array<{
+      phase: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+    const transport = fakeTransport();
+    transport.injectTouch = (phase, x, y, width = 0, height = 0) => {
+      scrollTouches.push({ phase, x, y, width, height });
+      return true;
+    };
+    const dependencies: AndroidSessionDependencies = {
+      readScreenConfig: async () => ({
+        width: 1080,
+        height: 2424,
+        orientation: "portrait",
+        rotation: 0,
+      }),
+      warmAx: async () => {},
+      createTransport: () => transport,
+      rotate: async () => {},
+      freeEmulatorRotation: async () => {},
+      rotateEmulator: async () => {},
+      rotateEmulatorAbsolute: async () => {},
+    };
+    const session = new AndroidSession("emulator-5554", dependencies);
+    await session.start();
+    const socket = new FakeHidSocket();
+    session.attachHidSocket(socket);
+
+    socket.emit(
+      "message",
+      Buffer.concat([
+        Buffer.from([0x0b]),
+        Buffer.from(JSON.stringify({ dx: 0.1, dy: 0.2, x: 0.25, y: 0.5 })),
+      ]),
+    );
+    await Bun.sleep(100);
+
+    expect(scrollTouches.map((touch) => touch.phase)).toEqual(["begin", "move", "end"]);
+    expect(scrollTouches[0]).toMatchObject({ x: 270, y: 1212 });
+    expect(scrollTouches[1]?.x).toBeCloseTo(162);
+    expect(scrollTouches[1]?.y).toBeCloseTo(727.2);
+    expect(scrollTouches[2]).toMatchObject({
+      phase: "end",
+      x: scrollTouches[1]!.x,
+      y: scrollTouches[1]!.y,
+      width: scrollTouches[1]!.width,
+      height: scrollTouches[1]!.height,
+    });
+  });
+
   test("coalesces same-dimension r0 to r2 frame signals into one canonical 0x82 update", async () => {
     let reads = 0;
     let reportConfig: ((config: AndroidTransportConfig) => void) | undefined;
@@ -348,9 +397,10 @@ describe("Android session orientation observation", () => {
       },
       rotateEmulatorAbsolute: async (_serial, _currentRotation, targetRotation) => {
         operations.push(`absolute:${targetRotation}`);
-        currentDisplay = targetRotation === 1 || targetRotation === 3
-          ? { width: 1600, height: 2560, orientation: "portrait", rotation: targetRotation }
-          : { width: 2560, height: 1600, orientation: "landscape", rotation: targetRotation };
+        currentDisplay =
+          targetRotation === 1 || targetRotation === 3
+            ? { width: 1600, height: 2560, orientation: "portrait", rotation: targetRotation }
+            : { width: 2560, height: 1600, orientation: "landscape", rotation: targetRotation };
       },
     });
     await session.start();
@@ -425,7 +475,9 @@ describe("Android session orientation observation", () => {
         },
         rotateEmulatorAbsolute: async (_serial, _currentRotation, nextRotation) => {
           absoluteRotations.push(
-            ["portrait", "landscape_left", "portrait_upside_down", "landscape_right"][nextRotation]!,
+            ["portrait", "landscape_left", "portrait_upside_down", "landscape_right"][
+              nextRotation
+            ]!,
           );
           rotation = nextRotation;
         },
@@ -440,14 +492,16 @@ describe("Android session orientation observation", () => {
           "message",
           Buffer.concat([
             Buffer.from([0x07]),
-            Buffer.from(JSON.stringify({
-              // The browser's target can be stale while clicks are queued;
-              // nativeStep is the toolbar's authoritative one-click contract.
-              orientation: "portrait",
-              // Keyboard and legacy clients omit nativeStep. Emulator 0x07 is
-              // still universally one relative native command.
-              ...(click % 2 === 0 ? { nativeStep: "clockwise" } : {}),
-            })),
+            Buffer.from(
+              JSON.stringify({
+                // The browser's target can be stale while clicks are queued;
+                // nativeStep is the toolbar's authoritative one-click contract.
+                orientation: "portrait",
+                // Keyboard and legacy clients omit nativeStep. Emulator 0x07 is
+                // still universally one relative native command.
+                ...(click % 2 === 0 ? { nativeStep: "clockwise" } : {}),
+              }),
+            ),
           ]),
         );
       }

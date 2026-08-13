@@ -48,6 +48,12 @@ export class PresentedFrameRateStore {
     return next;
   }
 
+  /** Publish an externally measured rate, such as native encoder output FPS. */
+  setMeasured(framesPerSecond: number): void {
+    if (!this.active) return;
+    this.publish(Math.max(0, Math.round(framesPerSecond)));
+  }
+
   reset(): void {
     this.active = false;
     this.sampleStartedAt = 0;

@@ -7,6 +7,8 @@ import {
   AVCC_TAG_DELTA,
   AVCC_TAG_SEED,
   AVCC_TAG_PRESENTATION,
+  AVCC_TAG_ENCODED_FRAME_RATE,
+  parseAndroidEncodedFrameRate,
   parseAndroidFramePresentation,
 } from "../web/avcc-codec.js";
 
@@ -54,6 +56,7 @@ describe("AvccDemuxer", () => {
         frame(AVCC_TAG_DELTA, [8, 7]),
         frame(AVCC_TAG_SEED, [0xff, 0xd8, 0xff, 0xd9]),
         frame(AVCC_TAG_PRESENTATION, [123, 125]),
+        frame(AVCC_TAG_ENCODED_FRAME_RATE, [0, 60]),
       ),
     );
     expect(chunks.map((c) => c.type)).toEqual([
@@ -62,21 +65,25 @@ describe("AvccDemuxer", () => {
       "delta",
       "seed",
       "presentation",
+      "encoded-frame-rate",
     ]);
   });
 
+  test("demuxes native Android encoded frame rate", () => {
+    const chunk = new AvccDemuxer().push(frame(AVCC_TAG_ENCODED_FRAME_RATE, [0, 47]))[0]!;
+    expect(chunk.type).toBe("encoded-frame-rate");
+    expect(parseAndroidEncodedFrameRate(chunk.payload)).toBe(47);
+    expect(parseAndroidEncodedFrameRate(new Uint8Array([47]))).toBeNull();
+  });
+
   test("demuxes and validates exact Android presentation metadata", () => {
-    const payload = new TextEncoder().encode(
-      JSON.stringify({ generation: 2 }),
-    );
-    const chunk = new AvccDemuxer().push(
-      frame(AVCC_TAG_PRESENTATION, [...payload]),
-    )[0]!;
+    const payload = new TextEncoder().encode(JSON.stringify({ generation: 2 }));
+    const chunk = new AvccDemuxer().push(frame(AVCC_TAG_PRESENTATION, [...payload]))[0]!;
     expect(chunk.type).toBe("presentation");
     expect(parseAndroidFramePresentation(chunk.payload)).toEqual({ generation: 2 });
-    expect(parseAndroidFramePresentation(new TextEncoder().encode(
-      JSON.stringify({ generation: 0 }),
-    ))).toBeNull();
+    expect(
+      parseAndroidFramePresentation(new TextEncoder().encode(JSON.stringify({ generation: 0 }))),
+    ).toBeNull();
   });
 
   test("buffers a chunk split across reads (header split)", () => {
@@ -122,9 +129,7 @@ describe("AvccDemuxer", () => {
 
   test("skips unknown tags without stalling the stream", () => {
     const d = new AvccDemuxer();
-    const chunks = d.push(
-      concat(frame(0x7f, [1, 2]), frame(AVCC_TAG_KEYFRAME, [5])),
-    );
+    const chunks = d.push(concat(frame(0x7f, [1, 2]), frame(AVCC_TAG_KEYFRAME, [5])));
     expect(chunks.map((c) => c.type)).toEqual(["keyframe"]);
   });
 
@@ -163,7 +168,10 @@ describe("AvccDemuxer", () => {
     // 30 frames of ~64KB each — a stream of IDR-sized chunks.
     const stream = concat(
       ...Array.from({ length: 30 }, (_, f) =>
-        frame(AVCC_TAG_KEYFRAME, Array.from({ length: 64 * 1024 }, (_, i) => (f + i) & 0xff)),
+        frame(
+          AVCC_TAG_KEYFRAME,
+          Array.from({ length: 64 * 1024 }, (_, i) => (f + i) & 0xff),
+        ),
       ),
     );
     const run = (piece: number) => {

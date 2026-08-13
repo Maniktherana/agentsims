@@ -11,7 +11,8 @@
  *   0x02 keyframe    — IDR (decodable standalone)
  *   0x03 delta       — non-IDR P-frame
  *   0x04 seed        — JPEG painted before the first IDR decodes
- *   0x05 presentation — Android raw-frame width/height/rotation metadata
+ *   0x05 presentation — Android canonical presentation generation
+ *   0x06 encoded-frame-rate — Android native encoder output frames per second
  *
  * The stream is read incrementally from a `fetch()` ReadableStream, so chunks
  * arrive split across reads. `AvccDemuxer` buffers partial bytes and yields
@@ -23,8 +24,15 @@ export const AVCC_TAG_KEYFRAME = 0x02;
 export const AVCC_TAG_DELTA = 0x03;
 export const AVCC_TAG_SEED = 0x04;
 export const AVCC_TAG_PRESENTATION = 0x05;
+export const AVCC_TAG_ENCODED_FRAME_RATE = 0x06;
 
-export type AvccChunkType = "description" | "keyframe" | "delta" | "seed" | "presentation";
+export type AvccChunkType =
+  | "description"
+  | "keyframe"
+  | "delta"
+  | "seed"
+  | "presentation"
+  | "encoded-frame-rate";
 
 export interface AvccChunk {
   type: AvccChunkType;
@@ -38,6 +46,7 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
   [AVCC_TAG_DELTA]: "delta",
   [AVCC_TAG_SEED]: "seed",
   [AVCC_TAG_PRESENTATION]: "presentation",
+  [AVCC_TAG_ENCODED_FRAME_RATE]: "encoded-frame-rate",
 };
 
 export type AndroidFramePresentation = {
@@ -51,14 +60,16 @@ export function parseAndroidFramePresentation(
     const value = JSON.parse(
       new TextDecoder().decode(payload),
     ) as Partial<AndroidFramePresentation>;
-    if (
-      !Number.isSafeInteger(value.generation) ||
-      value.generation! < 1
-    ) return null;
+    if (!Number.isSafeInteger(value.generation) || value.generation! < 1) return null;
     return { generation: value.generation! };
   } catch {
     return null;
   }
+}
+
+export function parseAndroidEncodedFrameRate(payload: Uint8Array): number | null {
+  if (payload.length !== 2) return null;
+  return new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint16(0, false);
 }
 
 /**
@@ -107,7 +118,8 @@ export class AvccDemuxer {
     while (this.len - this.start >= 4) {
       const o = this.start;
       // Big-endian u32; `>>> 0` keeps it unsigned (bit 31 would otherwise sign).
-      const length = ((buf[o]! << 24) | (buf[o + 1]! << 16) | (buf[o + 2]! << 8) | buf[o + 3]!) >>> 0;
+      const length =
+        ((buf[o]! << 24) | (buf[o + 1]! << 16) | (buf[o + 2]! << 8) | buf[o + 3]!) >>> 0;
       // length covers the tag byte + payload; need that many bytes after the
       // 4-byte header before the chunk is complete.
       if (this.len - o - 4 < length) break;
@@ -153,5 +165,7 @@ export function avcCodecString(description: Uint8Array): string {
 
 /** True when the runtime can decode the AVCC stream (WebCodecs available). */
 export function isAvccSupported(): boolean {
-  return typeof globalThis !== "undefined" && typeof (globalThis as any).VideoDecoder !== "undefined";
+  return (
+    typeof globalThis !== "undefined" && typeof (globalThis as any).VideoDecoder !== "undefined"
+  );
 }

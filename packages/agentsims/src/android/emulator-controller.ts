@@ -3,14 +3,13 @@ import { closeSync, ftruncateSync, openSync, readFileSync, readdirSync, unlinkSy
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
-import { NativeAndroidCapture } from "../ios/native";
+import { NativeAndroidVideoCapture } from "./native-video";
 
 const SCREENSHOT_METHOD = "/android.emulation.control.EmulatorController/streamScreenshot";
 const INPUT_METHOD = "/android.emulation.control.EmulatorController/streamInputEvent";
 // Keep capture at the emulator's native resolution. Asking streamScreenshot
 // to resize every animated RGBA frame makes the emulator do a full software
-// scale before writing MMAP; VideoToolbox can encode the native framebuffer
-// directly without that per-frame emulator cost.
+// scale before writing MMAP.
 const MAX_STREAM_DIMENSION = 4096;
 const MAX_SUBSCRIBER_BUFFER_BYTES = 512 * 1024;
 const IDLE_FRAME_INTERVAL_MS = 200;
@@ -18,6 +17,7 @@ const AVCC_TAG_DESCRIPTION = 0x01;
 const AVCC_TAG_KEYFRAME = 0x02;
 const AVCC_TAG_DELTA = 0x03;
 const AVCC_TAG_PRESENTATION = 0x05;
+const AVCC_TAG_ENCODED_FRAME_RATE = 0x06;
 
 export type AndroidEmulatorConfig = {
   width: number;
@@ -28,13 +28,20 @@ export type AndroidEmulatorConfig = {
 
 export type AndroidDisplayRotation = 0 | 1 | 2 | 3;
 
-export function encodeAndroidPresentationMetadata(
-  generation: number,
-): Buffer {
+export function encodeAndroidPresentationMetadata(generation: number): Buffer {
   const payload = Buffer.from(JSON.stringify({ generation }), "utf8");
   const header = Buffer.allocUnsafe(5);
   header.writeUInt32BE(payload.length + 1, 0);
   header[4] = AVCC_TAG_PRESENTATION;
+  return Buffer.concat([header, payload]);
+}
+
+export function encodeAndroidEncodedFrameRate(framesPerSecond: number): Buffer {
+  const payload = Buffer.allocUnsafe(2);
+  payload.writeUInt16BE(Math.max(0, Math.min(0xffff, Math.round(framesPerSecond))));
+  const header = Buffer.allocUnsafe(5);
+  header.writeUInt32BE(payload.length + 1, 0);
+  header[4] = AVCC_TAG_ENCODED_FRAME_RATE;
   return Buffer.concat([header, payload]);
 }
 
@@ -148,9 +155,10 @@ export function parseImageMetadata(message: Uint8Array): {
     const width = numericField(format, 3);
     const height = numericField(format, 4);
     const encodedRotation = format.get(2);
-    const rotation = encodedRotation instanceof Uint8Array
-      ? asDisplayRotation(numericField(decodeFields(encodedRotation), 1))
-      : 0;
+    const rotation =
+      encodedRotation instanceof Uint8Array
+        ? asDisplayRotation(numericField(decodeFields(encodedRotation), 1))
+        : 0;
     if (width && height) return { width, height, rotation };
   }
   return {
@@ -202,10 +210,7 @@ function targetDimensions(width: number, height: number): { width: number; heigh
 }
 
 function screenshotRequest(width: number, height: number, mmapPath: string): Buffer {
-  const transport = Buffer.concat([
-    varintField(1, 1),
-    stringField(2, `file://${mmapPath}`),
-  ]);
+  const transport = Buffer.concat([varintField(1, 1), stringField(2, `file://${mmapPath}`)]);
   return Buffer.concat([
     varintField(1, 1),
     varintField(3, width),
@@ -217,13 +222,20 @@ function screenshotRequest(width: number, height: number, mmapPath: string): Buf
 function touchInputEvent(
   touches: Array<{ x: number; y: number; identifier: number; pressure: number }>,
 ): Buffer {
-  const touchEvent = Buffer.concat(touches.map((touch) => bytesField(1, Buffer.concat([
-    varintField(1, Math.max(0, Math.round(touch.x))),
-    varintField(2, Math.max(0, Math.round(touch.y))),
-    varintField(3, touch.identifier),
-    varintField(4, touch.pressure),
-    varintField(7, 1),
-  ]))));
+  const touchEvent = Buffer.concat(
+    touches.map((touch) =>
+      bytesField(
+        1,
+        Buffer.concat([
+          varintField(1, Math.max(0, Math.round(touch.x))),
+          varintField(2, Math.max(0, Math.round(touch.y))),
+          varintField(3, touch.identifier),
+          varintField(4, touch.pressure),
+          varintField(7, 1),
+        ]),
+      ),
+    ),
+  );
   return bytesField(2, touchEvent);
 }
 
@@ -241,7 +253,7 @@ function requestHeaders(method: string, token: string) {
   } as const;
 }
 
-type AndroidCaptureSink = Pick<NativeAndroidCapture, "frame" | "requestKeyframe">;
+type AndroidCaptureSink = Pick<NativeAndroidVideoCapture, "frame" | "requestKeyframe">;
 
 /**
  * Coordinates controller metadata, AVCC demand, and the native encoder.
@@ -254,6 +266,9 @@ export class AndroidAvccFrameCoordinator {
   private lastCaptureSubmitAt = 0;
   private _currentConfig: AndroidEmulatorConfig | null = null;
   private lastPresentationMetadata: Buffer | null = null;
+  private lastEncodedFrameRateMetadata: Buffer | null = null;
+  private encodedFrameRateStartedAt: number | null = null;
+  private encodedFramesInWindow = 0;
   private presentationGeneration: number;
 
   constructor(
@@ -323,6 +338,9 @@ export class AndroidAvccFrameCoordinator {
       this.writeSubscriber(subscriber, this.lastPresentationMetadata);
     }
     if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
+    if (this.lastEncodedFrameRateMetadata) {
+      this.writeSubscriber(subscriber, this.lastEncodedFrameRateMetadata);
+    }
     this.capture.requestKeyframe();
     if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
 
@@ -344,16 +362,33 @@ export class AndroidAvccFrameCoordinator {
     res.on("drain", resume);
   }
 
-  publish(chunk: Buffer, isDescription = false): void {
+  publish(chunk: Buffer, isDescription = false, now = Date.now()): void {
     if (isDescription) this.lastDescription = chunk;
     for (const subscriber of this.subscribers) this.writeSubscriber(subscriber, chunk);
+    const tag = chunk[4];
+    if (tag !== AVCC_TAG_KEYFRAME && tag !== AVCC_TAG_DELTA) return;
+
+    if (this.encodedFrameRateStartedAt === null) {
+      this.encodedFrameRateStartedAt = now;
+      this.encodedFramesInWindow = 1;
+      return;
+    }
+    this.encodedFramesInWindow += 1;
+    const elapsed = now - this.encodedFrameRateStartedAt;
+    if (elapsed < 1_000) return;
+
+    this.lastEncodedFrameRateMetadata = encodeAndroidEncodedFrameRate(
+      (this.encodedFramesInWindow * 1_000) / elapsed,
+    );
+    this.encodedFrameRateStartedAt = now;
+    this.encodedFramesInWindow = 0;
+    for (const subscriber of this.subscribers) {
+      this.writeSubscriber(subscriber, this.lastEncodedFrameRateMetadata);
+    }
   }
 
   submitIdleFrame(intervalMs: number, now = Date.now()): void {
-    if (
-      !this._currentConfig ||
-      now - this.lastCaptureSubmitAt < intervalMs
-    ) {
+    if (!this._currentConfig || now - this.lastCaptureSubmitAt < intervalMs) {
       return;
     }
     this.submitCaptureFrame(this._currentConfig, now);
@@ -361,7 +396,9 @@ export class AndroidAvccFrameCoordinator {
 
   close(): void {
     for (const subscriber of this.subscribers) {
-      try { subscriber.res.end(); } catch {}
+      try {
+        subscriber.res.end();
+      } catch {}
     }
     this.subscribers.clear();
     this.onSubscriberCountChange?.(0);
@@ -384,7 +421,11 @@ export class AndroidAvccFrameCoordinator {
       return;
     }
     if (subscriber.waitingForKeyframe) {
-      if (tag === AVCC_TAG_DESCRIPTION || tag === AVCC_TAG_PRESENTATION) {
+      if (
+        tag === AVCC_TAG_DESCRIPTION ||
+        tag === AVCC_TAG_PRESENTATION ||
+        tag === AVCC_TAG_ENCODED_FRAME_RATE
+      ) {
         subscriber.res.write(chunk);
       } else if (tag === AVCC_TAG_KEYFRAME) {
         subscriber.waitingForKeyframe = false;
@@ -398,7 +439,7 @@ export class AndroidAvccFrameCoordinator {
 
 export class AndroidEmulatorSession {
   readonly backend = "emulator-controller" as const;
-  readonly wireTransport = "mmap-videotoolbox-h264" as const;
+  readonly wireTransport = "mmap-ffmpeg-h264" as const;
   private readonly metadata: ControllerMetadata;
   private readonly requested: { width: number; height: number };
   private readonly initialPresentationGeneration: number;
@@ -406,7 +447,7 @@ export class AndroidEmulatorSession {
   private client: ClientHttp2Session | null = null;
   private screenshots: ClientHttp2Stream | null = null;
   private input: ClientHttp2Stream | null = null;
-  private capture: NativeAndroidCapture | null = null;
+  private capture: NativeAndroidVideoCapture | null = null;
   private unsubscribeCapture: (() => void) | null = null;
   private startPromise: Promise<void> | null = null;
   private stopped = false;
@@ -509,7 +550,9 @@ export class AndroidEmulatorSession {
     this.input = null;
     this.screenshots = null;
     this.client = null;
-    try { unlinkSync(this.mmapPath); } catch {}
+    try {
+      unlinkSync(this.mmapPath);
+    } catch {}
   }
 
   private async startImpl(): Promise<void> {
@@ -517,7 +560,7 @@ export class AndroidEmulatorSession {
     ftruncateSync(file, this.requested.width * this.requested.height * 4);
     closeSync(file);
 
-    this.capture = new NativeAndroidCapture(this.mmapPath);
+    this.capture = new NativeAndroidVideoCapture(this.mmapPath);
     this.frameCoordinator = new AndroidAvccFrameCoordinator(
       this.capture,
       this.onConfig,
@@ -545,7 +588,9 @@ export class AndroidEmulatorSession {
         if (!resolved) reject(error);
         else this.close();
       };
-      this.screenshots = this.client!.request(requestHeaders(SCREENSHOT_METHOD, this.metadata.token));
+      this.screenshots = this.client!.request(
+        requestHeaders(SCREENSHOT_METHOD, this.metadata.token),
+      );
       this.screenshots.on("response", (headers) => {
         if (headers[":status"] !== 200) fail(new Error(`Emulator gRPC HTTP ${headers[":status"]}`));
       });
@@ -575,11 +620,9 @@ export class AndroidEmulatorSession {
         }
       });
       this.screenshots.on("error", fail);
-      this.screenshots.end(grpcFrame(screenshotRequest(
-        this.requested.width,
-        this.requested.height,
-        this.mmapPath,
-      )));
+      this.screenshots.end(
+        grpcFrame(screenshotRequest(this.requested.width, this.requested.height, this.mmapPath)),
+      );
     });
   }
 
@@ -590,11 +633,12 @@ export class AndroidEmulatorSession {
     if (!this.input || this.input.destroyed || this.stopped) return false;
     const pressure = phase === "end" || phase === "cancel" ? 0 : 1024;
     try {
-      this.input.write(grpcFrame(touchInputEvent(touches.map((touch) => ({ ...touch, pressure })))))
+      this.input.write(
+        grpcFrame(touchInputEvent(touches.map((touch) => ({ ...touch, pressure })))),
+      );
       return true;
     } catch {
       return false;
     }
   }
-
 }

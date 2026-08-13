@@ -24,6 +24,19 @@ describe("PresentedFrameRateStore", () => {
     expect(rate.getSnapshot()).toBe(0);
   });
 
+  test("publishes an externally measured native rate while active", () => {
+    const rate = new PresentedFrameRateStore();
+    rate.setMeasured(48);
+    expect(rate.getSnapshot()).toBeNull();
+
+    rate.start(0);
+    rate.setMeasured(47.6);
+    expect(rate.getSnapshot()).toBe(48);
+    rate.reset();
+    rate.setMeasured(60);
+    expect(rate.getSnapshot()).toBeNull();
+  });
+
   test("reset clears the visible value and requires a fresh full window", () => {
     const rate = new PresentedFrameRateStore();
     rate.start(0);

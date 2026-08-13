@@ -11,10 +11,7 @@ import type {
   AndroidScreenConfig,
   AndroidStatus,
 } from "./types";
-import {
-  readAndroidAxXml,
-  type AndroidAxMode,
-} from "./ax-server";
+import { readAndroidAxXml, type AndroidAxMode } from "./ax-server";
 
 export const ANDROID_DEVICE_PREFIX = "android:";
 export const ANDROID_AVD_PREFIX = "android-avd:";
@@ -43,8 +40,10 @@ export interface AndroidAvdInfo {
 }
 
 const androidReactNativePackages = new Set<string>();
-const ANDROID_RN_LOG_MARKERS = /\b(?:ReactNativeJS|ReactNative|Hermes|ExpoModules|expo\.modules)\b/i;
-const ANDROID_RN_FILE_MARKERS = /(?:ReactNativeDevBundle|\.expo-internal|expo\.modules|reactnative|hermes)/i;
+const ANDROID_RN_LOG_MARKERS =
+  /\b(?:ReactNativeJS|ReactNative|Hermes|ExpoModules|expo\.modules)\b/i;
+const ANDROID_RN_FILE_MARKERS =
+  /(?:ReactNativeDevBundle|\.expo-internal|expo\.modules|reactnative|hermes)/i;
 const ANDROID_DISCOVERY_CACHE_MS = 1_000;
 const ANDROID_METADATA_CACHE_MS = 60_000;
 const ANDROID_AVD_CACHE_MS = 30_000;
@@ -74,13 +73,16 @@ let androidEmulatorVersionInFlight: Promise<{
 const androidMetadata = new Map<string, AndroidDeviceMetadata>();
 const androidMetadataInFlight = new Map<string, Promise<AndroidDeviceMetadata>>();
 
-function adb(args: string[], options?: { encoding?: BufferEncoding | "buffer"; timeout?: number; maxBuffer?: number }): Promise<string | Buffer> {
+function adb(
+  args: string[],
+  options?: { encoding?: BufferEncoding | "buffer"; timeout?: number; maxBuffer?: number },
+): Promise<string | Buffer> {
   return new Promise((resolve, reject) => {
     execFile(
       "adb",
       args,
       {
-        encoding: options?.encoding === "buffer" ? "buffer" : options?.encoding ?? "utf8",
+        encoding: options?.encoding === "buffer" ? "buffer" : (options?.encoding ?? "utf8"),
         timeout: options?.timeout ?? 10_000,
         maxBuffer: options?.maxBuffer ?? 32 * 1024 * 1024,
       },
@@ -109,7 +111,9 @@ export function androidStateId(serial: string): string {
 }
 
 export function androidSerialFromStateId(device: string): string | null {
-  return device.startsWith(ANDROID_DEVICE_PREFIX) ? device.slice(ANDROID_DEVICE_PREFIX.length) : null;
+  return device.startsWith(ANDROID_DEVICE_PREFIX)
+    ? device.slice(ANDROID_DEVICE_PREFIX.length)
+    : null;
 }
 
 export function androidAvdStateId(name: string): string {
@@ -173,13 +177,15 @@ function parseDeviceLine(line: string): AndroidDeviceInfo | null {
 }
 
 function parseWmSize(output: string): { width: number; height: number } | null {
-  const match = output.match(/Override size:\s*(\d+)x(\d+)/i) ?? output.match(/Physical size:\s*(\d+)x(\d+)/i);
+  const match =
+    output.match(/Override size:\s*(\d+)x(\d+)/i) ?? output.match(/Physical size:\s*(\d+)x(\d+)/i);
   if (!match) return null;
   return { width: Number(match[1]), height: Number(match[2]) };
 }
 
 function parseDensity(output: string): number | undefined {
-  const match = output.match(/Physical density:\s*(\d+)/i) ?? output.match(/Override density:\s*(\d+)/i);
+  const match =
+    output.match(/Physical density:\s*(\d+)/i) ?? output.match(/Override density:\s*(\d+)/i);
   return match ? Number(match[1]) : undefined;
 }
 
@@ -232,9 +238,7 @@ export function parseAndroidEmulatorViewportState(
 ): AndroidEmulatorViewportState | null {
   const viewport = output
     .split("\n")
-    .find((line) =>
-      /\bViewport INTERNAL:/i.test(line) && /\bisActive=\[1\]/i.test(line)
-    );
+    .find((line) => /\bViewport INTERNAL:/i.test(line) && /\bisActive=\[1\]/i.test(line));
   if (!viewport) return null;
   const rotation = viewport.match(/\borientation=([0-3])\b/i);
   const frame = viewport.match(
@@ -261,11 +265,14 @@ export function parseAndroidRoundedCorners(output: string): AndroidCornerRadii |
   const scoped = defaultDisplayStart >= 0 ? output.slice(defaultDisplayStart) : output;
   const nextDisplay = scoped.slice(1).search(/\n\s*Display:\s*mDisplayId=/m);
   const defaultDisplay = nextDisplay >= 0 ? scoped.slice(0, nextDisplay + 1) : scoped;
-  const rounded = (internalDevice ?? defaultDisplay)
-    .match(/(?:mRoundedCorners|roundedCorners)\s*=*\s*RoundedCorners\{\[([^\]]*)\]\}/)?.[1];
+  const rounded = (internalDevice ?? defaultDisplay).match(
+    /(?:mRoundedCorners|roundedCorners)\s*=*\s*RoundedCorners\{\[([^\]]*)\]\}/,
+  )?.[1];
   if (!rounded) return undefined;
   const values = new Map<string, number>();
-  for (const match of rounded.matchAll(/position=(TopLeft|TopRight|BottomRight|BottomLeft),\s*radius=(\d+)/g)) {
+  for (const match of rounded.matchAll(
+    /position=(TopLeft|TopRight|BottomRight|BottomLeft),\s*radius=(\d+)/g,
+  )) {
     values.set(match[1]!, Number(match[2]));
   }
   const topLeft = values.get("TopLeft");
@@ -275,7 +282,12 @@ export function parseAndroidRoundedCorners(output: string): AndroidCornerRadii |
   if ([topLeft, topRight, bottomRight, bottomLeft].some((value) => value === undefined)) {
     return undefined;
   }
-  return { topLeft: topLeft!, topRight: topRight!, bottomRight: bottomRight!, bottomLeft: bottomLeft! };
+  return {
+    topLeft: topLeft!,
+    topRight: topRight!,
+    bottomRight: bottomRight!,
+    bottomLeft: bottomLeft!,
+  };
 }
 
 export function androidCornerRadiiForRotation(
@@ -320,7 +332,8 @@ export function androidScreenConfigFromOutputs(
   const size = parseWmSize(sizeOutput);
   if (!size) return null;
   const activeViewport = parseActiveInternalDisplayViewport(displayOutput);
-  const rotation = activeViewport?.rotation ??
+  const rotation =
+    activeViewport?.rotation ??
     parseRotation(windowRotationOutput) ??
     parseRotation(displayOutput) ??
     parseSettingRotation(rotationSettingOutput);
@@ -351,9 +364,7 @@ export function logicalSizeForRotation(
   rotation: number | undefined,
 ): { width: number; height: number } {
   if (rotation == null) return size;
-  return rotation === 1 || rotation === 3
-    ? { width: size.height, height: size.width }
-    : size;
+  return rotation === 1 || rotation === 3 ? { width: size.height, height: size.width } : size;
 }
 
 async function getProp(serial: string, name: string): Promise<string | undefined> {
@@ -420,7 +431,8 @@ export function readAndroidAvdConfig(avdName?: string): AndroidAvdCameraConfig {
     if (config["hw.camera.back"]) result.back = config["hw.camera.back"];
     if (config["hw.audioInput"] === "yes") result.audioInput = true;
     else if (config["hw.audioInput"] === "no") result.audioInput = false;
-    if (config["skin.name"] || config["hw.device.name"]) result.skin = config["skin.name"] || config["hw.device.name"];
+    if (config["skin.name"] || config["hw.device.name"])
+      result.skin = config["skin.name"] || config["hw.device.name"];
     if (config["hw.device.name"]) result.deviceName = config["hw.device.name"];
     if (config["avd.ini.displayname"]) result.displayName = config["avd.ini.displayname"];
     return result;
@@ -510,10 +522,7 @@ export function validateAndroidCameraStartupMode(
   return /^(imagefile|videofile|image360):\/.+/.test(source);
 }
 
-export function androidCameraStartupArgs(sources?: {
-  front?: string;
-  back?: string;
-}): string[] {
+export function androidCameraStartupArgs(sources?: { front?: string; back?: string }): string[] {
   const args: string[] = [];
   if (sources?.front) {
     if (!validateAndroidCameraStartupMode("front", sources.front)) {
@@ -530,10 +539,7 @@ export function androidCameraStartupArgs(sources?: {
   return args;
 }
 
-export async function setAndroidHostMicrophone(
-  serial: string,
-  enabled: boolean,
-): Promise<void> {
+export async function setAndroidHostMicrophone(serial: string, enabled: boolean): Promise<void> {
   if (!/^emulator-\d+$/.test(serial)) {
     throw new Error("Host microphone routing is only available for Android emulators");
   }
@@ -556,14 +562,20 @@ export async function setAndroidVirtualSceneImage(
 
 function parseAndroidAudioStatus(output: string): AndroidAudioStatus {
   const lines = output.split(/\r?\n/);
-  const activeOutputLine = lines.find((line) => line.includes("Active communication device: AudioDeviceAttributes"));
+  const activeOutputLine = lines.find((line) =>
+    line.includes("Active communication device: AudioDeviceAttributes"),
+  );
   const outputType = activeOutputLine?.match(/\btype:([^\s]+)/)?.[1];
   const outputName = activeOutputLine?.match(/\bname:(.*?)\s+profiles:/)?.[1]?.trim();
   const micMuteLine = lines.find((line) => line.includes("mic mute FromSwitch="));
   const micMuted = micMuteLine
-    ? /\bFromSwitch=true\b|\bFromRestrictions=true\b|\bFromApi=true\b|\bfrom system=true\b/.test(micMuteLine)
+    ? /\bFromSwitch=true\b|\bFromRestrictions=true\b|\bFromApi=true\b|\bfrom system=true\b/.test(
+        micMuteLine,
+      )
     : undefined;
-  const recordingLine = [...lines].reverse().find((line) => /\brec (start|update|stop)\b/.test(line));
+  const recordingLine = [...lines]
+    .reverse()
+    .find((line) => /\brec (start|update|stop)\b/.test(line));
   const recordingKind = recordingLine?.match(/\brec (start|update|stop)\b/)?.[1];
   const recordingSource = recordingLine?.match(/\bsrc:([A-Z_]+)/)?.[1];
   const recordingPackage = recordingLine?.match(/\bpack:([^\s]+)/)?.[1];
@@ -588,7 +600,9 @@ function parseAndroidAudioStatus(output: string): AndroidAudioStatus {
 
 async function getAndroidAudioStatus(serial: string): Promise<AndroidAudioStatus> {
   try {
-    return parseAndroidAudioStatus(await adbText(["-s", serial, "shell", "dumpsys", "audio"], 4_000));
+    return parseAndroidAudioStatus(
+      await adbText(["-s", serial, "shell", "dumpsys", "audio"], 4_000),
+    );
   } catch {
     return {};
   }
@@ -596,17 +610,18 @@ async function getAndroidAudioStatus(serial: string): Promise<AndroidAudioStatus
 
 export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
   const emulator = /^emulator-\d+$/.test(serial);
-  const [release, sdk, model, product, device, screen, avdName, audio, emulatorCapabilities] = await Promise.all([
-    getProp(serial, "ro.build.version.release"),
-    getProp(serial, "ro.build.version.sdk"),
-    getProp(serial, "ro.product.model"),
-    getProp(serial, "ro.product.product.name"),
-    getProp(serial, "ro.product.device"),
-    getAndroidScreenConfig(serial),
-    getAndroidAvdName(serial),
-    getAndroidAudioStatus(serial),
-    emulator ? getAndroidEmulatorCapabilities() : Promise.resolve(undefined),
-  ]);
+  const [release, sdk, model, product, device, screen, avdName, audio, emulatorCapabilities] =
+    await Promise.all([
+      getProp(serial, "ro.build.version.release"),
+      getProp(serial, "ro.build.version.sdk"),
+      getProp(serial, "ro.product.model"),
+      getProp(serial, "ro.product.product.name"),
+      getProp(serial, "ro.product.device"),
+      getAndroidScreenConfig(serial),
+      getAndroidAvdName(serial),
+      getAndroidAudioStatus(serial),
+      emulator ? getAndroidEmulatorCapabilities() : Promise.resolve(undefined),
+    ]);
   const camera = readAndroidAvdConfig(avdName);
   const status: AndroidStatus = {
     platform: "android",
@@ -614,7 +629,7 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
     screen,
     stream: {
       backend: emulator ? "emulator-controller" : "scrcpy",
-      transport: emulator ? "mmap-videotoolbox-h264" : "scrcpy-h264",
+      transport: emulator ? "mmap-ffmpeg-h264" : "scrcpy-h264",
       source: "display",
       canChangeSource: false,
     },
@@ -644,19 +659,16 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
 }
 
 export async function getAndroidScreenConfig(serial: string): Promise<AndroidScreenConfig> {
-  const [
-    sizeOutput,
-    densityOutput,
-    displayOutput,
-    windowRotationOutput,
-    rotationSettingOutput,
-  ] = await Promise.all([
-    adbText(["-s", serial, "shell", "wm", "size"], 5_000),
-    adbText(["-s", serial, "shell", "wm", "density"], 5_000).catch(() => ""),
-    adbText(["-s", serial, "shell", "dumpsys", "display"], 5_000).catch(() => ""),
-    adbText(["-s", serial, "shell", "cmd", "window", "user-rotation"], 5_000).catch(() => ""),
-    adbText(["-s", serial, "shell", "settings", "get", "system", "user_rotation"], 5_000).catch(() => ""),
-  ]);
+  const [sizeOutput, densityOutput, displayOutput, windowRotationOutput, rotationSettingOutput] =
+    await Promise.all([
+      adbText(["-s", serial, "shell", "wm", "size"], 5_000),
+      adbText(["-s", serial, "shell", "wm", "density"], 5_000).catch(() => ""),
+      adbText(["-s", serial, "shell", "dumpsys", "display"], 5_000).catch(() => ""),
+      adbText(["-s", serial, "shell", "cmd", "window", "user-rotation"], 5_000).catch(() => ""),
+      adbText(["-s", serial, "shell", "settings", "get", "system", "user_rotation"], 5_000).catch(
+        () => "",
+      ),
+    ]);
   let config = androidScreenConfigFromOutputs(
     sizeOutput,
     densityOutput,
@@ -670,14 +682,15 @@ export async function getAndroidScreenConfig(serial: string): Promise<AndroidScr
       ["-s", serial, "shell", "dumpsys", "window", "displays"],
       5_000,
     ).catch(() => "");
-    config = androidScreenConfigFromOutputs(
-      sizeOutput,
-      densityOutput,
-      displayOutput,
-      windowRotationOutput,
-      rotationSettingOutput,
-      windowDisplayOutput,
-    ) ?? config;
+    config =
+      androidScreenConfigFromOutputs(
+        sizeOutput,
+        densityOutput,
+        displayOutput,
+        windowRotationOutput,
+        rotationSettingOutput,
+        windowDisplayOutput,
+      ) ?? config;
   }
   return config;
 }
@@ -691,10 +704,7 @@ export function androidEmulatorViewportCommand(serial: string): string[] {
 export async function getAndroidEmulatorViewportState(
   serial: string,
 ): Promise<AndroidEmulatorViewportState> {
-  const output = await adbText(
-    androidEmulatorViewportCommand(serial),
-    5_000,
-  );
+  const output = await adbText(androidEmulatorViewportCommand(serial), 5_000);
   const viewport = parseAndroidEmulatorViewportState(output);
   if (!viewport) throw new Error(`Unable to read active Android viewport for ${serial}`);
   return viewport;
@@ -809,14 +819,14 @@ export async function listAndroidAvds(): Promise<AndroidAvdInfo[]> {
 export function launchAndroidAvd(name: string, camera?: { front?: string; back?: string }): void {
   androidDiscoverySnapshot.at = 0;
   androidAvdSnapshot.at = 0;
-  const child = spawn(androidEmulatorCommand(), [
-    "-avd",
-    name,
-    ...androidCameraStartupArgs(camera),
-  ], {
-    detached: true,
-    stdio: "ignore",
-  });
+  const child = spawn(
+    androidEmulatorCommand(),
+    ["-avd", name, ...androidCameraStartupArgs(camera)],
+    {
+      detached: true,
+      stdio: "ignore",
+    },
+  );
   child.unref();
 }
 
@@ -829,7 +839,10 @@ export async function captureAndroidPng(serial: string): Promise<Buffer> {
 }
 
 export async function androidTap(serial: string, x: number, y: number): Promise<void> {
-  await adbText(["-s", serial, "shell", "input", "tap", String(Math.round(x)), String(Math.round(y))], 5_000);
+  await adbText(
+    ["-s", serial, "shell", "input", "tap", String(Math.round(x)), String(Math.round(y))],
+    5_000,
+  );
 }
 
 export async function androidSwipe(
@@ -840,18 +853,21 @@ export async function androidSwipe(
   y2: number,
   durationMs = 180,
 ): Promise<void> {
-  await adbText([
-    "-s",
-    serial,
-    "shell",
-    "input",
-    "swipe",
-    String(Math.round(x1)),
-    String(Math.round(y1)),
-    String(Math.round(x2)),
-    String(Math.round(y2)),
-    String(Math.max(1, Math.round(durationMs))),
-  ], 8_000);
+  await adbText(
+    [
+      "-s",
+      serial,
+      "shell",
+      "input",
+      "swipe",
+      String(Math.round(x1)),
+      String(Math.round(y1)),
+      String(Math.round(x2)),
+      String(Math.round(y2)),
+      String(Math.max(1, Math.round(durationMs))),
+    ],
+    8_000,
+  );
 }
 
 const ANDROID_KEYEVENTS: Record<string, number> = {
@@ -873,35 +889,35 @@ export function androidKeycodeForButton(button: string): number | null {
 }
 
 const ANDROID_KEYCODE_BY_HID_USAGE: Record<number, number> = {
-  0x28: 66,  // Enter
+  0x28: 66, // Enter
   0x29: 111, // Escape
-  0x2a: 67,  // Backspace
-  0x2b: 61,  // Tab
-  0x2c: 62,  // Space
-  0x2d: 69,  // Minus
-  0x2e: 70,  // Equals
-  0x2f: 71,  // Left bracket
-  0x30: 72,  // Right bracket
-  0x31: 73,  // Backslash
-  0x33: 74,  // Semicolon
-  0x34: 75,  // Apostrophe
-  0x35: 68,  // Grave
-  0x36: 55,  // Comma
-  0x37: 56,  // Period
-  0x38: 76,  // Slash
+  0x2a: 67, // Backspace
+  0x2b: 61, // Tab
+  0x2c: 62, // Space
+  0x2d: 69, // Minus
+  0x2e: 70, // Equals
+  0x2f: 71, // Left bracket
+  0x30: 72, // Right bracket
+  0x31: 73, // Backslash
+  0x33: 74, // Semicolon
+  0x34: 75, // Apostrophe
+  0x35: 68, // Grave
+  0x36: 55, // Comma
+  0x37: 56, // Period
+  0x38: 76, // Slash
   0x39: 115, // Caps lock
   0x46: 120, // Print screen
   0x48: 121, // Pause
   0x49: 124, // Insert
   0x4a: 122, // Move home
-  0x4b: 92,  // Page up
+  0x4b: 92, // Page up
   0x4c: 112, // Forward delete
   0x4d: 123, // Move end
-  0x4e: 93,  // Page down
-  0x4f: 22,  // D-pad right
-  0x50: 21,  // D-pad left
-  0x51: 20,  // D-pad down
-  0x52: 19,  // D-pad up
+  0x4e: 93, // Page down
+  0x4f: 22, // D-pad right
+  0x50: 21, // D-pad left
+  0x51: 20, // D-pad down
+  0x52: 19, // D-pad up
   0x53: 143, // Num lock
   0x54: 154, // Numpad divide
   0x55: 155, // Numpad multiply
@@ -911,12 +927,12 @@ const ANDROID_KEYCODE_BY_HID_USAGE: Record<number, number> = {
   0x62: 144, // Numpad zero
   0x63: 158, // Numpad decimal
   0xe0: 113, // Left control
-  0xe1: 59,  // Left shift
-  0xe2: 57,  // Left alt
+  0xe1: 59, // Left shift
+  0xe2: 57, // Left alt
   0xe3: 117, // Left meta
   0xe4: 114, // Right control
-  0xe5: 60,  // Right shift
-  0xe6: 58,  // Right alt
+  0xe5: 60, // Right shift
+  0xe6: 58, // Right alt
   0xe7: 118, // Right meta
 };
 
@@ -936,13 +952,26 @@ export async function androidKeyEvent(serial: string, keycode: number): Promise<
 }
 
 export async function toggleAndroidSoftwareKeyboard(serial: string): Promise<boolean> {
-  const current = (await adbText([
-    "-s", serial, "shell", "settings", "get", "secure", "show_ime_with_hard_keyboard",
-  ], 3_000)).trim();
+  const current = (
+    await adbText(
+      ["-s", serial, "shell", "settings", "get", "secure", "show_ime_with_hard_keyboard"],
+      3_000,
+    )
+  ).trim();
   const enabled = current !== "1";
-  await adbText([
-    "-s", serial, "shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", enabled ? "1" : "0",
-  ], 3_000);
+  await adbText(
+    [
+      "-s",
+      serial,
+      "shell",
+      "settings",
+      "put",
+      "secure",
+      "show_ime_with_hard_keyboard",
+      enabled ? "1" : "0",
+    ],
+    3_000,
+  );
   return enabled;
 }
 
@@ -980,10 +1009,19 @@ export async function androidRotate(serial: string, orientation: string): Promis
   };
   const rotation = rotationByOrientation[orientation] ?? "0";
   try {
-    await adbText(["-s", serial, "shell", "cmd", "window", "user-rotation", "lock", rotation], 5_000);
+    await adbText(
+      ["-s", serial, "shell", "cmd", "window", "user-rotation", "lock", rotation],
+      5_000,
+    );
   } catch {
-    await adbText(["-s", serial, "shell", "settings", "put", "system", "accelerometer_rotation", "0"], 5_000).catch(() => "");
-    await adbText(["-s", serial, "shell", "settings", "put", "system", "user_rotation", rotation], 5_000);
+    await adbText(
+      ["-s", serial, "shell", "settings", "put", "system", "accelerometer_rotation", "0"],
+      5_000,
+    ).catch(() => "");
+    await adbText(
+      ["-s", serial, "shell", "settings", "put", "system", "user_rotation", rotation],
+      5_000,
+    );
   }
 }
 
@@ -1009,12 +1047,7 @@ export function androidEmulatorAbsoluteRotationCommands(
   currentRotation: 0 | 1 | 2 | 3,
   targetRotation: 0 | 1 | 2 | 3,
 ): { prepare: string[][]; cleanup: string[][] } {
-  const acceleration = [
-    "0:9.81:0",
-    "9.81:0:0",
-    "0:-9.81:0",
-    "-9.81:0:0",
-  ][targetRotation]!;
+  const acceleration = ["0:9.81:0", "9.81:0:0", "0:-9.81:0", "-9.81:0:0"][targetRotation]!;
   return {
     prepare: [
       ["-s", serial, "shell", "wm", "set-ignore-orientation-request", "true"],
@@ -1037,14 +1070,12 @@ export function androidPowerNeedsWake(output: string): boolean {
 }
 
 async function wakeAndroidIfNeeded(serial: string): Promise<void> {
-  const power = await adbText(["-s", serial, "shell", "dumpsys", "power"], 5_000)
-    .catch(() => "");
+  const power = await adbText(["-s", serial, "shell", "dumpsys", "power"], 5_000).catch(() => "");
   if (!androidPowerNeedsWake(power)) return;
   await adbText(["-s", serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP"], 5_000);
   const deadline = Date.now() + 1_000;
   while (Date.now() < deadline) {
-    const next = await adbText(["-s", serial, "shell", "dumpsys", "power"], 5_000)
-      .catch(() => "");
+    const next = await adbText(["-s", serial, "shell", "dumpsys", "power"], 5_000).catch(() => "");
     if (!androidPowerNeedsWake(next)) return;
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
@@ -1062,11 +1093,7 @@ export async function rotateAndroidEmulatorAbsolute(
   targetRotation: 0 | 1 | 2 | 3,
 ): Promise<void> {
   await wakeAndroidIfNeeded(serial);
-  const commands = androidEmulatorAbsoluteRotationCommands(
-    serial,
-    currentRotation,
-    targetRotation,
-  );
+  const commands = androidEmulatorAbsoluteRotationCommands(serial, currentRotation, targetRotation);
   await adbText(commands.prepare[0]!, 5_000);
   try {
     await adbText(commands.prepare[1]!, 5_000);
@@ -1128,9 +1155,10 @@ async function detectAndroidReactNative(
 
   if (pid) {
     try {
-      const logs = await adbText([
-        "-s", serial, "logcat", `--pid=${pid}`, "-d", "-t", "300", "-v", "brief",
-      ], 4_000);
+      const logs = await adbText(
+        ["-s", serial, "logcat", `--pid=${pid}`, "-d", "-t", "300", "-v", "brief"],
+        4_000,
+      );
       if (ANDROID_RN_LOG_MARKERS.test(logs)) {
         androidReactNativePackages.add(bundleId);
         return true;
@@ -1141,10 +1169,23 @@ async function detectAndroidReactNative(
   // Debuggable RN/Expo apps expose their sandbox through run-as. This catches
   // a quiet app whose logcat buffer does not currently contain an RN tag.
   try {
-    const files = await adbText([
-      "-s", serial, "shell", "run-as", bundleId,
-      "find", "files", "shared_prefs", "-maxdepth", "3", "-type", "f",
-    ], 4_000);
+    const files = await adbText(
+      [
+        "-s",
+        serial,
+        "shell",
+        "run-as",
+        bundleId,
+        "find",
+        "files",
+        "shared_prefs",
+        "-maxdepth",
+        "3",
+        "-type",
+        "f",
+      ],
+      4_000,
+    );
     if (ANDROID_RN_FILE_MARKERS.test(files)) {
       androidReactNativePackages.add(bundleId);
       return true;
@@ -1154,8 +1195,13 @@ async function detectAndroidReactNative(
   return false;
 }
 
-export async function getAndroidForegroundApp(serial: string): Promise<AndroidForegroundApp | null> {
-  const activities = await adbText(["-s", serial, "shell", "dumpsys", "activity", "activities"], 5_000);
+export async function getAndroidForegroundApp(
+  serial: string,
+): Promise<AndroidForegroundApp | null> {
+  const activities = await adbText(
+    ["-s", serial, "shell", "dumpsys", "activity", "activities"],
+    5_000,
+  );
   const bundleId = parseAndroidForegroundPackage(activities);
   if (!bundleId) return null;
   const pid = await androidPidForPackage(serial, bundleId);
@@ -1175,7 +1221,7 @@ async function readUiautomatorXml(serial: string): Promise<string> {
 
 function decodeXml(value: string): string {
   return value
-    .replace(/&quot;/g, "\"")
+    .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -1238,9 +1284,7 @@ function androidXmlNodes(xml: string): AndroidXmlNodeToken[] {
     }
 
     const parent = ancestry.at(-1);
-    const path = parent
-      ? `${parent.path}.${parent.nextChild++}`
-      : String(rootIndex++);
+    const path = parent ? `${parent.path}.${parent.nextChild++}` : String(rootIndex++);
     nodes.push({ attrs: attrsFromNode(token), path });
     if (!/\/>\s*$/.test(token)) {
       ancestry.push({ path, nextChild: 0 });
@@ -1311,23 +1355,24 @@ export async function collectAndroidAxSnapshot(
   dependencies: AndroidAxSnapshotDependencies = {},
 ): Promise<AxSnapshot> {
   let providerWarning: string | undefined;
-  const readXml = dependencies.readXml ?? (async (targetSerial: string) => {
-    const readFastXml = dependencies.readFastXml ?? readAndroidAxXml;
-    const readFallbackXml = dependencies.readFallbackXml ?? readUiautomatorXml;
-    try {
-      return await readFastXml(targetSerial, dependencies.mode ?? "fresh");
-    } catch (error) {
-      // Hidden UiAutomation APIs vary across Android releases and another
-      // automation tool may temporarily own the single system connection.
-      // Keep the stock command as a correctness fallback.
-      providerWarning = `Fast Android AX unavailable; using stock UIAutomator: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-      return readFallbackXml(targetSerial);
-    }
-  });
-  const readScreenConfig =
-    dependencies.readScreenConfig ?? getAndroidScreenConfig;
+  const readXml =
+    dependencies.readXml ??
+    (async (targetSerial: string) => {
+      const readFastXml = dependencies.readFastXml ?? readAndroidAxXml;
+      const readFallbackXml = dependencies.readFallbackXml ?? readUiautomatorXml;
+      try {
+        return await readFastXml(targetSerial, dependencies.mode ?? "fresh");
+      } catch (error) {
+        // Hidden UiAutomation APIs vary across Android releases and another
+        // automation tool may temporarily own the single system connection.
+        // Keep the stock command as a correctness fallback.
+        providerWarning = `Fast Android AX unavailable; using stock UIAutomator: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+        return readFallbackXml(targetSerial);
+      }
+    });
+  const readScreenConfig = dependencies.readScreenConfig ?? getAndroidScreenConfig;
   try {
     const xml = await readXml(serial);
     const elements: AxElement[] = [];

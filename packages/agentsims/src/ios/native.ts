@@ -20,7 +20,15 @@ const require = createRequire(import.meta.url);
 // destroy/free calls here.
 interface SimHIDHandle {
   touch(type: TouchType, x: number, y: number, w: number, hh: number, edge: number): Promise<void>;
-  multiTouch(type: TouchType, x1: number, y1: number, x2: number, y2: number, w: number, hh: number): Promise<void>;
+  multiTouch(
+    type: TouchType,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    w: number,
+    hh: number,
+  ): Promise<void>;
   button(button: string): Promise<void>;
   buttonHid(page: number, usage: number, phase: ButtonPhase): Promise<void>;
   key(type: KeyType, usage: number): Promise<void>;
@@ -39,17 +47,9 @@ interface SimCaptureHandle {
   subscribe(codec: number, onFrame: RawFrameCallback): Promise<NativeUnsubscribe>;
 }
 
-interface AndroidCaptureHandle {
-  subscribe(onFrame: RawFrameCallback): Promise<NativeUnsubscribe>;
-  frame(width: number, height: number): void;
-  requestKeyframe(): void;
-  stop(): void;
-}
-
 interface NativeAddon {
   SimHID: new (udid: string) => SimHIDHandle;
   SimCapture: new (udid: string) => SimCaptureHandle;
-  AndroidCapture: new (path: string) => AndroidCaptureHandle;
   hostAudioSnapshot(): string;
   setHostAudioDefault(kind: "input" | "output", uid: string): boolean;
   axDescribe(udid: string): Promise<string>;
@@ -112,16 +112,21 @@ export const Orientation = {
 function resolveAddon(): string {
   const configuredDist = configuredDistDirectory();
   const candidates = [
-    ...(configuredDist
-      ? [join(configuredDist, "native", "agentsims-native.node")]
-      : []),
+    ...(configuredDist ? [join(configuredDist, "native", "agentsims-native.node")] : []),
     // Beside an optional native launcher (dist/agentsims → dist/native/…).
     // The shipped addon contains Intel and Apple Silicon slices.
     join(dirname(process.execPath), "native", "agentsims-native.node"),
     // Beside the bundled JS (dist/agentsims.js or dist/middleware.js).
     join(dirname(fileURLToPath(import.meta.url)), "native", "agentsims-native.node"),
     // Dev: running from source (src/ios/native.ts -> ../../dist/native/...).
-    join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "native", "agentsims-native.node"),
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "dist",
+      "native",
+      "agentsims-native.node",
+    ),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
@@ -169,8 +174,20 @@ export class NativeHid {
     return this.guard("touch", () => this.handle.touch(type, x, y, w, h, edge), undefined);
   }
 
-  multiTouch(type: TouchType, x1: number, y1: number, x2: number, y2: number, w: number, h: number): Promise<void> {
-    return this.guard("multiTouch", () => this.handle.multiTouch(type, x1, y1, x2, y2, w, h), undefined);
+  multiTouch(
+    type: TouchType,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    w: number,
+    h: number,
+  ): Promise<void> {
+    return this.guard(
+      "multiTouch",
+      () => this.handle.multiTouch(type, x1, y1, x2, y2, w, h),
+      undefined,
+    );
   }
 
   button(button: string): Promise<void> {
@@ -251,9 +268,7 @@ export class NativeCapture {
           isDescription: (flags & FLAG_DESCRIPTION) !== 0,
           isKeyframe: (flags & FLAG_KEYFRAME) !== 0,
         };
-        await Promise.allSettled(
-          [...this.avccListeners].map((listener) => listener(frame)),
-        );
+        await Promise.allSettled([...this.avccListeners].map((listener) => listener(frame)));
       });
       this.avccSubscription = subscription;
       try {
@@ -302,37 +317,6 @@ export class NativeCapture {
   }
 }
 
-/** VideoToolbox encoder fed by Android Emulator's shared-memory framebuffer. */
-export class NativeAndroidCapture {
-  private readonly handle: AndroidCaptureHandle;
-
-  constructor(path: string) {
-    this.handle = new (load().AndroidCapture)(path);
-  }
-
-  subscribeAvcc(onFrame: (frame: AvccFrame) => Promise<void>): Promise<() => void> {
-    return this.handle.subscribe((data, width, height, flags) => onFrame({
-      data,
-      width,
-      height,
-      isDescription: (flags & FLAG_DESCRIPTION) !== 0,
-      isKeyframe: (flags & FLAG_KEYFRAME) !== 0,
-    }));
-  }
-
-  frame(width: number, height: number): void {
-    this.handle.frame(width, height);
-  }
-
-  requestKeyframe(): void {
-    this.handle.requestKeyframe();
-  }
-
-  stop(): void {
-    this.handle.stop();
-  }
-}
-
 /**
  * Async accessibility-tree dump for `udid`, as an axe-shaped JSON string (the
  * src/ax.ts normalizer consumes it unchanged). Runs native AX work off the JS
@@ -346,10 +330,7 @@ export function getHostAudioSnapshot(): HostAudioSnapshot {
   return JSON.parse(load().hostAudioSnapshot()) as HostAudioSnapshot;
 }
 
-export function setHostAudioDefault(
-  kind: "input" | "output",
-  uid: string,
-): boolean {
+export function setHostAudioDefault(kind: "input" | "output", uid: string): boolean {
   return load().setHostAudioDefault(kind, uid);
 }
 

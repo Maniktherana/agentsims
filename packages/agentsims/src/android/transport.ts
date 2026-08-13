@@ -1,8 +1,5 @@
 import type { ServerResponse } from "http";
-import {
-  AndroidEmulatorSession,
-  type AndroidEmulatorConfig,
-} from "./emulator-controller";
+import { AndroidEmulatorSession, type AndroidEmulatorConfig } from "./emulator-controller";
 import {
   AndroidScrcpySession,
   type AndroidButtonPhase,
@@ -14,7 +11,7 @@ export type AndroidTransportConfig = AndroidEmulatorConfig | AndroidScrcpyConfig
 
 export interface AndroidTransport {
   readonly backend: "emulator-controller" | "scrcpy";
-  readonly wireTransport: "mmap-videotoolbox-h264" | "scrcpy-h264";
+  readonly wireTransport: "mmap-ffmpeg-h264" | "scrcpy-h264";
   readonly closed: boolean;
   readonly running: boolean;
   readonly subscriberCount: number;
@@ -53,9 +50,7 @@ export interface AndroidTransport {
   rotateDevice?(): boolean;
 }
 
-export function androidTransportKindForSerial(
-  serial: string,
-): AndroidTransport["backend"] {
+export function androidTransportKindForSerial(serial: string): AndroidTransport["backend"] {
   return /^emulator-\d+$/.test(serial) ? "emulator-controller" : "scrcpy";
 }
 
@@ -66,12 +61,7 @@ export function createAndroidTransport(
   onSubscriberCountChange: (count: number) => void,
 ): AndroidTransport {
   if (androidTransportKindForSerial(serial) === "emulator-controller") {
-    return new AndroidEmulatorSession(
-      serial,
-      physicalScreen,
-      onConfig,
-      onSubscriberCountChange,
-    );
+    return new AndroidEmulatorSession(serial, physicalScreen, onConfig, onSubscriberCountChange);
   }
   return new AndroidScrcpySession(serial, onConfig, onSubscriberCountChange);
 }

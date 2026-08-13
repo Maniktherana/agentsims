@@ -133,8 +133,10 @@ export interface SimulatorViewProps {
   hideControls?: boolean;
   /** Called when streaming state changes (true = frames are flowing). */
   onStreamingChange?: (streaming: boolean) => void;
-  /** Device-local successful-presentation FPS store. */
+  /** Device-local FPS store. */
   frameRate?: PresentedFrameRateStore;
+  /** Selects whether the visible FPS is browser presentation or native encoding rate. */
+  frameRateSource?: "presented" | "encoded";
   /** Connection quality indicator: green (good), yellow (degraded), red (poor). */
   connectionQuality?: "good" | "degraded" | "poor" | null;
   /**
@@ -205,6 +207,7 @@ export function SimulatorView({
   hideControls,
   onStreamingChange,
   frameRate,
+  frameRateSource = "presented",
   connectionQuality,
   codec = "avcc",
   onAvccError,
@@ -430,25 +433,36 @@ export function SimulatorView({
   }, []);
   const onPresentedFrameRef = useRef(onPresentedFrame);
   onPresentedFrameRef.current = onPresentedFrame;
-  const onAvccFrame = useCallback((size: { width: number; height: number }) => {
-    if (!avccTransportConnectedRef.current) return;
-    const hidden = typeof document !== "undefined" && document.hidden;
-    if (!hidden) {
-      const now = performance.now();
-      presentedFrameRate.start(now);
-      presentedFrameRate.record(now);
-    }
-    lastFrameAtRef.current = Date.now();
-    onPresentedFrameRef.current?.(size);
-    // Re-establish "connected" if the relay staleness watchdog tripped during
-    // the decoder's startup buffering gap (keyframe + several deltas can land
-    // before the first frame is emitted). Mirrors the MJPEG relay path; guarded
-    // so it only fires on the false→true transition, not every frame.
-    if (!connectedRef.current) {
-      setConnected(true);
-      setError(null);
-    }
-  }, [presentedFrameRate]);
+  const onAvccFrame = useCallback(
+    (size: { width: number; height: number }) => {
+      if (!avccTransportConnectedRef.current) return;
+      const hidden = typeof document !== "undefined" && document.hidden;
+      if (!hidden && frameRateSource === "presented") {
+        const now = performance.now();
+        presentedFrameRate.start(now);
+        presentedFrameRate.record(now);
+      }
+      lastFrameAtRef.current = Date.now();
+      onPresentedFrameRef.current?.(size);
+      // Re-establish "connected" if the relay staleness watchdog tripped during
+      // the decoder's startup buffering gap (keyframe + several deltas can land
+      // before the first frame is emitted). Mirrors the MJPEG relay path; guarded
+      // so it only fires on the false→true transition, not every frame.
+      if (!connectedRef.current) {
+        setConnected(true);
+        setError(null);
+      }
+    },
+    [frameRateSource, presentedFrameRate],
+  );
+  const onAvccEncodedFrameRate = useCallback(
+    (framesPerSecond: number) => {
+      if (frameRateSource !== "encoded") return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      presentedFrameRate.setMeasured(framesPerSecond);
+    },
+    [frameRateSource, presentedFrameRate],
+  );
   const onAvccTransportChange = useCallback(
     (transportConnected: boolean) => {
       avccTransportConnectedRef.current = transportConnected;
@@ -468,6 +482,7 @@ export function SimulatorView({
     canvasRef,
     onFirstFrame: onAvccFirstFrame,
     onFrame: onAvccFrame,
+    onEncodedFrameRate: onAvccEncodedFrameRate,
     onTransportChange: onAvccTransportChange,
     onError: setError,
     onDecoderError: onAvccError,
@@ -475,12 +490,14 @@ export function SimulatorView({
 
   const sendTouchNow = useCallback(
     (touch: { type: "begin" | "move" | "end"; x: number; y: number; edge?: number }) => {
-      const orientation = relayInputCoordinates === "display"
-        ? visibleInputOrientation
-        : streamDisplayGeometry(screenSizeRef.current).inputOrientation;
-      const point = relayInputCoordinates === "display"
-        ? rawPointForDisplayPoint(visibleInputOrientation, touch.x, touch.y)
-        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, touch.x, touch.y);
+      const orientation =
+        relayInputCoordinates === "display"
+          ? visibleInputOrientation
+          : streamDisplayGeometry(screenSizeRef.current).inputOrientation;
+      const point =
+        relayInputCoordinates === "display"
+          ? rawPointForDisplayPoint(visibleInputOrientation, touch.x, touch.y)
+          : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, touch.x, touch.y);
       const edge =
         touch.edge === undefined ? undefined : rawEdgeForDisplayEdge(orientation, touch.edge);
       const payload =
@@ -542,13 +559,15 @@ export function SimulatorView({
       if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
       // Rotate both the delta and the cursor anchor into raw device orientation so
       // scrolling tracks the visible content on landscape / upside-down devices.
-      const orientation = relayInputCoordinates === "display"
-        ? visibleInputOrientation
-        : streamDisplayGeometry(screenSizeRef.current).inputOrientation;
+      const orientation =
+        relayInputCoordinates === "display"
+          ? visibleInputOrientation
+          : streamDisplayGeometry(screenSizeRef.current).inputOrientation;
       const rawDelta = rawDeltaForDisplayDelta(orientation, dx, dy);
-      const rawAnchor = relayInputCoordinates === "display"
-        ? rawPointForDisplayPoint(visibleInputOrientation, anchorX, anchorY)
-        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, anchorX, anchorY);
+      const rawAnchor =
+        relayInputCoordinates === "display"
+          ? rawPointForDisplayPoint(visibleInputOrientation, anchorX, anchorY)
+          : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, anchorX, anchorY);
       const payload = { dx: rawDelta.dx, dy: rawDelta.dy, x: rawAnchor.x, y: rawAnchor.y };
       if (relayMode) {
         onStreamScroll?.(payload);
@@ -567,12 +586,24 @@ export function SimulatorView({
 
   const sendMultiTouchNow = useCallback(
     (touch: { type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number }) => {
-      const p1 = relayInputCoordinates === "display"
-        ? rawPointForDisplayPoint(visibleInputOrientation, touch.x1, touch.y1)
-        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, touch.x1, touch.y1);
-      const p2 = relayInputCoordinates === "display"
-        ? rawPointForDisplayPoint(visibleInputOrientation, touch.x2, touch.y2)
-        : pointForRelayTransport(screenSizeRef.current, relayInputCoordinates, touch.x2, touch.y2);
+      const p1 =
+        relayInputCoordinates === "display"
+          ? rawPointForDisplayPoint(visibleInputOrientation, touch.x1, touch.y1)
+          : pointForRelayTransport(
+              screenSizeRef.current,
+              relayInputCoordinates,
+              touch.x1,
+              touch.y1,
+            );
+      const p2 =
+        relayInputCoordinates === "display"
+          ? rawPointForDisplayPoint(visibleInputOrientation, touch.x2, touch.y2)
+          : pointForRelayTransport(
+              screenSizeRef.current,
+              relayInputCoordinates,
+              touch.x2,
+              touch.y2,
+            );
       const payload = {
         type: touch.type,
         x1: p1.x,
@@ -661,7 +692,9 @@ export function SimulatorView({
       if (interval || (typeof document !== "undefined" && document.hidden)) return;
       presentedFrameRate.start(performance.now());
       interval = setInterval(() => {
-        presentedFrameRate.sample(performance.now());
+        if (frameRateSource === "presented") {
+          presentedFrameRate.sample(performance.now());
+        }
         checkStaleness();
       }, 1_000);
     };
@@ -682,7 +715,7 @@ export function SimulatorView({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       presentedFrameRate.reset();
     };
-  }, [connected, presentedFrameRate, relayMode, url, useAvcc]);
+  }, [connected, frameRateSource, presentedFrameRate, relayMode, url, useAvcc]);
 
   const getViewElement = useCallback(() => {
     if (useAvcc) return canvasRef.current;

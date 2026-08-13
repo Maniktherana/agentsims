@@ -309,8 +309,8 @@ export function SimulatorDeviceView({
   );
   const androidPresentationPending = false;
   const activeStreamConfig = isAndroidDevice
-    ? presentationConfig ?? initialDeviceLayout.streamConfig
-    : streamConfig ?? initialDeviceLayout.streamConfig;
+    ? (presentationConfig ?? initialDeviceLayout.streamConfig)
+    : (streamConfig ?? initialDeviceLayout.streamConfig);
   const relativeInputOrientation = streamConfig
     ? relativeAndroidOrientation(displayOrientation, streamConfig.orientation)
     : "portrait";
@@ -340,9 +340,7 @@ export function SimulatorDeviceView({
   } = deviceLayout;
   const imgBorderRadius = screenBorderRadius(deviceType, activeStreamConfig);
   const hasRoundedScreen = imgBorderRadius !== "0px";
-  const imgCornerShape = useChrome
-    ? undefined
-    : screenCornerShape(deviceType, activeStreamConfig);
+  const imgCornerShape = useChrome ? undefined : screenCornerShape(deviceType, activeStreamConfig);
 
   // Touch/button relay via direct WebSocket
   const wsRef = useRef<WebSocket | null>(null);
@@ -377,7 +375,7 @@ export function SimulatorDeviceView({
         try {
           const cfg = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig;
           if (cfg.width <= 0 || cfg.height <= 0) return;
-          setWsStreamConfig((prev) => sameStreamConfig(prev, cfg) ? prev : cfg);
+          setWsStreamConfig((prev) => (sameStreamConfig(prev, cfg) ? prev : cfg));
         } catch {}
       };
       ws.onclose = () => {
@@ -410,14 +408,14 @@ export function SimulatorDeviceView({
 
   const onStreamTouch = useCallback(
     (data: any) => {
-    sendWs(0x03, data);
+      sendWs(0x03, data);
       if (data?.type === "end") scheduleAxRefresh();
     },
     [scheduleAxRefresh, sendWs],
   );
   const onStreamMultiTouch = useCallback(
     (data: any) => {
-    sendWs(0x05, data);
+      sendWs(0x05, data);
       if (data?.type === "end") scheduleAxRefresh();
     },
     [scheduleAxRefresh, sendWs],
@@ -453,18 +451,21 @@ export function SimulatorDeviceView({
     [sendWs],
   );
   const onScreenConfigChange = useCallback((next: StreamConfig) => {
-    setWsStreamConfig((prev) => sameStreamConfig(prev, next) ? prev : next);
+    setWsStreamConfig((prev) => (sameStreamConfig(prev, next) ? prev : next));
   }, []);
-  const onPresentedFrame = useCallback((size: AndroidPresentedFrame) => {
-    if (!isAndroidDevice) return;
-    setPresentedAndroidFrame((prev) =>
-      prev?.width === size.width &&
-      prev.height === size.height &&
-      prev.presentationGeneration === size.presentationGeneration
-        ? prev
-        : size
-    );
-  }, [isAndroidDevice]);
+  const onPresentedFrame = useCallback(
+    (size: AndroidPresentedFrame) => {
+      if (!isAndroidDevice) return;
+      setPresentedAndroidFrame((prev) =>
+        prev?.width === size.width &&
+        prev.height === size.height &&
+        prev.presentationGeneration === size.presentationGeneration
+          ? prev
+          : size,
+      );
+    },
+    [isAndroidDevice],
+  );
   const rotateDevice = useCallback(
     (orientation: SimulatorOrientation) => {
       if (isAndroidDevice) setDesiredOrientation(orientation);
@@ -494,7 +495,6 @@ export function SimulatorDeviceView({
     setDesiredOrientation(null);
     setWsStreamConfig(null);
   }, [config.streamUrl]);
-
 
   const sendKey = useCallback(
     (type: "down" | "up", usage: number) => {
@@ -1019,6 +1019,7 @@ export function SimulatorDeviceView({
                     hideControls
                     onStreamingChange={setStreaming}
                     frameRate={presentedFrameRate}
+                    frameRateSource={isAndroidDevice ? "encoded" : "presented"}
                     onStreamTouch={onStreamTouch}
                     onStreamMultiTouch={onStreamMultiTouch}
                     onStreamButton={onStreamButton}
@@ -1053,9 +1054,7 @@ export function SimulatorDeviceView({
                         />
                       ) : undefined
                     }
-                    visibleInputOrientation={
-                      isAndroidDevice ? relativeInputOrientation : undefined
-                    }
+                    visibleInputOrientation={isAndroidDevice ? relativeInputOrientation : undefined}
                     onCapturePresentedSurfaceChange={onCapturePresentedSurfaceChange}
                   />
                 );
@@ -1084,7 +1083,9 @@ export function SimulatorDeviceView({
                     </div>
                   </>
                 );
-                const screenContent = useChrome ? rawScreenContent : (
+                const screenContent = useChrome ? (
+                  rawScreenContent
+                ) : (
                   <div
                     className="absolute inset-0 overflow-hidden"
                     data-agentsims-screen-clip={config.device}
@@ -1162,7 +1163,8 @@ export function SimulatorDeviceView({
                 onRotate={rotateDevice}
                 orientation={
                   desiredOrientation ??
-                  (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? null
+                  (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ??
+                  null
                 }
                 deviceUdid={config.device}
                 deviceName={deviceName}

@@ -68,7 +68,7 @@ describe("ToolsPanel", () => {
       },
       stream: {
         backend: "emulator-controller",
-        transport: "mmap-videotoolbox-h264",
+        transport: "mmap-ffmpeg-h264",
         source: "display",
         canChangeSource: false,
       },
@@ -81,14 +81,16 @@ describe("ToolsPanel", () => {
 
     expect(formatAndroidDisplay(status)).toBe("1080 × 2424 @ 420 dpi");
     expect(formatAndroidStream(status)).toBe("H.264 · emulator framebuffer");
-    expect(formatAndroidStream({
-      ...status,
-      stream: {
-        ...status.stream,
-        backend: "scrcpy",
-        transport: "scrcpy-h264",
-      },
-    })).toBe("H.264 · scrcpy");
+    expect(
+      formatAndroidStream({
+        ...status,
+        stream: {
+          ...status.stream,
+          backend: "scrcpy",
+          transport: "scrcpy-h264",
+        },
+      }),
+    ).toBe("H.264 · scrcpy");
   });
 
   test("opens real Android emulator media capabilities with a stable loading footprint", () => {

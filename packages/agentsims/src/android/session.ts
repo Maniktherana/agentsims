@@ -29,11 +29,7 @@ import {
 } from "./device";
 import { enrichAxSnapshotWithRnSource } from "../accessibility/rn-source";
 import { LatestValueScheduler } from "../shared/latest-value-scheduler";
-import {
-  closeAndroidAxServer,
-  warmAndroidAxServer,
-  type AndroidAxMode,
-} from "./ax-server";
+import { closeAndroidAxServer, warmAndroidAxServer, type AndroidAxMode } from "./ax-server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -47,6 +43,7 @@ const WS_MSG_MULTI_TOUCH = 0x05;
 const ANDROID_WHEEL_SCALE = 16;
 const TRANSPORT_IDLE_CLOSE_MS = 15_000;
 const ANDROID_INPUT_MOVE_INTERVAL_MS = 1000 / 60;
+const ANDROID_SCROLL_GESTURE_END_MS = 80;
 const EMULATOR_CONFIG_DEBOUNCE_MS = 50;
 const EMULATOR_VIEWPORT_POLL_MS = 500;
 
@@ -73,16 +70,21 @@ function sameAndroidCornerRadii(
   left: AndroidCornerRadii | undefined,
   right: AndroidCornerRadii | undefined,
 ): boolean {
-  return left === right || !!left && !!right &&
-    left.topLeft === right.topLeft &&
-    left.topRight === right.topRight &&
-    left.bottomRight === right.bottomRight &&
-    left.bottomLeft === right.bottomLeft;
+  return (
+    left === right ||
+    (!!left &&
+      !!right &&
+      left.topLeft === right.topLeft &&
+      left.topRight === right.topRight &&
+      left.bottomRight === right.bottomRight &&
+      left.bottomLeft === right.bottomLeft)
+  );
 }
 
-function nativeSizeForScreen(
-  screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
-): { width: number; height: number } {
+function nativeSizeForScreen(screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">): {
+  width: number;
+  height: number;
+} {
   const rotation = normalizedAndroidRotation(screen.rotation);
   return rotation === 1 || rotation === 3
     ? { width: screen.height, height: screen.width }
@@ -169,9 +171,7 @@ function touchMessageType(message: Buffer): TouchMessageType | null {
   if (message[0] !== WS_MSG_TOUCH && message[0] !== WS_MSG_MULTI_TOUCH) return null;
   try {
     const type = JSON.parse(message.subarray(1).toString("utf8"))?.type;
-    return type === "begin" || type === "move" || type === "end" || type === "cancel"
-      ? type
-      : null;
+    return type === "begin" || type === "move" || type === "end" || type === "cancel" ? type : null;
   } catch {
     return null;
   }
@@ -250,6 +250,12 @@ export class AndroidSession {
   private closed = false;
   private pendingEmulatorRotation: AndroidRotation | null = null;
   private inputQueue: Promise<void> = Promise.resolve();
+  private emulatorScrollGesture: {
+    transport: AndroidTransport;
+    x: number;
+    y: number;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null = null;
   private readonly inputMoveScheduler = new LatestValueScheduler<Buffer>(
     ANDROID_INPUT_MOVE_INTERVAL_MS,
     (message) => this.queueHidMessage(message),
@@ -290,6 +296,7 @@ export class AndroidSession {
     this.emulatorViewportTimer = null;
     this.emulatorConfigRefreshPending = false;
     this.inputMoveScheduler.cancel();
+    this.finishEmulatorScrollGesture();
     for (const ws of this.hidSockets) ws.close();
     this.hidSockets.clear();
     this.transport?.close();
@@ -313,7 +320,8 @@ export class AndroidSession {
     const nextRotation = normalizedAndroidRotation(config.rotation);
     const nextOrientation = androidOrientationForScreen(config);
     const nextCornerRadii = config.cornerRadii;
-    const changed = config.width !== this.width ||
+    const changed =
+      config.width !== this.width ||
       config.height !== this.height ||
       nextRotation !== this.rotation ||
       nextOrientation !== this.orientation ||
@@ -350,12 +358,16 @@ export class AndroidSession {
     const currentIsLandscape =
       this.orientation === "landscape_left" || this.orientation === "landscape_right";
     const nextIsLandscape = config.width > config.height;
-    const nextOrientation = currentIsLandscape === nextIsLandscape
-      ? this.orientation
-      : nextIsLandscape
-        ? "landscape_left"
-        : "portrait";
-    const changed = config.width !== this.width || config.height !== this.height || nextOrientation !== this.orientation;
+    const nextOrientation =
+      currentIsLandscape === nextIsLandscape
+        ? this.orientation
+        : nextIsLandscape
+          ? "landscape_left"
+          : "portrait";
+    const changed =
+      config.width !== this.width ||
+      config.height !== this.height ||
+      nextOrientation !== this.orientation;
     this.width = config.width;
     this.height = config.height;
     this.orientation = nextOrientation;
@@ -405,9 +417,11 @@ export class AndroidSession {
   }
 
   private emulatorViewportWatchActive(): boolean {
-    return !this.closed &&
+    return (
+      !this.closed &&
       androidTransportKindForSerial(this.serial) === "emulator-controller" &&
-      (this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0);
+      (this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0)
+    );
   }
 
   private updateEmulatorViewportWatch(): void {
@@ -425,8 +439,8 @@ export class AndroidSession {
 
   private pollEmulatorViewport(): Promise<void> {
     if (this.emulatorViewportPoll) return this.emulatorViewportPoll;
-    const readViewport = this.dependencies.readEmulatorViewport ??
-      DEFAULT_SESSION_DEPENDENCIES.readEmulatorViewport!;
+    const readViewport =
+      this.dependencies.readEmulatorViewport ?? DEFAULT_SESSION_DEPENDENCIES.readEmulatorViewport!;
     this.emulatorViewportPoll = readViewport(this.serial)
       .then(async (viewport) => {
         const key = `${viewport.rotation}:${viewport.width}x${viewport.height}`;
@@ -489,10 +503,12 @@ export class AndroidSession {
     this.transportIdleTimer = null;
     this.updateEmulatorViewportWatch();
     const session = this.transport;
-    if (!session || session.closed || this.hidSockets.size > 0 || session.subscriberCount > 0) return;
+    if (!session || session.closed || this.hidSockets.size > 0 || session.subscriberCount > 0)
+      return;
     this.transportIdleTimer = setTimeout(() => {
       this.transportIdleTimer = null;
-      if (this.transport !== session || this.hidSockets.size > 0 || session.subscriberCount > 0) return;
+      if (this.transport !== session || this.hidSockets.size > 0 || session.subscriberCount > 0)
+        return;
       session.close();
       if (this.transport === session) this.transport = null;
     }, TRANSPORT_IDLE_CLOSE_MS);
@@ -585,18 +601,17 @@ export class AndroidSession {
 
   handleAx(req: IncomingMessage, res: ServerResponse): void {
     void (async () => {
-      const requestedMode = new URL(req.url ?? "/ax", "http://agentsims.local")
-        .searchParams.get("mode");
+      const requestedMode = new URL(req.url ?? "/ax", "http://agentsims.local").searchParams.get(
+        "mode",
+      );
       // Direct helper AX is the agent/CLI surface, so its default is a bounded
       // settled observation. The browser SSE path calls the provider directly
       // and uses fresh hot snapshots without an idle barrier.
-      const mode: AndroidAxMode = requestedMode === "latest" || requestedMode === "fresh"
-        ? requestedMode
-        : "settled";
-      const snapshot = enrichAxSnapshotWithRnSource(await collectAndroidAxSnapshot(
-        this.serial,
-        { mode },
-      ));
+      const mode: AndroidAxMode =
+        requestedMode === "latest" || requestedMode === "fresh" ? requestedMode : "settled";
+      const snapshot = enrichAxSnapshotWithRnSource(
+        await collectAndroidAxSnapshot(this.serial, { mode }),
+      );
       sendJsonString(res, 200, JSON.stringify(snapshot));
     })();
   }
@@ -608,6 +623,13 @@ export class AndroidSession {
     if (cfg) ws.send(cfg);
     ws.on("message", (data: Buffer) => {
       const message = Buffer.isBuffer(data) ? Buffer.from(data) : Buffer.from(data);
+      // Match iOS HID: wheel samples are already ordered on the socket and must
+      // reach the native input stream immediately. Serializing them with taps,
+      // buttons, and ADB fallbacks turns a trackpad burst into a visible queue.
+      if (message[0] === 0x0b) {
+        void this.handleHidMessage(message).catch(() => {});
+        return;
+      }
       const touchType = touchMessageType(message);
       if (touchType === "move") {
         this.inputMoveScheduler.push(message);
@@ -626,9 +648,61 @@ export class AndroidSession {
   }
 
   private queueHidMessage(message: Buffer): void {
-    this.inputQueue = this.inputQueue
-      .then(() => this.handleHidMessage(message))
-      .catch(() => {});
+    this.inputQueue = this.inputQueue.then(() => this.handleHidMessage(message)).catch(() => {});
+  }
+
+  private emulatorScrollTouch(
+    transport: AndroidTransport,
+    phase: "begin" | "move" | "end",
+    x: number,
+    y: number,
+  ): boolean {
+    const point = androidTouchCoordinatesForTransport(
+      transport.backend,
+      { x, y },
+      { width: this.width, height: this.height, rotation: this.rotation },
+    );
+    return transport.injectTouch(phase, point.x, point.y, point.width, point.height);
+  }
+
+  private finishEmulatorScrollGesture(): void {
+    const gesture = this.emulatorScrollGesture;
+    if (!gesture) return;
+    if (gesture.timer) clearTimeout(gesture.timer);
+    this.emulatorScrollGesture = null;
+    this.emulatorScrollTouch(gesture.transport, "end", gesture.x, gesture.y);
+  }
+
+  private injectEmulatorScrollGesture(
+    transport: AndroidTransport,
+    message: { dx: number; dy: number; x: number; y: number },
+  ): boolean {
+    let gesture = this.emulatorScrollGesture;
+    if (gesture?.transport !== transport) {
+      this.finishEmulatorScrollGesture();
+      gesture = null;
+    }
+    if (!gesture) {
+      const x = Math.min(0.92, Math.max(0.08, message.x));
+      const y = Math.min(0.92, Math.max(0.08, message.y));
+      if (!this.emulatorScrollTouch(transport, "begin", x, y)) return false;
+      gesture = {
+        transport,
+        x,
+        y,
+        timer: null,
+      };
+      this.emulatorScrollGesture = gesture;
+    }
+    gesture.x = Math.min(0.92, Math.max(0.08, gesture.x - message.dx));
+    gesture.y = Math.min(0.92, Math.max(0.08, gesture.y - message.dy));
+    if (!this.emulatorScrollTouch(transport, "move", gesture.x, gesture.y)) return false;
+    if (gesture.timer) clearTimeout(gesture.timer);
+    gesture.timer = setTimeout(
+      () => this.finishEmulatorScrollGesture(),
+      ANDROID_SCROLL_GESTURE_END_MS,
+    );
+    return true;
   }
 
   private async handleHidMessage(data: Buffer): Promise<void> {
@@ -649,22 +723,30 @@ export class AndroidSession {
       if (!m) return;
       const x = m.x * this.width;
       const y = m.y * this.height;
-      const phase = m.type === "begin" || m.type === "move" || m.type === "end" || m.type === "cancel" ? m.type : null;
+      const phase =
+        m.type === "begin" || m.type === "move" || m.type === "end" || m.type === "cancel"
+          ? m.type
+          : null;
       const transport = await this.activeTransport();
       const transportPoint = transport
         ? androidTouchCoordinatesForTransport(
-          transport.backend,
-          { x: m.x, y: m.y },
-          { width: this.width, height: this.height, rotation: this.rotation },
-        )
+            transport.backend,
+            { x: m.x, y: m.y },
+            { width: this.width, height: this.height, rotation: this.rotation },
+          )
         : null;
-      if (transport && phase && transportPoint && transport.injectTouch(
-        phase,
-        transportPoint.x,
-        transportPoint.y,
-        transportPoint.width,
-        transportPoint.height,
-      )) {
+      if (
+        transport &&
+        phase &&
+        transportPoint &&
+        transport.injectTouch(
+          phase,
+          transportPoint.x,
+          transportPoint.y,
+          transportPoint.width,
+          transportPoint.height,
+        )
+      ) {
         this.touchStart = null;
         this.lastMove = null;
         return;
@@ -701,9 +783,11 @@ export class AndroidSession {
       const m = json<{ button: string; phase?: string }>();
       if (!m?.button) return;
       const keycode = androidKeycodeForButton(m.button);
-      const phase = m.phase === "down" || m.phase === "up" || m.phase === "press" ? m.phase : "press";
+      const phase =
+        m.phase === "down" || m.phase === "up" || m.phase === "press" ? m.phase : "press";
       const transport = await this.activeTransport();
-      if (transport?.injectKeycode && keycode != null && transport.injectKeycode(keycode, phase)) return;
+      if (transport?.injectKeycode && keycode != null && transport.injectKeycode(keycode, phase))
+        return;
       await androidButton(this.serial, m.button);
       return;
     }
@@ -711,31 +795,39 @@ export class AndroidSession {
     if (tag === WS_MSG_MULTI_TOUCH) {
       const m = json<{ type: string; x1: number; y1: number; x2: number; y2: number }>();
       if (!m) return;
-      const phase = m.type === "begin" || m.type === "move" || m.type === "end" || m.type === "cancel" ? m.type : null;
+      const phase =
+        m.type === "begin" || m.type === "move" || m.type === "end" || m.type === "cancel"
+          ? m.type
+          : null;
       const transport = await this.activeTransport();
       const first = transport
         ? androidTouchCoordinatesForTransport(
-          transport.backend,
-          { x: m.x1, y: m.y1 },
-          { width: this.width, height: this.height, rotation: this.rotation },
-        )
+            transport.backend,
+            { x: m.x1, y: m.y1 },
+            { width: this.width, height: this.height, rotation: this.rotation },
+          )
         : null;
       const second = transport
         ? androidTouchCoordinatesForTransport(
-          transport.backend,
-          { x: m.x2, y: m.y2 },
-          { width: this.width, height: this.height, rotation: this.rotation },
-        )
+            transport.backend,
+            { x: m.x2, y: m.y2 },
+            { width: this.width, height: this.height, rotation: this.rotation },
+          )
         : null;
-      if (transport && phase && transport.injectMultiTouch(
-        phase,
-        first!.x,
-        first!.y,
-        second!.x,
-        second!.y,
-        first!.width,
-        first!.height,
-      )) return;
+      if (
+        transport &&
+        phase &&
+        transport.injectMultiTouch(
+          phase,
+          first!.x,
+          first!.y,
+          second!.x,
+          second!.y,
+          first!.width,
+          first!.height,
+        )
+      )
+        return;
       return;
     }
 
@@ -784,14 +876,23 @@ export class AndroidSession {
       const anchorX = m.x * this.width;
       const anchorY = m.y * this.height;
       const transport = await this.activeTransport();
-      if (transport?.injectScroll?.(
-        anchorX,
-        anchorY,
-        m.dx * ANDROID_WHEEL_SCALE,
-        -m.dy * ANDROID_WHEEL_SCALE,
-        this.width,
-        this.height,
-      )) return;
+      if (
+        transport?.backend === "emulator-controller" &&
+        this.injectEmulatorScrollGesture(transport, m)
+      ) {
+        return;
+      }
+      if (
+        transport?.injectScroll?.(
+          anchorX,
+          anchorY,
+          m.dx * ANDROID_WHEEL_SCALE,
+          -m.dy * ANDROID_WHEEL_SCALE,
+          this.width,
+          this.height,
+        )
+      )
+        return;
       await androidSwipe(
         this.serial,
         anchorX,
@@ -835,7 +936,12 @@ export function closeAndroidSession(serial: string): void {
   sessions.delete(serial);
 }
 
-export async function serveAndroidHelper(req: IncomingMessage, res: ServerResponse, serial: string, path: string): Promise<boolean> {
+export async function serveAndroidHelper(
+  req: IncomingMessage,
+  res: ServerResponse,
+  serial: string,
+  path: string,
+): Promise<boolean> {
   const pathname = path.split("?", 1)[0];
   if (pathname === "/stream.mjpeg") {
     res.writeHead(410, {
@@ -843,9 +949,11 @@ export async function serveAndroidHelper(req: IncomingMessage, res: ServerRespon
       "Cache-Control": "no-store",
       ...CORS,
     });
-    res.end(JSON.stringify({
-      error: "Android MJPEG/ADB PNG streaming is disabled. Use /stream.avcc.",
-    }));
+    res.end(
+      JSON.stringify({
+        error: "Android MJPEG/ADB PNG streaming is disabled. Use /stream.avcc.",
+      }),
+    );
     return true;
   }
 
@@ -873,7 +981,9 @@ export async function serveAndroidHelper(req: IncomingMessage, res: ServerRespon
       } catch (error) {
         if (!res.headersSent) {
           res.writeHead(503, { "Content-Type": "application/json", ...CORS });
-          res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+          res.end(
+            JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+          );
         } else if (!res.writableEnded) {
           res.end();
         }

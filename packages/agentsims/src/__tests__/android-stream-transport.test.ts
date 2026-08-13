@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
-import { existsSync } from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { serveAndroidHelper } from "../android/session";
-import { androidStreamOrientation, resolveScrcpyServer } from "../android/scrcpy";
+import { androidStreamOrientation, scrcpyServerCandidates } from "../android/scrcpy";
 import { androidTransportKindForSerial } from "../android/transport";
 import {
   AndroidAvccFrameCoordinator,
+  encodeAndroidEncodedFrameRate,
   parseImageMetadata,
 } from "../android/emulator-controller";
 
@@ -15,8 +15,7 @@ describe("Android stream transport", () => {
     // Image { format: ImageFormat { format: RGBA8888, rotation:
     // Rotation { rotation: REVERSE_PORTRAIT }, width: 2560, height: 1600 } }
     const image = Buffer.from([
-      0x0a, 0x0c, 0x08, 0x01, 0x12, 0x02, 0x08, 0x02, 0x18, 0x80, 0x14, 0x20,
-      0xc0, 0x0c,
+      0x0a, 0x0c, 0x08, 0x01, 0x12, 0x02, 0x08, 0x02, 0x18, 0x80, 0x14, 0x20, 0xc0, 0x0c,
     ]);
     expect(parseImageMetadata(image)).toEqual({
       width: 2560,
@@ -30,8 +29,13 @@ describe("Android stream transport", () => {
     expect(androidStreamOrientation(2424, 1080)).toBe("landscape_left");
   });
 
-  test("resolves the scrcpy server from the source package layout", () => {
-    expect(existsSync(resolveScrcpyServer())).toBe(true);
+  test("treats host scrcpy as an optional physical-device dependency", () => {
+    expect(
+      scrcpyServerCandidates(
+        { AGENTSIMS_SCRCPY_SERVER_PATH: "/custom/scrcpy-server" },
+        "/host-prefix",
+      ).slice(0, 2),
+    ).toEqual(["/custom/scrcpy-server", "/host-prefix/share/scrcpy/scrcpy-server"]);
   });
 
   test("selects native emulator transport and scrcpy physical-device transport", () => {
@@ -57,9 +61,7 @@ describe("Android stream transport", () => {
     // Controller metadata remains available to config/input before video is
     // attached, without paying the 60fps RGBA → H.264 cost.
     coordinator.observeFrameMetadata({ width: 1080, height: 2424, rotation: 0 });
-    expect(configs).toEqual([
-      { width: 1080, height: 2424, orientation: "portrait", rotation: 0 },
-    ]);
+    expect(configs).toEqual([{ width: 1080, height: 2424, orientation: "portrait", rotation: 0 }]);
     expect(coordinator.currentConfig).toEqual(configs[0]);
     expect(orchestration).toEqual([]);
 
@@ -74,11 +76,7 @@ describe("Android stream transport", () => {
       end() {},
     }) as unknown as ServerResponse;
     coordinator.attach(response);
-    expect(orchestration).toEqual([
-      "subscribers:1",
-      "keyframe",
-      "frame:1080x2424",
-    ]);
+    expect(orchestration).toEqual(["subscribers:1", "keyframe", "frame:1080x2424"]);
 
     expect(writes).toHaveLength(1);
     expect(writes[0]![4]).toBe(0x05);
@@ -119,6 +117,38 @@ describe("Android stream transport", () => {
       { width: 2560, height: 1600, orientation: "landscape_left", rotation: 0 },
       { width: 2560, height: 1600, orientation: "landscape_left", rotation: 2 },
     ]);
+  });
+
+  test("reports native encoded output rate without counting metadata", () => {
+    const writes: Buffer[] = [];
+    const response = Object.assign(new EventEmitter(), {
+      writableEnded: false,
+      destroyed: false,
+      writableLength: 0,
+      write(chunk: Buffer) {
+        writes.push(chunk);
+        return true;
+      },
+      end() {},
+    }) as unknown as ServerResponse;
+    const coordinator = new AndroidAvccFrameCoordinator(
+      { requestKeyframe: () => {}, frame: () => {} },
+      () => {},
+    );
+    coordinator.observeFrameMetadata({ width: 1080, height: 2424, rotation: 0 });
+    coordinator.attach(response);
+
+    const keyframe = Buffer.from([0, 0, 0, 1, 0x02, 0x2a]);
+    const delta = Buffer.from([0, 0, 0, 1, 0x03, 0x2a]);
+    coordinator.publish(keyframe, false, 0);
+    coordinator.publish(delta, false, 250);
+    coordinator.publish(delta, false, 500);
+    coordinator.publish(delta, false, 750);
+    coordinator.publish(delta, false, 1_000);
+
+    expect(writes.at(-1)).toEqual(encodeAndroidEncodedFrameRate(5));
+    expect(writes.at(-1)?.[4]).toBe(0x06);
+    expect(writes.at(-1)?.readUInt16BE(5)).toBe(5);
   });
 
   test("rejects MJPEG before opening an Android device session", async () => {
