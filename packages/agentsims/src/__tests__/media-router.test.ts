@@ -23,8 +23,8 @@ function androidStatus(serial = "emulator-5554"): AndroidStatus {
     avdName: serial.startsWith("emulator-") ? "Pixel_9" : undefined,
     screen: { width: 1080, height: 2424, orientation: "portrait" },
     stream: {
-      backend: serial.startsWith("emulator-") ? "emulator-controller" : "scrcpy",
-      transport: serial.startsWith("emulator-") ? "mmap-ffmpeg-h264" : "scrcpy-h264",
+      backend: serial.startsWith("emulator-") ? "emulator-controller" : "unsupported",
+      transport: serial.startsWith("emulator-") ? "mmap-ffmpeg-h264" : "none",
       source: "display",
       canChangeSource: false,
     },
