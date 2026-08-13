@@ -2,47 +2,30 @@
   "name": "agentsims",
   "version": "0.1.0",
   "description": "Local multi-device simulator workspace for React Native and Expo development",
-  "type": "module",
-  "author": "Agentsims contributors",
-  "license": "Apache-2.0",
   "keywords": [
-    "react-native",
+    "accessibility",
+    "android-emulator",
+    "developer-tools",
     "expo",
     "ios-simulator",
-    "android-emulator",
-    "accessibility",
-    "developer-tools"
+    "react-native"
   ],
+  "homepage": "https://github.com/Maniktherana/agentsims#readme",
+  "bugs": {
+    "url": "https://github.com/Maniktherana/agentsims/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "Agentsims contributors",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Maniktherana/agentsims.git",
     "directory": "packages/agentsims"
   },
-  "homepage": "https://github.com/Maniktherana/agentsims#readme",
-  "bugs": {
-    "url": "https://github.com/Maniktherana/agentsims/issues"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
   "bin": {
     "agentsims": "dist/agentsims.js"
   },
-  "engines": {
-    "node": ">=20"
-  },
-  "os": [
-    "darwin"
-  ],
-  "cpu": [
-    "arm64",
-    "x64"
-  ],
   "files": [
     "LICENSE",
-    "NOTICE",
-    "THIRD_PARTY_LICENSES.txt",
     "dist/agentsims.js",
     "dist/middleware.js",
     "dist/middleware.cjs",
@@ -56,10 +39,18 @@
     "dist/simcam/libSimCameraInjector.dylib",
     "dist/simcam/agentsims-camera-helper",
     "dist/simax/agentsims-ax-settings",
-    "dist/android/scrcpy-server.jar",
     "dist/android/agentsims-ax-server.jar",
-    "dist/native/agentsims-native.node"
+    "dist/native/agentsims-native.node",
+    "dist/native/agentsims-android-video.node"
   ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "type": "module",
   "exports": {
     "./middleware": {
       "types": "./dist/types/middleware.d.ts",
@@ -82,11 +73,16 @@
       "default": "./dist/babel-plugin.cjs"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
-    "build": "bun run build.ts",
+    "build": "bun run scripts/build.ts",
+    "build:android:ax": "bash android/accessibility/build.sh",
+    "build:android:video": "bash android/video/build.sh",
     "start": "node dist/agentsims.js",
-    "prepack": "bun run build && bun run licenses:third-party && bun run verify:package",
-    "licenses:third-party": "node scripts/generate-third-party-licenses.mjs",
+    "prepack": "bun run build && bun run verify:package",
     "verify:package": "node scripts/verify-package.mjs",
     "pack:dry-run": "npm pack --dry-run --json",
     "lint": "oxlint src --deny-warnings",
@@ -94,6 +90,15 @@
     "typecheck:server": "tsc -p tsconfig.server.json",
     "typecheck:web": "tsc -p tsconfig.web.json",
     "smoke:android": "bun run scripts/android-live-smoke.ts"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.7",
+    "@fontsource/geist-mono": "^5.3.0",
+    "@pierre/diffs": "^1.3.3",
+    "@pierre/trees": "^1.0.0-beta.6",
+    "inspect-webkit": "^0.0.5",
+    "sonner": "^2.0.7",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@base-ui/react": "^1.5.0",
@@ -118,13 +123,7 @@
     "typescript": "^5.7.0",
     "vite": "^8.1.3"
   },
-  "dependencies": {
-    "@babel/parser": "^7.29.7",
-    "@fontsource/geist-mono": "^5.3.0",
-    "@pierre/diffs": "^1.3.3",
-    "@pierre/trees": "^1.0.0-beta.6",
-    "inspect-webkit": "^0.0.5",
-    "sonner": "^2.0.7",
-    "ws": "^8.21.0"
+  "engines": {
+    "node": ">=20"
   }
 }

@@ -16,7 +16,7 @@
  * the same large preview payload in both the CLI and middleware artifacts.
  */
 import { relative, resolve } from "path";
-import { copyFileSync, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from "fs";
 import { spawnSync } from "child_process";
 import { build as viteBuild } from "vite";
 import react from "@vitejs/plugin-react";
@@ -25,9 +25,9 @@ import {
   assertPreviewDynamicImportsEmbedded,
   assertPreviewManifestAssetsEmbedded,
   type PreviewViteManifest,
-} from "./src/shared/preview-assets";
+} from "../src/shared/preview-assets";
 
-const root = import.meta.dir;
+const root = resolve(import.meta.dir, "..");
 const distDir = resolve(root, "dist");
 rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
@@ -37,22 +37,16 @@ function kb(n: number): string {
 }
 
 function assertUniversalMachO(path: string): void {
-  const result = spawnSync(
-    "lipo",
-    [path, "-verify_arch", "x86_64", "arm64"],
-    { encoding: "utf-8" },
-  );
+  const result = spawnSync("lipo", [path, "-verify_arch", "x86_64", "arm64"], {
+    encoding: "utf-8",
+  });
   if (result.status === 0) return;
-  const detail = result.stderr?.trim() || result.stdout?.trim() || "architecture verification failed";
+  const detail =
+    result.stderr?.trim() || result.stdout?.trim() || "architecture verification failed";
   throw new Error(`${relative(root, path)} must contain x86_64 and arm64 slices: ${detail}`);
 }
 
 // ─── 1. Bundle the browser client with Vite + React + Tailwind ────────────
-
-interface BuiltBrowserClient {
-  cssPaths: string[];
-  entryPath: string;
-}
 
 function outputFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -61,12 +55,13 @@ function outputFiles(directory: string): string[] {
   });
 }
 
-async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
+async function buildBrowserClientWithVite(): Promise<void> {
   const outDir = resolve(distDir, "preview");
   rmSync(outDir, { recursive: true, force: true });
   await viteBuild({
     configFile: false,
     root,
+    base: "/__SIM_PREVIEW_BASE__/",
     logLevel: "warn",
     plugins: [react(), tailwindcss()],
     build: {
@@ -76,7 +71,7 @@ async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
       cssCodeSplit: false,
       manifest: true,
       rollupOptions: {
-        input: resolve(root, "src/web/vite-entry.tsx"),
+        input: resolve(root, "index.html"),
         output: {
           entryFileNames: "assets/client-[hash].js",
           chunkFileNames: "assets/[name]-[hash].js",
@@ -87,45 +82,38 @@ async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
   });
 
   const files = outputFiles(outDir);
-  const manifestFile = files.find((file) =>
-    relative(outDir, file).replaceAll("\\", "/") === ".vite/manifest.json"
+  const manifestFile = files.find(
+    (file) => relative(outDir, file).replaceAll("\\", "/") === ".vite/manifest.json",
   );
   if (!manifestFile) throw new Error("Vite client build did not emit a manifest");
-  const manifest = JSON.parse(
-    readFileSync(manifestFile, "utf-8"),
-  ) as PreviewViteManifest;
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf-8")) as PreviewViteManifest;
   const entryChunk = Object.values(manifest).find((chunk) => chunk.isEntry);
   if (!entryChunk) throw new Error("Vite client build manifest omitted its entry");
   const entryPath = entryChunk.file;
   const cssPaths = entryChunk.css?.length
     ? entryChunk.css
     : files
-      .filter((file) => file.endsWith(".css"))
-      .map((file) => relative(outDir, file).replaceAll("\\", "/"));
-  const jsFile = files.find((file) =>
-    relative(outDir, file).replaceAll("\\", "/") === entryPath
-  );
+        .filter((file) => file.endsWith(".css"))
+        .map((file) => relative(outDir, file).replaceAll("\\", "/"));
+  const jsFile = files.find((file) => relative(outDir, file).replaceAll("\\", "/") === entryPath);
   if (!jsFile) throw new Error("Vite client build did not emit JS");
   const js = readFileSync(jsFile, "utf-8");
+  const htmlFile = resolve(outDir, "index.html");
+  if (!existsSync(htmlFile)) throw new Error("Vite client build did not emit HTML");
   const assetFiles = files.filter((file) => file !== manifestFile);
-  const assets = Object.fromEntries(assetFiles.map((file) => [
-    relative(outDir, file).replaceAll("\\", "/"),
-    readFileSync(file).toString("base64"),
-  ]));
-  const javascript = Object.fromEntries(
-    files.filter((file) => file.endsWith(".js")).map((file) => [
+  const assets = Object.fromEntries(
+    assetFiles.map((file) => [
       relative(outDir, file).replaceAll("\\", "/"),
-      readFileSync(file, "utf-8"),
+      readFileSync(file).toString("base64"),
     ]),
   );
-  const literalDynamicImports = assertPreviewDynamicImportsEmbedded(
-    javascript,
-    assets,
+  const javascript = Object.fromEntries(
+    files
+      .filter((file) => file.endsWith(".js"))
+      .map((file) => [relative(outDir, file).replaceAll("\\", "/"), readFileSync(file, "utf-8")]),
   );
-  const manifestAssets = assertPreviewManifestAssetsEmbedded(
-    manifest,
-    assets,
-  );
+  const literalDynamicImports = assertPreviewDynamicImportsEmbedded(javascript, assets);
+  const manifestAssets = assertPreviewManifestAssetsEmbedded(manifest, assets);
   rmSync(resolve(outDir, ".vite"), { recursive: true, force: true });
   const cssBytes = cssPaths.reduce((total, cssPath) => {
     const file = resolve(outDir, cssPath);
@@ -135,81 +123,40 @@ async function buildBrowserClientWithVite(): Promise<BuiltBrowserClient> {
   console.log(`vite client       ${kb(js.length)}`);
   console.log(
     `vite assets       ${Object.keys(assets).length} ` +
-    `(${manifestAssets.length} manifest files, ` +
-    `${literalDynamicImports.length} literal)`,
+      `(${manifestAssets.length} manifest files, ` +
+      `${literalDynamicImports.length} literal)`,
   );
-  return { cssPaths, entryPath };
+  console.log(`preview html      ${kb(readFileSync(htmlFile).length)}`);
 }
 
-const {
-  cssPaths: clientCssPaths,
-  entryPath: clientEntryPath,
-} = await buildBrowserClientWithVite();
+await buildBrowserClientWithVite();
 
-// ─── 2. Reference the embedded client asset from preview HTML ────────────
+// ─── 2. Stamp package metadata into server bundles ─────────────────────
 
-// Committed ICO copy of Simulator.app's AppIcon, inlined as a data URI so the
-// preview tab shows the same icon as the native app.
-const faviconBytes = readFileSync(resolve(root, "src/web/simulator-icon.ico"));
-const faviconTag = `<link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,${faviconBytes.toString("base64")}">`;
-console.log(`favicon           ${kb(faviconBytes.length)}`);
-
-const html = `<!doctype html>
-<html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Simulator Preview</title>
-${faviconTag}
-<style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden}</style>
-${clientCssPaths.map((path) => `<link rel="stylesheet" href="__SIM_PREVIEW_BASE__/${path}">`).join("\n")}
-</head><body>
-<div id="root"></div>
-<!--__SIM_PREVIEW_CONFIG__-->
-<script type="module" src="__SIM_PREVIEW_BASE__/${clientEntryPath}"></script>
-</body></html>`;
-
-writeFileSync(resolve(distDir, "preview", "index.html"), html);
-console.log(`preview html      ${kb(html.length)}`);
-
-const pkgVersion = JSON.parse(
-  readFileSync(resolve(root, "package.json"), "utf-8"),
-).version as string;
+const pkgVersion = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"))
+  .version as string;
 
 const PREVIEW_DEFINE = {
   __AGENTSIMS_VERSION__: JSON.stringify(pkgVersion),
 };
 
-// ─── 2b. Android scrcpy server artifact ──────────────────────────────────
+// ─── 2b. First-party Android accessibility server ────────────────────────
 
-const scrcpyServerSource = resolve(root, "vendor/scrcpy-server/scrcpy-server");
 const androidDistDir = resolve(distDir, "android");
-if (existsSync(scrcpyServerSource)) {
-  mkdirSync(androidDistDir, { recursive: true });
-  copyFileSync(scrcpyServerSource, resolve(androidDistDir, "scrcpy-server.jar"));
-  console.log(`dist/android/scrcpy-server.jar ${kb(readFileSync(scrcpyServerSource).length)}`);
-} else {
-  console.warn("dist/android/scrcpy-server.jar skipped (vendor/scrcpy-server/scrcpy-server missing)");
-}
-
-const androidAxServerSource = resolve(
-  root,
-  "vendor/agentsims-ax-server/agentsims-ax-server.jar",
+mkdirSync(androidDistDir, { recursive: true });
+const androidAxServerOutput = resolve(androidDistDir, "agentsims-ax-server.jar");
+const androidAxServerBuild = spawnSync(
+  "bash",
+  [resolve(root, "android/accessibility/build.sh"), androidAxServerOutput],
+  { stdio: "inherit" },
 );
-if (existsSync(androidAxServerSource)) {
-  mkdirSync(androidDistDir, { recursive: true });
-  copyFileSync(
-    androidAxServerSource,
-    resolve(androidDistDir, "agentsims-ax-server.jar"),
-  );
-  console.log(
-    `dist/android/agentsims-ax-server.jar ${kb(readFileSync(androidAxServerSource).length)}`,
-  );
-} else {
-  console.warn(
-    "dist/android/agentsims-ax-server.jar skipped " +
-    "(run Sources/AndroidAxServer/build.sh)",
-  );
+if (androidAxServerBuild.status !== 0) {
+  console.error("Android accessibility server build failed.");
+  process.exit(androidAxServerBuild.status ?? 1);
 }
+console.log(
+  `dist/android/agentsims-ax-server.jar ${kb(readFileSync(androidAxServerOutput).length)}`,
+);
 
 // ─── 3. Middleware ESM (agentsims/middleware) ─────────────────────────────
 
@@ -223,7 +170,25 @@ const mwResult = await Bun.build({
   format: "esm",
   minify: true,
   outdir: distDir,
-  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws", "inspect-webkit"],
+  external: [
+    "fs",
+    "path",
+    "os",
+    "child_process",
+    "url",
+    "net",
+    "tls",
+    "crypto",
+    "stream",
+    "events",
+    "http",
+    "https",
+    "zlib",
+    "buffer",
+    "module",
+    "ws",
+    "inspect-webkit",
+  ],
   define: PREVIEW_DEFINE,
 });
 if (!mwResult.success) {
@@ -241,7 +206,25 @@ const mwCjsResult = await Bun.build({
   minify: true,
   outdir: distDir,
   naming: "middleware.cjs",
-  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws", "inspect-webkit"],
+  external: [
+    "fs",
+    "path",
+    "os",
+    "child_process",
+    "url",
+    "net",
+    "tls",
+    "crypto",
+    "stream",
+    "events",
+    "http",
+    "https",
+    "zlib",
+    "buffer",
+    "module",
+    "ws",
+    "inspect-webkit",
+  ],
   define: PREVIEW_DEFINE,
 });
 if (!mwCjsResult.success) {
@@ -255,8 +238,10 @@ const middlewareCjsPath = resolve(distDir, "middleware.cjs");
 // replace those unreachable build-machine fallbacks before publishing. This
 // keeps the artifact relocatable and avoids exposing the builder's filesystem
 // layout in the npm package.
-const middlewareCjsSource = readFileSync(middlewareCjsPath, "utf-8")
-  .replaceAll(root, "/__agentsims_runtime__");
+const middlewareCjsSource = readFileSync(middlewareCjsPath, "utf-8").replaceAll(
+  root,
+  "/__agentsims_runtime__",
+);
 writeFileSync(
   middlewareCjsPath,
   `"use strict";\nglobalThis.__AGENTSIMS_DIST_DIR__ = __dirname;\n${middlewareCjsSource}`,
@@ -295,7 +280,11 @@ async function buildNodeExport({
 
 await buildNodeExport({ entry: "src/rn/metro.ts", naming: "metro.js", format: "esm" });
 await buildNodeExport({ entry: "src/rn/metro.ts", naming: "metro.cjs", format: "cjs" });
-await buildNodeExport({ entry: "src/rn/babel-plugin.ts", naming: "babel-plugin.cjs", format: "cjs" });
+await buildNodeExport({
+  entry: "src/rn/babel-plugin.ts",
+  naming: "babel-plugin.cjs",
+  format: "cjs",
+});
 await buildNodeExport({ entry: "src/shared/state.ts", naming: "state.js", format: "esm" });
 await buildNodeExport({ entry: "src/shared/state.ts", naming: "state.cjs", format: "cjs" });
 const babelPluginPath = resolve(distDir, "babel-plugin.cjs");
@@ -313,7 +302,24 @@ const binJsResult = await Bun.build({
   minify: true,
   outdir: distDir,
   naming: "agentsims.js",
-  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws"],
+  external: [
+    "fs",
+    "path",
+    "os",
+    "child_process",
+    "url",
+    "net",
+    "tls",
+    "crypto",
+    "stream",
+    "events",
+    "http",
+    "https",
+    "zlib",
+    "buffer",
+    "module",
+    "ws",
+  ],
   define: PREVIEW_DEFINE,
 });
 if (!binJsResult.success) {
@@ -331,13 +337,18 @@ const typeBuild = spawnSync(
   "bunx",
   [
     "tsc",
-    "-p", resolve(root, "tsconfig.server.json"),
+    "-p",
+    resolve(root, "tsconfig.server.json"),
     "--declaration",
     "--emitDeclarationOnly",
-    "--declarationMap", "false",
-    "--noEmit", "false",
-    "--rootDir", resolve(root, "src"),
-    "--outDir", resolve(distDir, "types"),
+    "--declarationMap",
+    "false",
+    "--noEmit",
+    "false",
+    "--rootDir",
+    resolve(root, "src"),
+    "--outDir",
+    resolve(distDir, "types"),
   ],
   { stdio: "inherit" },
 );
@@ -353,10 +364,7 @@ console.log("dist/types");
 
 const camBuild = spawnSync(
   "bash",
-  [
-    resolve(root, "Sources/SimCameraInjector/build.sh"),
-    resolve(distDir, "simcam"),
-  ],
+  [resolve(root, "ios/camera-injector/build.sh"), resolve(distDir, "simcam")],
   { stdio: "inherit" },
 );
 if (camBuild.status !== 0) {
@@ -368,10 +376,7 @@ assertUniversalMachO(resolve(distDir, "simcam", "libSimCameraInjector.dylib"));
 
 const helperBuild = spawnSync(
   "bash",
-  [
-    resolve(root, "Sources/SimCameraHelper/build.sh"),
-    resolve(distDir, "simcam"),
-  ],
+  [resolve(root, "ios/camera-helper/build.sh"), resolve(distDir, "simcam")],
   { stdio: "inherit" },
 );
 if (helperBuild.status !== 0) {
@@ -385,10 +390,7 @@ assertUniversalMachO(resolve(distDir, "simcam", "agentsims-camera-helper"));
 
 const axSettingsBuild = spawnSync(
   "bash",
-  [
-    resolve(root, "Sources/SimAXSettings/build.sh"),
-    resolve(distDir, "simax"),
-  ],
+  [resolve(root, "ios/accessibility-settings/build.sh"), resolve(distDir, "simax")],
   { stdio: "inherit" },
 );
 if (axSettingsBuild.status !== 0) {
@@ -404,10 +406,7 @@ assertUniversalMachO(resolve(distDir, "simax", "agentsims-ax-settings"));
 
 const nativeBuild = spawnSync(
   "bash",
-  [
-    resolve(root, "Sources/SimNative/build.sh"),
-    resolve(distDir, "native"),
-  ],
+  [resolve(root, "ios/native/build.sh"), resolve(distDir, "native")],
   { stdio: "inherit" },
 );
 if (nativeBuild.status !== 0) {
@@ -416,5 +415,20 @@ if (nativeBuild.status !== 0) {
 }
 console.log("dist/native/agentsims-native.node");
 assertUniversalMachO(resolve(distDir, "native", "agentsims-native.node"));
+
+// ─── 9. Native Android emulator video encoder ────────────────────────────
+// A deliberately narrow Rust N-API boundary: MMAP RGBA -> FFmpeg H.264/AVCC.
+// It is built for the current host architecture; platform release packaging
+// will produce one artifact per Bun/Node target rather than a universal file.
+const androidVideoBuild = spawnSync(
+  "bash",
+  [resolve(root, "android/video/build.sh"), resolve(distDir, "native")],
+  { stdio: "inherit" },
+);
+if (androidVideoBuild.status !== 0) {
+  console.error("Android video native addon build failed.");
+  process.exit(androidVideoBuild.status ?? 1);
+}
+console.log("dist/native/agentsims-android-video.node");
 
 console.log("Done.");

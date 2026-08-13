@@ -98,9 +98,9 @@ describe("preview assets", () => {
       mkdirSync(join(previewRoot, "assets"));
       writeFileSync(
         join(previewRoot, "index.html"),
-        '<link rel="stylesheet" href="__SIM_PREVIEW_BASE__/assets/client.css">' +
+        '<link rel="stylesheet" href="/__SIM_PREVIEW_BASE__/assets/client.css">' +
           '<!--__SIM_PREVIEW_CONFIG__-->' +
-          '<script src="__SIM_PREVIEW_BASE__/assets/client.js"></script>',
+          '<script src="/__SIM_PREVIEW_BASE__/assets/client.js"></script>',
       );
       writeFileSync(join(previewRoot, "assets", "client.js"), "export default 1;");
       writeFileSync(join(previewRoot, "assets", "client.css"), ":root{color-scheme:dark}");

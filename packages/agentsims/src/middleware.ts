@@ -660,7 +660,7 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
       const state = selectDeviceState(states, selectedDevice);
       let html = getPreviewHtml();
       const previewBase = base === "" || base === "/" ? "" : base;
-      html = html.replaceAll("__SIM_PREVIEW_BASE__", previewBase);
+      html = html.replaceAll("/__SIM_PREVIEW_BASE__", previewBase);
 
       if (!state) {
         // Empty-state UI still polls /exec (boot/list helpers), so the page

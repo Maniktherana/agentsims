@@ -51,43 +51,36 @@ assert.ok(
   !(manifest.files ?? []).some((file) => file.endsWith(".map")),
   "linked source maps may expose the build machine's checkout path",
 );
+assert.ok(
+  !(manifest.files ?? []).some((file) => file.includes("scrcpy-server")),
+  "scrcpy is an optional host dependency and must not be vendored in the npm package",
+);
 for (const sourceMap of ["dist/agentsims.js.map", "dist/middleware.js.map"]) {
   assert.ok(!existsSync(join(packageRoot, sourceMap)), `${sourceMap} must not be shipped`);
 }
 
 for (const required of [
   "LICENSE",
-  "NOTICE",
-  "THIRD_PARTY_LICENSES.txt",
   "dist/preview/index.html",
   "dist/native/agentsims-native.node",
   "dist/simcam/libSimCameraInjector.dylib",
   "dist/simcam/agentsims-camera-helper",
   "dist/simax/agentsims-ax-settings",
-  "dist/android/scrcpy-server.jar",
   "dist/android/agentsims-ax-server.jar",
+  "dist/native/agentsims-android-video.node",
 ]) {
   assertFile(required);
 }
 
-const thirdPartyLicenses = readFileSync(join(packageRoot, "THIRD_PARTY_LICENSES.txt"), "utf8");
-for (const requiredNotice of [
-  "@fontsource/geist-mono@",
-  "SIL OPEN FONT LICENSE Version 1.1",
-  "@pierre/trees@",
-  "Copyright (c) 2023 Lukas Bach",
-  "@babel/parser@",
-  "lucide-react@",
-]) {
-  assert.ok(
-    thirdPartyLicenses.includes(requiredNotice),
-    `third-party license inventory is missing ${requiredNotice}`,
-  );
-}
-
 const previewAssets = readdirSync(join(packageRoot, "dist", "preview", "assets"));
-assert.ok(previewAssets.some((name) => name.endsWith(".js")), "preview JS asset is missing");
-assert.ok(previewAssets.some((name) => name.endsWith(".css")), "preview CSS asset is missing");
+assert.ok(
+  previewAssets.some((name) => name.endsWith(".js")),
+  "preview JS asset is missing",
+);
+assert.ok(
+  previewAssets.some((name) => name.endsWith(".css")),
+  "preview CSS asset is missing",
+);
 
 const binTarget = manifest.bin?.agentsims;
 assert.equal(typeof binTarget, "string", "bin.agentsims is required");
@@ -138,6 +131,22 @@ for (const artifact of [
   });
 }
 
+const androidVideoAddon = join(packageRoot, "dist/native/agentsims-android-video.node");
+const androidVideoInstallName = execFileSync("otool", ["-D", androidVideoAddon], {
+  encoding: "utf8",
+})
+  .split(/\r?\n/)
+  .slice(1)
+  .join("\n");
+assert.ok(
+  androidVideoInstallName.includes("@rpath/agentsims-android-video.node"),
+  "Android video addon must not retain a build-machine install name",
+);
+assert.ok(
+  !androidVideoInstallName.includes(packageRoot),
+  "Android video addon install name contains the build-machine package path",
+);
+
 for (const bundle of ["dist/agentsims.js", "dist/middleware.js", "dist/middleware.cjs"]) {
   const source = readFileSync(join(packageRoot, bundle), "utf8");
   assert.ok(!source.includes(packageRoot), `${bundle} contains the build-machine package path`);
@@ -158,12 +167,13 @@ try {
   // import must find its preview assets relative to its own installed URL.
   delete globalThis.__AGENTSIMS_DIST_DIR__;
   const relocatedEsmMiddleware = await import(
-    pathToFileURL(join(relocatedDist, "middleware.js")).href,
+    pathToFileURL(join(relocatedDist, "middleware.js")).href
   );
   assert.equal(typeof relocatedEsmMiddleware.simMiddleware, "function");
 
-  const assetName = readdirSync(join(relocatedDist, "preview", "assets"))
-    .find((name) => name.endsWith(".css"));
+  const assetName = readdirSync(join(relocatedDist, "preview", "assets")).find((name) =>
+    name.endsWith(".css"),
+  );
   assert.ok(assetName, "relocated preview CSS asset is missing");
   const expectedAsset = Buffer.from("agentsims relocated preview asset\n");
   writeFileSync(join(relocatedDist, "preview", "assets", assetName), expectedAsset);

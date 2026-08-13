@@ -53,7 +53,10 @@ const WS_MSG_CONFIG = 0x82;
 const MJPEG_TRAILER = Buffer.from("\r\n", "ascii");
 
 function mjpegHeader(jpegLength: number): Buffer {
-  return Buffer.from(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpegLength}\r\n\r\n`, "ascii");
+  return Buffer.from(
+    `--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpegLength}\r\n\r\n`,
+    "ascii",
+  );
 }
 
 function avccSeed(jpeg: Uint8Array): Buffer {
@@ -113,13 +116,16 @@ export class DeviceSession {
   /** Begin capture and resolve only after the native pipeline is ready. Idempotent. */
   start(): Promise<void> {
     if (this.phase === "running") return Promise.resolve();
-    if (this.phase === "stopped") return Promise.reject(new Error(`Device session ${this.udid} is stopped`));
+    if (this.phase === "stopped")
+      return Promise.reject(new Error(`Device session ${this.udid} is stopped`));
     if (this.startPromise) return this.startPromise;
 
     this.phase = "starting";
     this.startPromise = (async () => {
       await this.capture.start();
-      const unsubscribe = await this.capture.subscribeMjpeg((frame) => this.onSharedMjpegFrame(frame));
+      const unsubscribe = await this.capture.subscribeMjpeg((frame) =>
+        this.onSharedMjpegFrame(frame),
+      );
       if (this.phase === "stopped") {
         unsubscribe();
         await this.capture.stop();
@@ -129,7 +135,9 @@ export class DeviceSession {
       this.phase = "running";
     })().catch(async (error) => {
       this.phase = "stopped";
-      try { await this.capture.stop(); } catch {}
+      try {
+        await this.capture.stop();
+      } catch {}
       throw error;
     });
     return this.startPromise;
@@ -180,7 +188,9 @@ export class DeviceSession {
   handleMjpeg(req: IncomingMessage, res: ServerResponse): void {
     const raw = new URL(req.url ?? "", "http://x").searchParams.get("raw") === "1";
     res.writeHead(200, {
-      "Content-Type": raw ? "application/octet-stream" : "multipart/x-mixed-replace; boundary=frame",
+      "Content-Type": raw
+        ? "application/octet-stream"
+        : "multipart/x-mixed-replace; boundary=frame",
       "Cache-Control": "no-cache, no-store",
       Connection: "keep-alive",
       ...CORS,
@@ -242,17 +252,19 @@ export class DeviceSession {
   }
 
   handleScreenshot(_req: IncomingMessage, res: ServerResponse): void {
-    void this.captureScreenshot().then((jpeg) => {
-      res.writeHead(200, {
-        "Content-Type": "image/jpeg",
-        "Content-Length": String(jpeg.length),
-        "Cache-Control": "no-store",
-        ...CORS,
+    void this.captureScreenshot()
+      .then((jpeg) => {
+        res.writeHead(200, {
+          "Content-Type": "image/jpeg",
+          "Content-Length": String(jpeg.length),
+          "Cache-Control": "no-store",
+          ...CORS,
+        });
+        res.end(jpeg);
+      })
+      .catch((error) => {
+        this.sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       });
-      res.end(jpeg);
-    }).catch((error) => {
-      this.sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-    });
   }
 
   handleAx(_req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -264,7 +276,11 @@ export class DeviceSession {
   }
 
   /** Run a native AX probe and stream its JSON, or 503 with `errorCode` if it's not ready. */
-  private async serveAxJson(res: ServerResponse, probe: () => Promise<string>, errorCode: string): Promise<void> {
+  private async serveAxJson(
+    res: ServerResponse,
+    probe: () => Promise<string>,
+    errorCode: string,
+  ): Promise<void> {
     try {
       const json = await probe();
       if (res.writableEnded) return;
@@ -284,7 +300,9 @@ export class DeviceSession {
     this.hidSockets.add(ws);
     const cfg = this.configFrame();
     if (cfg) ws.send(cfg); // seed dimensions/orientation, replacing the old poll
-    ws.on("message", (data: Buffer) => this.handleHidMessage(Buffer.isBuffer(data) ? data : Buffer.from(data)));
+    ws.on("message", (data: Buffer) =>
+      this.handleHidMessage(Buffer.isBuffer(data) ? data : Buffer.from(data)),
+    );
     ws.on("close", () => this.hidSockets.delete(ws));
     ws.on("error", () => this.hidSockets.delete(ws));
   }
@@ -307,7 +325,9 @@ export class DeviceSession {
     switch (tag) {
       case 0x03: {
         const m = json<{ type: string; x: number; y: number; edge?: number }>();
-        if (m) this.hid.touch(m.type as "begin" | "move" | "end", m.x, m.y, W, H, m.edge ?? 0);
+        if (m) {
+          this.hid.touch(m.type as "begin" | "move" | "end", m.x, m.y, W, H, m.edge ?? 0);
+        }
         break;
       }
       case 0x04: {
@@ -322,7 +342,9 @@ export class DeviceSession {
       }
       case 0x05: {
         const m = json<{ type: string; x1: number; y1: number; x2: number; y2: number }>();
-        if (m) this.hid.multiTouch(m.type as "begin" | "move" | "end", m.x1, m.y1, m.x2, m.y2, W, H);
+        if (m) {
+          this.hid.multiTouch(m.type as "begin" | "move" | "end", m.x1, m.y1, m.x2, m.y2, W, H);
+        }
         break;
       }
       case 0x06: {
@@ -334,7 +356,7 @@ export class DeviceSession {
         const m = json<{ orientation: string }>();
         if (!m) break;
         const value = ORIENTATION_BY_NAME[m.orientation];
-        if (value != null && await this.hid.orientation(value)) {
+        if (value != null && (await this.hid.orientation(value))) {
           if (m.orientation !== this.orientation) {
             this.orientation = m.orientation;
             this.broadcastConfig();
@@ -375,7 +397,10 @@ export class DeviceSession {
 
   private configFrame(): Buffer | null {
     if (this.width === 0 && this.height === 0) return null;
-    return Buffer.concat([Buffer.from([WS_MSG_CONFIG]), Buffer.from(JSON.stringify(this.screenConfig()))]);
+    return Buffer.concat([
+      Buffer.from([WS_MSG_CONFIG]),
+      Buffer.from(JSON.stringify(this.screenConfig())),
+    ]);
   }
 
   private broadcastConfig(): void {
