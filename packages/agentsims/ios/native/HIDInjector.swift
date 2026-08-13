@@ -64,11 +64,6 @@ actor HIDInjector {
     private typealias IndigoDigitalCrownFunc = @convention(c) (Double) -> UnsafeMutableRawPointer?
     private var digitalCrownFunc: IndigoDigitalCrownFunc?
 
-    // NOTE: scroll is NOT a native HID event on the simulator — see the "Scroll
-    // events" section below. Device Hub's trackpad-capture path requires private
-    // Apple HID entitlements an unprivileged helper can't have, and synthetic
-    // scroll events are ignored by iOS, so we scroll via a touch drag instead.
-
     func setup(deviceUDID: String) throws {
         SimFrameworks.load()
         guard let device = FrameCapture.findSimDevice(udid: deviceUDID) else {
@@ -308,18 +303,18 @@ actor HIDInjector {
     // deltas are large (~120/notch); 1.0 maps a notch to a full-screen drag, which
     // matches the feel of a wheel "page". Tunable.
     private static let scrollDragGain: Double = 1.0
-    private static let scrollEdgeMargin: Double = 0.08   // re-anchor inside this margin
+    private static let scrollEdgeMargin: Double = 0.08
     private static let scrollGestureIdle: TimeInterval = 0.1
 
     private var scrollDragActive = false
     private var scrollFingerX = 0.5
     private var scrollFingerY = 0.5
-    private var scrollAnchorX = 0.5   // where the gesture (re)starts — under the cursor
+    private var scrollAnchorX = 0.5
     private var scrollAnchorY = 0.5
     private var scrollEndWork: DispatchWorkItem?
 
-    private func clampFinger(_ v: Double) -> Double {
-        min(max(v, HIDInjector.scrollEdgeMargin), 1 - HIDInjector.scrollEdgeMargin)
+    private func clampFinger(_ value: Double) -> Double {
+        min(max(value, HIDInjector.scrollEdgeMargin), 1 - HIDInjector.scrollEdgeMargin)
     }
 
     /// Touch down to (re)start the scroll drag, then let iOS register the

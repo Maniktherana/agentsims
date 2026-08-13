@@ -1,8 +1,4 @@
-import {
-  execFile,
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { existsSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -101,19 +97,14 @@ function adb(args: string[], timeout = 15_000): Promise<string> {
 export function androidAxServerCandidates(): string[] {
   const configuredDist = configuredDistDirectory();
   return [
-    ...(configuredDist
-      ? [resolve(configuredDist, "android", "agentsims-ax-server.jar")]
-      : []),
+    ...(configuredDist ? [resolve(configuredDist, "android", "agentsims-ax-server.jar")] : []),
     // Source layout: src/android/ax-server.ts -> package root.
-    resolve(MODULE_DIR, "..", "..", "vendor", "agentsims-ax-server", "agentsims-ax-server.jar"),
     resolve(MODULE_DIR, "..", "..", "dist", "android", "agentsims-ax-server.jar"),
     // Bundled layout: dist/middleware.js sits beside dist/android.
     resolve(MODULE_DIR, "android", "agentsims-ax-server.jar"),
     resolve(MODULE_DIR, "..", "android", "agentsims-ax-server.jar"),
     // Dev commands may run from either the package or monorepo root.
-    resolve(process.cwd(), "vendor", "agentsims-ax-server", "agentsims-ax-server.jar"),
     resolve(process.cwd(), "dist", "android", "agentsims-ax-server.jar"),
-    resolve(process.cwd(), "packages", "agentsims", "vendor", "agentsims-ax-server", "agentsims-ax-server.jar"),
     resolve(process.cwd(), "packages", "agentsims", "dist", "android", "agentsims-ax-server.jar"),
   ];
 }
@@ -122,7 +113,7 @@ export function resolveAndroidAxServer(): string {
   const path = androidAxServerCandidates().find((candidate) => existsSync(candidate));
   if (!path) {
     throw new Error(
-      "Android AX server artifact not found. Build it with Sources/AndroidAxServer/build.sh or run the Agentsims build.",
+      "Android AX server artifact not found. Build it with android/accessibility/build.sh or run the Agentsims build.",
     );
   }
   return path;
@@ -389,10 +380,7 @@ export function getAndroidAxServer(serial: string): AndroidAxServerClient {
   return client;
 }
 
-export function readAndroidAxXml(
-  serial: string,
-  mode: AndroidAxMode = "fresh",
-): Promise<string> {
+export function readAndroidAxXml(serial: string, mode: AndroidAxMode = "fresh"): Promise<string> {
   return getAndroidAxServer(serial).snapshot(mode);
 }
 

@@ -72,9 +72,7 @@ function locateCameraHelper(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const configuredDist = configuredDistDirectory();
   const candidates = [
-    ...(configuredDist
-      ? [join(configuredDist, "simcam", "agentsims-camera-helper")]
-      : []),
+    ...(configuredDist ? [join(configuredDist, "simcam", "agentsims-camera-helper")] : []),
     join(here, "..", "..", "dist", "simcam", "agentsims-camera-helper"),
     join(here, "simcam", "agentsims-camera-helper"),
     join(dirname(process.execPath), "simcam", "agentsims-camera-helper"),
@@ -87,12 +85,12 @@ function locateCameraHelper(): string | null {
 
 function buildCameraHelper(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  const buildScript = join(here, "..", "..", "Sources", "SimCameraHelper", "build.sh");
-  if (!existsSync(buildScript)) throw new Error("SimCameraHelper source not found");
+  const buildScript = join(here, "..", "..", "ios", "camera-helper", "build.sh");
+  if (!existsSync(buildScript)) throw new Error("iOS camera helper source not found");
   const outDir = join(here, "..", "..", "dist", "simcam");
   execFileSync("bash", [buildScript, outDir], { stdio: "ignore" });
   const helper = locateCameraHelper();
-  if (!helper) throw new Error("SimCameraHelper build succeeded but binary was not found");
+  if (!helper) throw new Error("iOS camera helper build succeeded but binary was not found");
   return helper;
 }
 
@@ -120,17 +118,23 @@ function execAgentsimsCli(args: string[]): Promise<string> {
   const command = bin === "agentsims" ? "agentsims" : process.execPath;
   const commandArgs = bin === "agentsims" ? args : [bin, ...args];
   return new Promise((resolvePromise, reject) => {
-    execFile(command, commandArgs, { encoding: "utf8", timeout: 30_000 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr.trim() || error.message));
-        return;
-      }
-      resolvePromise(stdout);
-    });
+    execFile(
+      command,
+      commandArgs,
+      { encoding: "utf8", timeout: 30_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || error.message));
+          return;
+        }
+        resolvePromise(stdout);
+      },
+    );
   });
 }
 
-const NON_UI_BUNDLE_RE = /(WidgetRenderer|ExtensionHost|\.extension(\.|$)|Service|PlaceholderApp|InCallService|CallUI|InCallUI|com\.apple\.Preferences\.Cellular|com\.apple\.purplebuddy|com\.apple\.chrono|com\.apple\.shuttle|com\.apple\.springboard|com\.apple\.SpringBoard|com\.android\.|com\.google\.)/i;
+const NON_UI_BUNDLE_RE =
+  /(WidgetRenderer|ExtensionHost|\.extension(\.|$)|Service|PlaceholderApp|InCallService|CallUI|InCallUI|com\.apple\.Preferences\.Cellular|com\.apple\.purplebuddy|com\.apple\.chrono|com\.apple\.shuttle|com\.apple\.springboard|com\.apple\.SpringBoard|com\.android\.|com\.google\.)/i;
 
 function isUserFacingBundle(bundleId: string): boolean {
   return !bundleId.startsWith("com.apple.") && !NON_UI_BUNDLE_RE.test(bundleId);
@@ -204,7 +208,9 @@ export async function switchIosCameraSource(
     ...(arg ? { arg } : {}),
   });
   if (reply.ok !== true) {
-    throw new Error(typeof reply.error === "string" ? reply.error : "camera helper rejected switch");
+    throw new Error(
+      typeof reply.error === "string" ? reply.error : "camera helper rejected switch",
+    );
   }
 }
 
@@ -242,15 +248,22 @@ export async function attachOrSwitchIosCameraSource(
 export async function listIosWebcams(): Promise<HostAudioDevice[]> {
   if (process.platform !== "darwin") return [];
   return await new Promise((resolvePromise, reject) => {
-    execFile(cameraHelperPath(), ["--list"], { encoding: "utf8", timeout: 5_000 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr.trim() || error.message));
-        return;
-      }
-      resolvePromise(stdout.split(/\r?\n/).flatMap((line) => {
-        const [id, label] = line.split("\t");
-        return id && label ? [{ id, label }] : [];
-      }));
-    });
+    execFile(
+      cameraHelperPath(),
+      ["--list"],
+      { encoding: "utf8", timeout: 5_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || error.message));
+          return;
+        }
+        resolvePromise(
+          stdout.split(/\r?\n/).flatMap((line) => {
+            const [id, label] = line.split("\t");
+            return id && label ? [{ id, label }] : [];
+          }),
+        );
+      },
+    );
   });
 }

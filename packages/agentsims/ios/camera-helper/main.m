@@ -40,7 +40,7 @@
 #include <unistd.h>
 #include <stdatomic.h>
 #include <mach/mach_time.h>
-#include "../SimCameraInjector/include/SimCamShared.h"
+#include "../camera-injector/include/SimCamShared.h"
 
 #pragma mark - Globals (shm + writer)
 

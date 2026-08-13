@@ -86,6 +86,29 @@ private func u32(_ v: Int) -> UInt32 {
 
 // MARK: - Capture
 
+@NodeActor private struct CaptureBuffer {
+    private var buffer: NodeArrayBuffer
+
+    init(initialCapacity: Int) throws {
+        buffer = try NodeArrayBuffer(capacity: initialCapacity)
+    }
+
+    mutating func setData(_ data: Data) throws -> NodeTypedArray<UInt8> {
+        let hadSpace = try buffer.withUnsafeMutableBytes { buffer in
+            guard data.count <= buffer.count else { return false }
+            _ = data.copyBytes(to: buffer)
+            return true
+        }
+
+        if !hadSpace {
+            buffer = try NodeArrayBuffer(capacity: data.count)
+            _ = try buffer.withUnsafeMutableBytes { data.copyBytes(to: $0) }
+        }
+
+        return try NodeTypedArray<UInt8>(for: buffer, count: data.count)
+    }
+}
+
 /// In-process frame capture + encode for one simulator. MJPEG frames are always
 /// produced; H.264/AVCC runs only while `setAvccActive(true)`. Encoded frames are
 /// produced on a native encode thread and marshalled onto the JS thread through a
@@ -164,82 +187,6 @@ private func u32(_ v: Int) -> UInt32 {
     }
 }
 
-@NodeActor private struct CaptureBuffer {
-    private var buffer: NodeArrayBuffer
-
-    init(initialCapacity: Int) throws {
-        buffer = try NodeArrayBuffer(capacity: initialCapacity)
-    }
-
-    mutating func setData(_ data: Data) throws -> NodeTypedArray<UInt8> {
-        let hadSpace = try buffer.withUnsafeMutableBytes { buffer in
-            guard data.count <= buffer.count else { return false }
-            _ = data.copyBytes(to: buffer)
-            return true
-        }
-
-        if !hadSpace {
-            // allocate a new buffer with sufficient capacity. old buffer will be GC'd.
-            buffer = try NodeArrayBuffer(capacity: data.count)
-            _ = try buffer.withUnsafeMutableBytes { data.copyBytes(to: $0) }
-        }
-
-        return try NodeTypedArray<UInt8>(for: buffer, count: data.count)
-    }
-}
-
-/// Host-side encoder for Android Emulator's gRPC MMAP framebuffer. The emulator
-/// writes bottom-up RGBA frames into `path`; frame metadata calls `frame()`,
-/// which copies only the newest pending frame and encodes it with VideoToolbox.
-@NodeClass @NodeActor final class AndroidCapture {
-    private let path: String
-    private let queue: NodeAsyncQueue
-    private var encoder: AndroidMmapEncoder?
-    private var forceKeyframe = true
-
-    @NodeConstructor init(_ path: String) throws {
-        self.path = path
-        queue = try NodeAsyncQueue(label: "androidCapture", maxQueueSize: 16)
-    }
-
-    @NodeMethod func subscribe(onFrame: NodeFunction) async throws -> NodeFunction {
-        guard encoder == nil else { throw Errors.alreadySubscribed }
-        var buffer = try CaptureBuffer(initialCapacity: 1024 * 1024)
-        let next = try AndroidMmapEncoder(path: path) { [self] dimensions, data, flags in
-            try? await queue.run {
-                let array = try buffer.setData(data)
-                _ = try? await onFrame.call([
-                    array,
-                    dimensions.width, dimensions.height,
-                    Int(flags),
-                ]).as(NodePromise.self)?.value
-            }
-        }
-        encoder = next
-        return try NodeFunction { [next] () -> Void in next.stop() }
-    }
-
-    @NodeMethod func frame(_ width: Int, _ height: Int) {
-        encoder?.submit(width: width, height: height, forceKeyframe: forceKeyframe)
-        forceKeyframe = false
-    }
-
-    @NodeMethod func requestKeyframe() {
-        forceKeyframe = true
-    }
-
-    @NodeMethod func stop() {
-        encoder?.stop()
-        encoder = nil
-    }
-
-    deinit { encoder?.stop() }
-
-    enum Errors: Error {
-        case alreadySubscribed
-    }
-}
-
 // MARK: - Accessibility
 
 /// Run a blocking accessibility query off the JS event loop (on a background
@@ -261,7 +208,6 @@ private func axQuery(
 #NodeModule(exports: [
     "SimHID": SimHID.deferredConstructor,
     "SimCapture": SimCapture.deferredConstructor,
-    "AndroidCapture": AndroidCapture.deferredConstructor,
     "hostAudioSnapshot": try NodeFunction { () throws -> String in
         try HostAudio.snapshotJSON()
     },

@@ -4,10 +4,10 @@
 // spawned helper. The JS bindings are written directly in Swift
 // with node-swift (NodeAPI), so there is no Objective-C++ glue: SimHID /
 // SimCapture are NodeClasses and the accessibility dumps are async NodeFunctions
-// (see Sources/SimNative/sim-module.swift). The reverse-engineered streaming
+// (see ios/native/sim-module.swift). The reverse-engineered streaming
 // logic in SimStreamHelper is reused verbatim.
 //
-// The actual .node is produced by Sources/SimNative/build.sh, which drives
+// The actual .node is produced by ios/native/build.sh, which drives
 // `swift build --arch arm64 --arch x86_64` for a universal binary and links
 // napi_* with `-undefined dynamic_lookup` (resolved against the host Node/Bun
 // at dlopen). `node-swift rebuild` is intentionally not used: it builds a single
@@ -36,6 +36,7 @@ let package = Package(
                 .product(name: "NodeAPI", package: "node-swift"),
                 .product(name: "NodeModuleSupport", package: "node-swift"),
             ],
+            path: "ios/native",
             exclude: [
                 "build.sh",
             ],

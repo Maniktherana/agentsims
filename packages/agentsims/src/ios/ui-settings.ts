@@ -16,7 +16,7 @@ const __dirname = dirnameOf(import.meta.url);
 // app. Three (`appearance`, `increase-contrast`, `text-size`) ride on
 // `simctl ui`; the rest have no simctl verb, so they go through the
 // sim-ax-settings helper spawned inside the simulator (see
-// Sources/SimAXSettings), which drives the same private libAccessibility /
+// ios/accessibility-settings), which drives the same private libAccessibility /
 // MediaAccessibility setters the Devices app uses.
 
 export const CONTENT_SIZE_CATEGORIES = [
@@ -152,9 +152,7 @@ export function parseUiArgs(args: string[]): UiArgs {
 export function locateAxSettingsTool(): string | null {
   const configuredDist = configuredDistDirectory();
   const candidates = [
-    ...(configuredDist
-      ? [join(configuredDist, "simax", "agentsims-ax-settings")]
-      : []),
+    ...(configuredDist ? [join(configuredDist, "simax", "agentsims-ax-settings")] : []),
     join(__dirname, "simax", "agentsims-ax-settings"),
     join(__dirname, "..", "dist", "simax", "agentsims-ax-settings"),
     join(__dirname, "..", "..", "dist", "simax", "agentsims-ax-settings"),
@@ -172,8 +170,8 @@ function axSettingsTool(): Promise<string> {
     const located = locateAxSettingsTool();
     if (located) return located;
     const buildScript = [
-      join(__dirname, "..", "Sources", "SimAXSettings", "build.sh"),
-      join(__dirname, "..", "..", "Sources", "SimAXSettings", "build.sh"),
+      join(__dirname, "..", "ios", "accessibility-settings", "build.sh"),
+      join(__dirname, "..", "..", "ios", "accessibility-settings", "build.sh"),
     ].find(existsSync);
     if (!buildScript) {
       throw new Error(
@@ -200,10 +198,15 @@ function axSettingsTool(): Promise<string> {
 
 function run(file: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) reject(new Error(String(stderr).trim() || err.message));
-      else resolve(String(stdout).trim());
-    });
+    execFile(
+      file,
+      args,
+      { encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) reject(new Error(String(stderr).trim() || err.message));
+        else resolve(String(stdout).trim());
+      },
+    );
   });
 }
 
