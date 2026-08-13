@@ -41,6 +41,13 @@ export interface DeviceMediaState {
     preferredDeviceLabel?: string;
     choices: MediaSourceChoice[];
     scope?: "host-global" | "device";
+    volume?: number;
+    volumeSettable?: boolean;
+    volumeLevel?: {
+      current: number;
+      min: number;
+      max: number;
+    };
   };
 }
 
@@ -56,6 +63,9 @@ export type MediaRouteAction =
     }
   | { action: "host-audio-input"; deviceId: string }
   | { action: "host-audio-output"; deviceId: string }
+  | { action: "android-output-volume"; level: number }
+  | { action: "audio-output-volume"; deviceId?: string; volume: number }
+  | { action: "host-audio-output-volume"; deviceId: string; volume: number }
   | {
       action: "android-virtual-scene-image";
       surface: "wall" | "table";

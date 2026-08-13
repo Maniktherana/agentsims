@@ -35,6 +35,11 @@ export interface AndroidAudioStatus {
     source?: string;
     packageName?: string;
   };
+  mediaVolume?: {
+    current: number;
+    min: number;
+    max: number;
+  };
 }
 
 export interface AndroidStatus {

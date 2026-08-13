@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AndroidStatus } from "../android/types";
+import type { DeviceMediaState } from "../media/model";
 import {
   AndroidControlsStatus,
   formatAndroidDisplay,
@@ -185,5 +186,114 @@ describe("ToolsPanel", () => {
     expect(html).not.toContain("Startup route");
     expect(html).toContain("Microphone");
     expect(html).toContain("Output");
+  });
+
+  test("renders Android audio as a device-reported discrete slider", () => {
+    const mediaState: DeviceMediaState = {
+      platform: "android",
+      deviceKind: "emulator",
+      deviceId: "android:emulator-5554",
+      camera: {
+        owner: "android-emulator",
+        frontChoices: [],
+        backChoices: [],
+        supportsFiles: true,
+        supportsLivePoster: false,
+      },
+      audioInput: {
+        current: "host",
+        currentDeviceId: "mic-a",
+        currentDeviceLabel: "Studio Mic",
+        choices: [{ id: "mic-a", label: "Studio Mic", apply: "live", scope: "host-global" }],
+        scope: "host-global",
+      },
+      audioOutput: {
+        current: "host-system-default",
+        currentDeviceId: "speaker-a",
+        currentDeviceLabel: "Studio Speaker",
+        choices: [
+          {
+            id: "speaker-a",
+            label: "Studio Speaker",
+            apply: "live",
+            scope: "host-global",
+          },
+        ],
+        scope: "host-global",
+        volume: 1,
+        volumeSettable: true,
+        volumeLevel: { current: 15, min: 0, max: 15 },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <MediaRoutingSection
+        udid="android:emulator-5554"
+        open
+        onOpenChange={noop}
+        state={mediaState}
+        loading={false}
+        pending={null}
+        restartRequired={false}
+        error={null}
+        onApply={noop}
+      />,
+    );
+
+    expect(html).toContain("Test microphone");
+    expect(html).toContain('aria-label="Microphone input level"');
+    expect(html).toContain('aria-label="Simulator volume"');
+    expect(html).toContain('min="0"');
+    expect(html).toContain('max="15"');
+    expect(html).toContain('step="1"');
+    expect(html).toContain("15 / 15");
+    expect(html).not.toContain('aria-label="Output volume"');
+    expect(html).not.toContain("Mac-wide");
+  });
+
+  test("does not expose host output volume as a simulator control", () => {
+    const mediaState: DeviceMediaState = {
+      platform: "android",
+      deviceKind: "emulator",
+      deviceId: "android:emulator-5554",
+      camera: {
+        owner: "android-emulator",
+        frontChoices: [],
+        backChoices: [],
+        supportsFiles: true,
+        supportsLivePoster: false,
+      },
+      audioInput: {
+        current: "system-default",
+        currentDeviceId: "mic-a",
+        currentDeviceLabel: "Studio Mic",
+        choices: [],
+        scope: "host-global",
+      },
+      audioOutput: {
+        current: "host-system-default",
+        currentDeviceId: "speaker-a",
+        currentDeviceLabel: "Studio Speaker",
+        choices: [],
+        scope: "host-global",
+        volume: 0.64,
+        volumeSettable: true,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <MediaRoutingSection
+        udid="android:emulator-5554"
+        open
+        onOpenChange={noop}
+        state={mediaState}
+        loading={false}
+        pending={null}
+        restartRequired={false}
+        error={null}
+        onApply={noop}
+      />,
+    );
+
+    expect(html).not.toContain('aria-label="Output volume"');
+    expect(html).not.toContain('aria-label="Simulator volume"');
   });
 });

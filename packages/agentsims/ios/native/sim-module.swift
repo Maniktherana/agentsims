@@ -215,6 +215,13 @@ private func axQuery(
         (kind: String, uid: String) throws -> Bool in
         try HostAudio.setDefault(kind: kind, uid: uid)
     },
+    "routeHostAudioOutput": try NodeFunction { (uid: String) throws -> Bool in
+        try HostAudio.routeOutput(to: uid)
+    },
+    "setHostAudioOutputVolume": try NodeFunction {
+        (uid: String, volume: Double) throws -> Bool in
+        try HostAudio.setOutputVolume(uid: uid, volume: volume)
+    },
     // axDescribe(udid): Promise<string> — axe-shaped accessibility JSON.
     "axDescribe": try NodeFunction { (udid: String) async throws -> String in
         try await axQuery(udid) { udid in

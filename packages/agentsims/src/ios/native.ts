@@ -32,7 +32,14 @@ interface SimHIDHandle {
   button(button: string): Promise<void>;
   buttonHid(page: number, usage: number, phase: ButtonPhase): Promise<void>;
   key(type: KeyType, usage: number): Promise<void>;
-  scroll(dx: number, dy: number, anchorX: number, anchorY: number, w: number, hh: number): Promise<void>;
+  scroll(
+    dx: number,
+    dy: number,
+    anchorX: number,
+    anchorY: number,
+    w: number,
+    hh: number,
+  ): Promise<void>;
   digitalCrown(delta: number): Promise<void>;
   orientation(orientation: number): Promise<boolean>;
   memoryWarning(): Promise<void>;
@@ -52,6 +59,8 @@ interface NativeAddon {
   SimCapture: new (udid: string) => SimCaptureHandle;
   hostAudioSnapshot(): string;
   setHostAudioDefault(kind: "input" | "output", uid: string): boolean;
+  routeHostAudioOutput(uid: string): boolean;
+  setHostAudioOutputVolume(uid: string, volume: number): boolean;
   axDescribe(udid: string): Promise<string>;
   axFrontmost(udid: string): Promise<string>;
 }
@@ -61,6 +70,8 @@ export interface HostAudioDevice {
   name: string;
   inputChannels: number;
   outputChannels: number;
+  outputVolume?: number;
+  outputVolumeSettable: boolean;
 }
 
 export interface HostAudioSnapshot {
@@ -203,8 +214,19 @@ export class NativeHid {
   }
 
   /** anchorX/anchorY default to screen center when omitted. */
-  scroll(dx: number, dy: number, w: number, h: number, anchorX?: number, anchorY?: number): Promise<void> {
-    return this.guard("scroll", () => this.handle.scroll(dx, dy, anchorX ?? NaN, anchorY ?? NaN, w, h), undefined);
+  scroll(
+    dx: number,
+    dy: number,
+    w: number,
+    h: number,
+    anchorX?: number,
+    anchorY?: number,
+  ): Promise<void> {
+    return this.guard(
+      "scroll",
+      () => this.handle.scroll(dx, dy, anchorX ?? NaN, anchorY ?? NaN, w, h),
+      undefined,
+    );
   }
 
   digitalCrown(delta: number): Promise<void> {
@@ -332,6 +354,14 @@ export function getHostAudioSnapshot(): HostAudioSnapshot {
 
 export function setHostAudioDefault(kind: "input" | "output", uid: string): boolean {
   return load().setHostAudioDefault(kind, uid);
+}
+
+export function routeHostAudioOutput(uid: string): boolean {
+  return load().routeHostAudioOutput(uid);
+}
+
+export function setHostAudioOutputVolume(uid: string, volume: number): boolean {
+  return load().setHostAudioOutputVolume(uid, volume);
 }
 
 /** Async frontmost-app probe — JSON string `{ bundleId, pid }` for the visible app. */

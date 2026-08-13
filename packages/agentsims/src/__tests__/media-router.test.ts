@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   androidEmulatorSupportsImage360,
+  androidMediaVolumeKeyEvents,
   androidCameraStartupArgs,
+  parseAndroidAudioStatus,
   parseAndroidEmulatorVersion,
   parseAndroidWebcamList,
   validateAndroidCameraStartupMode,
 } from "../android/device";
-import { buildDeviceMediaState } from "../media/router";
+import { buildDeviceMediaState, mediaDeviceFromRequestUrl } from "../media/router";
 import {
   readStoredMediaRoutes,
   updateStoredMediaRoute,
@@ -38,12 +40,39 @@ function androidStatus(serial = "emulator-5554"): AndroidStatus {
 }
 
 describe("media routing model", () => {
+  test("targets media requests to the device named by the panel URL", () => {
+    expect(mediaDeviceFromRequestUrl("/media?device=IOS-UDID")).toBe("IOS-UDID");
+    expect(mediaDeviceFromRequestUrl("/media?device=android%3Aemulator-5554")).toBe(
+      "android:emulator-5554",
+    );
+    expect(mediaDeviceFromRequestUrl("/media")).toBeNull();
+  });
+
   test("parses installed emulator webcam inventory", () => {
     expect(
       parseAndroidWebcamList(
         " Camera 'webcam0' is connected to device 'MacBook Pro Camera' on channel 0 using pixel format 'YV12'\n",
       ),
     ).toEqual([{ id: "webcam0", name: "MacBook Pro Camera" }]);
+  });
+
+  test("reads and maps Android media volume without using host output volume", () => {
+    expect(
+      parseAndroidAudioStatus(`
+- STREAM_MUSIC:
+   Muted: false
+   Min: 0
+   Max: 15
+   streamVolume:5
+   Current: 2 (speaker): 5
+- STREAM_ALARM:
+   Max: 7
+   streamVolume:6
+`).mediaVolume,
+    ).toEqual({ current: 5, min: 0, max: 15 });
+    expect(androidMediaVolumeKeyEvents(5, 15, 0, 15)).toEqual(Array(10).fill("24"));
+    expect(androidMediaVolumeKeyEvents(10, 5, 0, 15)).toEqual(Array(5).fill("25"));
+    expect(androidMediaVolumeKeyEvents(5, 5, 0, 15)).toEqual([]);
   });
 
   test("gates Android image360 camera mode by emulator version", () => {
@@ -75,14 +104,24 @@ describe("media routing model", () => {
   });
 
   test("exposes live microphone and restart-bound webcam controls for emulators", () => {
+    const status = androidStatus();
+    status.audio.mediaVolume = { current: 5, min: 0, max: 15 };
     const state = buildDeviceMediaState(
       "android:emulator-5554",
-      androidStatus(),
+      status,
       [{ id: "webcam0", name: "MacBook Pro Camera" }],
       true,
+      {
+        input: [],
+        output: [{ id: "speaker-a", label: "Studio Speaker", volume: 1, volumeSettable: true }],
+        defaults: { output: "speaker-a" },
+      },
     );
     expect(state.deviceKind).toBe("emulator");
     expect(state.audioInput.current).toBe("host");
+    expect(state.audioOutput.volume).toBeCloseTo(1 / 3);
+    expect(state.audioOutput.volumeSettable).toBe(true);
+    expect(state.audioOutput.volumeLevel).toEqual({ current: 5, min: 0, max: 15 });
     expect(state.audioInput.currentDeviceLabel).toBe("Mac default input");
     expect(state.camera.frontChoices.find((choice) => choice.id === "webcam0")).toEqual({
       id: "webcam0",
@@ -124,7 +163,14 @@ describe("media routing model", () => {
       undefined,
       {
         input: [{ id: "mic-a", label: "Studio Mic" }],
-        output: [{ id: "speaker-a", label: "Studio Speaker" }],
+        output: [
+          {
+            id: "speaker-a",
+            label: "Studio Speaker",
+            volume: 0.64,
+            volumeSettable: true,
+          },
+        ],
         defaults: { input: "mic-a", output: "speaker-a" },
       },
       [{ id: "webcam-a", label: "Continuity Camera", apply: "app-relaunch", scope: "app" }],
@@ -140,6 +186,8 @@ describe("media routing model", () => {
     expect(state.audioInput.preferredDeviceId).toBe("preferred-mic");
     expect(state.audioOutput.currentDeviceId).toBe("speaker-a");
     expect(state.audioOutput.preferredDeviceId).toBe("preferred-speaker");
+    expect(state.audioOutput.volume).toBe(0.64);
+    expect(state.audioOutput.volumeSettable).toBe(true);
   });
 
   test("persists media route preferences by device id without overwriting actual defaults", () => {

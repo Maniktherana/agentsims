@@ -6,16 +6,14 @@ import {
   listAndroidDevices,
   listAndroidWebcams,
   setAndroidHostMicrophone,
+  setAndroidMediaVolume,
+  setAndroidMediaVolumeLevel,
   setAndroidVirtualSceneImage,
   validateAndroidCameraStartupMode,
   type AndroidWebcam,
 } from "../android/device";
 import type { AndroidStatus } from "../android/types";
-import {
-  deviceLifecycle,
-  readDeviceStates,
-  selectDeviceState,
-} from "../shared/device-lifecycle";
+import { deviceLifecycle, readDeviceStates, selectDeviceState } from "../shared/device-lifecycle";
 import type {
   DeviceMediaState,
   MediaApplyMode,
@@ -29,6 +27,7 @@ import {
   listHostAudioDevices,
   setHostDefaultInput,
   setHostDefaultOutput,
+  setHostOutputVolume,
   type HostAudioSnapshot,
 } from "./host-audio";
 import {
@@ -37,11 +36,7 @@ import {
   listIosWebcams,
   type IosCameraStatus,
 } from "./ios-camera";
-import {
-  getStoredMediaRoute,
-  updateStoredMediaRoute,
-  type StoredMediaRoute,
-} from "./route-store";
+import { getStoredMediaRoute, updateStoredMediaRoute, type StoredMediaRoute } from "./route-store";
 
 type MediaRequest = IncomingMessage;
 type MediaResponse = ServerResponse;
@@ -63,6 +58,15 @@ function isSameOrigin(req: MediaRequest): boolean {
     return new URL(origin).host === req.headers.host;
   } catch {
     return false;
+  }
+}
+
+export function mediaDeviceFromRequestUrl(rawUrl: string | undefined): string | null {
+  try {
+    const device = new URL(rawUrl ?? "", "http://agentsims.local").searchParams.get("device");
+    return device && device.length > 0 ? device : null;
+  } catch {
+    return null;
   }
 }
 
@@ -151,9 +155,11 @@ function validateAndroidCameraModeForStatus(
   }
   if (source.startsWith("image360:") && !status.emulator?.supportsImage360) {
     const version = status.emulator?.version;
-    throw new Error(version
-      ? `Android image360 camera mode requires Emulator 36.6.4+; current emulator is ${version}`
-      : "Android image360 camera mode requires Emulator 36.6.4+");
+    throw new Error(
+      version
+        ? `Android image360 camera mode requires Emulator 36.6.4+; current emulator is ${version}`
+        : "Android image360 camera mode requires Emulator 36.6.4+",
+    );
   }
 }
 
@@ -169,12 +175,14 @@ export function buildDeviceMediaState(
 ): DeviceMediaState {
   const inputDeviceId = actualInputFor(hostAudio);
   const outputDeviceId = actualOutputFor(hostAudio);
+  const outputDevice = hostAudio.output.find((device) => device.id === outputDeviceId);
   const preferredInputDeviceId = storedRoute.inputDeviceId;
   const preferredOutputDeviceId = storedRoute.outputDeviceId;
   const inputChoices = hostInputChoices(hostAudio);
   const outputChoices = hostOutputChoices(hostAudio);
   if (!androidStatus) {
-    const attached = iosCameraStatus?.alive === true && (iosCameraStatus.bundleIds?.length ?? 0) > 0;
+    const attached =
+      iosCameraStatus?.alive === true && (iosCameraStatus.bundleIds?.length ?? 0) > 0;
     const apply: MediaApplyMode = attached ? "live" : "app-relaunch";
     const injectedSources: MediaSourceChoice[] = [
       { id: "placeholder", label: "Test pattern", apply, scope: "app" },
@@ -182,9 +190,10 @@ export function buildDeviceMediaState(
       { id: "video", label: "Video file", apply, scope: "app" },
       ...iosWebcams.map((choice) => ({ ...choice, apply, scope: "app" as const })),
     ];
-    const cameraSource = iosCameraStatus?.source === "webcam"
-      ? iosCameraStatus.arg
-      : iosCameraStatus?.source ?? "placeholder";
+    const cameraSource =
+      iosCameraStatus?.source === "webcam"
+        ? iosCameraStatus.arg
+        : (iosCameraStatus?.source ?? "placeholder");
     return {
       platform: "ios",
       deviceKind: "simulator",
@@ -205,7 +214,11 @@ export function buildDeviceMediaState(
         currentDeviceId: inputDeviceId,
         currentDeviceLabel: hostAudioLabel(hostAudio.input, inputDeviceId, "Mac default input"),
         preferredDeviceId: preferredInputDeviceId,
-        preferredDeviceLabel: hostAudioLabel(hostAudio.input, preferredInputDeviceId, "No saved preference"),
+        preferredDeviceLabel: hostAudioLabel(
+          hostAudio.input,
+          preferredInputDeviceId,
+          "No saved preference",
+        ),
         choices: inputChoices,
         scope: "host-global",
       },
@@ -214,9 +227,15 @@ export function buildDeviceMediaState(
         currentDeviceId: outputDeviceId,
         currentDeviceLabel: hostAudioLabel(hostAudio.output, outputDeviceId, "Mac default output"),
         preferredDeviceId: preferredOutputDeviceId,
-        preferredDeviceLabel: hostAudioLabel(hostAudio.output, preferredOutputDeviceId, "No saved preference"),
+        preferredDeviceLabel: hostAudioLabel(
+          hostAudio.output,
+          preferredOutputDeviceId,
+          "No saved preference",
+        ),
         choices: outputChoices,
         scope: "host-global",
+        volume: outputDevice?.volume,
+        volumeSettable: outputDevice?.volumeSettable,
       },
     };
   }
@@ -242,13 +261,19 @@ export function buildDeviceMediaState(
 
   const sharedCameraChoices: MediaSourceChoice[] = [
     { id: "emulated", label: "Emulated camera", apply: "device-restart", scope: "device" },
-    { id: "environment", label: "Virtual scene environment", apply: "device-restart", scope: "device" },
+    {
+      id: "environment",
+      label: "Virtual scene environment",
+      apply: "device-restart",
+      scope: "device",
+    },
     ...webcamChoices(webcams),
     { id: "imagefile:", label: "Image file", apply: "device-restart", scope: "device" },
     { id: "videofile:", label: "Video file", apply: "device-restart", scope: "device" },
     image360Choice(androidStatus),
     { id: "none", label: "Disabled", apply: "device-restart", scope: "device" },
   ];
+  const androidMediaVolume = androidStatus.audio.mediaVolume;
   return {
     platform: "android",
     deviceKind: "emulator",
@@ -263,21 +288,28 @@ export function buildDeviceMediaState(
       supportsLivePoster: false,
     },
     audioInput: {
-      current: hostMicrophone === undefined
-        ? androidStatus.camera.audioInput === undefined
-          ? "unknown"
-          : androidStatus.camera.audioInput
+      current:
+        hostMicrophone === undefined
+          ? androidStatus.camera.audioInput === undefined
+            ? "unknown"
+            : androidStatus.camera.audioInput
+              ? "host"
+              : "disabled"
+          : hostMicrophone
             ? "host"
-            : "disabled"
-        : hostMicrophone
-          ? "host"
-          : "disabled",
-      currentDeviceId: (hostMicrophone ?? androidStatus.camera.audioInput) ? inputDeviceId : undefined,
-      currentDeviceLabel: (hostMicrophone ?? androidStatus.camera.audioInput)
-        ? hostAudioLabel(hostAudio.input, inputDeviceId, "Mac default input")
-        : undefined,
+            : "disabled",
+      currentDeviceId:
+        (hostMicrophone ?? androidStatus.camera.audioInput) ? inputDeviceId : undefined,
+      currentDeviceLabel:
+        (hostMicrophone ?? androidStatus.camera.audioInput)
+          ? hostAudioLabel(hostAudio.input, inputDeviceId, "Mac default input")
+          : undefined,
       preferredDeviceId: preferredInputDeviceId,
-      preferredDeviceLabel: hostAudioLabel(hostAudio.input, preferredInputDeviceId, "No saved preference"),
+      preferredDeviceLabel: hostAudioLabel(
+        hostAudio.input,
+        preferredInputDeviceId,
+        "No saved preference",
+      ),
       choices: [
         ...inputChoices,
         { id: "disabled", label: "Disabled", apply: "live", scope: "device" },
@@ -289,9 +321,19 @@ export function buildDeviceMediaState(
       currentDeviceId: outputDeviceId,
       currentDeviceLabel: hostAudioLabel(hostAudio.output, outputDeviceId, "Mac default output"),
       preferredDeviceId: preferredOutputDeviceId,
-      preferredDeviceLabel: hostAudioLabel(hostAudio.output, preferredOutputDeviceId, "No saved preference"),
+      preferredDeviceLabel: hostAudioLabel(
+        hostAudio.output,
+        preferredOutputDeviceId,
+        "No saved preference",
+      ),
       choices: outputChoices,
       scope: "host-global",
+      volume: androidMediaVolume
+        ? (androidMediaVolume.current - androidMediaVolume.min) /
+          Math.max(1, androidMediaVolume.max - androidMediaVolume.min)
+        : outputDevice?.volume,
+      volumeSettable: androidMediaVolume ? true : outputDevice?.volumeSettable,
+      volumeLevel: androidMediaVolume,
     },
   };
 }
@@ -299,14 +341,19 @@ export function buildDeviceMediaState(
 function isMediaRouteAction(value: unknown): value is MediaRouteAction {
   if (!value || typeof value !== "object") return false;
   const action = (value as { action?: unknown }).action;
-  return action === "android-host-microphone" ||
+  return (
+    action === "android-host-microphone" ||
     action === "android-camera-source" ||
     action === "android-camera-sources" ||
     action === "ios-camera-source" ||
     action === "host-audio-input" ||
     action === "host-audio-output" ||
+    action === "android-output-volume" ||
+    action === "audio-output-volume" ||
+    action === "host-audio-output-volume" ||
     action === "android-virtual-scene-image" ||
-    action === "restart-device";
+    action === "restart-device"
+  );
 }
 
 async function waitForAndroidDisconnect(serial: string): Promise<void> {
@@ -327,11 +374,11 @@ export class MediaRouter {
     selectedDevice: string | null,
     publicPort: number,
   ): Promise<boolean> {
-    const pathname = (req.url ?? "").split("?", 1)[0];
+    const pathname = new URL(req.url ?? "", "http://agentsims.local").pathname;
     if (pathname !== `${this.base}/media`) return false;
 
     const states = await readDeviceStates();
-    const state = selectDeviceState(states, selectedDevice);
+    const state = selectDeviceState(states, mediaDeviceFromRequestUrl(req.url) ?? selectedDevice);
     if (!state) {
       json(res, 404, { error: "No agentsims device" });
       return true;
@@ -344,25 +391,31 @@ export class MediaRouter {
         const storedRoute = getStoredMediaRoute(state.device);
         const [iosWebcams, iosCameraStatus] = await Promise.all([
           listIosWebcams()
-            .then((webcams) => webcams.map((webcam) => ({
-              id: webcam.id,
-              label: webcam.label,
-              apply: "app-relaunch" as const,
-              scope: "app" as const,
-            })))
+            .then((webcams) =>
+              webcams.map((webcam) => ({
+                id: webcam.id,
+                label: webcam.label,
+                apply: "app-relaunch" as const,
+                scope: "app" as const,
+              })),
+            )
             .catch(() => []),
           getIosCameraStatus(state.device).catch(() => ({ alive: false, bundleIds: [] })),
         ]);
-        json(res, 200, buildDeviceMediaState(
-          state.device,
-          undefined,
-          [],
-          undefined,
-          hostAudio,
-          iosWebcams,
-          iosCameraStatus,
-          storedRoute,
-        ));
+        json(
+          res,
+          200,
+          buildDeviceMediaState(
+            state.device,
+            undefined,
+            [],
+            undefined,
+            hostAudio,
+            iosWebcams,
+            iosCameraStatus,
+            storedRoute,
+          ),
+        );
         return true;
       }
       try {
@@ -410,13 +463,15 @@ export class MediaRouter {
 
       let result: MediaRouteResult;
       if (body.action === "android-host-microphone") {
-        if (!serial) throw new Error("Android host microphone is only available for Android emulators");
+        if (!serial)
+          throw new Error("Android host microphone is only available for Android emulators");
         if (typeof body.enabled !== "boolean") throw new Error("Missing enabled flag");
         await setAndroidHostMicrophone(serial, body.enabled);
         microphoneRoutes.set(serial, body.enabled);
         result = { ok: true, apply: "live" };
       } else if (body.action === "android-camera-source") {
-        if (!serial) throw new Error("Android camera source is only available for Android emulators");
+        if (!serial)
+          throw new Error("Android camera source is only available for Android emulators");
         const status = await getAndroidStatus(serial);
         if (!status.avdName) throw new Error("The running emulator has no AVD name");
         if ((body.face !== "front" && body.face !== "back") || typeof body.source !== "string") {
@@ -425,12 +480,22 @@ export class MediaRouter {
         validateAndroidCameraModeForStatus(body.face, body.source, status);
         const routeKey = androidAvdStateId(status.avdName);
         const current = getStoredMediaRoute(routeKey);
-        updateStoredMediaRoute(routeKey, body.face === "front"
-          ? { androidCameraFront: body.source, androidCameraBack: current.androidCameraBack ?? status.camera.back }
-          : { androidCameraFront: current.androidCameraFront ?? status.camera.front, androidCameraBack: body.source });
+        updateStoredMediaRoute(
+          routeKey,
+          body.face === "front"
+            ? {
+                androidCameraFront: body.source,
+                androidCameraBack: current.androidCameraBack ?? status.camera.back,
+              }
+            : {
+                androidCameraFront: current.androidCameraFront ?? status.camera.front,
+                androidCameraBack: body.source,
+              },
+        );
         result = { ok: true, apply: "device-restart" };
       } else if (body.action === "android-camera-sources") {
-        if (!serial) throw new Error("Android camera sources are only available for Android emulators");
+        if (!serial)
+          throw new Error("Android camera sources are only available for Android emulators");
         const status = await getAndroidStatus(serial);
         if (!status.avdName) throw new Error("The running emulator has no AVD name");
         if (typeof body.front !== "string" || typeof body.back !== "string") {
@@ -446,10 +511,10 @@ export class MediaRouter {
       } else if (body.action === "ios-camera-source") {
         if (serial) throw new Error("iOS camera injection is only available for iOS simulators");
         if (
-          body.source !== "placeholder"
-          && body.source !== "webcam"
-          && body.source !== "image"
-          && body.source !== "video"
+          body.source !== "placeholder" &&
+          body.source !== "webcam" &&
+          body.source !== "image" &&
+          body.source !== "video"
         ) {
           throw new Error("Invalid iOS camera source");
         }
@@ -477,8 +542,49 @@ export class MediaRouter {
         await setHostDefaultOutput(body.deviceId);
         updateStoredMediaRoute(state.device, { outputDeviceId: body.deviceId });
         result = { ok: true, apply: "live" };
+      } else if (body.action === "android-output-volume") {
+        if (!serial || !/^emulator-\d+$/.test(serial)) {
+          throw new Error("Android media volume is only available for Android emulators");
+        }
+        if (!Number.isInteger(body.level)) {
+          throw new Error("Android media volume level must be an integer");
+        }
+        await setAndroidMediaVolumeLevel(serial, body.level);
+        result = { ok: true, apply: "live" };
+      } else if (body.action === "host-audio-output-volume") {
+        if (
+          typeof body.volume !== "number" ||
+          !Number.isFinite(body.volume) ||
+          body.volume < 0 ||
+          body.volume > 1
+        ) {
+          throw new Error("Output volume must be between 0 and 1");
+        }
+        if (typeof body.deviceId !== "string" || body.deviceId.length === 0) {
+          throw new Error("Missing host output device");
+        }
+        await setHostOutputVolume(body.deviceId, body.volume);
+        result = { ok: true, apply: "live" };
+      } else if (body.action === "audio-output-volume") {
+        if (
+          typeof body.volume !== "number" ||
+          !Number.isFinite(body.volume) ||
+          body.volume < 0 ||
+          body.volume > 1
+        ) {
+          throw new Error("Output volume must be between 0 and 1");
+        }
+        if (serial && /^emulator-\d+$/.test(serial)) {
+          await setAndroidMediaVolume(serial, body.volume);
+        } else if (typeof body.deviceId === "string" && body.deviceId.length > 0) {
+          await setHostOutputVolume(body.deviceId, body.volume);
+        } else {
+          throw new Error("Missing host output device");
+        }
+        result = { ok: true, apply: "live" };
       } else if (body.action === "android-virtual-scene-image") {
-        if (!serial) throw new Error("Android virtual scene images are only available for Android emulators");
+        if (!serial)
+          throw new Error("Android virtual scene images are only available for Android emulators");
         if (body.surface !== "wall" && body.surface !== "table") {
           throw new Error("Invalid virtual scene surface");
         }
@@ -488,7 +594,8 @@ export class MediaRouter {
         await setAndroidVirtualSceneImage(serial, body.surface, body.path);
         result = { ok: true, apply: "live" };
       } else {
-        if (!serial) throw new Error("Restart from media routing is only available for Android emulators");
+        if (!serial)
+          throw new Error("Restart from media routing is only available for Android emulators");
         const status = await getAndroidStatus(serial);
         if (!status.avdName) throw new Error("Only Android emulators can be restarted here");
         const shutdownError = await deviceLifecycle.shutdown(state.device);
@@ -505,7 +612,8 @@ export class MediaRouter {
       json(res, 200, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const status = message === "Unsupported Media Type" ? 415 : message === "Payload Too Large" ? 413 : 400;
+      const status =
+        message === "Unsupported Media Type" ? 415 : message === "Payload Too Large" ? 413 : 400;
       json(res, status, { error: message });
     }
     return true;
