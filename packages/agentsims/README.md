@@ -123,15 +123,15 @@ interactive workflow.
 
 ## Supported platforms
 
-Agentsims currently requires a macOS 14 or newer host and Node.js 20 or newer.
-Install Xcode for iOS Simulator support. Install Android Studio or the Android
-SDK and put `adb` on `PATH` for Android support.
+The published package currently requires a macOS 14 or newer host and Node.js
+20 or newer. Install Xcode for iOS Simulator support. Install Android Studio or
+the Android SDK and put `adb` on `PATH` for Android support.
 
 | Target | Live video and control |
 | --- | --- |
 | iOS Simulator | Native simulator capture and HID control |
 | Android emulator | Emulator capture, H.264, and native input |
-| Physical Android device | scrcpy H.264 and scrcpy control |
+| Physical Android device | Optional host-installed scrcpy H.264 and control |
 
 Android live video requires browser WebCodecs support and has no MJPEG or ADB
 PNG fallback. iOS Simulator streams can use `--codec mjpeg` when the H.264 path
@@ -166,6 +166,12 @@ bun install
 bun run --filter agentsims build
 bun run --filter agentsims start
 ```
+
+The full source build also requires Xcode Command Line Tools, a JDK, Android
+SDK platform/build-tools, Rust, and FFmpeg 8 development libraries. It builds the
+browser/server bundles, first-party Android AX JAR, iOS/macOS native helpers,
+and Rust Android video addon. scrcpy is not vendored or required for Android
+emulators; it is an optional host dependency for physical devices.
 
 `start` executes the built production entrypoint directly with Node and serves
 the printed local URL, normally

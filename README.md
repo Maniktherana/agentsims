@@ -16,6 +16,7 @@ runtime dependency to the mobile bundle.
   WebCodecs; iOS Simulator streams can use MJPEG with `--codec mjpeg`.
 - For iOS: Xcode with an installed Simulator runtime
 - For Android: Android Studio or the Android SDK, with `adb` on `PATH`
+- For Android emulator video in the current native build: FFmpeg 8
 - Your app's normal Metro or Expo development process
 
 Node.js 24 and Bun 1.3 or newer are required only when developing Agentsims
@@ -82,7 +83,7 @@ Platform transport details stay behind the same workspace and CLI contracts:
 | --- | --- |
 | iOS Simulator | Native simulator capture and HID control |
 | Android emulator | Emulator gRPC capture, shared-memory frames, H.264, and native input |
-| Physical Android device | scrcpy H.264 and scrcpy control |
+| Physical Android device | Optional host-installed scrcpy H.264 and control |
 
 ADB remains responsible for Android discovery, lifecycle operations, explicit
 screenshots, status probes, and discrete fallbacks. There is no ADB PNG live
@@ -210,6 +211,11 @@ bun install
 bun run --filter agentsims build
 bun run --filter agentsims start
 ```
+
+The full source build requires Xcode Command Line Tools, a JDK, Android SDK
+platform/build-tools, Rust, and FFmpeg development libraries. It builds every
+shipped browser/server/native artifact from source. scrcpy is not vendored and
+is only an optional host dependency for physical Android devices.
 
 `start` executes the built production entrypoint directly with Node and prints
 its local URL, normally [http://localhost:3200](http://localhost:3200). Pass CLI
