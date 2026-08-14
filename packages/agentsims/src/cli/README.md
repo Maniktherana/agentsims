@@ -1,64 +1,121 @@
 # Agentsims CLI
 
-The CLI is the single automation interface for humans and coding agents. It
-controls both iOS simulators and Android emulators through the same
-device session used by the browser workspace.
+The CLI and browser use the same application commands. The CLI does not create
+a second device-control path. Commands print JSON unless they write a binary
+file.
 
-The browser consumes the continuous video stream. Agents use a sampled loop:
+## Start and stop
 
-```text
-agentsims observe
-  -> screenshot file + screen config + accessibility/source metadata
-agent reasons about the observation
-agentsims act
-  -> one touch, swipe, text, button, or rotation action
+The empty command starts the complete workspace:
+
+```sh
+agentsims
+agentsims serve --host 127.0.0.1 --port 3200
+agentsims status
+agentsims stop
+agentsims stop <device>
 ```
 
-Start the workspace before issuing device commands:
+Use `--server <url>` on a device command when Agentsims does not use
+`http://127.0.0.1:3200`.
 
-```bash
-npx agentsims
-npx agentsims --list
+## Configure Metro
+
+Preview the Metro change before you apply it:
+
+```sh
+agentsims setup /path/to/react-native-app --dry-run
+agentsims setup /path/to/react-native-app --yes
 ```
 
-## Observe
+The setup command supports CommonJS, ESM, and TypeScript Metro configs. It
+preserves the existing Expo, NativeWind, Sentry, and custom wrapper order. It
+writes a backup before it changes an existing file. The old
+`--project <path>` option remains valid.
 
-`observe` works for iOS and Android. It captures a current screenshot, writes
-it to disk, fetches the current screen configuration and accessibility tree,
-then prints one JSON object to stdout.
+## Manage devices
 
-```bash
-npx agentsims observe --device android:emulator-5554
-npx agentsims observe --device <ios-udid> --output /tmp/screen.jpg
-npx agentsims observe --device android:emulator-5554 --no-ax
+```sh
+agentsims devices list
+agentsims devices boot android-avd:Pixel_10
+agentsims devices shutdown android:emulator-5554
 ```
 
-The default screenshot path is stable per device under the Agentsims runtime
-directory, so repeated observations replace the previous image instead of
-accumulating files.
+Use the exact device ID from `devices list` in all other commands.
 
-## Act
+## Inspect one device
 
-Coordinates are normalized from `0` to `1`, making the same actions portable
-across device sizes and platforms.
-
-```bash
-npx agentsims act '{"type":"tap","x":0.5,"y":0.7}' --device android:emulator-5554
-npx agentsims act '{"type":"swipe","x1":0.5,"y1":0.8,"x2":0.5,"y2":0.2}' --device <id>
-npx agentsims act '{"type":"type","text":"Buy milk"}' --device <id>
-npx agentsims act '{"type":"button","button":"back"}' --device <id>
-npx agentsims act '{"type":"rotate","orientation":"landscape_left"}' --device <id>
+```sh
+agentsims device <device> status
+agentsims device <device> screenshot --output /tmp/screen.png
+agentsims device <device> observe --output /tmp/screen.png
+agentsims device <device> ax tree
 ```
 
-The direct `tap`, `type`, `button`, `rotate`, and `gesture` commands expose the
-same implementation for interactive shell use:
+`screenshot` writes one PNG and prints its path. `observe` writes a PNG and
+prints the screen configuration and accessibility tree. Use `--no-ax` when an
+agent does not need accessibility data.
 
-```bash
-npx agentsims tap 0.5 0.7 --device <id>
-npx agentsims type "Buy milk" --device <id>
-npx agentsims button home --device <id>
+## Send input
+
+```sh
+agentsims device <device> input tap 0.5 0.7
+agentsims device <device> input button home
+agentsims device <device> input type "Buy milk"
+agentsims device <device> input rotate landscape_left
 ```
 
-Android emulators use their native gRPC input stream, and iOS simulators use
-native HID injection. Platform
-fallbacks remain internal to the device session; callers use one CLI contract.
+Tap coordinates use the normalized range from `0` to `1`.
+
+## Set camera routes
+
+```sh
+agentsims device <device> camera status
+agentsims device <android-device> camera front emulated
+agentsims device <android-device> camera back environment
+agentsims device <ios-device> camera source webcam <host-camera-id>
+agentsims device <ios-device> camera source image /path/to/image.png
+agentsims device <ios-device> camera source video /path/to/video.mp4
+```
+
+Run `camera status` first. Its result contains the supported source and host
+device IDs.
+
+## Set audio routes
+
+```sh
+agentsims device <device> audio status
+agentsims device <android-device> audio microphone on
+agentsims device <device> audio input <host-input-id>
+agentsims device <device> audio output <host-output-id>
+agentsims device <android-device> audio volume 0.8
+```
+
+Run `audio status` first. Its result contains the supported host device IDs.
+
+## Get contextual help
+
+Help follows the command tree:
+
+```sh
+agentsims --help
+agentsims devices --help
+agentsims device --help
+agentsims device <device> camera --help
+agentsims device <device> camera front --help
+agentsims device <device> audio --help
+```
+
+## Compatibility commands
+
+The older top-level agent commands remain valid:
+
+```sh
+agentsims observe --device <device>
+agentsims tap 0.5 0.7 --device <device>
+agentsims act '{"type":"button","button":"back"}' --device <device>
+```
+
+Other existing iOS commands, such as `permissions`, `ui`, `ca-debug`, and
+`memory-warning`, also remain available. Run `agentsims --help` for the full
+list.
