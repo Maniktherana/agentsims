@@ -130,6 +130,33 @@ describe("device lifecycle reconciliation", () => {
     expect(lifecycle.isStartSuppressed(device)).toBe(false);
   });
 
+  test("starts Android transport before it publishes the running helper", async () => {
+    const calls: string[] = [];
+    const lifecycle = new DeviceLifecycle(async () => ({ error: null, stdout: "", stderr: "" }), {
+      getAndroidSession: async (serial) => {
+        calls.push(`session:${serial}`);
+        return {
+          startTransport: async () => {
+            calls.push(`transport:${serial}`);
+          },
+        };
+      },
+      writeDeviceState: (state) => {
+        calls.push(`state:${state.device}`);
+      },
+    });
+
+    expect(await lifecycle.start("android:emulator-5554", 3200, "/")).toEqual({
+      error: null,
+      device: "android:emulator-5554",
+    });
+    expect(calls).toEqual([
+      "session:emulator-5554",
+      "transport:emulator-5554",
+      "state:android:emulator-5554",
+    ]);
+  });
+
   test("recycles unavailable iOS and Android sessions owned by this process", () => {
     const live = {
       ios: new Set<string>(),

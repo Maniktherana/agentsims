@@ -471,19 +471,33 @@ export class AndroidSession {
   }
 
   private async activeTransport(): Promise<AndroidTransport | null> {
+    try {
+      const session = await this.ensureTransportStarted();
+      return session.inputReady ? session : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async ensureTransportStarted(): Promise<AndroidTransport> {
+    await this.start();
     const session = this.transportSession();
     try {
       await session.start();
-    } catch {
+    } catch (error) {
       if (this.transport === session) this.transport = null;
-      return null;
+      throw error;
     }
-    return session.inputReady ? session : null;
+    this.updateTransportIdleTimer();
+    return session;
+  }
+
+  async startTransport(): Promise<void> {
+    await this.ensureTransportStarted();
   }
 
   async attachAvcc(res: ServerResponse): Promise<void> {
-    const transport = this.transportSession();
-    await transport.start();
+    const transport = await this.ensureTransportStarted();
     res.writeHead(200, {
       "Content-Type": "application/octet-stream",
       "Cache-Control": "no-cache, no-store",

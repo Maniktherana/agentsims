@@ -53,6 +53,41 @@ function response(): ServerResponse {
 }
 
 describe("Android session orientation observation", () => {
+  test("starts native transport without a browser stream subscriber", async () => {
+    let transportStarts = 0;
+    let streamAttaches = 0;
+    const transport: AndroidTransport = {
+      ...fakeTransport(),
+      subscriberCount: 0,
+      start: async () => {
+        transportStarts += 1;
+      },
+      attachAvcc: async () => {
+        streamAttaches += 1;
+      },
+    };
+    const session = new AndroidSession("emulator-5554", {
+      readScreenConfig: async () => ({
+        width: 1080,
+        height: 2424,
+        orientation: "portrait",
+        rotation: 0,
+      }),
+      warmAx: async () => {},
+      createTransport: () => transport,
+      rotate: async () => {},
+      freeEmulatorRotation: async () => {},
+      rotateEmulator: async () => {},
+      rotateEmulatorAbsolute: async () => {},
+    });
+
+    await session.startTransport();
+
+    expect(transportStarts).toBe(1);
+    expect(streamAttaches).toBe(0);
+    session.close();
+  });
+
   test("turns an Android wheel burst into one native touch gesture without ADB swipe queuing", async () => {
     const scrollTouches: Array<{
       phase: string;
