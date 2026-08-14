@@ -1,8 +1,4 @@
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import {
   sendKeyEventsToWs,
@@ -108,10 +104,7 @@ function inputFrame(tag: number, payload: Record<string, unknown>): Uint8Array {
   return message;
 }
 
-async function sendInputMessages(
-  wsUrl: string,
-  messages: InputMessage[],
-): Promise<void> {
+async function sendInputMessages(wsUrl: string, messages: InputMessage[]): Promise<void> {
   return new Promise<void>((resolvePromise, reject) => {
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
@@ -157,11 +150,9 @@ async function readJsonResponse(
   request: typeof fetch = fetch,
 ): Promise<unknown> {
   try {
-    const response = await request(helperUrl(
-      state,
-      endpoint,
-      endpoint === "ax" ? { axMode: "settled" } : {},
-    ));
+    const response = await request(
+      helperUrl(state, endpoint, endpoint === "ax" ? { axMode: "settled" } : {}),
+    );
     if (!response.ok) {
       warnings.push(`${endpoint} unavailable (${response.status})`);
       return null;
@@ -173,6 +164,15 @@ async function readJsonResponse(
     );
     return null;
   }
+}
+
+export async function readAccessibilityTree(device?: string): Promise<unknown> {
+  const warnings: string[] = [];
+  const value = await readJsonResponse(requireState(device), "ax", warnings);
+  if (value === null) {
+    throw new Error(warnings[0] ?? "Accessibility data is not available");
+  }
+  return value;
 }
 
 export async function captureObservationPayloads(
@@ -214,12 +214,11 @@ export async function observeDevice(options: {
 }): Promise<Observation> {
   const state = requireState(options.device);
   const warnings: string[] = [];
-  const { screenshotResponse, config, accessibility } =
-    await captureObservationPayloads(
-      state,
-      options.includeAccessibility !== false,
-      warnings,
-    );
+  const { screenshotResponse, config, accessibility } = await captureObservationPayloads(
+    state,
+    options.includeAccessibility !== false,
+    warnings,
+  );
 
   if (!screenshotResponse.ok) {
     throw new Error(
@@ -227,8 +226,7 @@ export async function observeDevice(options: {
     );
   }
   const mimeType =
-    screenshotResponse.headers.get("content-type")?.split(";", 1)[0] ??
-    "application/octet-stream";
+    screenshotResponse.headers.get("content-type")?.split(";", 1)[0] ?? "application/octet-stream";
   const screenshot = Buffer.from(await screenshotResponse.arrayBuffer());
   const output = options.output
     ? resolve(options.output)
@@ -321,26 +319,16 @@ export function parseAgentAction(value: string): AgentAction {
       }
       return { type: "button", button: action.button };
     case "rotate":
-      if (
-        typeof action.orientation !== "string" ||
-        !VALID_ORIENTATIONS.has(action.orientation)
-      ) {
-        throw new Error(
-          `orientation must be one of ${[...VALID_ORIENTATIONS].join(", ")}`,
-        );
+      if (typeof action.orientation !== "string" || !VALID_ORIENTATIONS.has(action.orientation)) {
+        throw new Error(`orientation must be one of ${[...VALID_ORIENTATIONS].join(", ")}`);
       }
       return { type: "rotate", orientation: action.orientation };
     default:
-      throw new Error(
-        "Unsupported action type. Use tap, gesture, swipe, type, button, or rotate.",
-      );
+      throw new Error("Unsupported action type. Use tap, gesture, swipe, type, button, or rotate.");
   }
 }
 
-export async function actOnDevice(
-  action: AgentAction,
-  device?: string,
-): Promise<void> {
+export async function actOnDevice(action: AgentAction, device?: string): Promise<void> {
   const state = requireState(device);
   switch (action.type) {
     case "tap":
@@ -393,9 +381,7 @@ export async function actOnDevice(
         await sendKeyEventsToWs(state.wsUrl, textToKeyEvents(action.text));
       } catch (error) {
         if (error instanceof UnsupportedCharacterError) {
-          throw new Error(
-            `${error.message}. Only US-keyboard ASCII characters are supported.`,
-          );
+          throw new Error(`${error.message}. Only US-keyboard ASCII characters are supported.`);
         }
         throw error;
       }
@@ -405,9 +391,7 @@ export async function actOnDevice(
       await sendInputMessages(state.wsUrl, [
         {
           tag: WS_MSG_BUTTON,
-          payload: hid
-            ? { button: action.button, ...hid }
-            : { button: action.button },
+          payload: hid ? { button: action.button, ...hid } : { button: action.button },
         },
       ]);
       return;
@@ -438,11 +422,7 @@ export async function gesture(json: string, device?: string): Promise<void> {
   );
 }
 
-export async function tap(
-  xValue: string,
-  yValue: string,
-  device?: string,
-): Promise<void> {
+export async function tap(xValue: string, yValue: string, device?: string): Promise<void> {
   await actOnDevice(
     {
       type: "tap",
@@ -463,9 +443,7 @@ export async function typeText(
     options.file !== undefined,
   ].filter(Boolean).length;
   if (sources !== 1) {
-    throw new Error(
-      "Provide text as arguments, with --stdin, or with --file <path>.",
-    );
+    throw new Error("Provide text as arguments, with --stdin, or with --file <path>.");
   }
   const text = options.stdin
     ? readFileSync(0, "utf8")
@@ -475,19 +453,10 @@ export async function typeText(
   await actOnDevice({ type: "type", text }, options.device);
 }
 
-export async function rotate(
-  orientation: string,
-  device?: string,
-): Promise<void> {
-  await actOnDevice(
-    parseAgentAction(JSON.stringify({ type: "rotate", orientation })),
-    device,
-  );
+export async function rotate(orientation: string, device?: string): Promise<void> {
+  await actOnDevice(parseAgentAction(JSON.stringify({ type: "rotate", orientation })), device);
 }
 
-export async function button(
-  name = "home",
-  device?: string,
-): Promise<void> {
+export async function button(name = "home", device?: string): Promise<void> {
   await actOnDevice({ type: "button", button: name }, device);
 }
