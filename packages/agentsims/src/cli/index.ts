@@ -23,13 +23,18 @@ import {
 import { dirnameOf, sleepSync, isPortFree, servePreview } from "../server/runtime/runtime";
 import { killPortHolder } from "../server/runtime/ports";
 import { findBootedDevice, resolveDevice } from "../ios/device/device";
-import { androidSerialFromStateId, androidStateId, listAndroidDevices } from "../android/device/device";
+import {
+  androidSerialFromStateId,
+  androidStateId,
+  listAndroidDevices,
+} from "../android/device/device";
 import { permissions } from "../ios/device/permissions";
 import { uiSettings } from "../ios/device/ui-settings";
 import { debugCli, debugHelper, debugState } from "../shared/debug";
 import { readAllStates, readState, type ServerState } from "./device-state";
 import { registerDeviceCommands } from "./register-device-commands";
 import { registerSetupCommand } from "./register-setup-command";
+import { registerApplicationCommands } from "./register-application-commands";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
@@ -718,10 +723,11 @@ function locateCameraDylib(): string | null {
 }
 
 function buildCameraDylib(): string {
-  const buildScript = [
-    join(__dirname, "..", "..", "ios", "camera-injector", "build.sh"),
-    join(__dirname, "..", "ios", "camera-injector", "build.sh"),
-  ].find((candidate) => existsSync(candidate)) ?? "";
+  const buildScript =
+    [
+      join(__dirname, "..", "..", "ios", "camera-injector", "build.sh"),
+      join(__dirname, "..", "ios", "camera-injector", "build.sh"),
+    ].find((candidate) => existsSync(candidate)) ?? "";
   if (!existsSync(buildScript)) {
     throw new Error(
       "SimCameraInjector source not found — this build of agentsims does not " +
@@ -746,10 +752,11 @@ function locateCameraHelper(): string | null {
 }
 
 function buildCameraHelper(): string {
-  const buildScript = [
-    join(__dirname, "..", "..", "ios", "camera-helper", "build.sh"),
-    join(__dirname, "..", "ios", "camera-helper", "build.sh"),
-  ].find((candidate) => existsSync(candidate)) ?? "";
+  const buildScript =
+    [
+      join(__dirname, "..", "..", "ios", "camera-helper", "build.sh"),
+      join(__dirname, "..", "ios", "camera-helper", "build.sh"),
+    ].find((candidate) => existsSync(candidate)) ?? "";
   if (!existsSync(buildScript)) {
     throw new Error(
       "SimCameraHelper source not found — webcam support requires building " +
@@ -1706,6 +1713,20 @@ Examples:
 
 registerDeviceCommands(program);
 registerSetupCommand(program);
+registerApplicationCommands(program, {
+  defaultHost: previewHostFromEnvironment(),
+  serve: async (devices, options) => {
+    const environmentPort = previewPortFromEnvironment();
+    await serve(
+      options.port ?? environmentPort ?? 3200,
+      devices,
+      options.port !== undefined || environmentPort !== undefined,
+      options.host,
+      options.codec,
+    );
+  },
+  stop: killStreams,
+});
 
 const deviceOpt = [
   "-d, --device <id>",

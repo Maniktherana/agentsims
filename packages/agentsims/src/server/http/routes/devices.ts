@@ -3,7 +3,7 @@ import {
   serveDevicePlaceholderAsset,
 } from "../../devices/devicekit-chrome";
 import { deviceCatalog, parseGridPaging } from "../../devices/device-catalog";
-import { deviceLifecycle } from "../../devices/device-lifecycle";
+import { deviceCommands } from "../../../application/device-commands";
 import type { DeviceState } from "../../../shared/state";
 import type { RouteContext } from "../types";
 import { sendJson } from "../response";
@@ -37,10 +37,12 @@ export async function handleDeviceRoutes(
   }
 
   if (pathname === `${basePath}/grid/api`) {
-    const page = await deviceCatalog.page({
+    const paging = parseGridPaging(rawUrl);
+    const page = await deviceCommands.list({
       selectedDevice,
-      paging: parseGridPaging(rawUrl),
-      expose: options.exposeState,
+      limit: paging.limit,
+      offset: paging.offset,
+      exposeState: options.exposeState,
     });
     sendJson(response, 200, page);
     return true;
@@ -56,10 +58,17 @@ export async function handleDeviceRoutes(
       try {
         udid = (JSON.parse(body) as DeviceRequestBody).udid ?? "";
       } catch {}
-      const error = await deviceLifecycle.shutdown(udid);
-      if (response.writableEnded) return;
-      const status = error ? (error === "Invalid or missing device" ? 400 : 500) : 200;
-      sendJson(response, status, error ? { ok: false, error } : { ok: true });
+      try {
+        await deviceCommands.shutdown(udid);
+        if (!response.writableEnded) sendJson(response, 200, { ok: true });
+      } catch (error) {
+        if (response.writableEnded) return;
+        const message = error instanceof Error ? error.message : String(error);
+        sendJson(response, message === "Invalid or missing device" ? 400 : 500, {
+          ok: false,
+          error: message,
+        });
+      }
     });
     return true;
   }
@@ -74,18 +83,22 @@ export async function handleDeviceRoutes(
       try {
         udid = (JSON.parse(body) as DeviceRequestBody).udid ?? "";
       } catch {}
-      const result = await deviceLifecycle.start(udid, options.publicPort, basePath);
-      if (response.writableEnded) return;
-      const status = result.error
-        ? result.error === "Invalid or missing device"
-          ? 400
-          : 500
-        : 200;
-      sendJson(
-        response,
-        status,
-        result.error ? { ok: false, error: result.error } : { ok: true, device: result.device },
-      );
+      try {
+        const result = await deviceCommands.start(udid, {
+          port: options.publicPort,
+          basePath,
+        });
+        if (!response.writableEnded) {
+          sendJson(response, 200, { ok: true, device: result.device });
+        }
+      } catch (error) {
+        if (response.writableEnded) return;
+        const message = error instanceof Error ? error.message : String(error);
+        sendJson(response, message === "Invalid or missing device" ? 400 : 500, {
+          ok: false,
+          error: message,
+        });
+      }
     });
     return true;
   }
