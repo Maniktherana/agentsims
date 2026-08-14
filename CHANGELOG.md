@@ -4,6 +4,21 @@ What changed in agentsims, day by day, newest first.
 
 ## 2026-08-14
 
+### Added
+
+- **The CLI and HTTP API now use the same device commands.** The CLI can list,
+  boot, shut down, and inspect devices. It can also use screenshots,
+  accessibility data, settings, location, input, camera, and audio commands.
+  (`0fcfca7`)
+- **`agentsims setup` accepts the React Native project path as an argument.**
+  The previous `--project` option continues to work. (`d72c435`)
+
+### Fixed
+
+- A newly booted Android device now starts its stream transport before Agentsims
+  publishes the device as ready. The stream no longer depends on browser
+  selection to finish its startup. (`1bafbb7`)
+
 ### Internal
 
 - Regrouped the source tree by responsibility. No behavior changed. (`8552e38`)

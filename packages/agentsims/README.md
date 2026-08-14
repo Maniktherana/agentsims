@@ -44,8 +44,8 @@ Native accessibility inspection works immediately. To optionally add React
 Native source context, preview and apply the safe Metro config change:
 
 ```bash
-npx agentsims setup --dry-run
-npx agentsims setup
+npx agentsims setup . --dry-run
+npx agentsims setup .
 ```
 
 ## What `npx agentsims` does
@@ -66,14 +66,14 @@ Native component, file, line, owner, route, and safe-prop context, first preview
 the safe Metro configuration change and then apply it:
 
 ```bash
-npx agentsims setup --dry-run
-npx agentsims setup
+npx agentsims setup . --dry-run
+npx agentsims setup .
 ```
 
-`setup` discovers the Expo or React Native app, shows the proposed diff, asks
+`setup <project-path>` discovers the Expo or React Native app, shows the proposed diff, asks
 before writing, and creates a timestamped backup when it updates an existing
-config. It is idempotent. Use `--project <directory>` from outside the app,
-`--config <file>` to choose among configs, or `--yes` after reviewing a dry
+config. It is idempotent. The old `--project <directory>` form remains valid.
+Use `--config <file>` to choose among configs, or `--yes` after reviewing a dry
 run.
 
 For a configuration that cannot be updated safely, wrap the project's final
@@ -125,9 +125,9 @@ The published package currently requires a macOS 14 or newer host and Node.js
 20 or newer. Install Xcode for iOS Simulator support. Install Android Studio or
 the Android SDK and put `adb` on `PATH` for Android support.
 
-| Target | Live video and control |
-| --- | --- |
-| iOS Simulator | Native simulator capture and HID control |
+| Target           | Live video and control                    |
+| ---------------- | ----------------------------------------- |
+| iOS Simulator    | Native simulator capture and HID control  |
 | Android emulator | Emulator capture, H.264, and native input |
 
 Android live video requires browser WebCodecs support and has no MJPEG or ADB
@@ -136,8 +136,27 @@ is unavailable.
 
 ## Agent CLI
 
-Agents and shell scripts use the same cross-platform device IDs and normalized
-coordinates as the browser workspace:
+The empty command starts the complete workspace. Scripts can use the explicit
+form:
+
+```bash
+npx agentsims serve --port 3200
+```
+
+Collection commands use `devices`. Commands for one target use
+`device <device>`:
+
+```bash
+npx agentsims status
+npx agentsims devices list
+npx agentsims devices boot android-avd:Pixel_10
+npx agentsims device android:emulator-5554 status
+npx agentsims device android:emulator-5554 ax tree
+npx agentsims device android:emulator-5554 input tap 0.5 0.7
+```
+
+Agents and shell scripts use the same device IDs and normalized coordinates as
+the browser workspace. The old top-level commands remain as aliases:
 
 ```bash
 # Capture a screenshot plus screen, accessibility, and source metadata.
@@ -149,9 +168,11 @@ npx agentsims act \
   --device android:emulator-5554
 ```
 
-`act` accepts `tap`, `gesture`, `swipe`, `type`, `button`, and `rotate`
-actions. Direct `tap`, `gesture`, `type`, `button`, and `rotate` commands are
-also available. Run `npx agentsims --help` for the complete command list.
+`act` accepts `tap`, `gesture`, `swipe`, `type`, `button`, and `rotate` actions.
+Run `npx agentsims --help` for the complete command list.
+
+The CLI and HTTP routes are adapters for the same application commands. Device
+and media services do not depend on either adapter.
 
 ## Develop the package
 
