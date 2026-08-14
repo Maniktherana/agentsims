@@ -47,6 +47,16 @@ function setupInput(options: SetupCommandOptions): MetroSetupInput {
   };
 }
 
+export function setupOptionsForProjectPath(
+  projectPath: string | undefined,
+  options: SetupCommandOptions,
+): SetupCommandOptions {
+  if (projectPath && options.project && projectPath !== options.project) {
+    throw new MetroSetupError("Use either the setup project path or --project, not both.");
+  }
+  return { ...options, ...(projectPath ? { project: projectPath } : {}) };
+}
+
 export async function runSetupCommand(
   options: SetupCommandOptions,
   io: SetupCommandIO = processIO,
@@ -92,15 +102,15 @@ export async function runSetupCommand(
 
 export function registerSetupCommand(program: Command): void {
   program
-    .command("setup")
+    .command("setup [project-path]")
     .description("Configure opt-in React Native and Expo source mapping")
-    .option("--project <directory>", "Expo or React Native app directory")
+    .option("--project <directory>", "Expo or React Native app directory (legacy form)")
     .option("--config <file>", "Metro config path, relative to the app directory")
     .option("--dry-run", "Print the proposed diff without writing files")
     .option("-y, --yes", "Apply the proposed change without prompting")
-    .action(async (options: SetupCommandOptions) => {
+    .action(async (projectPath: string | undefined, options: SetupCommandOptions) => {
       try {
-        await runSetupCommand(options);
+        await runSetupCommand(setupOptionsForProjectPath(projectPath, options));
       } catch (error) {
         process.stderr.write(
           `agentsims setup: ${error instanceof Error ? error.message : String(error)}\n`,
