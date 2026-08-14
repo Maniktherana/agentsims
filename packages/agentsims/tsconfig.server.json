@@ -11,5 +11,5 @@
     "types": ["bun", "node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/__tests__/**", "src/web/**"]
+  "exclude": ["src/__tests__/**", "src/**/*.test.ts", "src/**/*.test.tsx", "src/web/**"]
 }

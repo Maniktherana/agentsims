@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { AvccDemuxer, type AvccChunkType } from "../src/web/avcc-codec";
+import { AvccDemuxer, type AvccChunkType } from "../src/web/simulator/stream/avcc-codec";
 
 const base = (process.env.AGENTSIMS_URL || "http://127.0.0.1:3210").replace(/\/$/, "");
 const serial = process.argv[2] || "emulator-5554";
@@ -84,15 +84,21 @@ ws.close();
 
 const mediaFrames = counts.keyframe + counts.delta;
 const elapsedMs = Math.round(performance.now() - startedAt);
-console.log(JSON.stringify({
-  device,
-  elapsedMs,
-  bytes,
-  ...counts,
-  mediaFrames,
-  observedFps: Number((mediaFrames / (elapsedMs / 1000)).toFixed(1)),
-  gestureSent: sentGesture,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      device,
+      elapsedMs,
+      bytes,
+      ...counts,
+      mediaFrames,
+      observedFps: Number((mediaFrames / (elapsedMs / 1000)).toFixed(1)),
+      gestureSent: sentGesture,
+    },
+    null,
+    2,
+  ),
+);
 
 if (!counts.description || !counts.keyframe || !counts.delta || !sentGesture || mediaFrames < 3) {
   process.exitCode = 1;

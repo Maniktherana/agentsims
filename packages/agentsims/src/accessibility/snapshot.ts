@@ -1,8 +1,8 @@
 import { AX_UNAVAILABLE_ERROR } from "./model";
 import type { AxElement, AxRect, AxSnapshot } from "./model";
-import { androidSerialFromStateId, collectAndroidAxSnapshot } from "../android/device";
-import { subscribeAndroidAxChanges } from "../android/ax-server";
-import { axDescribeAsync } from "../ios/native";
+import { androidSerialFromStateId, collectAndroidAxSnapshot } from "../android/device/device";
+import { subscribeAndroidAxChanges } from "../android/accessibility/ax-server";
+import { axDescribeAsync } from "../ios/stream/native";
 import { enrichAxSnapshotWithRnSource } from "./rn-source";
 
 export type { AxElement, AxRect, AxSnapshot } from "./model";

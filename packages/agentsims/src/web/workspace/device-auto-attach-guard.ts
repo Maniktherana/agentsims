@@ -1,4 +1,4 @@
-import type { GridDevice } from "../utils/grid";
+import type { GridDevice } from "./grid";
 
 type DevicePresence = Pick<GridDevice, "device" | "helper" | "state">;
 

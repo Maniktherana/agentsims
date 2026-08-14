@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { execFile, execFileSync } from "node:child_process";
-import { AvccDemuxer, type AvccChunkType } from "../src/web/avcc-codec";
+import { AvccDemuxer, type AvccChunkType } from "../src/web/simulator/stream/avcc-codec";
 
 const base = (process.env.AGENTSIMS_URL || "http://127.0.0.1:3200").replace(/\/$/, "");
 const serial = process.argv[2] || "emulator-5554";
@@ -26,7 +26,9 @@ function touch(type: "begin" | "move" | "end", x: number, y: number): Uint8Array
 function emulatorPid(): string | null {
   try {
     const output = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
-    const line = output.split("\n").find((entry) => entry.includes(`qemu-system-aarch64 @`) && entry.includes("Pixel_10"));
+    const line = output
+      .split("\n")
+      .find((entry) => entry.includes(`qemu-system-aarch64 @`) && entry.includes("Pixel_10"));
     return line?.trim().split(/\s+/, 1)[0] ?? null;
   } catch {
     return null;
@@ -52,7 +54,7 @@ function startCpuSampler(pid: string | null, samples: number[]): () => void {
 async function swipe(ws: WebSocket, fromX: number, toX: number): Promise<void> {
   const y = 0.55;
   const swipeDurationMs = 1_000 / 3;
-  const steps = Math.max(1, Math.round(inputFps * swipeDurationMs / 1_000));
+  const steps = Math.max(1, Math.round((inputFps * swipeDurationMs) / 1_000));
   ws.send(touch("begin", fromX, y));
   for (let step = 1; step <= steps; step += 1) {
     ws.send(touch("move", fromX + (toX - fromX) * (step / steps), y));
@@ -81,7 +83,7 @@ function adbSwipe(fromX: number, toX: number): Promise<void> {
         "333",
       ],
       { timeout: 2_000 },
-      (error) => error ? reject(error) : resolve(),
+      (error) => (error ? reject(error) : resolve()),
     );
   });
 }
@@ -160,26 +162,36 @@ const activeFrames = mediaFrameTimes.filter((at) => at >= activeStart && at <= a
 const activeSeconds = (activeEnd - activeStart) / 1000;
 const observedFps = Number((activeFrames / activeSeconds).toFixed(1));
 const windowMs = Math.min(10_000, (activeEnd - activeStart) / 2);
-const firstWindowFrames = mediaFrameTimes.filter((at) => at >= activeStart && at < activeStart + windowMs).length;
-const lastWindowFrames = mediaFrameTimes.filter((at) => at > activeEnd - windowMs && at <= activeEnd).length;
+const firstWindowFrames = mediaFrameTimes.filter(
+  (at) => at >= activeStart && at < activeStart + windowMs,
+).length;
+const lastWindowFrames = mediaFrameTimes.filter(
+  (at) => at > activeEnd - windowMs && at <= activeEnd,
+).length;
 
-console.log(JSON.stringify({
-  device,
-  activeMs: Math.round(activeEnd - activeStart),
-  activeFrames,
-  observedFps,
-  firstWindowFps: Number((firstWindowFrames / (windowMs / 1000)).toFixed(1)),
-  lastWindowFps: Number((lastWindowFrames / (windowMs / 1000)).toFixed(1)),
-  gestures,
-  inputFps,
-  inputMode,
-  emulatorCpuAverage: cpuSamples.length
-    ? Number((cpuSamples.reduce((sum, value) => sum + value, 0) / cpuSamples.length).toFixed(1))
-    : null,
-  emulatorCpuPeak: cpuSamples.length ? Math.max(...cpuSamples) : null,
-  bytes,
-  ...counts,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      device,
+      activeMs: Math.round(activeEnd - activeStart),
+      activeFrames,
+      observedFps,
+      firstWindowFps: Number((firstWindowFrames / (windowMs / 1000)).toFixed(1)),
+      lastWindowFps: Number((lastWindowFrames / (windowMs / 1000)).toFixed(1)),
+      gestures,
+      inputFps,
+      inputMode,
+      emulatorCpuAverage: cpuSamples.length
+        ? Number((cpuSamples.reduce((sum, value) => sum + value, 0) / cpuSamples.length).toFixed(1))
+        : null,
+      emulatorCpuPeak: cpuSamples.length ? Math.max(...cpuSamples) : null,
+      bytes,
+      ...counts,
+    },
+    null,
+    2,
+  ),
+);
 
 ws?.close();
 streamAbort.abort();

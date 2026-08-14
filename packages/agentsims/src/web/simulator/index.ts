@@ -1,5 +1,5 @@
-export { SimulatorView } from "./SimulatorView.js";
-export { SimulatorToolbar } from "./SimulatorToolbar.js";
+export { SimulatorView } from "../components/simulator/simulator-view.js";
+export { SimulatorToolbar } from "../components/simulator/simulator-toolbar.js";
 export {
   DEVICE_FRAMES,
   DeviceFrameChrome,
@@ -10,13 +10,13 @@ export {
   simulatorAspectRatio,
   simulatorMaxWidth,
   simulatorResizeCornerArc,
-} from "./deviceFrames.js";
+} from "../components/simulator/device-frames.js";
 export {
   displayStreamConfig,
   isLandscapeConfig,
   ROTATE_LEFT_CYCLE,
   ROTATE_RIGHT_CYCLE,
-} from "./orientation.js";
-export type { DeviceType } from "./deviceFrames.js";
-export type { SimulatorOrientation, StreamConfig } from "../types.js";
-export { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
+} from "./android/orientation.js";
+export type { DeviceType } from "../components/simulator/device-frames.js";
+export type { SimulatorOrientation, StreamConfig } from "../app/types.js";
+export { digitalCrownDeltaFromWheel } from "./input/digital-crown.js";

@@ -1,6 +1,6 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
-import { androidSerialFromStateId } from "../android/device";
+import { androidSerialFromStateId } from "../android/device/device";
 import { debugState } from "../shared/debug";
 import {
   listStateFiles,

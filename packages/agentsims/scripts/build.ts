@@ -25,7 +25,7 @@ import {
   assertPreviewDynamicImportsEmbedded,
   assertPreviewManifestAssetsEmbedded,
   type PreviewViteManifest,
-} from "../src/shared/preview-assets";
+} from "../src/server/preview/preview-assets";
 
 const root = resolve(import.meta.dir, "..");
 const distDir = resolve(root, "dist");
@@ -296,7 +296,7 @@ writeFileSync(
 // ─── 4. Bin JS bundle ────────────────────────────────────────────────────
 
 const binJsResult = await Bun.build({
-  entrypoints: [resolve(root, "src/index.ts")],
+  entrypoints: [resolve(root, "src/cli/index.ts")],
   target: "node",
   format: "esm",
   minify: true,
