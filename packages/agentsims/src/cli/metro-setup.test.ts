@@ -1,12 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -18,6 +11,7 @@ import {
 } from "./metro-setup";
 import {
   runSetupCommand,
+  setupOptionsForProjectPath,
   type SetupCommandIO,
 } from "./register-setup-command";
 
@@ -94,9 +88,7 @@ describe("transformMetroConfig", () => {
     const transformed = transformMetroConfig(source, "/app/metro.config.js");
 
     expect(transformed.status).toBe("change");
-    expect(transformed.source).toContain(
-      "const { withAgentsims } = require('agentsims/metro');",
-    );
+    expect(transformed.source).toContain("const { withAgentsims } = require('agentsims/metro');");
     expect(transformed.source).toContain("module.exports = withAgentsims(config);");
     expect(transformMetroConfig(transformed.source, "/app/metro.config.js")).toEqual({
       status: "already-configured",
@@ -154,9 +146,7 @@ describe("transformMetroConfig", () => {
 
     const result = transformMetroConfig(source, "/app/metro.config.mts").source;
 
-    expect(result).toContain(
-      'import { withAgentsims } from "agentsims/metro";\r\n',
-    );
+    expect(result).toContain('import { withAgentsims } from "agentsims/metro";\r\n');
     expect(result).toContain("satisfies MetroConfig;");
     expect(result).toContain("export default withAgentsims(config);");
     expect(result.includes("\r\n")).toBe(true);
@@ -181,7 +171,7 @@ describe("transformMetroConfig", () => {
     ].join("\n");
     const result = transformMetroConfig(partial, "/app/metro.config.js").source;
     expect(result).toContain(
-      "const { agentsimsMetroTransformerPath, withAgentsims } = require(\"agentsims/metro\");",
+      'const { agentsimsMetroTransformerPath, withAgentsims } = require("agentsims/metro");',
     );
     expect(result.match(/require\("agentsims\/metro"\)/g)).toHaveLength(1);
   });
@@ -222,9 +212,7 @@ describe("transformMetroConfig", () => {
       "module.exports = mergeConfig(getDefaultConfig(__dirname), async () => ({}));",
       "",
     ].join("\n");
-    expect(() => transformMetroConfig(asyncMerge, "/app/metro.config.js")).toThrow(
-      "Async configs",
-    );
+    expect(() => transformMetroConfig(asyncMerge, "/app/metro.config.js")).toThrow("Async configs");
 
     const reassigned = [
       'const { getDefaultConfig } = require("expo/metro-config");',
@@ -283,11 +271,7 @@ describe("Metro setup planning and writes", () => {
   test("follows Expo's canonical tsx loader to its TypeScript config", () => {
     const project = temporaryProject(
       { expo: "*", agentsims: "*", tsx: "*" },
-      [
-        'require("tsx/cjs");',
-        'module.exports = require("./metro.config.ts");',
-        "",
-      ].join("\n"),
+      ['require("tsx/cjs");', 'module.exports = require("./metro.config.ts");', ""].join("\n"),
     );
     const typescriptPath = join(project.root, "metro.config.ts");
     writeFileSync(
@@ -303,9 +287,7 @@ describe("Metro setup planning and writes", () => {
     const plan = planMetroSetup({ project: project.root }, fixedSystem);
 
     expect(plan.configPath).toBe(typescriptPath);
-    expect(plan.updated).toContain(
-      'import { withAgentsims } from "agentsims/metro";',
-    );
+    expect(plan.updated).toContain('import { withAgentsims } from "agentsims/metro";');
     expect(plan.updated).toContain("module.exports = withAgentsims(config);");
     expect(readFileSync(project.configPath, "utf8")).not.toContain("withAgentsims");
   });
@@ -322,9 +304,7 @@ describe("Metro setup planning and writes", () => {
 
     const applied = applyMetroSetup(plan, fixedSystem);
 
-    expect(applied.backupPath).toBe(
-      `${project.configPath}.agentsims.bak.20260806T123456Z`,
-    );
+    expect(applied.backupPath).toBe(`${project.configPath}.agentsims.bak.20260806T123456Z`);
     expect(readFileSync(applied.backupPath!, "utf8")).toBe(original);
     expect(readFileSync(project.configPath, "utf8")).toContain(
       "module.exports = withAgentsims(config);",
@@ -400,7 +380,11 @@ describe("Metro setup planning and writes", () => {
     );
     expect(readFileSync(project.configPath, "utf8")).toBe(concurrent);
     expect(existsSync(`${project.configPath}.agentsims.bak.20260806T123456Z`)).toBe(true);
-    expect(readdirSync(project.root).some((name) => name.includes(".agentsims-") && name.endsWith(".tmp"))).toBe(false);
+    expect(
+      readdirSync(project.root).some(
+        (name) => name.includes(".agentsims-") && name.endsWith(".tmp"),
+      ),
+    ).toBe(false);
   });
 
   test("requires a project-local Agentsims Metro export", () => {
@@ -427,15 +411,21 @@ describe("Metro setup planning and writes", () => {
 });
 
 describe("runSetupCommand", () => {
+  test("accepts a project path as the setup argument", () => {
+    expect(setupOptionsForProjectPath("/app", { dryRun: true })).toEqual({
+      project: "/app",
+      dryRun: true,
+    });
+    expect(() => setupOptionsForProjectPath("/app", { project: "/other" })).toThrow(
+      "either the setup project path or --project",
+    );
+  });
+
   test("dry-run prints the diff and never writes", async () => {
     const project = temporaryProject({ expo: "*", agentsims: "*" });
     const output = outputCapture();
 
-    await runSetupCommand(
-      { project: project.root, dryRun: true },
-      output.io,
-      fixedSystem,
-    );
+    await runSetupCommand({ project: project.root, dryRun: true }, output.io, fixedSystem);
 
     expect(output.stdout()).toContain("--- /dev/null");
     expect(output.stdout()).toContain("Dry run complete. No files changed.");
@@ -471,11 +461,7 @@ describe("runSetupCommand", () => {
     ).rejects.toThrow("non-interactive terminal");
     expect(existsSync(project.configPath)).toBe(false);
 
-    await runSetupCommand(
-      { project: project.root, yes: true },
-      output.io,
-      fixedSystem,
-    );
+    await runSetupCommand({ project: project.root, yes: true }, output.io, fixedSystem);
     expect(readFileSync(project.configPath, "utf8")).toContain("withAgentsims(config");
     expect(output.stdout()).toContain("Restart Metro to activate source mapping.");
   });
