@@ -8,7 +8,11 @@ import {
   launchAndroidAvd,
   listAndroidDevices,
 } from "../../android/device/device";
-import { closeAndroidSession, getAndroidSession } from "../../android/session/session";
+import {
+  closeAndroidSession,
+  getAndroidSession,
+  type AndroidSession,
+} from "../../android/session/session";
 import { closeDeviceSession, getDeviceSession } from "../../ios/session/session";
 import { debugMw } from "../../shared/debug";
 import {
@@ -66,6 +70,16 @@ function execFileResult(
   });
 }
 
+export interface DeviceLifecycleDependencies {
+  getAndroidSession(serial: string): Promise<Pick<AndroidSession, "startTransport">>;
+  writeDeviceState(state: DeviceState): void;
+}
+
+const DEFAULT_LIFECYCLE_DEPENDENCIES: DeviceLifecycleDependencies = {
+  getAndroidSession,
+  writeDeviceState,
+};
+
 export const DEVICE_SHUTTING_DOWN_ERROR = "Device is shutting down";
 
 export class DeviceLifecycle {
@@ -74,7 +88,10 @@ export class DeviceLifecycle {
   private readonly shutdownOperations = new Map<string, Promise<string | null>>();
   private readonly iosShutdownSuppressed = new Set<string>();
 
-  constructor(private readonly execute = execFileResult) {}
+  constructor(
+    private readonly execute = execFileResult,
+    private readonly dependencies = DEFAULT_LIFECYCLE_DEPENDENCIES,
+  ) {}
 
   invalidate(): void {
     this.iosSnapshot = { at: 0, devices: null };
@@ -223,8 +240,9 @@ export class DeviceLifecycle {
   private async startAndroidDevice(serial: string, port: number, base: string): Promise<string | null> {
     if (!/^emulator-\d+$/.test(serial)) return "Agentsims supports Android emulators only";
     try {
-      await getAndroidSession(serial);
-      writeDeviceState(inProcessDeviceState(androidStateId(serial), port, base));
+      const session = await this.dependencies.getAndroidSession(serial);
+      await session.startTransport();
+      this.dependencies.writeDeviceState(inProcessDeviceState(androidStateId(serial), port, base));
       this.invalidate();
       return null;
     } catch (error) {
