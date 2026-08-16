@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import type { Socket } from "net";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
+import type { DeviceCommands } from "../../application/device-commands";
 import { createAxStreamerCache, type AxStreamerCache } from "../../accessibility/snapshot";
 import {
   UI_OPTIONS,
@@ -121,6 +122,10 @@ export interface SimMiddlewareOptions {
   readDeviceStates?: () => Promise<DeviceState[]>;
   axStreamerCache?: AxStreamerCache;
   saveScreenshot?: ScreenshotPersistence;
+  deviceCommands?: Pick<
+    DeviceCommands,
+    "list" | "workspaces" | "observe" | "act" | "start" | "shutdown"
+  >;
 }
 
 export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
@@ -231,6 +236,7 @@ export function simMiddleware(options?: SimMiddlewareOptions): SimMiddleware {
       await handleDeviceRoutes(context, {
         exposeState,
         publicPort: publicPortForRequest(request),
+        commands: options?.deviceCommands,
       })
     ) {
       return;

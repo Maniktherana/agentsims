@@ -527,18 +527,26 @@ export class AndroidSession {
     return captureAndroidPng(this.serial);
   }
 
+  async readConfig() {
+    if (!this.width || !this.height) {
+      const config = await this.dependencies.readScreenConfig(this.serial);
+      this.applyScreenConfig(config);
+    }
+    return this.screenConfig();
+  }
+
+  async readAccessibility(mode: AndroidAxMode = "settled"): Promise<unknown> {
+    return enrichAxSnapshotWithRnSource(
+      await collectAndroidAxSnapshot(this.serial, { mode }),
+    );
+  }
+
   handleConfig(_req: IncomingMessage, res: ServerResponse): void {
-    void (async () => {
-      try {
-        if (!this.width || !this.height) {
-          const config = await this.dependencies.readScreenConfig(this.serial);
-          this.applyScreenConfig(config);
-        }
-        sendJson(res, 200, this.screenConfig());
-      } catch (error) {
+    void this.readConfig()
+      .then((config) => sendJson(res, 200, config))
+      .catch((error) => {
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      }
-    })();
+      });
   }
 
   handleHealth(_req: IncomingMessage, res: ServerResponse): void {
@@ -579,9 +587,7 @@ export class AndroidSession {
       // and uses fresh hot snapshots without an idle barrier.
       const mode: AndroidAxMode =
         requestedMode === "latest" || requestedMode === "fresh" ? requestedMode : "settled";
-      const snapshot = enrichAxSnapshotWithRnSource(
-        await collectAndroidAxSnapshot(this.serial, { mode }),
-      );
+      const snapshot = await this.readAccessibility(mode);
       sendJsonString(res, 200, JSON.stringify(snapshot));
     })();
   }
@@ -597,7 +603,7 @@ export class AndroidSession {
       // reach the native input stream immediately. Serializing them with taps,
       // buttons, and ADB fallbacks turns a trackpad burst into a visible queue.
       if (message[0] === 0x0b) {
-        void this.handleHidMessage(message).catch(() => {});
+        void this.dispatchInputFrame(message).catch(() => {});
         return;
       }
       const touchType = touchMessageType(message);
@@ -618,7 +624,7 @@ export class AndroidSession {
   }
 
   private queueHidMessage(message: Buffer): void {
-    this.inputQueue = this.inputQueue.then(() => this.handleHidMessage(message)).catch(() => {});
+    this.inputQueue = this.inputQueue.then(() => this.dispatchInputFrame(message)).catch(() => {});
   }
 
   private emulatorScrollTouch(
@@ -674,7 +680,7 @@ export class AndroidSession {
     return true;
   }
 
-  private async handleHidMessage(data: Buffer): Promise<void> {
+  async dispatchInputFrame(data: Buffer): Promise<void> {
     if (data.length < 1 || !this.width || !this.height) return;
     const tag = data[0];
     const body = data.length > 1 ? data.subarray(1) : null;

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
+import { MediaCommands } from "../../application/media-commands";
 import {
   androidAvdStateId,
   androidSerialFromStateId,
@@ -366,7 +367,222 @@ async function waitForAndroidDisconnect(serial: string): Promise<void> {
 }
 
 export class MediaRouter {
-  constructor(private readonly base: string) {}
+  private readonly commands: MediaCommands;
+
+  constructor(
+    private readonly base: string,
+    commands?: MediaCommands,
+  ) {
+    this.commands = commands ?? new MediaCommands(this);
+  }
+
+  async read(device: string): Promise<DeviceMediaState> {
+    const serial = androidSerialFromStateId(device);
+    const hostAudio = await listHostAudioDevices().catch(() => emptyHostAudioSnapshot());
+    if (!serial) {
+      const storedRoute = getStoredMediaRoute(device);
+      const [iosWebcams, iosCameraStatus] = await Promise.all([
+        listIosWebcams()
+          .then((webcams) =>
+            webcams.map((webcam) => ({
+              id: webcam.id,
+              label: webcam.label,
+              apply: "app-relaunch" as const,
+              scope: "app" as const,
+            })),
+          )
+          .catch(() => []),
+        getIosCameraStatus(device).catch(() => ({ alive: false, bundleIds: [] })),
+      ]);
+      return buildDeviceMediaState(
+        device,
+        undefined,
+        [],
+        undefined,
+        hostAudio,
+        iosWebcams,
+        iosCameraStatus,
+        storedRoute,
+      );
+    }
+
+    const status = await getAndroidStatus(serial);
+    const storedRoute = status.avdName
+      ? getStoredMediaRoute(androidAvdStateId(status.avdName))
+      : getStoredMediaRoute(device);
+    const webcams = /^emulator-\d+$/.test(serial)
+      ? await listAndroidWebcams().catch(() => [])
+      : [];
+    return buildDeviceMediaState(
+      device,
+      status,
+      webcams,
+      microphoneRoutes.get(serial),
+      hostAudio,
+      [],
+      undefined,
+      storedRoute,
+    );
+  }
+
+  async apply(
+    device: string,
+    body: MediaRouteAction,
+    publicPort: number,
+  ): Promise<MediaRouteResult> {
+    const serial = androidSerialFromStateId(device);
+    if (body.action === "android-host-microphone") {
+      if (!serial) throw new Error("Android host microphone is only available for Android emulators");
+      if (typeof body.enabled !== "boolean") throw new Error("Missing enabled flag");
+      await setAndroidHostMicrophone(serial, body.enabled);
+      microphoneRoutes.set(serial, body.enabled);
+      return { ok: true, apply: "live" };
+    }
+    if (body.action === "android-camera-source") {
+      if (!serial) throw new Error("Android camera source is only available for Android emulators");
+      const status = await getAndroidStatus(serial);
+      if (!status.avdName) throw new Error("The running emulator has no AVD name");
+      if ((body.face !== "front" && body.face !== "back") || typeof body.source !== "string") {
+        throw new Error("Invalid camera source request");
+      }
+      validateAndroidCameraModeForStatus(body.face, body.source, status);
+      const routeKey = androidAvdStateId(status.avdName);
+      const current = getStoredMediaRoute(routeKey);
+      updateStoredMediaRoute(
+        routeKey,
+        body.face === "front"
+          ? {
+              androidCameraFront: body.source,
+              androidCameraBack: current.androidCameraBack ?? status.camera.back,
+            }
+          : {
+              androidCameraFront: current.androidCameraFront ?? status.camera.front,
+              androidCameraBack: body.source,
+            },
+      );
+      return { ok: true, apply: "device-restart" };
+    }
+    if (body.action === "android-camera-sources") {
+      if (!serial) throw new Error("Android camera sources are only available for Android emulators");
+      const status = await getAndroidStatus(serial);
+      if (!status.avdName) throw new Error("The running emulator has no AVD name");
+      if (typeof body.front !== "string" || typeof body.back !== "string") {
+        throw new Error("Invalid Android camera sources request");
+      }
+      validateAndroidCameraModeForStatus("front", body.front, status);
+      validateAndroidCameraModeForStatus("back", body.back, status);
+      updateStoredMediaRoute(androidAvdStateId(status.avdName), {
+        androidCameraFront: body.front,
+        androidCameraBack: body.back,
+      });
+      return { ok: true, apply: "device-restart" };
+    }
+    if (body.action === "ios-camera-source") {
+      if (serial) throw new Error("iOS camera injection is only available for iOS simulators");
+      if (
+        body.source !== "placeholder" &&
+        body.source !== "webcam" &&
+        body.source !== "image" &&
+        body.source !== "video"
+      ) {
+        throw new Error("Invalid iOS camera source");
+      }
+      const apply = await attachOrSwitchIosCameraSource(
+        device,
+        body.source,
+        body.source === "webcam" ? body.deviceId : body.path,
+      );
+      return { ok: true, apply };
+    }
+    if (body.action === "host-audio-input") {
+      if (typeof body.deviceId !== "string" || body.deviceId.length === 0) {
+        throw new Error("Missing host input device");
+      }
+      await setHostDefaultInput(body.deviceId);
+      updateStoredMediaRoute(device, { inputDeviceId: body.deviceId });
+      if (serial && /^emulator-\d+$/.test(serial)) {
+        await setAndroidHostMicrophone(serial, true);
+        microphoneRoutes.set(serial, true);
+      }
+      return { ok: true, apply: "live" };
+    }
+    if (body.action === "host-audio-output") {
+      if (typeof body.deviceId !== "string" || body.deviceId.length === 0) {
+        throw new Error("Missing host output device");
+      }
+      await setHostDefaultOutput(body.deviceId);
+      updateStoredMediaRoute(device, { outputDeviceId: body.deviceId });
+      return { ok: true, apply: "live" };
+    }
+    if (body.action === "android-output-volume") {
+      if (!serial || !/^emulator-\d+$/.test(serial)) {
+        throw new Error("Android media volume is only available for Android emulators");
+      }
+      if (!Number.isInteger(body.level)) {
+        throw new Error("Android media volume level must be an integer");
+      }
+      await setAndroidMediaVolumeLevel(serial, body.level);
+      return { ok: true, apply: "live" };
+    }
+    if (body.action === "host-audio-output-volume") {
+      if (
+        typeof body.volume !== "number" ||
+        !Number.isFinite(body.volume) ||
+        body.volume < 0 ||
+        body.volume > 1
+      ) {
+        throw new Error("Output volume must be between 0 and 1");
+      }
+      if (typeof body.deviceId !== "string" || body.deviceId.length === 0) {
+        throw new Error("Missing host output device");
+      }
+      await setHostOutputVolume(body.deviceId, body.volume);
+      return { ok: true, apply: "live" };
+    }
+    if (body.action === "audio-output-volume") {
+      if (
+        typeof body.volume !== "number" ||
+        !Number.isFinite(body.volume) ||
+        body.volume < 0 ||
+        body.volume > 1
+      ) {
+        throw new Error("Output volume must be between 0 and 1");
+      }
+      if (serial && /^emulator-\d+$/.test(serial)) {
+        await setAndroidMediaVolume(serial, body.volume);
+      } else if (typeof body.deviceId === "string" && body.deviceId.length > 0) {
+        await setHostOutputVolume(body.deviceId, body.volume);
+      } else {
+        throw new Error("Missing host output device");
+      }
+      return { ok: true, apply: "live" };
+    }
+    if (body.action === "android-virtual-scene-image") {
+      if (!serial) throw new Error("Android virtual scene images are only available for Android emulators");
+      if (body.surface !== "wall" && body.surface !== "table") {
+        throw new Error("Invalid virtual scene surface");
+      }
+      if (body.path !== undefined && typeof body.path !== "string") {
+        throw new Error("Invalid image path");
+      }
+      await setAndroidVirtualSceneImage(serial, body.surface, body.path);
+      return { ok: true, apply: "live" };
+    }
+
+    if (!serial) throw new Error("Restart from media routing is only available for Android emulators");
+    const status = await getAndroidStatus(serial);
+    if (!status.avdName) throw new Error("Only Android emulators can be restarted here");
+    const shutdownError = await deviceLifecycle.shutdown(device);
+    if (shutdownError) throw new Error(shutdownError);
+    await waitForAndroidDisconnect(serial);
+    const started = await deviceLifecycle.start(
+      androidAvdStateId(status.avdName),
+      publicPort,
+      this.base,
+    );
+    if (started.error) throw new Error(started.error);
+    return { ok: true, apply: "device-restart", device: started.device };
+  }
 
   async handle(
     req: MediaRequest,
@@ -384,68 +600,14 @@ export class MediaRouter {
       return true;
     }
 
-    const serial = androidSerialFromStateId(state.device);
     if (req.method === "GET") {
-      const hostAudio = await listHostAudioDevices().catch(() => emptyHostAudioSnapshot());
-      if (!serial) {
-        const storedRoute = getStoredMediaRoute(state.device);
-        const [iosWebcams, iosCameraStatus] = await Promise.all([
-          listIosWebcams()
-            .then((webcams) =>
-              webcams.map((webcam) => ({
-                id: webcam.id,
-                label: webcam.label,
-                apply: "app-relaunch" as const,
-                scope: "app" as const,
-              })),
-            )
-            .catch(() => []),
-          getIosCameraStatus(state.device).catch(() => ({ alive: false, bundleIds: [] })),
-        ]);
-        json(
-          res,
-          200,
-          buildDeviceMediaState(
-            state.device,
-            undefined,
-            [],
-            undefined,
-            hostAudio,
-            iosWebcams,
-            iosCameraStatus,
-            storedRoute,
-          ),
-        );
-        return true;
-      }
       try {
-        const status = await getAndroidStatus(serial);
-        const storedRoute = status.avdName
-          ? getStoredMediaRoute(androidAvdStateId(status.avdName))
-          : getStoredMediaRoute(state.device);
-        const webcams = /^emulator-\d+$/.test(serial)
-          ? await listAndroidWebcams().catch(() => [])
-          : [];
-        json(
-          res,
-          200,
-          buildDeviceMediaState(
-            state.device,
-            status,
-            webcams,
-            microphoneRoutes.get(serial),
-            hostAudio,
-            [],
-            undefined,
-            storedRoute,
-          ),
-        );
+        json(res, 200, await this.commands.read(state.device));
       } catch (error) {
         json(res, 503, { error: error instanceof Error ? error.message : String(error) });
       }
       return true;
     }
-
     if (req.method !== "POST") {
       json(res, 405, { error: "Method Not Allowed" });
       return true;
@@ -460,156 +622,7 @@ export class MediaRouter {
         json(res, 400, { error: "Unknown media action" });
         return true;
       }
-
-      let result: MediaRouteResult;
-      if (body.action === "android-host-microphone") {
-        if (!serial)
-          throw new Error("Android host microphone is only available for Android emulators");
-        if (typeof body.enabled !== "boolean") throw new Error("Missing enabled flag");
-        await setAndroidHostMicrophone(serial, body.enabled);
-        microphoneRoutes.set(serial, body.enabled);
-        result = { ok: true, apply: "live" };
-      } else if (body.action === "android-camera-source") {
-        if (!serial)
-          throw new Error("Android camera source is only available for Android emulators");
-        const status = await getAndroidStatus(serial);
-        if (!status.avdName) throw new Error("The running emulator has no AVD name");
-        if ((body.face !== "front" && body.face !== "back") || typeof body.source !== "string") {
-          throw new Error("Invalid camera source request");
-        }
-        validateAndroidCameraModeForStatus(body.face, body.source, status);
-        const routeKey = androidAvdStateId(status.avdName);
-        const current = getStoredMediaRoute(routeKey);
-        updateStoredMediaRoute(
-          routeKey,
-          body.face === "front"
-            ? {
-                androidCameraFront: body.source,
-                androidCameraBack: current.androidCameraBack ?? status.camera.back,
-              }
-            : {
-                androidCameraFront: current.androidCameraFront ?? status.camera.front,
-                androidCameraBack: body.source,
-              },
-        );
-        result = { ok: true, apply: "device-restart" };
-      } else if (body.action === "android-camera-sources") {
-        if (!serial)
-          throw new Error("Android camera sources are only available for Android emulators");
-        const status = await getAndroidStatus(serial);
-        if (!status.avdName) throw new Error("The running emulator has no AVD name");
-        if (typeof body.front !== "string" || typeof body.back !== "string") {
-          throw new Error("Invalid Android camera sources request");
-        }
-        validateAndroidCameraModeForStatus("front", body.front, status);
-        validateAndroidCameraModeForStatus("back", body.back, status);
-        updateStoredMediaRoute(androidAvdStateId(status.avdName), {
-          androidCameraFront: body.front,
-          androidCameraBack: body.back,
-        });
-        result = { ok: true, apply: "device-restart" };
-      } else if (body.action === "ios-camera-source") {
-        if (serial) throw new Error("iOS camera injection is only available for iOS simulators");
-        if (
-          body.source !== "placeholder" &&
-          body.source !== "webcam" &&
-          body.source !== "image" &&
-          body.source !== "video"
-        ) {
-          throw new Error("Invalid iOS camera source");
-        }
-        const apply = await attachOrSwitchIosCameraSource(
-          state.device,
-          body.source,
-          body.source === "webcam" ? body.deviceId : body.path,
-        );
-        result = { ok: true, apply };
-      } else if (body.action === "host-audio-input") {
-        if (typeof body.deviceId !== "string" || body.deviceId.length === 0) {
-          throw new Error("Missing host input device");
-        }
-        await setHostDefaultInput(body.deviceId);
-        updateStoredMediaRoute(state.device, { inputDeviceId: body.deviceId });
-        if (serial && /^emulator-\d+$/.test(serial)) {
-          await setAndroidHostMicrophone(serial, true);
-          microphoneRoutes.set(serial, true);
-        }
-        result = { ok: true, apply: "live" };
-      } else if (body.action === "host-audio-output") {
-        if (typeof body.deviceId !== "string" || body.deviceId.length === 0) {
-          throw new Error("Missing host output device");
-        }
-        await setHostDefaultOutput(body.deviceId);
-        updateStoredMediaRoute(state.device, { outputDeviceId: body.deviceId });
-        result = { ok: true, apply: "live" };
-      } else if (body.action === "android-output-volume") {
-        if (!serial || !/^emulator-\d+$/.test(serial)) {
-          throw new Error("Android media volume is only available for Android emulators");
-        }
-        if (!Number.isInteger(body.level)) {
-          throw new Error("Android media volume level must be an integer");
-        }
-        await setAndroidMediaVolumeLevel(serial, body.level);
-        result = { ok: true, apply: "live" };
-      } else if (body.action === "host-audio-output-volume") {
-        if (
-          typeof body.volume !== "number" ||
-          !Number.isFinite(body.volume) ||
-          body.volume < 0 ||
-          body.volume > 1
-        ) {
-          throw new Error("Output volume must be between 0 and 1");
-        }
-        if (typeof body.deviceId !== "string" || body.deviceId.length === 0) {
-          throw new Error("Missing host output device");
-        }
-        await setHostOutputVolume(body.deviceId, body.volume);
-        result = { ok: true, apply: "live" };
-      } else if (body.action === "audio-output-volume") {
-        if (
-          typeof body.volume !== "number" ||
-          !Number.isFinite(body.volume) ||
-          body.volume < 0 ||
-          body.volume > 1
-        ) {
-          throw new Error("Output volume must be between 0 and 1");
-        }
-        if (serial && /^emulator-\d+$/.test(serial)) {
-          await setAndroidMediaVolume(serial, body.volume);
-        } else if (typeof body.deviceId === "string" && body.deviceId.length > 0) {
-          await setHostOutputVolume(body.deviceId, body.volume);
-        } else {
-          throw new Error("Missing host output device");
-        }
-        result = { ok: true, apply: "live" };
-      } else if (body.action === "android-virtual-scene-image") {
-        if (!serial)
-          throw new Error("Android virtual scene images are only available for Android emulators");
-        if (body.surface !== "wall" && body.surface !== "table") {
-          throw new Error("Invalid virtual scene surface");
-        }
-        if (body.path !== undefined && typeof body.path !== "string") {
-          throw new Error("Invalid image path");
-        }
-        await setAndroidVirtualSceneImage(serial, body.surface, body.path);
-        result = { ok: true, apply: "live" };
-      } else {
-        if (!serial)
-          throw new Error("Restart from media routing is only available for Android emulators");
-        const status = await getAndroidStatus(serial);
-        if (!status.avdName) throw new Error("Only Android emulators can be restarted here");
-        const shutdownError = await deviceLifecycle.shutdown(state.device);
-        if (shutdownError) throw new Error(shutdownError);
-        await waitForAndroidDisconnect(serial);
-        const started = await deviceLifecycle.start(
-          androidAvdStateId(status.avdName),
-          publicPort,
-          this.base,
-        );
-        if (started.error) throw new Error(started.error);
-        result = { ok: true, apply: "device-restart", device: started.device };
-      }
-      json(res, 200, result);
+      json(res, 200, await this.commands.apply(state.device, body, publicPort));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const status =
