@@ -3,8 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import {
   parseDeviceAction,
   type DeviceAction,
-} from "../application/device-actions";
-import type { DeviceObservation } from "../application/device-observation";
+} from "../commands/device-actions";
+import type { DeviceObservation } from "../commands/device-observation";
 import { STATE_DIR } from "../shared/state";
 import { ApplicationCommandClient } from "./application-command-client";
 

@@ -43,11 +43,11 @@ afterAll(() => {
 });
 
 describe("getPortHolders", () => {
-  test("returns the listener pid", () => {
-    expect(getPortHolders(PORT)).toContain(listener.pid!);
+  test("returns the listener pid", async () => {
+    expect(await getPortHolders(PORT)).toContain(listener.pid!);
   });
 
-  test("does not return pids of connected clients", () => {
-    expect(getPortHolders(PORT)).not.toContain(client.pid!);
+  test("does not return pids of connected clients", async () => {
+    expect(await getPortHolders(PORT)).not.toContain(client.pid!);
   });
 });

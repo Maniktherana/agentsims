@@ -1,42 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
-import type { IncomingMessage, ServerResponse } from "http";
 import { tmpdir } from "os";
 import { join } from "path";
-import { simMiddleware } from "../../../../server/http/server";
 import {
   assertPreviewDynamicImportsEmbedded,
   assertPreviewManifestAssetsEmbedded,
   enumeratePreviewDynamicImports,
   type PreviewAssetMap,
 } from "../../../../server/preview/preview-assets";
+import { startTestServer } from "../../../helpers/server";
 
-async function getPreviewAsset(
-  previewAssets: PreviewAssetMap,
-  url: string,
-) {
-  const middleware = simMiddleware({
-    basePath: "/",
-    execToken: "preview-asset-test",
+async function getPreviewAsset(previewAssets: PreviewAssetMap, url: string) {
+  const { origin, server } = await startTestServer({
     previewAssets,
+    readDeviceStates: async () => [],
   });
-  const request = { method: "GET", url, headers: {} } as IncomingMessage;
-  let status = 0;
-  let headers: Record<string, string> = {};
-  let body = Buffer.alloc(0);
-  const response = {
-    writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
-      status = nextStatus;
-      headers = nextHeaders ?? {};
-      return this;
-    },
-    end(chunk?: string | Buffer) {
-      body = chunk ? Buffer.from(chunk) : Buffer.alloc(0);
-      return this;
-    },
-  } as unknown as ServerResponse;
-  await middleware(request, response);
-  return { status, headers, body };
+  try {
+    const response = await fetch(`${origin}${url}`);
+    return {
+      status: response.status,
+      headers: Object.fromEntries(response.headers),
+      body: Buffer.from(await response.arrayBuffer()),
+    };
+  } finally {
+    server.stop();
+  }
 }
 
 describe("preview assets", () => {
@@ -78,7 +66,7 @@ describe("preview assets", () => {
     for (const assetKey of manifestImports) {
       const response = await getPreviewAsset(previewAssets, `/${assetKey}`);
       expect(response.status).toBe(200);
-      expect(response.headers["Content-Type"]).toBe(
+      expect(response.headers["content-type"]).toBe(
         "text/javascript; charset=utf-8",
       );
       expect(response.body.toString().trim().length).toBeGreaterThan(0);
@@ -94,6 +82,7 @@ describe("preview assets", () => {
 
   test("serves production assets from disk and scopes generated URLs to the mount", async () => {
     const previewRoot = mkdtempSync(join(tmpdir(), "agentsims-preview-"));
+    let stopServer = () => {};
     try {
       mkdirSync(join(previewRoot, "assets"));
       writeFileSync(
@@ -103,52 +92,48 @@ describe("preview assets", () => {
           '<script src="/__SIM_PREVIEW_BASE__/assets/client.js"></script>',
       );
       writeFileSync(join(previewRoot, "assets", "client.js"), "export default 1;");
-      writeFileSync(join(previewRoot, "assets", "client.css"), ":root{color-scheme:dark}");
+      writeFileSync(
+        join(previewRoot, "assets", "client.css"),
+        '@font-face{src:url(/__SIM_PREVIEW_BASE__/assets/font.woff2)}',
+      );
 
-      const middleware = simMiddleware({
+      const started = await startTestServer({
         basePath: "/review",
         execToken: "preview-disk-test",
         previewRoot,
         readDeviceStates: async () => [],
       });
+      stopServer = () => started.server.stop();
       const request = async (url: string) => {
-        const req = {
-          method: "GET",
-          url,
-          headers: { host: "localhost:3200" },
-          socket: { localPort: 3200 },
-        } as IncomingMessage;
-        let status = 0;
-        let headers: Record<string, string> = {};
-        let body = Buffer.alloc(0);
-        const res = {
-          writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
-            status = nextStatus;
-            headers = nextHeaders ?? {};
-            return this;
-          },
-          end(chunk?: string | Buffer) {
-            body = chunk ? Buffer.from(chunk) : Buffer.alloc(0);
-            return this;
-          },
-        } as unknown as ServerResponse;
-        await middleware(req, res);
-        return { status, headers, body };
+        const response = await fetch(`${started.origin}${url}`);
+        return {
+          status: response.status,
+          headers: Object.fromEntries(response.headers),
+          body: Buffer.from(await response.arrayBuffer()),
+        };
       };
 
       const script = await request("/review/assets/client.js");
       expect(script.status).toBe(200);
-      expect(script.headers["Content-Type"]).toBe("text/javascript; charset=utf-8");
+      expect(script.headers["content-type"]).toBe("text/javascript; charset=utf-8");
       expect(script.body.toString()).toContain("export default 1");
+
+      const style = await request("/review/assets/client.css");
+      expect(style.status).toBe(200);
+      expect(style.headers["content-type"]).toBe("text/css; charset=utf-8");
+      expect(style.headers["cache-control"]).toBe("no-store");
+      expect(style.body.toString()).toContain("url(/review/assets/font.woff2)");
+      expect(style.body.toString()).not.toContain("__SIM_PREVIEW_BASE__");
 
       const page = await request("/review");
       expect(page.status).toBe(200);
-      expect(page.body.toString()).toContain('href="/review/assets/client.css"');
+      expect(page.body.toString()).toMatch(/href="\/review\/assets\/client\.css\?v=[^"]+"/);
       expect(page.body.toString()).toContain('src="/review/assets/client.js"');
       expect(page.body.toString()).toContain("window.__SIM_PREVIEW__=");
 
       expect((await request("/review/assets/%5C..%5Csecret")).status).toBe(404);
     } finally {
+      stopServer();
       rmSync(previewRoot, { recursive: true, force: true });
     }
   });

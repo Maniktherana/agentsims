@@ -1,27 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
-import { simMiddleware } from "../../server/http/server";
+import { Effect } from "effect";
+import type { ScreenshotPersistence } from "../../server/http/screenshot-service";
+import { startTestServer } from "../helpers/server";
 
 const TOKEN = "screenshot-save-token";
 
 async function withServer<T>(
   fn: (origin: string) => Promise<T>,
-  saveScreenshot?: Parameters<typeof simMiddleware>[0]["saveScreenshot"],
+  saveScreenshot?: ScreenshotPersistence,
 ): Promise<T> {
-  const handler = simMiddleware({ basePath: "/", execToken: TOKEN, saveScreenshot });
-  const server = createServer((req, res) => {
-    void handler(req, res, async () => {
-      if (!res.headersSent) res.statusCode = 404;
-      res.end("Not found");
-    });
+  const { origin, server } = await startTestServer({
+    execToken: TOKEN,
+    saveScreenshot,
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
     return await fn(origin);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    server.stop();
   }
 }
 
@@ -48,7 +43,7 @@ describe("POST /screenshot/save", () => {
   });
 
   test("persists an authenticated PNG through the controlled host handler", async () => {
-    let received: Buffer | null = null;
+    let received: Uint8Array | null = null;
     await withServer(async (origin) => {
       const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
       const response = await fetch(
@@ -65,11 +60,11 @@ describe("POST /screenshot/save", () => {
       );
       expect(response.status).toBe(201);
       expect(await response.json()).toEqual({ path: "/host/Desktop/shot.png" });
-    }, async (png, deviceId) => {
+    }, (png, deviceId) => Effect.sync(() => {
       received = png;
       expect(deviceId).toBe("android:emulator-5554");
       return "/host/Desktop/shot.png";
-    });
+    }));
     expect(received?.subarray(0, 8)).toEqual(
       Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     );
@@ -101,12 +96,11 @@ describe("POST /screenshot/save", () => {
       expect(cancel.status).toBe(202);
       await aborted;
       expect((await request).status).toBe(409);
-    }, (_png, _deviceId, signal) => new Promise<string>((_resolve, reject) => {
+    }, () => Effect.async<string>(() => {
       notifyStarted();
-      signal.addEventListener("abort", () => {
+      return Effect.sync(() => {
         notifyAborted();
-        reject(signal.reason);
-      }, { once: true });
+      });
     }));
   });
 });

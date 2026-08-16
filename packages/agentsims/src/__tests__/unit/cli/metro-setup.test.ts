@@ -13,7 +13,7 @@ import {
   runSetupCommand,
   setupOptionsForProjectPath,
   type SetupCommandIO,
-} from "../../../cli/register-setup-command";
+} from "../../../cli/setup-command";
 
 const temporaryDirectories: string[] = [];
 const fixedSystem: MetroSetupSystem = {

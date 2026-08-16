@@ -1,4 +1,4 @@
-import { execFileSync } from "child_process";
+import { CliError } from "../../cli/error";
 import {
   chmodSync,
   existsSync,
@@ -6,6 +6,8 @@ import {
   rmSync,
   writeFileSync,
 } from "fs";
+import { Effect } from "effect";
+import { hostCommandText } from "../../server/runtime/host-tools-runtime";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
@@ -200,50 +202,43 @@ export function locationdPlistPath(udid: string): string {
 
 // ─── TCC.db writer ───
 
-function withSqliteRetry<T>(fn: () => T): T {
+async function withSqliteRetry(fn: () => Promise<string>): Promise<string> {
   const deadline = Date.now() + 5000;
   for (;;) {
     try {
-      return fn();
-    } catch (e: any) {
-      const msg = String(e?.stderr ?? e?.message ?? e);
-      if (Date.now() < deadline && /database is locked|database is busy/i.test(msg)) {
-        // Boot race — CoreSimulator briefly holds TCC.db. Retry.
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+      return await fn();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (Date.now() < deadline && /database is locked|database is busy/i.test(message)) {
+        await Effect.runPromise(Effect.sleep("200 millis"));
         continue;
       }
-      throw e;
+      throw error;
     }
   }
 }
 
-function sqlite(dbPath: string, sql: string): string {
-  return withSqliteRetry(() =>
-    execFileSync("sqlite3", [dbPath, sql], { encoding: "utf-8" }),
-  );
+function sqlite(dbPath: string, sql: string): Promise<string> {
+  return withSqliteRetry(() => hostCommandText("sqlite3", dbPath, sql));
 }
 
-function writeTcc(
+async function writeTcc(
   udid: string,
   service: string,
   authVersion: number,
   bundleId: string,
   authValue: number | "delete",
-): void {
+): Promise<void> {
   const db = tccDbPath(udid);
   if (!existsSync(db)) {
-    throw new Error(
-      `TCC.db not found for ${udid}. Is the simulator booted?\n  ${db}`,
-    );
+    throw new Error(`TCC.db not found for ${udid}. Is the simulator booted?\n  ${db}`);
   }
-  // `service` comes from our fixed catalogue and `bundleId` is regex-validated
-  // by the parser, so direct interpolation here cannot inject SQL.
-  sqlite(
+  await sqlite(
     db,
     `DELETE FROM access WHERE service='${service}' AND client='${bundleId}' AND client_type=0;`,
   );
   if (authValue !== "delete") {
-    sqlite(
+    await sqlite(
       db,
       `INSERT INTO access (service, client, client_type, auth_value, auth_reason, auth_version, flags) ` +
         `VALUES ('${service}', '${bundleId}', 0, ${authValue}, 2, ${authVersion}, 0);`,
@@ -257,14 +252,11 @@ const TCC_NAME_BY_SERVICE: Record<string, string> = Object.fromEntries(
   Object.entries(TCC_SERVICES).map(([name, service]) => [service, name]),
 );
 
-function readTcc(udid: string, bundleId?: string): Record<string, number> {
+async function readTcc(udid: string, bundleId?: string): Promise<Record<string, number>> {
   const db = tccDbPath(udid);
   if (!existsSync(db)) return {};
   const where = bundleId ? ` WHERE client='${bundleId}'` : "";
-  const out = sqlite(
-    db,
-    `SELECT service, auth_value FROM access${where};`,
-  );
+  const out = await sqlite(db, `SELECT service, auth_value FROM access${where};`);
   const result: Record<string, number> = {};
   for (const line of out.split("\n")) {
     const [service, authValue] = line.split("|");
@@ -275,32 +267,23 @@ function readTcc(udid: string, bundleId?: string): Record<string, number> {
 
 // ─── plist helpers ───
 
-function plutil(args: string[]): string {
-  return execFileSync("plutil", args, { encoding: "utf-8" });
+function plutil(args: string[]): Promise<string> {
+  return hostCommandText("plutil", ...args);
 }
 
-/**
- * Run PlistBuddy commands against a plist. PlistBuddy uses `:` as its key-path
- * separator, so dotted bundle ids work as literal key components — unlike
- * `plutil`, whose `.`-separated key paths can't address them and whose array
- * indices insert rather than replace.
- */
-function plistBuddy(
+async function plistBuddy(
   file: string,
   commands: string[],
   opts: { ignoreErrors?: boolean } = {},
-): string {
+): Promise<string> {
   const args: string[] = [];
-  for (const c of commands) args.push("-c", c);
+  for (const command of commands) args.push("-c", command);
   args.push(file);
   try {
-    return execFileSync("/usr/libexec/PlistBuddy", args, {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (e: any) {
-    if (opts.ignoreErrors) return String(e?.stdout ?? "");
-    throw new Error(String(e?.stderr ?? e?.stdout ?? e?.message ?? e).trim());
+    return await hostCommandText("/usr/libexec/PlistBuddy", ...args);
+  } catch (error: unknown) {
+    if (opts.ignoreErrors) return "";
+    throw error;
   }
 }
 
@@ -315,53 +298,38 @@ function makeTmpDir(): string {
 // paths) nor PlistBuddy (colon paths) can address it, and a hand-written
 // plain-bundle-id entry is ignored. `simctl privacy` understands the format
 // and is reliable specifically for location, so delegate to it here.
-function setLocation(
+async function setLocation(
   udid: string,
   bundleId: string,
   mode: "grant" | "revoke" | "reset",
   value: string | undefined,
-): void {
+): Promise<void> {
   let action = "grant";
   let service = "location";
-  if (mode === "reset") {
-    action = "reset";
-  } else if (mode === "revoke" || value === "never") {
-    action = "revoke";
-  } else if (value === "always") {
-    service = "location-always";
-  }
-  try {
-    execFileSync("xcrun", ["simctl", "privacy", udid, action, service, bundleId], {
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-  } catch (e: any) {
-    throw new Error(
-      `simctl privacy ${action} ${service} failed: ` +
-        String(e?.stderr ?? e?.message ?? e).trim(),
-    );
-  }
+  if (mode === "reset") action = "reset";
+  else if (mode === "revoke" || value === "never") action = "revoke";
+  else if (value === "always") service = "location-always";
+  await hostCommandText("xcrun", "simctl", "privacy", udid, action, service, bundleId);
 }
 
-function readLocation(
+async function readLocation(
   udid: string,
   bundleId: string | undefined,
-): { Authorization: number } | null {
+): Promise<{ Authorization: number } | null> {
   if (!bundleId) return null;
   const path = locationdPlistPath(udid);
   if (!existsSync(path)) return null;
   let xml: string;
   try {
-    xml = plutil(["-convert", "xml1", "-o", "-", path]);
+    xml = await plutil(["-convert", "xml1", "-o", "-", path]);
   } catch {
     return null;
   }
-  const m = xml.match(
-    new RegExp(
-      `<key>i${bundleId.replace(/[.-]/g, "\\$&")}:</key>\\s*<dict>[\\s\\S]*?` +
-        `<key>Authorization</key>\\s*<integer>(\\d+)</integer>`,
-    ),
-  );
-  return m ? { Authorization: Number(m[1]) } : null;
+  const match = xml.match(new RegExp(
+    `<key>i${bundleId.replace(/[.-]/g, "\\$&")}:</key>\\s*<dict>[\\s\\S]*?` +
+      `<key>Authorization</key>\\s*<integer>(\\d+)</integer>`,
+  ));
+  return match ? { Authorization: Number(match[1]) } : null;
 }
 
 // ─── Notifications writer ───
@@ -382,148 +350,107 @@ function bulletinPlistPath(udid: string): string {
  * path. The result is a binary plist suitable for `Import`ing as a `<data>`
  * value into the destination BulletinBoard plist.
  */
-function buildSectionInfoBlob(
+async function buildSectionInfoBlob(
   dir: string,
   bundleId: string,
   enabled: boolean,
   critical: boolean,
-): string {
+): Promise<string> {
   const blob = join(dir, "section-info.plist");
   writeFileSync(blob, Buffer.from(NOTIF_TEMPLATE_B64, "base64"));
-  plistBuddy(blob, [
+  await plistBuddy(blob, [
     `Set :$objects:2 ${bundleId}`,
     `Set :$objects:3:allowsNotifications ${enabled ? "true" : "false"}`,
     `Add :$objects:3:criticalAlertSetting integer ${critical ? 2 : 0}`,
     `Set :$objects:5 ${bundleId}`,
     "Save",
   ]);
-  // PlistBuddy rewrites as XML; SpringBoard stores these archives as binary.
-  plutil(["-convert", "binary1", blob]);
+  await plutil(["-convert", "binary1", blob]);
   return blob;
 }
 
-function setNotifications(
+async function setNotifications(
   udid: string,
   bundleId: string,
   mode: "grant" | "critical" | "revoke" | "reset",
-): void {
+): Promise<void> {
   const path = bulletinPlistPath(udid);
   if (!existsSync(path)) {
-    // The plist appears shortly after SpringBoard starts. `reset` on a store
-    // that doesn't exist yet is a no-op (nothing to clear); grant/revoke wait
-    // briefly for it before giving up.
     if (mode === "reset") return;
     const deadline = Date.now() + 5000;
     while (!existsSync(path) && Date.now() < deadline) {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+      await Effect.runPromise(Effect.sleep("250 millis"));
     }
     if (!existsSync(path)) {
-      throw new Error(
-        `BulletinBoard plist not found for ${udid}. The simulator may still ` +
-          `be booting — wait for it to finish and retry.\n  ${path}`,
-      );
+      throw new Error(`BulletinBoard plist not found for ${udid}.\n  ${path}`);
     }
   }
-
-  // VersionedSectionInfo.plist is held immutable so SpringBoard doesn't clobber
-  // it; clear the flag to edit, restore it afterwards.
-  try {
-    execFileSync("chflags", ["nouchg", path]);
-  } catch {}
-
+  try { await hostCommandText("chflags", "nouchg", path); } catch (error) { console.warn("[agentsims:ios] recoverable operation failed", error); }
   const tmp = makeTmpDir();
   try {
-    // Drop any existing entry so grant/revoke/reset are all idempotent.
-    plistBuddy(path, [`Delete :sectionInfo:${bundleId}`, "Save"], {
-      ignoreErrors: true,
-    });
+    await plistBuddy(path, [`Delete :sectionInfo:${bundleId}`, "Save"], { ignoreErrors: true });
     if (mode !== "reset") {
-      const blob = buildSectionInfoBlob(
-        tmp,
-        bundleId,
-        mode !== "revoke",
-        mode === "critical",
-      );
-      plistBuddy(path, [`Import :sectionInfo:${bundleId} ${blob}`, "Save"]);
+      const blob = await buildSectionInfoBlob(tmp, bundleId, mode !== "revoke", mode === "critical");
+      await plistBuddy(path, [`Import :sectionInfo:${bundleId} ${blob}`, "Save"]);
     }
-    // PlistBuddy saves XML; keep the file binary like SpringBoard writes it.
-    plutil(["-convert", "binary1", path]);
+    await plutil(["-convert", "binary1", path]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
     try {
       chmodSync(path, 0o644);
-      execFileSync("chflags", ["uchg", path]);
-    } catch {}
+      await hostCommandText("chflags", "uchg", path);
+    } catch (error) { console.warn("[agentsims:ios] recoverable operation failed", error); }
   }
 }
 
-function readNotifications(
+async function readNotifications(
   udid: string,
   bundleId: string | undefined,
-): { allowsNotifications: boolean; critical: boolean } | null {
+): Promise<{ allowsNotifications: boolean; critical: boolean } | null> {
   if (!bundleId) return null;
   const path = bulletinPlistPath(udid);
   if (!existsSync(path)) return null;
-  let sectionInfo: string;
   try {
-    sectionInfo = plutil(["-extract", "sectionInfo", "xml1", "-o", "-", path]);
-  } catch {
-    return null;
-  }
-  const m = sectionInfo.match(
-    new RegExp(
+    const sectionInfo = await plutil(["-extract", "sectionInfo", "xml1", "-o", "-", path]);
+    const match = sectionInfo.match(new RegExp(
       `<key>${bundleId.replace(/[.-]/g, "\\$&")}</key>\\s*<data>([\\s\\S]*?)</data>`,
-    ),
-  );
-  if (!m?.[1]) return null;
-  const tmp = makeTmpDir();
-  try {
-    const blob = join(tmp, "section-info.plist");
-    writeFileSync(blob, Buffer.from(m[1].replace(/\s/g, ""), "base64"));
-    const inner = plutil(["-convert", "xml1", "-o", "-", blob]);
-    return {
-      allowsNotifications: /<key>allowsNotifications<\/key>\s*<true\/>/.test(inner),
-      critical: /<key>criticalAlertSetting<\/key>\s*<integer>2<\/integer>/.test(inner),
-    };
+    ));
+    if (!match?.[1]) return null;
+    const tmp = makeTmpDir();
+    try {
+      const blob = join(tmp, "section-info.plist");
+      writeFileSync(blob, Buffer.from(match[1].replace(/\s/g, ""), "base64"));
+      const inner = await plutil(["-convert", "xml1", "-o", "-", blob]);
+      return {
+        allowsNotifications: /<key>allowsNotifications<\/key>\s*<true\/>/.test(inner),
+        critical: /<key>criticalAlertSetting<\/key>\s*<integer>2<\/integer>/.test(inner),
+      };
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   } catch {
     return null;
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
   }
 }
 
 // ─── Dispatch ───
 
-function applyOne(
+async function applyOne(
   udid: string,
   verb: Exclude<Verb, "list">,
   permission: string,
   value: string | undefined,
   bundleId: string,
-): void {
+): Promise<void> {
   const spec = resolvePermission(permission)!;
   if (spec.kind === "tcc") {
-    const authValue: number | "delete" =
-      verb === "reset"
-        ? "delete"
-        : verb === "revoke"
-          ? 0
-          : value === "limited"
-            ? 3
-            : 2;
-    writeTcc(udid, spec.tccService!, spec.tccAuthVersion!, bundleId, authValue);
+    const authValue: number | "delete" = verb === "reset" ? "delete" : verb === "revoke" ? 0 : value === "limited" ? 3 : 2;
+    await writeTcc(udid, spec.tccService!, spec.tccAuthVersion!, bundleId, authValue);
   } else if (spec.kind === "notifications") {
-    const mode =
-      verb === "reset"
-        ? "reset"
-        : verb === "revoke"
-          ? "revoke"
-          : value === "critical"
-            ? "critical"
-            : "grant";
-    setNotifications(udid, bundleId, mode);
+    const mode = verb === "reset" ? "reset" : verb === "revoke" ? "revoke" : value === "critical" ? "critical" : "grant";
+    await setNotifications(udid, bundleId, mode);
   } else {
-    setLocation(udid, bundleId, verb, value);
+    await setLocation(udid, bundleId, verb, value);
   }
 }
 
@@ -533,48 +460,37 @@ export async function permissions(args: string[]): Promise<void> {
   const parsed = parsePermissionsArgs(rest);
 
   if ("error" in parsed) {
-    console.error(parsed.error);
-    console.error(
-      "\nUsage:\n" +
+    throw new CliError(
+      `${parsed.error}\n\nUsage:\n` +
         "  agentsims permissions grant  <permission> <bundle-id> [--value <v>] [-d <udid|name>]\n" +
         "  agentsims permissions revoke <permission> <bundle-id> [-d <udid|name>]\n" +
         "  agentsims permissions reset  <permission|all> <bundle-id> [-d <udid|name>]\n" +
         "  agentsims permissions list   [bundle-id] [-d <udid|name>]\n" +
         `\nPermissions: ${allPermissionNames().join(", ")}`,
     );
-    process.exit(1);
   }
 
-  const udid = parsed.device ? resolveDevice(parsed.device) : findBootedDevice();
-  if (!udid) {
-    console.error("No booted simulator. Boot one or pass -d <udid|name>.");
-    process.exit(1);
-  }
+  const udid = parsed.device ? await resolveDevice(parsed.device) : await findBootedDevice();
+  if (!udid) throw new CliError("No booted simulator. Boot one or pass -d <udid|name>.");
 
   if (parsed.verb === "list") {
-    const result = {
-      udid,
-      bundleId: parsed.bundleId ?? null,
-      tcc: readTcc(udid, parsed.bundleId),
-      location: readLocation(udid, parsed.bundleId),
-      notifications: readNotifications(udid, parsed.bundleId),
-    };
+    const [tcc, location, notifications] = await Promise.all([
+      readTcc(udid, parsed.bundleId),
+      readLocation(udid, parsed.bundleId),
+      readNotifications(udid, parsed.bundleId),
+    ]);
+    const result = { udid, bundleId: parsed.bundleId ?? null, tcc, location, notifications };
     console.log(JSON.stringify(result, null, quiet ? 0 : 2));
-    process.exit(0);
+    return;
   }
 
   const bundleId = parsed.bundleId!;
-  try {
-    if (parsed.permission === "all") {
-      for (const name of allPermissionNames()) {
-        applyOne(udid, "reset", name, undefined, bundleId);
-      }
-    } else {
-      applyOne(udid, parsed.verb, parsed.permission!, parsed.value, bundleId);
+  if (parsed.permission === "all") {
+    for (const name of allPermissionNames()) {
+      await applyOne(udid, "reset", name, undefined, bundleId);
     }
-  } catch (e: any) {
-    console.error(e?.message ?? String(e));
-    process.exit(1);
+  } else {
+    await applyOne(udid, parsed.verb, parsed.permission!, parsed.value, bundleId);
   }
 
   if (quiet) {
@@ -593,5 +509,4 @@ export async function permissions(args: string[]): Promise<void> {
       `🔐 ${parsed.verb} ${parsed.permission}${valueStr} for ${bundleId} on ${udid}`,
     );
   }
-  process.exit(0);
 }

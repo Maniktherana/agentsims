@@ -1,57 +1,46 @@
-import { execSync } from "child_process";
+import { CliError } from "../../cli/error";
+import { hostCommandText } from "../../server/runtime/host-tools-runtime";
 
 export const SIMCTL_LIST_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
-/**
- * UDID of a booted simulator, or null if none is booted. Prefers an iOS device
- * — a machine may also have a booted watchOS/tvOS sim, which `serve-sim`'s
- * tooling doesn't target.
- */
-export function findBootedDevice(): string | null {
+type SimctlDevices = {
+  devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
+};
+
+async function listDevices(...args: string[]): Promise<SimctlDevices | null> {
+  if (process.platform !== "darwin") return null;
   try {
-    const output = execSync("xcrun simctl list devices booted -j", {
-      encoding: "utf-8",
-      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
-    });
-    const data = JSON.parse(output) as {
-      devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
-    };
-    let fallback: string | null = null;
-    for (const [runtime, devices] of Object.entries(data.devices)) {
-      for (const device of devices) {
-        if (device.state !== "Booted") continue;
-        if (/iOS/i.test(runtime)) return device.udid;
-        fallback ??= device.udid;
-      }
-    }
-    return fallback;
-  } catch {}
-  return null;
+    return JSON.parse(await hostCommandText("xcrun", "simctl", "list", "devices", ...args, "-j")) as SimctlDevices;
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Resolve a device name or UDID to a UDID. A UDID is returned as-is; a name is
- * matched case-insensitively against `simctl list devices`. Exits the process
- * with a clear error when the name cannot be resolved.
- */
-export function resolveDevice(nameOrUDID: string): string {
+export async function findBootedDevice(): Promise<string | null> {
+  const data = await listDevices("booted");
+  if (!data) return null;
+  let fallback: string | null = null;
+  for (const [runtime, devices] of Object.entries(data.devices)) {
+    for (const device of devices) {
+      if (device.state !== "Booted") continue;
+      if (/iOS/i.test(runtime)) return device.udid;
+      fallback ??= device.udid;
+    }
+  }
+  return fallback;
+}
+
+export async function resolveDevice(nameOrUDID: string): Promise<string> {
   if (/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(nameOrUDID)) {
     return nameOrUDID;
   }
-  try {
-    const output = execSync("xcrun simctl list devices -j", {
-      encoding: "utf-8",
-      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
-    });
-    const data = JSON.parse(output) as {
-      devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
-    };
+  const data = await listDevices();
+  if (data) {
     for (const runtime of Object.values(data.devices)) {
       for (const device of runtime) {
         if (device.name.toLowerCase() === nameOrUDID.toLowerCase()) return device.udid;
       }
     }
-  } catch {}
-  console.error(`Could not resolve device: ${nameOrUDID}`);
-  process.exit(1);
+  }
+  throw new CliError(`Could not resolve device: ${nameOrUDID}`);
 }

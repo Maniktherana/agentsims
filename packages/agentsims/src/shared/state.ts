@@ -1,6 +1,6 @@
 import { tmpdir } from "os";
 import { join } from "path";
-import { readdirSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "fs";
+import { readdirSync, mkdirSync, writeFileSync, renameSync, rmSync } from "fs";
 
 /** Directory where Agentsims stores runtime state. */
 export const STATE_DIR = join(tmpdir(), "agentsims");
@@ -21,10 +21,9 @@ export interface DeviceState {
 }
 
 /**
- * Build the state for a device served in-process. There's no separate helper
- * port — the URLs point at the preview server's own same-origin
- * `{base}/helper/<device>/…` routes, which simMiddleware serves from a
- * NativeCapture/NativeHid DeviceSession.
+ * Build the state for a device served in-process. There is no separate helper
+ * port. The URLs point at the Bun server's same-origin
+ * `{base}/helper/<device>/…` routes backed by native device sessions.
  */
 export function inProcessDeviceState(
   udid: string,
@@ -60,7 +59,7 @@ export function writeDeviceState(state: DeviceState): void {
 }
 
 export function removeDeviceState(device: string): void {
-  try { unlinkSync(stateFileForDevice(device)); } catch {}
+  rmSync(stateFileForDevice(device), { force: true });
 }
 
 /** List all per-device state files in the state directory. */

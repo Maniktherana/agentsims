@@ -73,7 +73,7 @@ function readStateFile(file: string): ServerState | null {
         );
         try {
           unlinkSync(file);
-        } catch {}
+        } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
         return null;
       }
       debugState(
@@ -86,10 +86,10 @@ function readStateFile(file: string): ServerState | null {
       );
       try {
         process.kill(state.pid, "SIGTERM");
-      } catch {}
+      } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
       try {
         unlinkSync(file);
-      } catch {}
+      } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
       return null;
     }
     debugState(
