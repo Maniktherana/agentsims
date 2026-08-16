@@ -1958,7 +1958,7 @@ function persistAccessibilityMetadataHeight(value: number) {
       ACCESSIBILITY_METADATA_STORAGE_KEY,
       String(clampAccessibilityMetadataHeight(value)),
     );
-  } catch {}
+  } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
 }
 
 export function AccessibilityDetails({

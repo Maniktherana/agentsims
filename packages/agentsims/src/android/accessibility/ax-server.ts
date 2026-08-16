@@ -100,7 +100,7 @@ export function androidAxServerCandidates(): string[] {
     ...(configuredDist ? [resolve(configuredDist, "android", "agentsims-ax-server.jar")] : []),
     // Source layout: src/android/accessibility/ax-server.ts -> package root.
     resolve(MODULE_DIR, "..", "..", "..", "dist", "android", "agentsims-ax-server.jar"),
-    // Bundled layout: dist/middleware.js sits beside dist/android.
+    // Compiled platform layout: the binary sits beside dist/android.
     resolve(MODULE_DIR, "android", "agentsims-ax-server.jar"),
     resolve(MODULE_DIR, "..", "android", "agentsims-ax-server.jar"),
     // Dev commands may run from either the package or monorepo root.

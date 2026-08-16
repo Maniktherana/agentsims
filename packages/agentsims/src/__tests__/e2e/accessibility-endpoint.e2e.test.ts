@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execSync, spawnSync } from "child_process";
 import { join } from "path";
+import {
+  acquireIosSimulatorTestLock,
+  IOS_E2E_HOOK_TIMEOUT_MS,
+} from "../helpers/ios-e2e-lock";
 
 /**
  * Integration test for the accessibility endpoint.
@@ -31,7 +35,7 @@ function firstBootedIosSim(): string | null {
         if (device.state === "Booted") return device.udid;
       }
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   return null;
 }
 
@@ -40,9 +44,11 @@ const describeWithSim = bootedUdid ? describe : describe.skip;
 
 describeWithSim(`serve-sim accessibility endpoint (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let axUrl: string;
+  let releaseTestLock = () => {};
 
-  beforeAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch {}
+  beforeAll(async () => {
+    releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
+    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
 
     // Random high port avoids collisions with the user's running serve-sim
     // (default 3100) and with concurrent test runs on the same machine. The
@@ -65,11 +71,15 @@ describeWithSim(`serve-sim accessibility endpoint (booted sim ${bootedUdid ?? "<
     // (the root /ax is the normalized SSE stream). Derive it from streamUrl.
     const state = JSON.parse(detach.stdout.trim()) as { streamUrl: string };
     axUrl = state.streamUrl.replace("stream.mjpeg", "ax");
-  }, 60_000);
+  }, IOS_E2E_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch {}
-  });
+    try {
+      try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+    } finally {
+      releaseTestLock();
+    }
+  }, 30_000);
 
   test("returns a bounded accessibility tree without crashing the helper", async () => {
     const deadline = Date.now() + AX_READY_BUDGET_MS;

@@ -31,7 +31,7 @@ export async function fetchAppDetails(
   const plist = await exec(`plutil -convert json -o - ${shellEscape(appPath + "/Info.plist")}`);
   let info: any = {};
   if (plist.exitCode === 0) {
-    try { info = JSON.parse(plist.stdout); } catch {}
+    try { info = JSON.parse(plist.stdout); } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
   }
 
   // Try to find app icon. CFBundleIcons → primary → CFBundleIconFiles last entry,

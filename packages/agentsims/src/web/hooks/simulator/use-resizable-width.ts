@@ -50,7 +50,7 @@ export function useResizableWidth(
         target.removeEventListener("pointercancel", up);
         try {
           window.localStorage.setItem(storageKey, String(clamp(startWidth + deltaFor(startX, ev.clientX))));
-        } catch {}
+        } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
       };
       target.addEventListener("pointermove", move);
       target.addEventListener("pointerup", up);

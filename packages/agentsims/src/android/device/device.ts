@@ -1237,7 +1237,7 @@ async function detectAndroidReactNative(
         androidReactNativePackages.add(bundleId);
         return true;
       }
-    } catch {}
+    } catch (error) { console.warn("[agentsims:android] recoverable operation failed", error); }
   }
 
   // Debuggable RN/Expo apps expose their sandbox through run-as. This catches
@@ -1264,7 +1264,7 @@ async function detectAndroidReactNative(
       androidReactNativePackages.add(bundleId);
       return true;
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:android] recoverable operation failed", error); }
 
   return false;
 }

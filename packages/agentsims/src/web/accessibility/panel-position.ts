@@ -169,7 +169,7 @@ export function clearAccessibilityPanelGeometry(
 ) {
   try {
     storage.removeItem(accessibilityPanelStorageKey(deviceId));
-  } catch {}
+  } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
 }
 
 function writeAccessibilityPanelGeometry(
@@ -181,7 +181,7 @@ function writeAccessibilityPanelGeometry(
       accessibilityPanelStorageKey(deviceId),
       JSON.stringify(geometry),
     );
-  } catch {}
+  } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
 }
 
 function anchorRect(element: HTMLElement | null): AccessibilityPanelAnchorRect | null {

@@ -35,7 +35,7 @@ function consumeUrlDevice(): void {
     if (!url.searchParams.has("device")) return;
     url.searchParams.delete("device");
     window.history.replaceState(null, "", url.toString());
-  } catch {}
+  } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
 }
 
 function setInjectedPreviewConfig(config: PreviewConfig | null): void {
@@ -156,7 +156,7 @@ export function useDeviceWorkspace() {
           ) {
             return true;
           }
-        } catch {}
+        } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
         await new Promise((resolve) => setTimeout(resolve, 400));
       }
       return false;
@@ -300,7 +300,7 @@ export function useDeviceWorkspace() {
               return next;
             });
           }
-        } catch {}
+        } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
       };
       return stream;
     });

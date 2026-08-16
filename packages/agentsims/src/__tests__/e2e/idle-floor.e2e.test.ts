@@ -3,6 +3,10 @@ import { execSync, spawnSync } from "child_process";
 import { readdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import {
+  acquireIosSimulatorTestLock,
+  IOS_E2E_HOOK_TIMEOUT_MS,
+} from "../helpers/ios-e2e-lock";
 
 /**
  * Integration test for the idle-frame-floor guarantee.
@@ -46,7 +50,7 @@ function firstBootedIosSim(): string | null {
         if (d.state === "Booted") return d.udid;
       }
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   return null;
 }
 
@@ -107,18 +111,20 @@ function dumpHelperLogs(): string {
       try {
         const content = readFileSync(join(stateDir, f), "utf-8");
         out.push(`── ${f} ──\n${content}`);
-      } catch {}
+      } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   return out.join("\n\n");
 }
 
 describeWithSim(`serve-sim idle frame floor (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let streamUrl: string;
+  let releaseTestLock = () => {};
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
     // Try kill any prior state — best effort.
-    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
+    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
 
     // stderr is inherited so any diagnostic from serve-sim or the Swift helper
     // lands directly in the test output — critical when the subprocess hangs
@@ -146,10 +152,14 @@ describeWithSim(`serve-sim idle frame floor (booted sim ${bootedUdid ?? "<skippe
         `helper logs:\n${dumpHelperLogs()}`,
       );
     }
-  }, 60_000);
+  }, IOS_E2E_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
+    try {
+      try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+    } finally {
+      releaseTestLock();
+    }
   }, 30_000);
 
   test("first frame arrives quickly even on an idle simulator", async () => {
@@ -190,7 +200,7 @@ describeWithSim(`serve-sim idle frame floor (booted sim ${bootedUdid ?? "<skippe
     }
 
     clearTimeout(timer);
-    try { reader.cancel(); } catch {}
+    try { reader.cancel(); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
 
     expect(firstFrameAt).not.toBeNull();
     expect(firstFrameAt).toBeLessThanOrEqual(FIRST_FRAME_BUDGET_MS);
@@ -229,7 +239,7 @@ describeWithSim(`serve-sim idle frame floor (booted sim ${bootedUdid ?? "<skippe
     }
 
     clearTimeout(timer);
-    try { reader.cancel(); } catch {}
+    try { reader.cancel(); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
 
     expect(frameCount).toBeGreaterThanOrEqual(MIN_FRAMES_IN_IDLE_WINDOW);
     // Every frame should have a reasonable size — serve-sim emits a real

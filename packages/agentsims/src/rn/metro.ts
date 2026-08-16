@@ -60,7 +60,7 @@ function readManifest(path: string) {
     try {
       const entry = JSON.parse(line) as { testID?: string };
       if (entry.testID) byTestID.set(entry.testID, entry);
-    } catch {}
+    } catch (error) { console.warn("[agentsims:rn] recoverable operation failed", error); }
   }
   return [...byTestID.values()];
 }

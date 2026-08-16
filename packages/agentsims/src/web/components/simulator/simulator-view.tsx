@@ -626,7 +626,7 @@ export function SimulatorView({
       if (bytes.length < 1 || bytes[0] !== 0x82) return;
       try {
         updateScreenConfig(JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig);
-      } catch {}
+      } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
     };
 
     ws.onopen = () => {

@@ -204,10 +204,8 @@ export interface HostEventStream {
 }
 
 /**
- * EventSource-shaped subscription to one of the middleware's SSE routes,
- * carried over the shared control socket. Resubscribes (with backoff) when
- * the socket drops or the upstream ends, mirroring EventSource's native
- * auto-reconnect; `onerror` fires on each interruption.
+ * EventSource-shaped subscription to a server SSE route over the shared control
+ * socket. The client reconnects when the socket or upstream route closes.
  */
 export function openHostEventStream(path: string): HostEventStream {
   const stream: HostEventStream = { onmessage: null, onerror: null, close: () => {} };
@@ -263,7 +261,7 @@ export function openHostEventStream(path: string): HostEventStream {
       activeSubscriptions.delete(subId);
       try {
         openSocket?.send(JSON.stringify({ unsub: subId }));
-      } catch {}
+      } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
       subId = null;
     }
   };

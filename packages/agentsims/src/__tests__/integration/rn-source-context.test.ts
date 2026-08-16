@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { unlinkSync, writeFileSync } from "fs";
-import type { IncomingMessage, ServerResponse } from "http";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 import type { AxSnapshot } from "../../accessibility/model";
@@ -9,7 +8,7 @@ import {
   rnSourceManifestPath,
 } from "../../accessibility/rn-source";
 import { expoRoute } from "../../rn/babel-plugin";
-import { simMiddleware } from "../../server/http/server";
+import { startTestServer } from "../helpers/server";
 
 const originalManifest = process.env.AGENTSIMS_RN_MANIFEST;
 const manifests = new Set<string>();
@@ -30,33 +29,17 @@ async function getFromMiddleware(
   url: string,
   requestHeaders: Record<string, string> = {},
 ) {
-  const middleware = simMiddleware({
-    basePath: "/",
-    execToken: "source-route-test",
-    previewAssets: {},
-  });
-  const request = {
-    method: "GET",
-    url,
-    headers: requestHeaders,
-    socket: { localPort: 3200 },
-  } as IncomingMessage;
-  let status = 0;
-  let body = "";
-  let responseHeaders: Record<string, string> = {};
-  const response = {
-    writeHead(nextStatus: number, headers?: Record<string, string>) {
-      status = nextStatus;
-      responseHeaders = headers ?? {};
-      return this;
-    },
-    end(chunk?: string | Buffer) {
-      body = chunk?.toString() ?? "";
-      return this;
-    },
-  } as unknown as ServerResponse;
-  await middleware(request, response);
-  return { status, body, headers: responseHeaders };
+  const started = await startTestServer({ previewAssets: {} });
+  try {
+    const response = await fetch(`${started.origin}${url}`, { headers: requestHeaders });
+    return {
+      status: response.status,
+      body: await response.text(),
+      headers: { ETag: response.headers.get("etag") ?? undefined },
+    };
+  } finally {
+    started.server.stop();
+  }
 }
 
 afterEach(() => {
@@ -65,7 +48,7 @@ afterEach(() => {
   for (const manifest of manifests) {
     try {
       unlinkSync(manifest);
-    } catch {}
+    } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   }
   manifests.clear();
 });

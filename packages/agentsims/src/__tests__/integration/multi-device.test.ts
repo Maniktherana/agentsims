@@ -18,7 +18,7 @@ describe("multi-device state", () => {
   });
 
   afterEach(() => {
-    try { rmSync(testDir, { recursive: true }); } catch {}
+    try { rmSync(testDir, { recursive: true }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   });
 
   it("stateFileForDevice returns unique paths per UDID", () => {
@@ -58,8 +58,8 @@ describe("multi-device state", () => {
       expect(data1.port).toBe(3100);
       expect(data2.port).toBe(3101);
     } finally {
-      try { rmSync(file1); } catch {}
-      try { rmSync(file2); } catch {}
+      try { rmSync(file1); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+      try { rmSync(file2); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
     }
   });
 
@@ -78,8 +78,8 @@ describe("multi-device state", () => {
       expect(hasValid).toBe(true);
       expect(hasOther).toBe(false);
     } finally {
-      try { rmSync(validFile); } catch {}
-      try { rmSync(otherFile); } catch {}
+      try { rmSync(validFile); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+      try { rmSync(otherFile); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
     }
   });
 });

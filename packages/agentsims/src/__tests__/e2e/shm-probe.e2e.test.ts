@@ -263,12 +263,12 @@ describeIf("SimCameraHelper shm probe", () => {
 
   afterAll(async () => {
     if (helper && !helper.killed) {
-      try { helper.kill("SIGTERM"); } catch {}
+      try { helper.kill("SIGTERM"); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
     }
     try {
       const sys = await loadFfi();
       sys.shm_unlink(Buffer.from(`${SHM_NAME}\0`));
-    } catch {}
+    } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   });
 
   test("publishes a shm region with the documented header layout", async () => {
@@ -395,7 +395,7 @@ describeIf("SimCameraHelper shm probe", () => {
     });
     try {
       await sendHelperCommand(SOCKET_PATH, { action: "shutdown" });
-    } catch {}
+    } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
     const exitCode = await Promise.race([
       exited,
       new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 3000)),

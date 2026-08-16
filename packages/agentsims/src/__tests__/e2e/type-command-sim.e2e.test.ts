@@ -3,6 +3,10 @@ import { execSync, spawnSync } from "child_process";
 import { readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import {
+  acquireIosSimulatorTestLock,
+  IOS_E2E_HOOK_TIMEOUT_MS,
+} from "../helpers/ios-e2e-lock";
 
 /**
  * Native e2e for `serve-sim type`.
@@ -34,7 +38,7 @@ function firstBootedIosSim(): string | null {
       if (!runtime.includes("iOS")) continue;
       for (const d of devs) if (d.state === "Booted") return d.udid;
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   return null;
 }
 
@@ -52,9 +56,11 @@ function serverUrlFromOutput(output: string): string {
 describeWithSim(`serve-sim type e2e (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let logFile: string;
   let serverUrl: string;
+  let releaseTestLock = () => {};
 
-  beforeAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
+  beforeAll(async () => {
+    releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
+    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
 
     const detach = spawnSync("bun", ["run", CLI_PATH, "--detach", bootedUdid!], {
       encoding: "utf-8",
@@ -71,11 +77,15 @@ describeWithSim(`serve-sim type e2e (booted sim ${bootedUdid ?? "<skipped>"})`, 
     }
     serverUrl = serverUrlFromOutput(detach.stdout);
     logFile = join(STATE_DIR, `server-${bootedUdid!}.log`);
-  }, 60_000);
+  }, IOS_E2E_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
-  });
+    try {
+      try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+    } finally {
+      releaseTestLock();
+    }
+  }, 30_000);
 
   test("`serve-sim type` injects HID key events into the booted simulator", async () => {
     const logBefore = readFileSync(logFile, "utf-8");
