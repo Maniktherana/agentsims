@@ -11,7 +11,9 @@ runtime dependency to the mobile bundle.
 
 ## Requirements
 
-- macOS 14 or newer and Node.js 20 or newer
+- macOS 14 or newer
+- Bun 1.3.11 or newer runs the Agentsims CLI and server.
+- Node.js 20 or newer supplies npm, npx, and the React Native host exports.
 - A modern browser. Android live video requires H.264 decoding through
   WebCodecs; iOS Simulator streams can use MJPEG with `--codec mjpeg`.
 - For iOS: Xcode with an installed Simulator runtime
@@ -19,8 +21,7 @@ runtime dependency to the mobile bundle.
 - For Android emulator video in the current native build: FFmpeg 8
 - Your app's normal Metro or Expo development process
 
-Node.js 24 and Bun 1.3 or newer are required only when developing Agentsims
-itself.
+Node.js 24 is required only when developing Agentsims itself.
 
 ## Install
 
@@ -214,9 +215,8 @@ The full source build requires Xcode Command Line Tools, a JDK, Android SDK
 platform/build-tools, Rust, and FFmpeg development libraries. It builds every
 shipped browser/server/native artifact from source.
 
-`start` executes the built production entrypoint directly with Node and prints
-its local URL, normally [http://localhost:3200](http://localhost:3200). Pass CLI
-options after `--`; for example:
+`start` executes the built Bun entrypoint and prints the local URL, normally
+[http://localhost:3200](http://localhost:3200). Pass CLI options after `--`.
 
 ```bash
 bun run --filter agentsims start -- --port 3210

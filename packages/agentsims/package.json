@@ -27,8 +27,6 @@
   "files": [
     "LICENSE",
     "dist/agentsims.js",
-    "dist/middleware.js",
-    "dist/middleware.cjs",
     "dist/state.js",
     "dist/state.cjs",
     "dist/metro.js",
@@ -52,11 +50,6 @@
   ],
   "type": "module",
   "exports": {
-    "./middleware": {
-      "types": "./dist/types/middleware.d.ts",
-      "import": "./dist/middleware.js",
-      "require": "./dist/middleware.cjs"
-    },
     "./state": {
       "types": "./dist/types/shared/state.d.ts",
       "import": "./dist/state.js",
@@ -86,7 +79,7 @@
     "verify:package": "bun scripts/verify-package.mjs",
     "pack:dry-run": "npm pack --dry-run --json",
     "test": "bun test",
-    "lint": "oxlint src --deny-warnings",
+    "lint": "oxlint src -D no-empty --deny-warnings",
     "typecheck": "bun run typecheck:server && bun run typecheck:web",
     "typecheck:server": "tsc -p tsconfig.server.json",
     "typecheck:web": "tsc -p tsconfig.web.json",
@@ -94,13 +87,15 @@
   },
   "dependencies": {
     "@babel/parser": "^7.29.7",
+    "@effect/platform": "0.97.1",
+    "@effect/platform-bun": "0.91.2",
     "@fontsource/geist-mono": "^5.3.0",
     "@pierre/diffs": "^1.3.3",
     "@pierre/trees": "^1.0.0-beta.6",
+    "effect": "3.22.1",
     "inspect-webkit": "^0.0.5",
     "liveline": "^0.0.7",
-    "sonner": "^2.0.7",
-    "ws": "^8.21.0"
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
     "@base-ui/react": "^1.5.0",
@@ -109,7 +104,6 @@
     "@types/debug": "^4.1.13",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.3",
     "bun-plugin-tailwind": "^0.1.2",
     "commander": "^14.0.1",
@@ -126,7 +120,6 @@
     "vite": "^8.1.3"
   },
   "engines": {
-    "bun": ">=1.3.11",
     "node": ">=20"
   }
 }
