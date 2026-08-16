@@ -7,6 +7,7 @@ import {
   acquireIosSimulatorTestLock,
   IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
+import { parseDetachedOutput } from "../helpers/detached-output";
 
 /**
  * Native e2e for `serve-sim type`.
@@ -46,7 +47,7 @@ const bootedUdid = firstBootedIosSim();
 const describeWithSim = bootedUdid ? describe : describe.skip;
 
 function serverUrlFromOutput(output: string): string {
-  const value: unknown = JSON.parse(output);
+  const value: unknown = parseDetachedOutput<unknown>(output);
   if (!value || typeof value !== "object" || !("url" in value) || typeof value.url !== "string") {
     throw new Error("Detached server output did not contain a URL");
   }

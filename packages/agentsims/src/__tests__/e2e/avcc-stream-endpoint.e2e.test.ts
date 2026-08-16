@@ -5,6 +5,7 @@ import {
   acquireIosSimulatorTestLock,
   IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
+import { parseDetachedOutput } from "../helpers/detached-output";
 
 /**
  * Integration test for the AVCC (H.264) stream endpoint.
@@ -79,7 +80,7 @@ describeWithSim(`serve-sim AVCC endpoint (booted sim ${bootedUdid ?? "<skipped>"
     }
     // The preview server serves the stream in-process under
     // /helper/<device>/… — derive the AVCC URL from the reported MJPEG one.
-    const state = JSON.parse(detach.stdout.trim()) as { streamUrl: string };
+    const state = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
     avccUrl = state.streamUrl.replace("stream.mjpeg", "stream.avcc");
 
     // Wait for capture to warm before the AVCC test connects. The /stream.avcc

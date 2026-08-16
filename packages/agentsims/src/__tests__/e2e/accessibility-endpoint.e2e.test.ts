@@ -5,6 +5,7 @@ import {
   acquireIosSimulatorTestLock,
   IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
+import { parseDetachedOutput } from "../helpers/detached-output";
 
 /**
  * Integration test for the accessibility endpoint.
@@ -69,7 +70,7 @@ describeWithSim(`serve-sim accessibility endpoint (booted sim ${bootedUdid ?? "<
 
     // The raw axe-shaped tree is served in-process at /helper/<device>/ax
     // (the root /ax is the normalized SSE stream). Derive it from streamUrl.
-    const state = JSON.parse(detach.stdout.trim()) as { streamUrl: string };
+    const state = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
     axUrl = state.streamUrl.replace("stream.mjpeg", "ax");
   }, IOS_E2E_HOOK_TIMEOUT_MS);
 

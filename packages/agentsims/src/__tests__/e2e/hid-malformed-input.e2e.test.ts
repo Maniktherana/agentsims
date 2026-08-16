@@ -6,6 +6,7 @@ import {
   acquireIosSimulatorTestLock,
   IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
+import { parseDetachedOutput } from "../helpers/detached-output";
 
 /**
  * Regression test for the in-process HID path (napi migration, #108).
@@ -86,7 +87,7 @@ describeIfSim(`serve-sim malformed HID input (booted sim ${bootedUdid ?? "<skipp
         `stdout: ${detach.stdout ?? "<none>"}`,
       );
     }
-    const state = JSON.parse(detach.stdout.trim()) as { wsUrl: string; streamUrl: string };
+    const state = parseDetachedOutput<{ wsUrl: string; streamUrl: string }>(detach.stdout);
     wsUrl = state.wsUrl;
     configUrl = state.streamUrl.replace("stream.mjpeg", "config");
 
