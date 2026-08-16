@@ -155,7 +155,7 @@ function ChromeButton({
       activePointerRef.current = event.pointerId;
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
-      } catch {}
+      } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
       setPressed(true);
       onButton?.({ phase: "down", button });
     },

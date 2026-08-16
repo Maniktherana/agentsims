@@ -95,8 +95,8 @@ import {
   type AndroidPresentedFrame,
 } from "../../simulator/android/presentation";
 
-type CurrentApp = { bundleId: string; isReactNative: boolean; pid?: number };
-const currentAppCache = new Map<string, CurrentApp>();
+import { decodeForegroundAppEvent, type ForegroundApp } from "../../../shared/foreground-app";
+const currentAppCache = new Map<string, ForegroundApp>();
 
 export interface SimulatorDeviceViewProps {
   config: PreviewConfig;
@@ -376,7 +376,7 @@ export function SimulatorDeviceView({
           const cfg = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig;
           if (cfg.width <= 0 || cfg.height <= 0) return;
           setWsStreamConfig((prev) => (sameStreamConfig(prev, cfg) ? prev : cfg));
-        } catch {}
+        } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
       };
       ws.onclose = () => {
         if (wsRef.current === ws) wsRef.current = null;
@@ -505,7 +505,7 @@ export function SimulatorDeviceView({
   );
 
   // Subscribe to app-state SSE.
-  const [currentApp, setCurrentApp] = useState<CurrentApp | null>(
+  const [currentApp, setCurrentApp] = useState<ForegroundApp | null>(
     () => currentAppCache.get(config.device) ?? null,
   );
   const { width: toolsPanelWidth, onPointerDown: onToolsResize } = useResizableWidth(
@@ -536,20 +536,19 @@ export function SimulatorDeviceView({
   }, []);
   useEffect(() => {
     const es = openHostEventStream(config.appStateEndpoint ?? simEndpoint("appstate"));
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     es.onmessage = (e) => {
-      try {
-        const next = JSON.parse(e.data) as CurrentApp;
-        if (timer) clearTimeout(timer);
-        const delay = next?.isReactNative ? 0 : 600;
-        timer = setTimeout(() => {
-          currentAppCache.set(config.device, next);
-          setCurrentApp(next);
-        }, delay);
-      } catch {}
+      const next = decodeForegroundAppEvent(e.data);
+      if (!next) return;
+      clearTimeout(timer);
+      const delay = next.isReactNative ? 0 : 600;
+      timer = setTimeout(() => {
+        currentAppCache.set(config.device, next);
+        setCurrentApp(next);
+      }, delay);
     };
     return () => {
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
       es.close();
     };
   }, [config.appStateEndpoint, config.device]);

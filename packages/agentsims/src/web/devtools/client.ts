@@ -43,7 +43,7 @@ export function proxyWebKitDevtoolsTargetForBrowser(
     frontendUrl.searchParams.delete("wss");
     frontendUrl.searchParams.set(wsParamName, wsParamValue);
     devtoolsFrontendUrl = `${frontendUrl.pathname}${frontendUrl.search}${frontendUrl.hash}`;
-  } catch {}
+  } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
 
   return {
     ...target,
@@ -73,7 +73,7 @@ export function postReleaseHighlights() {
       const blob = new Blob(["{}"], { type: "application/json" });
       if (navigator.sendBeacon(url, blob)) return;
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
   void fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

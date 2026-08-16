@@ -114,7 +114,7 @@ export function useSimulatorResize({
       const clamped = clampSimulatorFrameWidth(value, defaultWidth, viewportWidth, viewportHeight, aspectRatio);
       try {
         window.localStorage.setItem(SIMULATOR_RESIZE_SCALE_STORAGE_KEY, String(clamped / defaultWidth));
-      } catch {}
+      } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
     },
     [aspectRatio, defaultWidth, viewportHeight, viewportWidth],
   );

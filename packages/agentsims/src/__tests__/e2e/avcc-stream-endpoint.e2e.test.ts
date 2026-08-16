@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, execSync, spawnSync } from "child_process";
 import { join } from "path";
+import {
+  acquireIosSimulatorTestLock,
+  IOS_E2E_HOOK_TIMEOUT_MS,
+} from "../helpers/ios-e2e-lock";
 
 /**
  * Integration test for the AVCC (H.264) stream endpoint.
@@ -33,7 +37,7 @@ function firstBootedIosSim(): string | null {
         if (device.state === "Booted") return device.udid;
       }
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   return null;
 }
 
@@ -55,9 +59,11 @@ const describeWithSim = bootedUdid ? describe : describe.skip;
 
 describeWithSim(`serve-sim AVCC endpoint (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let avccUrl: string;
+  let releaseTestLock = () => {};
 
   beforeAll(async () => {
-    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
+    releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
+    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
 
     const startPort = 40_000 + Math.floor(Math.random() * 20_000);
     const detach = spawnSync("bun", ["run", CLI_PATH, "--detach", "-p", String(startPort), bootedUdid!], {
@@ -90,16 +96,17 @@ describeWithSim(`serve-sim AVCC endpoint (booted sim ${bootedUdid ?? "<skipped>"
       try {
         const cfg = await fetch(configUrl).then((r) => (r.ok ? r.json() : null)) as { width?: number } | null;
         if (cfg && (cfg.width ?? 0) > 0) break;
-      } catch {}
+      } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
       await new Promise((r) => setTimeout(r, 250));
     }
-  }, 60_000);
+  }, IOS_E2E_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
-    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
-    // `bun run <cli> --kill` (bun startup + simctl teardown) can run past bun's
-    // 5s default hook timeout on a loaded CI runner, flaking the whole file with
-    // an "(unnamed) hook timed out". Give the teardown a generous budget.
+    try {
+      try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+    } finally {
+      releaseTestLock();
+    }
   }, 30_000);
 
   test("emits a decoder description and a keyframe", async () => {

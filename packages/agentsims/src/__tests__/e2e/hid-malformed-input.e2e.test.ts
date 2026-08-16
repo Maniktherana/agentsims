@@ -2,6 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
+import {
+  acquireIosSimulatorTestLock,
+  IOS_E2E_HOOK_TIMEOUT_MS,
+} from "../helpers/ios-e2e-lock";
 
 /**
  * Regression test for the in-process HID path (napi migration, #108).
@@ -36,7 +40,7 @@ function firstBootedIosSim(): string | null {
       if (!/iOS/i.test(runtime)) continue;
       for (const d of devices) if (d.state === "Booted") return d.udid;
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   return null;
 }
 
@@ -64,9 +68,11 @@ const describeIfSim = bootedUdid && existsSync(CLI) ? describe : describe.skip;
 describeIfSim(`serve-sim malformed HID input (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let wsUrl: string;
   let configUrl: string;
+  let releaseTestLock = () => {};
 
   beforeAll(async () => {
-    try { execFileSync("node", [CLI, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
+    releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
+    try { execFileSync("node", [CLI, "--kill", bootedUdid!], { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
 
     const startPort = 40_000 + Math.floor(Math.random() * 20_000);
     const detach = spawnSync("node", [CLI, "--detach", "-p", String(startPort), bootedUdid!], {
@@ -91,13 +97,17 @@ describeIfSim(`serve-sim malformed HID input (booted sim ${bootedUdid ?? "<skipp
     while (Date.now() < deadline) {
       try {
         if ((await fetch(configUrl)).ok) break;
-      } catch {}
+      } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
       await new Promise((r) => setTimeout(r, 250));
     }
-  }, 60_000);
+  }, IOS_E2E_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
-    try { execFileSync("node", [CLI, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
+    try {
+      try { execFileSync("node", [CLI, "--kill", bootedUdid!], { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+    } finally {
+      releaseTestLock();
+    }
   }, 30_000);
 
   async function serverAlive(): Promise<boolean> {

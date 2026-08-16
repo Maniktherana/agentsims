@@ -69,7 +69,7 @@ function persistTreeRatio(value: number) {
       TREE_SPLIT_STORAGE_KEY,
       String(clampAccessibilityTreeRatio(value)),
     );
-  } catch {}
+  } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
 }
 
 export interface AccessibilityHeaderActionsProps {

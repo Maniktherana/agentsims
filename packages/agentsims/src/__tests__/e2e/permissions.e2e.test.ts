@@ -32,7 +32,7 @@ function bootedUdid(): string | null {
     for (const devices of Object.values(data.devices)) {
       for (const d of devices) if (d.state === "Booted") return d.udid;
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
   return null;
 }
 

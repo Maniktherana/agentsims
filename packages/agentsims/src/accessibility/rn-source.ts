@@ -121,7 +121,7 @@ function loadRegistry(path = rnSourceManifestPath()): SourceRegistry {
         if (previous >= 0) entries[previous] = entry;
         else entries.push(entry);
         byTestID.set(entry.testID, entries);
-      } catch {}
+      } catch (error) { console.warn("[agentsims:accessibility] recoverable operation failed", error); }
     }
     const registry = { byTestID };
     cache = { path, size: stat.size, mtimeMs: stat.mtimeMs, registry };
