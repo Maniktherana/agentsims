@@ -2,18 +2,15 @@
 /**
  * Unified Agentsims build.
  *
- * Produces, all minified and with no runtime deps on workspace packages:
- *   dist/agentsims.js      ESM bin (Bun target) referenced by package.json#bin
- *   dist/middleware.js    Public subpath export "agentsims/middleware" (ESM)
- *   dist/middleware.cjs   Public subpath export "agentsims/middleware" (CJS)
- *   dist/preview/*        Browser HTML and hashed static assets
+ * Produces, all minified and with no runtime dependencies on workspace packages:
+ *   dist/agentsims.js      Bun server and CLI referenced by package.json#bin
+ *   dist/metro.*           React Native Metro integration
+ *   dist/state.*           Public state contract
+ *   dist/preview/*         Browser HTML and hashed static assets
  *
- * The CLI bundle targets Bun. Middleware and React Native exports still target
- * Node because they run in host framework processes. Runtime server and timing
- * behavior continues to use Node-compatible standard-library APIs.
- *
- * Browser files stay on disk beside the server bundles. This avoids embedding
- * the same large preview payload in both the CLI and middleware artifacts.
+ * The standalone server targets Bun. Metro and the public React Native exports
+ * target Node because they load inside the user's Metro process.
+ * Browser files stay on disk beside the server bundle.
  */
 import { relative, resolve } from "path";
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync } from "fs";
@@ -145,109 +142,24 @@ const PREVIEW_DEFINE = {
 const androidDistDir = resolve(distDir, "android");
 mkdirSync(androidDistDir, { recursive: true });
 const androidAxServerOutput = resolve(androidDistDir, "agentsims-ax-server.jar");
-const androidAxServerBuild = spawnSync(
-  "bash",
-  [resolve(root, "android/accessibility/build.sh"), androidAxServerOutput],
-  { stdio: "inherit" },
-);
-if (androidAxServerBuild.status !== 0) {
-  console.error("Android accessibility server build failed.");
-  process.exit(androidAxServerBuild.status ?? 1);
+const prebuiltAndroidAx = process.env.AGENTSIMS_ANDROID_AX_JAR;
+if (prebuiltAndroidAx) {
+  cpSync(resolve(prebuiltAndroidAx), androidAxServerOutput);
+} else {
+  const androidAxServerBuild = spawnSync(
+    "bash",
+    [resolve(root, "android/accessibility/build.sh"), androidAxServerOutput],
+    { stdio: "inherit" },
+  );
+  if (androidAxServerBuild.status !== 0) {
+    console.error("Android accessibility server build failed.");
+    process.exit(androidAxServerBuild.status ?? 1);
+  }
 }
 console.log(
   `dist/android/agentsims-ax-server.jar ${kb(readFileSync(androidAxServerOutput).length)}`,
 );
 
-// ─── 3. Middleware ESM (agentsims/middleware) ─────────────────────────────
-
-// `ws` stays external in the node-target bundles: under Node it resolves to
-// the installed package (a real dependency), and under Bun the module
-// specifier is substituted with Bun's native implementation — inlining the
-// Node implementation would break WebSocket upgrades on Bun.
-const mwResult = await Bun.build({
-  entrypoints: [resolve(root, "src/middleware.ts")],
-  target: "node",
-  format: "esm",
-  minify: true,
-  outdir: distDir,
-  external: [
-    "fs",
-    "path",
-    "os",
-    "child_process",
-    "url",
-    "net",
-    "tls",
-    "crypto",
-    "stream",
-    "events",
-    "http",
-    "https",
-    "zlib",
-    "buffer",
-    "module",
-    "ws",
-    "inspect-webkit",
-  ],
-  define: PREVIEW_DEFINE,
-});
-if (!mwResult.success) {
-  console.error("Middleware build failed:");
-  for (const log of mwResult.logs) console.error(log);
-  process.exit(1);
-}
-const mwSize = (await mwResult.outputs[0]!.text()).length;
-console.log(`dist/middleware.js ${kb(mwSize)}`);
-
-const mwCjsResult = await Bun.build({
-  entrypoints: [resolve(root, "src/middleware.ts")],
-  target: "node",
-  format: "cjs",
-  minify: true,
-  outdir: distDir,
-  naming: "middleware.cjs",
-  external: [
-    "fs",
-    "path",
-    "os",
-    "child_process",
-    "url",
-    "net",
-    "tls",
-    "crypto",
-    "stream",
-    "events",
-    "http",
-    "https",
-    "zlib",
-    "buffer",
-    "module",
-    "ws",
-    "inspect-webkit",
-  ],
-  define: PREVIEW_DEFINE,
-});
-if (!mwCjsResult.success) {
-  console.error("Middleware CJS build failed:");
-  for (const log of mwCjsResult.logs) console.error(log);
-  process.exit(1);
-}
-const middlewareCjsPath = resolve(distDir, "middleware.cjs");
-// Bun lowers `import.meta.url` in CommonJS output to the source file's URL.
-// The CJS prelude below supplies the installed dist directory instead, so
-// replace those unreachable build-machine fallbacks before publishing. This
-// keeps the artifact relocatable and avoids exposing the builder's filesystem
-// layout in the npm package.
-const middlewareCjsSource = readFileSync(middlewareCjsPath, "utf-8").replaceAll(
-  root,
-  "/__agentsims_runtime__",
-);
-writeFileSync(
-  middlewareCjsPath,
-  `"use strict";\nglobalThis.__AGENTSIMS_DIST_DIR__ = __dirname;\n${middlewareCjsSource}`,
-);
-const mwCjsSize = readFileSync(middlewareCjsPath).length;
-console.log(`dist/middleware.cjs ${kb(mwCjsSize)}`);
 
 // ─── 3b. RN/Expo source bridge exports ───────────────────────────────────
 
@@ -293,41 +205,26 @@ writeFileSync(
   `${readFileSync(babelPluginPath, "utf-8")}\nmodule.exports = module.exports.default || module.exports;\n`,
 );
 
-// ─── 4. Bin JS bundle ────────────────────────────────────────────────────
+// ─── 4. Bun server and CLI bundle ────────────────────────────────────────
 
 const binJsResult = await Bun.build({
-  entrypoints: [resolve(root, "src/cli/index.ts")],
+  entrypoints: [resolve(root, "src/cli/main.ts")],
   target: "bun",
   format: "esm",
   minify: true,
   outdir: distDir,
   naming: "agentsims.js",
   external: [
-    "fs",
-    "path",
-    "os",
-    "child_process",
-    "url",
-    "net",
-    "tls",
-    "crypto",
-    "stream",
-    "events",
-    "http",
-    "https",
-    "zlib",
-    "buffer",
-    "module",
-    "ws",
+    "fs", "path", "os", "child_process", "url", "net", "tls", "crypto",
+    "stream", "events", "http", "https", "zlib", "buffer", "module", "ws",
   ],
   define: PREVIEW_DEFINE,
 });
 if (!binJsResult.success) {
-  console.error("Bin JS build failed:");
+  console.error("Bun server and CLI build failed:");
   for (const log of binJsResult.logs) console.error(log);
   process.exit(1);
 }
-
 const binJsSize = (await binJsResult.outputs[0]!.text()).length;
 console.log(`dist/agentsims.js   ${kb(binJsSize)}`);
 
@@ -430,5 +327,6 @@ if (androidVideoBuild.status !== 0) {
   process.exit(androidVideoBuild.status ?? 1);
 }
 console.log("dist/native/agentsims-android-video.node");
+
 
 console.log("Done.");

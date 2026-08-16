@@ -2,19 +2,8 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -42,18 +31,9 @@ assert.deepEqual(manifest.os, ["darwin"]);
 assert.deepEqual(new Set(manifest.cpu), new Set(["arm64", "x64"]));
 assert.equal(manifest.publishConfig?.access, "public");
 assert.equal(manifest.publishConfig?.registry, "https://registry.npmjs.org/");
-assert.equal(
-  manifest.scripts?.start,
-  "bun dist/agentsims.js",
-  "start must execute the built production CLI with Bun",
-);
-assert.ok(
-  !(manifest.files ?? []).some((file) => file.endsWith(".map")),
-  "linked source maps may expose the build machine's checkout path",
-);
-for (const sourceMap of ["dist/agentsims.js.map", "dist/middleware.js.map"]) {
-  assert.ok(!existsSync(join(packageRoot, sourceMap)), `${sourceMap} must not be shipped`);
-}
+assert.equal(manifest.scripts?.start, "bun dist/agentsims.js");
+assert.ok(!(manifest.files ?? []).some((file) => file.endsWith(".map")));
+assert.ok(!existsSync(join(packageRoot, "dist/agentsims.js.map")));
 
 for (const required of [
   "LICENSE",
@@ -69,14 +49,8 @@ for (const required of [
 }
 
 const previewAssets = readdirSync(join(packageRoot, "dist", "preview", "assets"));
-assert.ok(
-  previewAssets.some((name) => name.endsWith(".js")),
-  "preview JS asset is missing",
-);
-assert.ok(
-  previewAssets.some((name) => name.endsWith(".css")),
-  "preview CSS asset is missing",
-);
+assert.ok(previewAssets.some((name) => name.endsWith(".js")), "preview JS asset is missing");
+assert.ok(previewAssets.some((name) => name.endsWith(".css")), "preview CSS asset is missing");
 
 const binTarget = manifest.bin?.agentsims;
 assert.equal(typeof binTarget, "string", "bin.agentsims is required");
@@ -89,19 +63,9 @@ for (const [subpath, conditions] of Object.entries(manifest.exports ?? {})) {
     assert.equal(typeof target, "string", `invalid ${subpath} ${condition} target`);
     assert.ok(target.startsWith("./dist/"), `${subpath} ${condition} must use a built artifact`);
     assertFile(target);
-    if (condition === "types") {
-      assert.ok(target.endsWith(".d.ts"), `${subpath} types must target a declaration file`);
-    }
+    if (condition === "types") assert.ok(target.endsWith(".d.ts"));
   }
 }
-
-const middlewareCjs = manifest.exports?.["./middleware"]?.require;
-assert.equal(typeof middlewareCjs, "string");
-assert.doesNotMatch(
-  readFileSync(packagePath(middlewareCjs), "utf8"),
-  /require\(["']\.\/middleware\.js["']\)/,
-  "middleware.cjs must be a real CommonJS build, not an ESM require wrapper",
-);
 
 const require = createRequire(manifestPath);
 for (const conditions of Object.values(manifest.exports ?? {})) {
@@ -114,7 +78,7 @@ const cli = spawnSync("bun", [binPath, "--version"], {
   encoding: "utf8",
 });
 assert.equal(cli.status, 0, cli.stderr || "CLI --version failed");
-assert.equal(cli.stdout.trim(), manifest.version, "CLI version does not match package.json");
+assert.equal(cli.stdout.trim(), manifest.version);
 
 for (const artifact of [
   "dist/native/agentsims-native.node",
@@ -128,94 +92,14 @@ for (const artifact of [
 }
 
 const androidVideoAddon = join(packageRoot, "dist/native/agentsims-android-video.node");
-const androidVideoInstallName = execFileSync("otool", ["-D", androidVideoAddon], {
-  encoding: "utf8",
-})
+const installName = execFileSync("otool", ["-D", androidVideoAddon], { encoding: "utf8" })
   .split(/\r?\n/)
   .slice(1)
   .join("\n");
-assert.ok(
-  androidVideoInstallName.includes("@rpath/agentsims-android-video.node"),
-  "Android video addon must not retain a build-machine install name",
-);
-assert.ok(
-  !androidVideoInstallName.includes(packageRoot),
-  "Android video addon install name contains the build-machine package path",
-);
+assert.ok(installName.includes("@rpath/agentsims-android-video.node"));
+assert.ok(!installName.includes(packageRoot));
 
-for (const bundle of ["dist/agentsims.js", "dist/middleware.js", "dist/middleware.cjs"]) {
-  const source = readFileSync(join(packageRoot, bundle), "utf8");
-  assert.ok(!source.includes(packageRoot), `${bundle} contains the build-machine package path`);
-}
-
-const relocationRoot = mkdtempSync(join(tmpdir(), "agentsims-package-relocation-"));
-const previousRuntimeDist = globalThis.__AGENTSIMS_DIST_DIR__;
-try {
-  const relocatedDist = join(relocationRoot, "dist");
-  cpSync(join(packageRoot, "dist"), relocatedDist, { recursive: true });
-  writeFileSync(
-    join(relocationRoot, "package.json"),
-    JSON.stringify({ name: "agentsims-relocation-smoke", private: true, type: "module" }),
-  );
-  symlinkSync(join(packageRoot, "node_modules"), join(relocationRoot, "node_modules"));
-
-  // The earlier CJS export check sets this global. Clear it here so an ESM
-  // import must find its preview assets relative to its own installed URL.
-  delete globalThis.__AGENTSIMS_DIST_DIR__;
-  const relocatedEsmMiddleware = await import(
-    pathToFileURL(join(relocatedDist, "middleware.js")).href
-  );
-  assert.equal(typeof relocatedEsmMiddleware.simMiddleware, "function");
-
-  const assetName = readdirSync(join(relocatedDist, "preview", "assets")).find((name) =>
-    name.endsWith(".css"),
-  );
-  assert.ok(assetName, "relocated preview CSS asset is missing");
-  const expectedAsset = Buffer.from("agentsims relocated preview asset\n");
-  writeFileSync(join(relocatedDist, "preview", "assets", assetName), expectedAsset);
-
-  async function assertRelocatedPreviewAsset(module, label) {
-    let statusCode;
-    let responseBody;
-    const middleware = module.simMiddleware({ basePath: "/.sim" });
-    await middleware(
-      {
-        method: "GET",
-        url: `/.sim/assets/${assetName}`,
-        headers: {},
-        socket: { localPort: 3200 },
-      },
-      {
-        writeHead(status) {
-          statusCode = status;
-        },
-        end(body) {
-          responseBody = Buffer.from(body);
-        },
-      },
-    );
-    assert.equal(statusCode, 200, `${label} relocated middleware did not serve its preview asset`);
-    assert.deepEqual(responseBody, expectedAsset);
-  }
-
-  await assertRelocatedPreviewAsset(relocatedEsmMiddleware, "ESM");
-
-  const relocatedRequire = createRequire(join(relocationRoot, "package.json"));
-  const relocatedCjsMiddleware = relocatedRequire("./dist/middleware.cjs");
-  assert.equal(
-    globalThis.__AGENTSIMS_DIST_DIR__,
-    realpathSync(relocatedDist),
-    "middleware.cjs must resolve artifacts relative to its installed location",
-  );
-  assert.equal(typeof relocatedCjsMiddleware.simMiddleware, "function");
-  await assertRelocatedPreviewAsset(relocatedCjsMiddleware, "CJS");
-} finally {
-  if (previousRuntimeDist === undefined) {
-    delete globalThis.__AGENTSIMS_DIST_DIR__;
-  } else {
-    globalThis.__AGENTSIMS_DIST_DIR__ = previousRuntimeDist;
-  }
-  rmSync(relocationRoot, { recursive: true, force: true });
-}
+const source = readFileSync(join(packageRoot, "dist/agentsims.js"), "utf8");
+assert.ok(!source.includes(packageRoot), "dist/agentsims.js contains the build-machine package path");
 
 console.log(`agentsims@${manifest.version} package artifacts verified`);

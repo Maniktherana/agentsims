@@ -190,10 +190,8 @@ SDK platform/build-tools, Rust, and FFmpeg 8 development libraries. It builds th
 browser/server bundles, first-party Android AX JAR, iOS/macOS native helpers,
 and Rust Android video addon.
 
-`start` executes the built production entrypoint directly with Node and serves
-the printed local URL, normally
-[http://localhost:3200](http://localhost:3200). Pass CLI options after `--`; for
-example:
+`start` executes the built Bun entrypoint and serves the printed local URL,
+normally [http://localhost:3200](http://localhost:3200). Pass CLI options after `--`.
 
 ```bash
 bun run --filter agentsims start -- --port 3210
