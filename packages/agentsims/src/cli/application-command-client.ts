@@ -74,7 +74,7 @@ export class ApplicationCommandClient {
     let value: unknown = text;
     try {
       value = text ? JSON.parse(text) : null;
-    } catch {}
+    } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
     if (!response.ok) {
       const message =
         value && typeof value === "object" && "error" in value

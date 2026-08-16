@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Command, InvalidArgumentError } from "commander";
-import { execSync, spawn as nodeSpawn, type ChildProcess } from "child_process";
+import { Effect } from "effect";
+import { execFile, execSync, spawn as nodeSpawn, type ChildProcess } from "child_process";
 import {
   existsSync,
   mkdirSync,
@@ -10,18 +11,24 @@ import {
   readFileSync,
   unlinkSync,
   writeFileSync,
+  rmSync,
 } from "fs";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { networkInterfaces } from "os";
 import { join, resolve } from "path";
+import { resolveAppConfig } from "../services/app-config";
 import {
   STATE_DIR,
   stateFileForDevice,
   listStateFiles,
   inProcessDeviceState,
 } from "../shared/state";
-import { dirnameOf, sleepSync, isPortFree, servePreview } from "../server/runtime/runtime";
+import { dirnameOf, isPortFree } from "../server/runtime/runtime";
+import { servePreview } from "../server/http/server";
+import type { PreviewServer } from "../server/runtime/runtime";
+import { configuredDistDirectory } from "../server/runtime/runtime-paths";
 import { killPortHolder } from "../server/runtime/ports";
+import { hostCommandText } from "../server/runtime/host-tools-runtime";
 import { findBootedDevice, resolveDevice, SIMCTL_LIST_MAX_BUFFER_BYTES } from "../ios/device/device";
 import {
   androidSerialFromStateId,
@@ -32,9 +39,10 @@ import { permissions } from "../ios/device/permissions";
 import { uiSettings } from "../ios/device/ui-settings";
 import { debugCli, debugHelper, debugState } from "../shared/debug";
 import { readAllStates, readState, type ServerState } from "./device-state";
-import { registerDeviceCommands } from "./register-device-commands";
-import { registerSetupCommand } from "./register-setup-command";
-import { registerApplicationCommands } from "./register-application-commands";
+import { addCompatibilityCommands } from "./compatibility-commands";
+import { addSetupCommand } from "./setup-command";
+import { addWorkspaceCommands } from "./workspace-commands";
+import { CliError } from "./error";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
@@ -58,25 +66,28 @@ function resolveVersion(): string {
   }
 }
 
+function environmentAppConfig() {
+  try {
+    return Effect.runSync(resolveAppConfig({}, process.env));
+  } catch (error) {
+    throw new InvalidArgumentError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 function previewPortFromEnvironment(): number | undefined {
-  const raw = process.env.PORT?.trim();
-  if (!raw) return undefined;
-  if (!/^\d+$/.test(raw)) {
-    throw new InvalidArgumentError(
-      `PORT must be an integer between 1 and 65535 (received '${raw}').`,
-    );
-  }
-  const port = Number(raw);
-  if (port < 1 || port > 65_535) {
-    throw new InvalidArgumentError(
-      `PORT must be an integer between 1 and 65535 (received '${raw}').`,
-    );
-  }
-  return port;
+  return process.env.PORT?.trim() ? environmentAppConfig().port : undefined;
 }
 
 function previewHostFromEnvironment(): string {
-  return process.env.HOST?.trim() || "127.0.0.1";
+  return environmentAppConfig().host;
+}
+
+function previewRootForRuntime(): string {
+  const configured = configuredDistDirectory();
+  if (configured) return resolve(configured, "preview");
+  const installed = resolve(__dirname, "preview");
+  if (existsSync(resolve(installed, "index.html"))) return installed;
+  return resolve(__dirname, "..", "..", "dist", "preview");
 }
 
 function ensureStateDir() {
@@ -94,17 +105,11 @@ function writeState(state: ServerState) {
 function clearState(udid?: string) {
   if (udid) {
     debugState("clearState device=%s", udid);
-    try {
-      unlinkSync(stateFileForDevice(udid));
-    } catch {}
-  } else {
-    debugState("clearState (all)");
-    for (const file of listStateFiles()) {
-      try {
-        unlinkSync(file);
-      } catch {}
-    }
+    rmSync(stateFileForDevice(udid), { force: true });
+    return;
   }
+  debugState("clearState (all)");
+  for (const file of listStateFiles()) rmSync(file, { force: true });
 }
 
 // ─── Device helpers ───
@@ -113,67 +118,50 @@ function clearState(udid?: string) {
  * Pick a sensible default device to boot when the user runs `agentsims` with
  * no booted simulator. Prefers an available iPhone on the newest iOS runtime.
  */
-function pickDefaultDevice(): { udid: string; name: string } | null {
+async function pickDefaultDevice(): Promise<{ udid: string; name: string } | null> {
   try {
-    const output = execSync("xcrun simctl list devices -j", {
-      encoding: "utf-8",
-      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
-    });
-    const data = JSON.parse(output) as {
-      devices: Record<
-        string,
-        Array<{ udid: string; name: string; state: string; isAvailable?: boolean }>
-      >;
+    const data = JSON.parse(await hostCommandText("xcrun", "simctl", "list", "devices", "-j")) as {
+      devices: Record<string, Array<{ udid: string; name: string; state: string; isAvailable?: boolean }>>;
     };
     const iosRuntimes = Object.keys(data.devices)
-      .filter((k) => /SimRuntime\.iOS-/i.test(k))
-      .sort((a, b) => {
-        const va = (a.match(/iOS-(\d+)-(\d+)/) ?? []).slice(1).map(Number);
-        const vb = (b.match(/iOS-(\d+)-(\d+)/) ?? []).slice(1).map(Number);
-        return (vb[0] ?? 0) - (va[0] ?? 0) || (vb[1] ?? 0) - (va[1] ?? 0);
+      .filter((runtime) => /SimRuntime\.iOS-/i.test(runtime))
+      .sort((left, right) => {
+        const leftVersion = (left.match(/iOS-(\d+)-(\d+)/) ?? []).slice(1).map(Number);
+        const rightVersion = (right.match(/iOS-(\d+)-(\d+)/) ?? []).slice(1).map(Number);
+        return (rightVersion[0] ?? 0) - (leftVersion[0] ?? 0) ||
+          (rightVersion[1] ?? 0) - (leftVersion[1] ?? 0);
       });
     for (const runtime of iosRuntimes) {
-      const devices = data.devices[runtime] ?? [];
-      const iphone = devices.find((d) => d.isAvailable !== false && /^iPhone\b/i.test(d.name));
+      const iphone = (data.devices[runtime] ?? []).find(
+        (device) => device.isAvailable !== false && /^iPhone\b/i.test(device.name),
+      );
       if (iphone) return { udid: iphone.udid, name: iphone.name };
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
   return null;
 }
 
-function getDeviceName(udid: string): string | null {
+async function getDeviceName(udid: string): Promise<string | null> {
   try {
-    const output = execSync("xcrun simctl list devices -j", {
-      encoding: "utf-8",
-      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
-    });
-    const data = JSON.parse(output) as {
+    const data = JSON.parse(await hostCommandText("xcrun", "simctl", "list", "devices", "-j")) as {
       devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
     };
     for (const runtime of Object.values(data.devices)) {
-      for (const device of runtime) {
-        if (device.udid === udid) return device.name;
-      }
+      for (const device of runtime) if (device.udid === udid) return device.name;
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
   return null;
 }
 
-function isDeviceBooted(udid: string): boolean {
+async function isDeviceBooted(udid: string): Promise<boolean> {
   try {
-    const output = execSync("xcrun simctl list devices -j", {
-      encoding: "utf-8",
-      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
-    });
-    const data = JSON.parse(output) as {
+    const data = JSON.parse(await hostCommandText("xcrun", "simctl", "list", "devices", "-j")) as {
       devices: Record<string, Array<{ udid: string; state: string }>>;
     };
     for (const runtime of Object.values(data.devices)) {
-      for (const device of runtime) {
-        if (device.udid === udid) return device.state === "Booted";
-      }
+      for (const device of runtime) if (device.udid === udid) return device.state === "Booted";
     }
-  } catch {}
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
   return false;
 }
 
@@ -187,59 +175,38 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /** Kill a process and wait for it to actually exit. */
-function stopProcess(pid: number): void {
+async function stopProcess(pid: number): Promise<void> {
   try {
     process.kill(pid, "SIGTERM");
   } catch {
     return;
   }
-  const deadline = Date.now() + 500;
-  while (Date.now() < deadline) {
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EPERM") return;
+  const exited = async (deadline: number) => {
+    while (Date.now() < deadline) {
+      if (!isProcessAlive(pid)) return true;
+      await Effect.runPromise(Effect.sleep("25 millis"));
     }
-    sleepSync(25);
-  }
+    return false;
+  };
+  if (await exited(Date.now() + 500)) return;
   try {
     process.kill(pid, "SIGKILL");
-  } catch {}
-  const deadline2 = Date.now() + 500;
-  while (Date.now() < deadline2) {
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EPERM") return;
-    }
-    sleepSync(25);
-  }
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
+  await exited(Date.now() + 500);
 }
 
-function bootDevice(udid: string): void {
-  if (!isDeviceBooted(udid)) {
+async function bootDevice(udid: string): Promise<void> {
+  if (!(await isDeviceBooted(udid))) {
     try {
-      execSync(`xcrun simctl boot ${udid}`, { encoding: "utf-8", stdio: "pipe" });
-    } catch (err: any) {
-      const msg = (err.stderr ?? err.message ?? "").toLowerCase();
-      if (!msg.includes("booted") && !msg.includes("current state")) {
-        throw new Error(`Failed to boot device ${udid}: ${err.stderr || err.message}`);
+      await hostCommandText("xcrun", "simctl", "boot", udid);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (!message.includes("booted") && !message.includes("current state")) {
+        throw new CliError(`Failed to boot device ${udid}: ${message}`);
       }
     }
   }
-  // Ensure Simulator.app is running so the display/framebuffer pipeline is
-  // wired up. `-g` = don't bring to foreground; safe to call even if already
-  // running. A short timeout keeps us from hanging on headless macOS hosts
-  // (e.g. GitHub Actions runners) where `open` can block indefinitely waiting
-  // for a window server that never arrives — in that environment the test
-  // harness is expected to have already driven the sim via simctl.
-  try {
-    execSync("open -ga Simulator", {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 3_000,
-    });
-  } catch {}
+  try { await hostCommandText("open", "-ga", "Simulator"); } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
 }
 
 function getLocalNetworkIP(): string | null {
@@ -262,32 +229,24 @@ async function findAvailablePort(start: number): Promise<number> {
 }
 
 async function ensureBooted(udid: string): Promise<void> {
-  bootDevice(udid);
-  // `simctl bootstatus -b` blocks until the device's services are actually ready
-  // (not just flipped to "Booted"). Much more reliable than polling `simctl list`.
+  await bootDevice(udid);
   try {
-    execSync(`xcrun simctl bootstatus ${udid} -b`, {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 60_000,
-    });
-  } catch (err: any) {
-    if (!isDeviceBooted(udid)) {
-      console.error(`Device ${udid} failed to reach booted state: ${err.stderr || err.message}`);
-      process.exit(1);
+    await hostCommandText("xcrun", "simctl", "bootstatus", udid, "-b");
+  } catch (error: unknown) {
+    if (!(await isDeviceBooted(udid))) {
+      throw new CliError(
+        `Device ${udid} failed to reach booted state: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 }
 
 // ─── Preview server lifecycle ───
 
-/** Resolve the command to re-exec this CLI (native launcher or `node …js`). */
 function reExecArgs(extra: string[]): { command: string; args: string[] } {
-  // Native launcher: argv[0] is the agentsims executable itself.
   if (process.argv[0] && /(^|\/)agentsims$/.test(process.argv[0])) {
     return { command: process.argv[0], args: extra };
   }
-  // Running the JS bundle: `node /path/to/agentsims.js`.
   return { command: process.argv[0]!, args: [process.argv[1]!, ...extra] };
 }
 
@@ -317,7 +276,7 @@ async function startHelper(
   const host = "127.0.0.1";
   ensureStateDir();
   clearState(udid); // don't read a stale state file from a previous run
-  killPortHolder(port);
+  await killPortHolder(port);
 
   const logFile = join(STATE_DIR, `server-${udid}.log`);
   const logFd = openSync(logFile, "w");
@@ -332,13 +291,12 @@ async function startHelper(
   // The child boots the sim then writes its state once it's bound + serving.
   const state = await waitForStateFile(udid);
   if (!state) {
-    if (child.pid) stopProcess(child.pid);
+    if (child.pid) await stopProcess(child.pid);
     let log = "";
     try {
       log = readFileSync(logFile, "utf-8").trim();
-    } catch {}
-    console.error(log ? `Preview server failed:\n${log}` : "Preview server failed to start");
-    process.exit(1);
+    } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
+    throw new CliError(log ? `Preview server failed:\n${log}` : "Preview server failed to start");
   }
   return opts.detach ? { pid: state.pid } : { pid: state.pid, child };
 }
@@ -348,22 +306,16 @@ async function startHelper(
 /** Foreground follow mode (default). Stays attached, cleans up on Ctrl+C. */
 async function follow(devices: string[], startPort: number, quiet: boolean) {
   debugCli("follow devices=%o startPort=%d", devices, startPort);
-  const udids =
-    devices.length > 0
-      ? devices.map(resolveDevice)
-      : (() => {
-          const booted = findBootedDevice();
-          if (booted) return [booted];
-          const fallback = pickDefaultDevice();
-          if (!fallback) {
-            console.error("No device specified and no available iOS simulator found.");
-            process.exit(1);
-          }
-          if (!quiet) {
-            console.log(`No booted simulator — booting ${fallback.name}...`);
-          }
-          return [fallback.udid];
-        })();
+  const udids = devices.length > 0
+    ? await Promise.all(devices.map(resolveDevice))
+    : await (async () => {
+        const booted = await findBootedDevice();
+        if (booted) return [booted];
+        const fallback = await pickDefaultDevice();
+        if (!fallback) throw new CliError("No device specified and no available iOS simulator found.");
+        if (!quiet) console.log(`No booted simulator — booting ${fallback.name}...`);
+        return [fallback.udid];
+      })();
 
   const children = new Map<string, ChildProcess>();
   const states: ServerState[] = [];
@@ -374,7 +326,7 @@ async function follow(devices: string[], startPort: number, quiet: boolean) {
     const existing = readState(udid);
     if (existing) {
       if (!quiet) {
-        const name = getDeviceName(udid) ?? udid;
+        const name = await getDeviceName(udid) ?? udid;
         if (udids.length > 1) console.log(`\n==> ${name} (${udid}) <==`);
         console.log(`  Already running on port ${existing.port}`);
         console.log(`  Stream:    ${existing.streamUrl}`);
@@ -397,7 +349,7 @@ async function follow(devices: string[], startPort: number, quiet: boolean) {
     states.push(state);
 
     if (!quiet) {
-      const name = getDeviceName(udid) ?? udid;
+      const name = await getDeviceName(udid) ?? udid;
       if (udids.length > 1) console.log(`\n==> ${name} (${udid}) <==`);
       console.log(`  Stream:    ${state.streamUrl}`);
       console.log(`  WebSocket: ${state.wsUrl}`);
@@ -438,17 +390,17 @@ async function follow(devices: string[], startPort: number, quiet: boolean) {
 
   let shuttingDown = false;
 
-  const cleanup = (exitCode: number) => {
+  const cleanup = async (exitCode: number) => {
     if (shuttingDown) return;
     shuttingDown = true;
     if (!quiet) console.log("\nShutting down...");
     for (const [udid, child] of children) {
       const pid = child.pid;
-      if (pid) stopProcess(pid);
+      if (pid) await stopProcess(pid);
       clearState(udid);
     }
     children.clear();
-    process.exit(exitCode);
+    process.exitCode = exitCode;
   };
 
   // Monitor children — exit when all die (helper crashed / exited on its own)
@@ -459,47 +411,42 @@ async function follow(devices: string[], startPort: number, quiet: boolean) {
       if (!quiet) console.error(`[${udid}] Helper exited (code ${code})`);
       clearState(udid);
       children.delete(udid);
-      if (children.size === 0) cleanup(code ?? 1);
+      if (children.size === 0) void cleanup(code ?? 1);
     });
   }
 
   // Clean shutdown on signal
-  process.on("SIGINT", () => cleanup(0));
-  process.on("SIGTERM", () => cleanup(0));
-  process.on("SIGHUP", () => cleanup(0));
+  process.on("SIGINT", () => { void cleanup(0); });
+  process.on("SIGTERM", () => { void cleanup(0); });
+  process.on("SIGHUP", () => { void cleanup(0); });
 
   // Last-resort synchronous cleanup if something else exits the process
   process.on("exit", () => {
     for (const [udid, child] of children) {
       try {
         if (child.pid) process.kill(child.pid, "SIGTERM");
-      } catch {}
+      } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
       try {
         clearState(udid);
-      } catch {}
+      } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
     }
   });
 
-  // Block forever
-  await new Promise(() => {});
+  while (children.size > 0) await Effect.runPromise(Effect.sleep("100 millis"));
 }
 
 /** Detach mode (--detach). Spawns helpers and returns their states. */
 async function detach(devices: string[], startPort: number): Promise<ServerState[]> {
   debugCli("detach devices=%o startPort=%d", devices, startPort);
-  const udids =
-    devices.length > 0
-      ? devices.map(resolveDevice)
-      : (() => {
-          const booted = findBootedDevice();
-          if (booted) return [booted];
-          const fallback = pickDefaultDevice();
-          if (!fallback) {
-            console.error("No device specified and no available iOS simulator found.");
-            process.exit(1);
-          }
-          return [fallback.udid];
-        })();
+  const udids = devices.length > 0
+    ? await Promise.all(devices.map(resolveDevice))
+    : await (async () => {
+        const booted = await findBootedDevice();
+        if (booted) return [booted];
+        const fallback = await pickDefaultDevice();
+        if (!fallback) throw new CliError("No device specified and no available iOS simulator found.");
+        return [fallback.udid];
+      })();
 
   const states: ServerState[] = [];
   let port = startPort;
@@ -551,9 +498,9 @@ function printStatesJSON(states: ServerState[]) {
 }
 
 /** List running streams (--list). */
-function listStreams(deviceArg?: string) {
+async function listStreams(deviceArg?: string) {
   if (deviceArg) {
-    const udid = resolveDevice(deviceArg);
+    const udid = await resolveDevice(deviceArg);
     const state = readState(udid);
     if (!state) {
       console.log(JSON.stringify({ running: false, device: udid }));
@@ -607,9 +554,9 @@ function listStreams(deviceArg?: string) {
 }
 
 /** Kill running streams (--kill). */
-function killStreams(deviceArg?: string) {
+async function killStreams(deviceArg?: string) {
   if (deviceArg) {
-    const udid = resolveDevice(deviceArg);
+    const udid = await resolveDevice(deviceArg);
     const state = readState(udid);
     if (!state) {
       console.log(JSON.stringify({ disconnected: true, device: udid }));
@@ -617,7 +564,7 @@ function killStreams(deviceArg?: string) {
     }
     try {
       process.kill(state.pid, "SIGTERM");
-    } catch {}
+    } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
     clearState(udid);
     console.log(JSON.stringify({ disconnected: true, device: state.device }));
   } else {
@@ -630,7 +577,7 @@ function killStreams(deviceArg?: string) {
     for (const state of states) {
       try {
         process.kill(state.pid, "SIGTERM");
-      } catch {}
+      } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
       devices.push(state.device);
     }
     clearState();
@@ -655,17 +602,13 @@ async function caDebug(option: string, stateRaw: string, deviceArg?: string) {
   };
   const resolved = option ? (aliases[option] ?? option) : undefined;
   if (!resolved || !["on", "off", "1", "0", "true", "false"].includes(stateArg)) {
-    console.error(
+    throw new CliError(
       `Usage: agentsims ca-debug <option> <on|off> [-d udid]\n  option shortcuts: ${Object.keys(aliases).join(", ")}`,
     );
-    process.exit(1);
   }
 
   const stateFile = readState(deviceArg);
-  if (!stateFile) {
-    console.error("No agentsims server running. Run `agentsims` first.");
-    process.exit(1);
-  }
+  if (!stateFile) throw new CliError("No agentsims server running. Run `agentsims` first.");
 
   return new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(stateFile.wsUrl);
@@ -691,10 +634,7 @@ async function caDebug(option: string, stateRaw: string, deviceArg?: string) {
 // Ask the helper to invoke -[SimDevice simulateMemoryWarning].
 async function memoryWarning(deviceArg?: string) {
   const stateFile = readState(deviceArg);
-  if (!stateFile) {
-    console.error("No agentsims server running. Run `agentsims` first.");
-    process.exit(1);
-  }
+  if (!stateFile) throw new CliError("No agentsims server running. Run `agentsims` first.");
   return new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(stateFile.wsUrl);
     ws.binaryType = "arraybuffer";
@@ -731,22 +671,18 @@ function locateCameraDylib(): string | null {
   return null;
 }
 
-function buildCameraDylib(): string {
-  const buildScript =
-    [
-      join(__dirname, "..", "..", "ios", "camera-injector", "build.sh"),
-      join(__dirname, "..", "ios", "camera-injector", "build.sh"),
-    ].find((candidate) => existsSync(candidate)) ?? "";
+async function buildCameraDylib(): Promise<string> {
+  const buildScript = [
+    join(__dirname, "..", "..", "ios", "camera-injector", "build.sh"),
+    join(__dirname, "..", "ios", "camera-injector", "build.sh"),
+  ].find((candidate) => existsSync(candidate)) ?? "";
   if (!existsSync(buildScript)) {
-    throw new Error(
-      "SimCameraInjector source not found — this build of agentsims does not " +
-        "include camera support sources. Reinstall from a recent release.",
-    );
+    throw new CliError("SimCameraInjector source not found. Reinstall from a recent release.");
   }
   console.error("[agentsims] building libSimCameraInjector.dylib (one-time)…");
-  execSync(`bash "${buildScript}"`, { stdio: "inherit" });
+  await hostCommandText("bash", buildScript);
   const out = locateCameraDylib();
-  if (!out) throw new Error("Build succeeded but dylib not found.");
+  if (!out) throw new CliError("Build succeeded but the camera dylib was not found.");
   return out;
 }
 
@@ -760,22 +696,18 @@ function locateCameraHelper(): string | null {
   return null;
 }
 
-function buildCameraHelper(): string {
-  const buildScript =
-    [
-      join(__dirname, "..", "..", "ios", "camera-helper", "build.sh"),
-      join(__dirname, "..", "ios", "camera-helper", "build.sh"),
-    ].find((candidate) => existsSync(candidate)) ?? "";
+async function buildCameraHelper(): Promise<string> {
+  const buildScript = [
+    join(__dirname, "..", "..", "ios", "camera-helper", "build.sh"),
+    join(__dirname, "..", "ios", "camera-helper", "build.sh"),
+  ].find((candidate) => existsSync(candidate)) ?? "";
   if (!existsSync(buildScript)) {
-    throw new Error(
-      "SimCameraHelper source not found — webcam support requires building " +
-        "from a checkout that includes ios/camera-helper.",
-    );
+    throw new CliError("SimCameraHelper source not found. Webcam support requires ios/camera-helper.");
   }
   console.error("[agentsims] building agentsims-camera-helper (one-time)…");
-  execSync(`bash "${buildScript}"`, { stdio: "inherit" });
+  await hostCommandText("bash", buildScript);
   const out = locateCameraHelper();
-  if (!out) throw new Error("Build succeeded but helper binary not found.");
+  if (!out) throw new CliError("Build succeeded but the camera helper was not found.");
   return out;
 }
 
@@ -876,7 +808,7 @@ function readInjectedBundles(udid: string): string[] {
   let currentHelperPid: number | null = null;
   try {
     currentHelperPid = Number(readFileSync(helperPidFile(udid), "utf-8").trim()) || null;
-  } catch {}
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
   if (currentHelperPid == null || state.helperPid !== currentHelperPid) return [];
   return Array.isArray(state.bundleIds) ? state.bundleIds : [];
 }
@@ -892,28 +824,27 @@ function recordInjectedBundle(udid: string, bundleId: string, helperPid: number)
 function clearInjectedBundles(udid: string): void {
   try {
     unlinkSync(helperBundlesFile(udid));
-  } catch {}
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
 }
 
-function stopExistingHelper(udid: string) {
+async function stopExistingHelper(udid: string): Promise<void> {
   const pf = helperPidFile(udid);
   if (!existsSync(pf)) return;
   const pid = Number(readFileSync(pf, "utf-8").trim());
   if (Number.isFinite(pid) && isProcessAlive(pid)) {
     try {
       process.kill(pid, "SIGTERM");
-    } catch {}
-    // Give it a moment to clean up the shm region.
-    const start = Date.now();
-    while (isProcessAlive(pid) && Date.now() - start < 1500) sleepSync(50);
+    } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
+    const deadline = Date.now() + 1500;
+    while (isProcessAlive(pid) && Date.now() < deadline) {
+      await Effect.runPromise(Effect.sleep("50 millis"));
+    }
   }
-  try {
-    unlinkSync(pf);
-  } catch {}
+  try { unlinkSync(pf); } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
   clearInjectedBundles(udid);
 }
 
-function spawnCameraHelper(args: {
+async function spawnCameraHelper(args: {
   udid: string;
   helperBin: string;
   shmName: string;
@@ -922,7 +853,7 @@ function spawnCameraHelper(args: {
   arg?: string;
   width?: number;
   height?: number;
-}): number {
+}): Promise<number> {
   if (!existsSync(SIMCAM_STATE_DIR)) mkdirSync(SIMCAM_STATE_DIR, { recursive: true });
   const logPath = join(SIMCAM_STATE_DIR, `${args.udid}.log`);
   const out = openSync(logPath, "a");
@@ -941,13 +872,13 @@ function spawnCameraHelper(args: {
   clearInjectedBundles(args.udid);
   // Wait briefly until the helper has populated the shm header AND the
   // control socket is listening (proves it's healthy and ready for switch).
-  const start = Date.now();
-  while (Date.now() - start < 3000) {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
     if (!isProcessAlive(child.pid)) {
       throw new Error(`camera helper exited early — see log at ${logPath}`);
     }
     if (existsSync(args.socketPath)) break;
-    sleepSync(50);
+    await Effect.runPromise(Effect.sleep("50 millis"));
   }
   return child.pid;
 }
@@ -1074,9 +1005,9 @@ async function ensureHelperWithSource(opts: {
     };
   }
   // Need to start a fresh helper. Pre-emptively reap any stale state.
-  stopExistingHelper(opts.udid);
-  const helper = (!opts.forceBuild && locateCameraHelper()) || buildCameraHelper();
-  const pid = spawnCameraHelper({
+  await stopExistingHelper(opts.udid);
+  const helper = (!opts.forceBuild && locateCameraHelper()) || await buildCameraHelper();
+  const pid = await spawnCameraHelper({
     udid: opts.udid,
     helperBin: helper,
     shmName,
@@ -1205,26 +1136,23 @@ Examples:
   }
 
   if (listWebcams) {
-    const helper = locateCameraHelper() ?? buildCameraHelper();
-    execSync(`"${helper}" --list`, { stdio: "inherit" });
+    const helper = locateCameraHelper() ?? await buildCameraHelper();
+    process.stdout.write(await hostCommandText(helper, "--list"));
     return;
   }
 
   if (stopWebcam) {
-    const udid = deviceArg ? resolveDevice(deviceArg) : findBootedDevice();
-    if (!udid) {
-      console.error("No booted simulator.");
-      process.exit(1);
-    }
+    const udid = deviceArg ? await resolveDevice(deviceArg) : await findBootedDevice();
+    if (!udid) throw new CliError("No booted simulator.");
     const injectedBundles = readInjectedBundles(udid);
     const terminated: string[] = [];
-    for (const b of injectedBundles) {
+    for (const bundle of injectedBundles) {
       try {
-        execSync(`xcrun simctl terminate "${udid}" "${b}"`, { stdio: "ignore" });
-        terminated.push(b);
-      } catch {}
+        await hostCommandText("xcrun", "simctl", "terminate", udid, bundle);
+        terminated.push(bundle);
+      } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
     }
-    stopExistingHelper(udid);
+    await stopExistingHelper(udid);
     if (quiet) console.log(JSON.stringify({ udid, stopped: true, terminated }));
     else {
       console.log(`Stopped camera helper for ${udid}`);
@@ -1236,55 +1164,35 @@ Examples:
   // `agentsims camera mirror <auto|on|off> [-d udid]`
   // Hot-swap the preview-layer mirror mode without touching the app.
   if (filtered[0] === "mirror") {
-    const udid = deviceArg ? resolveDevice(deviceArg) : findBootedDevice();
-    if (!udid) {
-      console.error("No booted simulator.");
-      process.exit(1);
-    }
+    const udid = deviceArg ? await resolveDevice(deviceArg) : await findBootedDevice();
+    if (!udid) throw new CliError("No booted simulator.");
     const mode = filtered[1];
     if (mode !== "auto" && mode !== "on" && mode !== "off") {
-      console.error("Usage: agentsims camera mirror <auto|on|off> [-d udid]");
-      process.exit(1);
+      throw new CliError("Usage: agentsims camera mirror <auto|on|off> [-d udid]");
     }
     if (!isHelperAlive(udid)) {
-      console.error(
-        "camera helper not running for this device — run `agentsims camera <bundle-id>` first.",
+      throw new CliError(
+        "Camera helper not running for this device. Run `agentsims camera <bundle-id>` first.",
       );
-      process.exit(1);
     }
-    try {
-      const reply = await sendHelperCommand(udid, { action: "setMirror", mode });
-      if (!reply.ok) {
-        console.error(`mirror failed: ${reply.error ?? "?"}`);
-        process.exit(1);
-      }
-      if (quiet) console.log(JSON.stringify({ udid, mirror: mode, ok: true }));
-      else console.log(`📷 Mirror → ${mode} on ${udid}`);
-    } catch (e: any) {
-      console.error(`mirror failed: ${e?.message ?? e}`);
-      process.exit(1);
-    }
+    const reply = await sendHelperCommand(udid, { action: "setMirror", mode });
+    if (!reply.ok) throw new CliError(`Mirror failed: ${reply.error ?? "unknown error"}`);
+    if (quiet) console.log(JSON.stringify({ udid, mirror: mode, ok: true }));
+    else console.log(`📷 Mirror → ${mode} on ${udid}`);
     return;
   }
 
   // `agentsims camera switch <source> [arg] [-d udid]`
   // Hot-swap the helper's source without touching the simulator app.
   if (filtered[0] === "switch") {
-    const udid = deviceArg ? resolveDevice(deviceArg) : findBootedDevice();
-    if (!udid) {
-      console.error("No booted simulator.");
-      process.exit(1);
-    }
+    const udid = deviceArg ? await resolveDevice(deviceArg) : await findBootedDevice();
+    if (!udid) throw new CliError("No booted simulator.");
     let wanted = filtered[1];
     let arg: string | undefined = filtered[2];
-    // `camera switch /path/to/clip.mov` — sniff the file and pick the kind.
     if (
       wanted &&
-      wanted !== "placeholder" &&
-      wanted !== "webcam" &&
-      wanted !== "image" &&
-      wanted !== "video" &&
-      wanted !== "file"
+      wanted !== "placeholder" && wanted !== "webcam" && wanted !== "image" &&
+      wanted !== "video" && wanted !== "file"
     ) {
       const candidate = resolve(wanted);
       if (existsSync(candidate)) {
@@ -1293,45 +1201,28 @@ Examples:
       }
     }
     if (wanted === "file") {
-      if (!arg) {
-        console.error("camera switch file <path>");
-        process.exit(1);
-      }
+      if (!arg) throw new CliError("camera switch file <path>");
       arg = resolve(arg);
       const detected = detectMediaKind(arg);
-      if (!detected) {
-        console.error(`Could not detect image/video type for: ${arg}`);
-        process.exit(1);
-      }
+      if (!detected) throw new CliError(`Could not detect image/video type for: ${arg}`);
       wanted = detected;
     }
     if (
       !wanted ||
       (wanted !== "placeholder" && wanted !== "webcam" && wanted !== "image" && wanted !== "video")
     ) {
-      console.error("Usage: agentsims camera switch <placeholder|webcam|file> [arg] [-d udid]");
-      process.exit(1);
+      throw new CliError("Usage: agentsims camera switch <placeholder|webcam|file> [arg] [-d udid]");
     }
     if ((wanted === "image" || wanted === "video") && arg) arg = resolve(arg);
     if (!isHelperAlive(udid)) {
-      console.error(
-        "camera helper not running for this device — run `agentsims camera <bundle-id>` first.",
+      throw new CliError(
+        "Camera helper not running for this device. Run `agentsims camera <bundle-id>` first.",
       );
-      process.exit(1);
     }
-    try {
-      const reply = await sendHelperCommand(udid, { action: "switch", source: wanted, arg });
-      if (!reply.ok) {
-        console.error(`switch failed: ${reply.error ?? "?"}`);
-        process.exit(1);
-      }
-      if (quiet) console.log(JSON.stringify({ udid, ...reply }));
-      else
-        console.log(`📷 Switched ${udid} → ${reply.source}${reply.arg ? ` (${reply.arg})` : ""}`);
-    } catch (e: any) {
-      console.error(`switch failed: ${e?.message ?? e}`);
-      process.exit(1);
-    }
+    const reply = await sendHelperCommand(udid, { action: "switch", source: wanted, arg });
+    if (!reply.ok) throw new CliError(`Switch failed: ${reply.error ?? "unknown error"}`);
+    if (quiet) console.log(JSON.stringify({ udid, ...reply }));
+    else console.log(`📷 Switched ${udid} → ${reply.source}${reply.arg ? ` (${reply.arg})` : ""}`);
     return;
   }
 
@@ -1340,7 +1231,7 @@ Examples:
   // a page reload, so we don't have to "Inject + relaunch" the app just to
   // re-establish UI state.
   if (filtered[0] === "status") {
-    const udid = deviceArg ? resolveDevice(deviceArg) : findBootedDevice();
+    const udid = deviceArg ? await resolveDevice(deviceArg) : await findBootedDevice();
     if (!udid) {
       console.log(JSON.stringify({ alive: false, error: "no booted simulator" }));
       return;
@@ -1352,66 +1243,40 @@ Examples:
     let helperPid: number | null = null;
     try {
       helperPid = Number(readFileSync(helperPidFile(udid), "utf-8").trim()) || null;
-    } catch {}
+    } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
     const bundleIds = readInjectedBundles(udid);
     try {
       const reply = await sendHelperCommand(udid, { action: "status" });
       console.log(JSON.stringify({ udid, alive: true, helperPid, bundleIds, ...reply }));
-    } catch (e: any) {
-      // pid file + socket exist but the helper didn't reply — surface
-      // alive:true so the UI can still skip "Inject + relaunch", and
-      // include the error for diagnosis.
-      console.log(
-        JSON.stringify({ udid, alive: true, helperPid, bundleIds, error: e?.message ?? String(e) }),
-      );
+    } catch (error: unknown) {
+      console.log(JSON.stringify({
+        udid,
+        alive: true,
+        helperPid,
+        bundleIds,
+        error: error instanceof Error ? error.message : String(error),
+      }));
     }
     return;
   }
 
   const bundleId = filtered[0];
-  if (!bundleId) {
-    console.error("Usage: agentsims camera <bundle-id> [--image <path>] [-d udid]");
-    process.exit(1);
-  }
+  if (!bundleId) throw new CliError("Usage: agentsims camera <bundle-id> [--image <path>] [-d udid]");
 
-  const udid = deviceArg ? resolveDevice(deviceArg) : findBootedDevice();
-  if (!udid) {
-    console.error("No booted simulator. Boot one or pass -d <udid|name>.");
-    process.exit(1);
-  }
+  const udid = deviceArg ? await resolveDevice(deviceArg) : await findBootedDevice();
+  if (!udid) throw new CliError("No booted simulator. Boot one or pass -d <udid|name>.");
 
   let dylib = forceBuild ? null : locateCameraDylib();
-  if (!dylib) {
-    try {
-      dylib = buildCameraDylib();
-    } catch (e: any) {
-      console.error(`Failed to obtain camera dylib: ${e?.message ?? e}`);
-      process.exit(1);
-    }
-  }
+  if (!dylib) dylib = await buildCameraDylib();
 
-  if (filePath && webcam) {
-    console.error("Pick one source: --file or --webcam, not both.");
-    process.exit(1);
-  }
+  if (filePath && webcam) throw new CliError("Pick one source: --file or --webcam, not both.");
 
   if (filePath) {
     filePath = resolve(filePath);
-    if (!existsSync(filePath)) {
-      console.error(`File not found: ${filePath}`);
-      process.exit(1);
-    }
+    if (!existsSync(filePath)) throw new CliError(`File not found: ${filePath}`);
   }
 
-  // Default source is the animated placeholder. The helper always runs so
-  // the dylib reads from a single shm wire format regardless of source.
-  let source: ResolvedSource;
-  try {
-    source = resolveSourceArg({ file: filePath, webcam });
-  } catch (e: any) {
-    console.error(e?.message ?? String(e));
-    process.exit(1);
-  }
+  const source = resolveSourceArg({ file: filePath, webcam });
   const helperRes = await ensureHelperWithSource({ udid, source, forceBuild });
   const shmName = helperRes.shmName;
   const helperPid = helperRes.helperPid;
@@ -1422,7 +1287,7 @@ Examples:
   if (mirror !== "auto" || !helperRes.relaunched) {
     try {
       await sendHelperCommand(udid, { action: "setMirror", mode: mirror });
-    } catch {} // non-fatal; dylib falls back to env or default
+    } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); } // non-fatal; dylib falls back to env or default
   }
 
   // Always (re)launch the named bundle with the dylib. The helper feeds a
@@ -1432,13 +1297,11 @@ Examples:
   // we want to bring a new app into the set. Source-only hot-swaps go
   // through `camera switch`, not this path.
   try {
-    execSync(`xcrun simctl privacy "${udid}" grant camera "${bundleId}"`, {
-      stdio: "ignore",
-    });
-  } catch {}
+    await hostCommandText("xcrun", "simctl", "privacy", udid, "grant", "camera", bundleId);
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
   try {
-    execSync(`xcrun simctl terminate "${udid}" "${bundleId}"`, { stdio: "ignore" });
-  } catch {}
+    await hostCommandText("xcrun", "simctl", "terminate", udid, bundleId);
+  } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
 
   const env = {
     ...process.env,
@@ -1447,16 +1310,17 @@ Examples:
     ...(mirror !== "auto" ? { SIMCTL_CHILD_SIMCAM_MIRROR_MODE: mirror } : {}),
   };
 
-  let stdoutBuf = "";
-  try {
-    stdoutBuf = execSync(`xcrun simctl launch "${udid}" "${bundleId}"`, {
-      env,
-      encoding: "utf-8",
-    });
-  } catch (e: any) {
-    console.error(`simctl launch failed: ${e?.stderr ?? e?.message ?? e}`);
-    process.exit(1);
-  }
+  const stdoutBuf = await new Promise<string>((resolvePromise, reject) => {
+    execFile(
+      "xcrun",
+      ["simctl", "launch", udid, bundleId],
+      { env, encoding: "utf-8" },
+      (error, stdout, stderr) => {
+        if (error) reject(new CliError(`simctl launch failed: ${stderr || error.message}`));
+        else resolvePromise(stdout);
+      },
+    );
+  });
 
   const pidMatch = stdoutBuf.trim().match(/:\s*(\d+)\s*$/);
   const pid = pidMatch ? Number(pidMatch[1]) : null;
@@ -1490,6 +1354,7 @@ Examples:
 // ─── Serve preview ───
 
 function listBootedAppleDevices(): string[] {
+  if (process.platform !== "darwin") return [];
   try {
     const output = execSync("xcrun simctl list devices booted -j", {
       encoding: "utf8",
@@ -1513,24 +1378,20 @@ async function resolveTargetDevices(devices: string[]): Promise<string[]> {
     /^emulator-\d+$/.test(device.serial),
   );
   if (devices.length > 0) {
-    return devices.map((device) => {
+    return Promise.all(devices.map(async (device) => {
       const stateSerial = androidSerialFromStateId(device);
       if (
         stateSerial &&
-        androidDevices.some(
-          (candidate) => candidate.serial === stateSerial && candidate.state === "device",
-        )
+        androidDevices.some((candidate) => candidate.serial === stateSerial && candidate.state === "device")
       ) {
         return androidStateId(stateSerial);
       }
       const connected = androidDevices.find(
-        (candidate) =>
-          candidate.state === "device" &&
-          (candidate.serial === device ||
-            candidate.avdName?.toLowerCase() === device.toLowerCase()),
+        (candidate) => candidate.state === "device" &&
+          (candidate.serial === device || candidate.avdName?.toLowerCase() === device.toLowerCase()),
       );
       return connected ? androidStateId(connected.serial) : resolveDevice(device);
-    });
+    }));
   }
   const existing = readAllStates();
   if (existing.length > 0) return [...new Set(existing.map((state) => state.device))];
@@ -1555,48 +1416,53 @@ async function serve(
   for (const udid of targetDevices) {
     if (!androidSerialFromStateId(udid)) await ensureBooted(udid);
   }
+  const appConfig = Effect.runSync(resolveAppConfig({
+    host,
+    port: servePort,
+    codec: codec === "mjpeg" || codec === "h264" ? codec : "auto",
+    basePath: "/",
+    proxyHelpers: true,
+  }, process.env));
   const targetDevice = targetDevices[0];
 
-  const { simMiddleware } = await import("../middleware");
-  // Standalone agentsims owns its HTTP server and wires WebSocket upgrades, so
-  // it can route helper/DevTools sockets through the single preview port.
-  const middleware = simMiddleware({
-    basePath: "/",
-    device: targetDevice,
-    codec,
-    proxyHelpers: true,
-  });
-
-  // Try requested port; if busy and the user didn't pin it, scan forward.
+  const execToken = randomBytes(32).toString("base64url");
   const maxScan = portExplicit ? 1 : 50;
   let boundPort = servePort;
   let lastErr: unknown;
-  let bound = false;
+  let previewServer: PreviewServer | null = null;
   for (let i = 0; i < maxScan; i++) {
-    const p = servePort + i;
+    const port = servePort + i;
     try {
-      await bindPreviewServer(p, middleware, host);
-      boundPort = p;
-      bound = true;
+      previewServer = await servePreview({
+        ...appConfig,
+        basePath: "/",
+        host,
+        port,
+        device: targetDevice,
+        codec,
+        proxyHelpers: true,
+        previewRoot: previewRootForRuntime(),
+        execToken,
+        agentsimsBin: configuredDistDirectory() ? process.execPath : (process.argv[1] ?? "agentsims"),
+      });
+      boundPort = port;
       break;
-    } catch (err: any) {
-      lastErr = err;
-      if (err?.code !== "EADDRINUSE") break;
+    } catch (error) {
+      lastErr = error;
     }
   }
-  if (!bound) {
-    if ((lastErr as any)?.code === "EADDRINUSE") {
-      if (portExplicit) {
-        console.error(
-          `Port ${servePort} is already in use. Pass a different --port or stop the other process.`,
-        );
-      } else {
-        console.error(`No available port found in range ${servePort}-${servePort + maxScan - 1}.`);
-      }
-    } else {
-      console.error(`Failed to start preview server: ${(lastErr as any)?.message ?? lastErr}`);
+  if (!previewServer) {
+    const code = lastErr && typeof lastErr === "object" && "code" in lastErr
+      ? lastErr.code
+      : undefined;
+    if (code === "EADDRINUSE") {
+      throw new CliError(portExplicit
+        ? `Port ${servePort} is already in use. Pass a different --port or stop the other process.`
+        : `No available port found in range ${servePort}-${servePort + maxScan - 1}.`);
     }
-    process.exit(1);
+    throw new CliError(
+      `Failed to start preview server: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+    );
   }
 
   // Record in-process state so the preview/grid enumerate these devices and the
@@ -1608,7 +1474,7 @@ async function serve(
     for (const udid of targetDevices) {
       try {
         clearState(udid);
-      } catch {}
+      } catch (error) { console.warn("[agentsims:cli] recoverable operation failed", error); }
     }
   };
   process.on("exit", clearAll);
@@ -1628,19 +1494,25 @@ async function serve(
   }
   console.log("");
 
-  // Exit cleanly on Ctrl+C
-  process.on("SIGINT", () => process.exit(0));
-  process.on("SIGTERM", () => process.exit(0));
-  await new Promise(() => {});
+  let stopping = false;
+  const stopped = Promise.withResolvers<void>();
+  const stop = () => {
+    if (stopping) return;
+    stopping = true;
+    void (async () => {
+      try {
+        await previewServer.stop();
+      } finally {
+        clearAll();
+        stopped.resolve();
+      }
+    })();
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  await stopped.promise;
 }
 
-function bindPreviewServer(
-  port: number,
-  middleware: ReturnType<typeof import("../middleware").simMiddleware>,
-  host: string,
-) {
-  return servePreview({ port, middleware, host });
-}
 
 // ─── Main ───
 
@@ -1723,9 +1595,9 @@ Examples:
     }
   });
 
-registerDeviceCommands(program);
-registerSetupCommand(program);
-registerApplicationCommands(program, {
+addCompatibilityCommands(program);
+addSetupCommand(program);
+addWorkspaceCommands(program, {
   defaultHost: previewHostFromEnvironment(),
   serve: async (devices, options) => {
     const environmentPort = previewPortFromEnvironment();
@@ -1790,4 +1662,8 @@ program
   .argument("[args...]")
   .action((args: string[]) => uiSettings(args));
 
-await program.parseAsync(process.argv);
+export async function main(argv: string[] = process.argv): Promise<void> {
+  await program.parseAsync(argv);
+}
+
+if (import.meta.main) await main();

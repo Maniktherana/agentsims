@@ -1,4 +1,4 @@
-import { execFile, execSync } from "child_process";
+import { execFile } from "child_process";
 import {
   androidAvdStateId,
   androidStateId,
@@ -13,6 +13,7 @@ import {
 } from "./devicekit-chrome";
 import { deviceLifecycle, type DeviceLifecycle } from "./device-lifecycle";
 import type { DeviceState } from "../../shared/state";
+import { hostCommandText } from "../runtime/host-tools-runtime";
 
 type SimctlDevice = {
   udid: string;
@@ -61,6 +62,7 @@ type PendingGridDevice = Omit<GridDevice, "chrome" | "placeholderAsset"> & {
 
 const DEFAULT_PER_SIM_BYTES = 1.5 * 1024 * 1024 * 1024;
 
+
 export function parseGridPaging(rawUrl: string): { limit: number | null; offset: number } {
   const query = rawUrl.indexOf("?");
   if (query === -1) return { limit: null, offset: 0 };
@@ -97,7 +99,7 @@ export class DeviceCatalog {
       /^emulator-\d+$/.test(device.serial),
     );
     const helpers = new Map(states.map((state) => [state.device, state] as const));
-    const preferredUdid = this.preferredIosDevice();
+    const preferredUdid = await this.preferredIosDevice();
 
     // Reconcile lifecycle intent from the complete native catalog, before
     // paging or state-based ranking can omit the simulator from this response.
@@ -186,13 +188,13 @@ export class DeviceCatalog {
     const rows = [...androidRows, ...avdRows, ...iosRows];
     const { limit, offset } = options.paging;
     const pageRows = limit == null ? rows : rows.slice(offset, offset + limit);
-    const devices = pageRows.map(({ ios, ...row }): GridDevice => ios
+    const devices = await Promise.all(pageRows.map(async ({ ios, ...row }): Promise<GridDevice> => ios
       ? {
           ...row,
-          chrome: resolveDeviceKitChrome(ios),
-          placeholderAsset: resolveDevicePlaceholderAsset(ios),
+          chrome: await resolveDeviceKitChrome(ios),
+          placeholderAsset: await resolveDevicePlaceholderAsset(ios),
         }
-      : row);
+      : row));
     return {
       devices,
       total: rows.length,
@@ -201,16 +203,37 @@ export class DeviceCatalog {
     };
   }
 
-  memoryReport(): MemoryReport {
-    const { totalBytes, availableBytes } = this.readSystemMemory();
-    const usage = this.readSimulatorMemoryUsage();
-    const runningSimulators = Object.keys(usage.perUdid).length;
-    const measuredAverage = runningSimulators > 0 ? usage.totalBytes / runningSimulators : 0;
+  async memoryReport(): Promise<MemoryReport> {
+    const [totalRaw, pageRaw, vmStat, processList] = await Promise.all([
+      hostCommandText("sysctl", "-n", "hw.memsize").catch(() => "0"),
+      hostCommandText("sysctl", "-n", "hw.pagesize").catch(() => "4096"),
+      hostCommandText("vm_stat").catch(() => ""),
+      hostCommandText("ps", "-axo", "rss=,args=").catch(() => ""),
+    ]);
+    const pageSize = Number(pageRaw.trim()) || 4_096;
+    const pages = (pattern: RegExp) => Number(vmStat.match(pattern)?.[1] ?? 0);
+    const availableBytes = (
+      pages(/Pages free:\s+(\d+)/) +
+      pages(/Pages inactive:\s+(\d+)/) +
+      pages(/Pages speculative:\s+(\d+)/)
+    ) * pageSize;
+    const perUdid: Record<string, number> = {};
+    let simulatorBytes = 0;
+    for (const line of processList.split("\n")) {
+      const match = line.match(/^\s*(\d+)\s+.*\/Devices\/([0-9A-F-]{36})\//i);
+      if (!match) continue;
+      const bytes = Number(match[1]) * 1_024;
+      const udid = match[2]!.toUpperCase();
+      perUdid[udid] = (perUdid[udid] ?? 0) + bytes;
+      simulatorBytes += bytes;
+    }
+    const runningSimulators = Object.keys(perUdid).length;
+    const measuredAverage = runningSimulators > 0 ? simulatorBytes / runningSimulators : 0;
     const perSimSource: MemoryReport["perSimSource"] =
       measuredAverage >= 256 * 1024 * 1024 ? "measured" : "estimated";
     const perSimAvgBytes = perSimSource === "measured" ? measuredAverage : DEFAULT_PER_SIM_BYTES;
     return {
-      totalBytes,
+      totalBytes: Number(totalRaw.trim()) || 0,
       availableBytes,
       runningSimulators,
       perSimAvgBytes,
@@ -248,17 +271,15 @@ export class DeviceCatalog {
     });
   }
 
-  private preferredIosDevice(): string | null {
+  private async preferredIosDevice(): Promise<string | null> {
     const now = Date.now();
     if (now - this.preferredSnapshot.at < 1_500) return this.preferredSnapshot.udid;
-    let udid: string | null = null;
-    try {
-      udid = execSync("defaults read com.apple.iphonesimulator CurrentDeviceUDID", {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1_500,
-      }).trim() || null;
-    } catch {}
+    const udid = await hostCommandText(
+      "defaults",
+      "read",
+      "com.apple.iphonesimulator",
+      "CurrentDeviceUDID",
+    ).then((output) => output.trim() || null).catch(() => null);
     this.preferredSnapshot = { at: now, udid };
     return udid;
   }
@@ -279,64 +300,6 @@ export class DeviceCatalog {
     return -(major * 1_000 + minor);
   }
 
-  private readSystemMemory(): { totalBytes: number; availableBytes: number } {
-    try {
-      const totalBytes = Number(execSync("sysctl -n hw.memsize", {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1_500,
-      }).trim());
-      const pageSize = Number(execSync("sysctl -n hw.pagesize", {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1_500,
-      }).trim());
-      const vmStat = execSync("vm_stat", {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1_500,
-      });
-      const pages = (pattern: RegExp) => Number(vmStat.match(pattern)?.[1] ?? 0);
-      const availablePages =
-        pages(/Pages free:\s+(\d+)/) +
-        pages(/Pages inactive:\s+(\d+)/) +
-        pages(/Pages speculative:\s+(\d+)/);
-      return {
-        totalBytes: Number.isFinite(totalBytes) ? totalBytes : 0,
-        availableBytes: availablePages * (Number.isFinite(pageSize) ? pageSize : 4_096),
-      };
-    } catch {
-      return { totalBytes: 0, availableBytes: 0 };
-    }
-  }
-
-  private readSimulatorMemoryUsage(): { perUdid: Record<string, number>; totalBytes: number } {
-    try {
-      const output = execSync("ps -axo rss=,args=", {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 3_000,
-        maxBuffer: 8 * 1024 * 1024,
-      });
-      const perUdid: Record<string, number> = {};
-      let totalBytes = 0;
-      const devicePath = /\/Devices\/([0-9A-F-]{36})\//i;
-      for (const raw of output.split("\n")) {
-        const line = raw.trimStart();
-        const match = devicePath.exec(line);
-        if (!match) continue;
-        const rssKb = Number(line.split(/\s+/, 1)[0]);
-        if (!Number.isFinite(rssKb)) continue;
-        const bytes = rssKb * 1_024;
-        const udid = match[1]!.toUpperCase();
-        perUdid[udid] = (perUdid[udid] ?? 0) + bytes;
-        totalBytes += bytes;
-      }
-      return { perUdid, totalBytes };
-    } catch {
-      return { perUdid: {}, totalBytes: 0 };
-    }
-  }
 }
 
 export const deviceCatalog = new DeviceCatalog();

@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { execFile, execFileSync } from "child_process";
+import { execFile } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -7,6 +7,7 @@ import { configuredDistDirectory } from "../runtime/runtime-paths";
 import { Socket } from "net";
 import { axFrontmostAsync } from "../../ios/stream/native";
 import { STATE_DIR } from "../../shared/state";
+import { hostCommandText } from "../runtime/host-tools-runtime";
 import type { HostAudioDevice } from "./host-audio";
 
 export type IosCameraSource = "placeholder" | "webcam" | "image" | "video";
@@ -83,18 +84,18 @@ function locateCameraHelper(): string | null {
   return null;
 }
 
-function buildCameraHelper(): string {
+async function buildCameraHelper(): Promise<string> {
   const here = dirname(fileURLToPath(import.meta.url));
   const buildScript = join(here, "..", "..", "..", "ios", "camera-helper", "build.sh");
   if (!existsSync(buildScript)) throw new Error("iOS camera helper source not found");
   const outDir = join(here, "..", "..", "..", "dist", "simcam");
-  execFileSync("bash", [buildScript, outDir], { stdio: "ignore" });
+  await hostCommandText("bash", buildScript, outDir);
   const helper = locateCameraHelper();
   if (!helper) throw new Error("iOS camera helper build succeeded but binary was not found");
   return helper;
 }
 
-function cameraHelperPath(): string {
+async function cameraHelperPath(): Promise<string> {
   return locateCameraHelper() ?? buildCameraHelper();
 }
 
@@ -247,23 +248,9 @@ export async function attachOrSwitchIosCameraSource(
 
 export async function listIosWebcams(): Promise<HostAudioDevice[]> {
   if (process.platform !== "darwin") return [];
-  return await new Promise((resolvePromise, reject) => {
-    execFile(
-      cameraHelperPath(),
-      ["--list"],
-      { encoding: "utf8", timeout: 5_000 },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr.trim() || error.message));
-          return;
-        }
-        resolvePromise(
-          stdout.split(/\r?\n/).flatMap((line) => {
-            const [id, label] = line.split("\t");
-            return id && label ? [{ id, label }] : [];
-          }),
-        );
-      },
-    );
+  const stdout = await hostCommandText(await cameraHelperPath(), "--list");
+  return stdout.split(/\r?\n/).flatMap((line) => {
+    const [id, label] = line.split("\t");
+    return id && label ? [{ id, label }] : [];
   });
 }

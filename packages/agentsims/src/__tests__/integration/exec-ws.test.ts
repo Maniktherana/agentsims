@@ -1,27 +1,31 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { simMiddleware } from "../../server/http/server";
-import { servePreview, type PreviewServer } from "../../server/runtime/runtime";
+import type { PreviewServer } from "../../server/runtime/runtime";
+import { startTestServer } from "../helpers/server";
 
-// The control channel is the ONLY transport the preview page uses for execs,
-// simulator settings, and SSE side-channels — there is deliberately no HTTP
-// fallback, so a broken upgrade path bricks the UI. This suite runs under
-// `bun test` (the CI flow), which is exactly the runtime where hand-rolled
-// RFC6455 framing silently failed before: node:http under Bun emits
-// `upgrade` but never flushes raw handshake bytes, which is why the channel
-// is built on `ws` (Bun substitutes its native implementation).
-
-const PORT = 3461;
 const TOKEN = "exec-ws-test-token";
 
 let server: PreviewServer;
+let origin: string;
 
 beforeAll(async () => {
-  const middleware = simMiddleware({ basePath: "/", execToken: TOKEN });
-  server = await servePreview({ port: PORT, middleware, host: "127.0.0.1" });
+  const started = await startTestServer({
+    execToken: TOKEN,
+    device: "ios-device",
+    readDeviceStates: async () => [{
+      pid: process.pid,
+      port: 3200,
+      device: "ios-device",
+      url: "http://127.0.0.1:3200",
+      streamUrl: "http://127.0.0.1:3200/stream",
+      wsUrl: "ws://127.0.0.1:3200/ws",
+    }],
+  });
+  server = started.server;
+  origin = started.origin;
 });
 
 afterAll(() => {
-  server?.stop(true);
+  server?.stop();
 });
 
 interface Reply {
@@ -41,7 +45,7 @@ function connect(token: string): Promise<{
   closed: Promise<void>;
 }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/exec-ws`);
+    const ws = new WebSocket(`${origin.replace(/^http/, "ws")}/exec-ws`);
     const queue: Reply[] = [];
     const waiters: Array<(r: Reply) => void> = [];
     let closeResolve: () => void;

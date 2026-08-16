@@ -1,163 +1,113 @@
-import type { DeviceState } from "../../../shared/state";
-import { selectDeviceState } from "../../devices/device-lifecycle";
+import { HttpRouter, HttpServerRequest, HttpServerResponse, Socket } from "@effect/platform";
+import { Effect } from "effect";
+import type { Scope } from "effect/Scope";
+import { HttpRuntime } from "../../../services/http-runtime";
 import type { WebKitBridge } from "../devtools-bridge";
-import { hostForRequest, websocketProtocolForRequest } from "../request";
-import { sendJson, sendText } from "../response";
-import type { RouteContext } from "../types";
+import { json, requestSource, selectedState } from "./shared";
 
 const FRONTEND_REVISION = "854a02be78c7ffea104cb523636efa991bef5c5b";
 
-type ReleaseRequestBody = { targetId?: string };
-type HighlightRequestBody = { targetId?: string; on?: boolean };
-
-export function devtoolsProxyPrefix(basePath: string): string {
-  return `${basePath === "/" ? "" : basePath}/devtools`;
-}
-
-export function devtoolsProxyTarget(
-  rawUrl: string,
-  prefix: string,
-): { upstreamPath: string } | null {
-  const parsed = new URL(rawUrl, "http://agentsims.local");
-  if (!parsed.pathname.startsWith(`${prefix}/page/`)) return null;
-  const suffix = parsed.pathname.slice(prefix.length);
-  return { upstreamPath: `/devtools${suffix}${parsed.search}` };
-}
-
-function frontendUrl(
-  frontendBase: string,
-  websocketParameter: "ws" | "wss",
-  websocketTargetBase: string,
-  targetId: string,
-): string {
-  const url = new URL(`${frontendBase}/inspector.html`, "http://agentsims.local");
-  url.searchParams.set(
-    websocketParameter,
-    `${websocketTargetBase}/page/${encodeURIComponent(targetId)}`,
-  );
-  return `${url.pathname}${url.search}`;
-}
-
-type DevtoolsRoutesOptions = {
-  proxyHelpers: boolean;
-  proxyPrefix: string;
-  getBridge(): Promise<WebKitBridge>;
-  readDeviceStates(): Promise<DeviceState[]>;
-};
-
-export async function handleDevtoolsRoutes(
-  context: RouteContext,
-  options: DevtoolsRoutesOptions,
-): Promise<boolean> {
-  const { request, response, basePath, rawUrl, pathname, selectedDevice } = context;
-  const frontendBase = basePath === "/" ? "/devtools-frontend" : `${basePath}/devtools-frontend`;
-
-  if (pathname === frontendBase || pathname.startsWith(`${frontendBase}/`)) {
-    const assetPath =
-      pathname === frontendBase ? "inspector.html" : pathname.slice(frontendBase.length + 1);
-    if (assetPath.split("/").some((segment) => segment === "..")) {
-      sendText(response, 400, "Invalid asset path");
-      return true;
-    }
-    try {
-      const queryIndex = rawUrl.indexOf("?");
-      const query = queryIndex === -1 ? "" : rawUrl.slice(queryIndex);
-      const upstream = await fetch(
-        `https://chrome-devtools-frontend.appspot.com/serve_rev/@${FRONTEND_REVISION}/${assetPath}${query}`,
-      );
-      const headers: Record<string, string> = { "Cache-Control": "public, max-age=604800" };
-      const contentType = upstream.headers.get("content-type");
-      if (contentType) headers["Content-Type"] = contentType;
-      response.writeHead(upstream.status, headers);
-      response.end(Buffer.from(await upstream.arrayBuffer()));
-    } catch (error) {
-      sendText(
-        response,
-        502,
-        error instanceof Error ? error.message : "Failed to load DevTools frontend",
-      );
-    }
-    return true;
-  }
-
-  if (pathname === `${basePath}/devtools`) {
-    const state = selectDeviceState(await options.readDeviceStates(), selectedDevice);
-    if (!state) {
-      sendJson(response, 404, { error: "No agentsims device" });
-      return true;
-    }
-    try {
-      const bridge = await options.getBridge();
-      const websocketProtocol = options.proxyHelpers ? websocketProtocolForRequest(request) : "ws";
-      const websocketTargetBase = options.proxyHelpers
-        ? `${hostForRequest(request) ?? `127.0.0.1:${bridge.port}`}${options.proxyPrefix}`
-        : `127.0.0.1:${bridge.port}/devtools`;
-      const targets = (await bridge.listTargets()).map((target) => ({
-        ...target,
-        webSocketDebuggerUrl: `${websocketProtocol}://${websocketTargetBase}/page/${encodeURIComponent(target.id)}`,
-        devtoolsFrontendUrl: frontendUrl(
-          frontendBase,
-          websocketProtocol,
-          websocketTargetBase,
-          target.id,
+function bridgeSocket(
+  request: HttpServerRequest.HttpServerRequest,
+  path: string,
+  getBridge: Effect.Effect<WebKitBridge>,
+): Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, Scope> {
+  return Effect.gen(function*() {
+    const bridge = yield* getBridge;
+    const socket = yield* request.upgrade;
+    const write = yield* socket.writer;
+    const upstream = new WebSocket(`ws://127.0.0.1:${bridge.port}${path}`);
+    upstream.binaryType = "arraybuffer";
+    const pending: Array<string | Uint8Array> = [];
+    upstream.onopen = () => {
+      for (const item of pending.splice(0)) upstream.send(item);
+    };
+    upstream.onmessage = (event) => {
+      const data = typeof event.data === "string" ? event.data : new Uint8Array(event.data);
+      Effect.runFork(write(data).pipe(Effect.catchAll(() => Effect.void)));
+    };
+    upstream.onclose = (event) => {
+      Effect.runFork(
+        write(new Socket.CloseEvent(event.code, event.reason)).pipe(
+          Effect.catchAll(() => Effect.void),
         ),
-      }));
-      sendJson(response, 200, { port: bridge.port, targets });
-    } catch (error) {
-      sendJson(response, 500, {
-        error: error instanceof Error ? error.message : "Failed to start inspect-webkit",
-      });
-    }
-    return true;
-  }
-
-  if (pathname === `${basePath}/devtools/release` && request.method === "POST") {
-    let body = "";
-    request.on("data", (chunk: Buffer) => {
-      body += chunk;
-    });
-    request.on("end", async () => {
-      try {
-        const parsed = body ? (JSON.parse(body) as ReleaseRequestBody) : {};
-        const bridge = await options.getBridge();
-        bridge.releaseHighlight?.(parsed.targetId);
-        sendJson(response, 200, {});
-      } catch (error) {
-        sendJson(response, 500, {
-          error: error instanceof Error ? error.message : "Failed to release",
-        });
-      }
-    });
-    return true;
-  }
-
-  if (pathname === `${basePath}/devtools/highlight` && request.method === "POST") {
-    let body = "";
-    request.on("data", (chunk: Buffer) => {
-      body += chunk;
-    });
-    request.on("end", async () => {
-      try {
-        const { targetId, on } = JSON.parse(body || "{}") as HighlightRequestBody;
-        if (!targetId) {
-          sendJson(response, 400, { error: "Missing targetId" });
-          return;
-        }
-        const bridge = await options.getBridge();
-        if (!bridge.highlightTarget) {
-          sendJson(response, 501, { error: "highlightTarget not supported by inspect-webkit" });
-          return;
-        }
-        await bridge.highlightTarget(targetId, Boolean(on));
-        sendJson(response, 200, {});
-      } catch (error) {
-        sendJson(response, 500, {
-          error: error instanceof Error ? error.message : "Failed to highlight target",
-        });
-      }
-    });
-    return true;
-  }
-
-  return false;
+      );
+    };
+    yield* socket.runRaw((data) => Effect.sync(() => {
+      if (upstream.readyState === WebSocket.OPEN) upstream.send(data);
+      else pending.push(data);
+    })).pipe(
+      Effect.ensuring(Effect.sync(() => upstream.close())),
+      Effect.catchAll(() => Effect.void),
+    );
+    return HttpServerResponse.empty();
+  });
 }
+
+export const devtoolsRoutes = HttpRouter.empty.pipe(
+  HttpRouter.get("/devtools", Effect.gen(function*() {
+    const runtime = yield* HttpRuntime;
+    const request = requestSource((yield* HttpServerRequest.HttpServerRequest).source);
+    const state = yield* selectedState(new URL(request.url), runtime);
+    if (!state) return HttpServerResponse.raw(json({ error: "No agentsims device" }, 404));
+    const bridge = yield* runtime.getBridge;
+    const host = request.headers.get("host") ?? `127.0.0.1:${bridge.port}`;
+    const socketBase = runtime.proxyHelpers
+      ? `${host}${runtime.basePath}/devtools`
+      : `127.0.0.1:${bridge.port}/devtools`;
+    const protocol = request.headers.get("x-forwarded-proto") === "https" ? "wss" : "ws";
+    const targets = (yield* Effect.promise(() => bridge.listTargets())).map((target) => {
+      const encoded = encodeURIComponent(target.id);
+      const frontend = new URL(`${runtime.basePath}/devtools-frontend/inspector.html`, request.url);
+      frontend.searchParams.set(protocol, `${socketBase}/page/${encoded}`);
+      return {
+        ...target,
+        webSocketDebuggerUrl: `${protocol}://${socketBase}/page/${encoded}`,
+        devtoolsFrontendUrl: `${frontend.pathname}${frontend.search}`,
+      };
+    });
+    return HttpServerResponse.raw(json({ port: bridge.port, targets }));
+  })),
+  HttpRouter.get("/devtools/json", Effect.gen(function*() {
+    const runtime = yield* HttpRuntime;
+    const bridge = yield* runtime.getBridge;
+    return HttpServerResponse.raw(json(yield* Effect.promise(() => bridge.listTargets())));
+  })),
+  HttpRouter.get("/json", Effect.gen(function*() {
+    const runtime = yield* HttpRuntime;
+    const bridge = yield* runtime.getBridge;
+    return HttpServerResponse.raw(json(yield* Effect.promise(() => bridge.listTargets())));
+  })),
+  HttpRouter.get("/devtools-frontend/*", Effect.gen(function*() {
+    const runtime = yield* HttpRuntime;
+    const request = requestSource((yield* HttpServerRequest.HttpServerRequest).source);
+    const pathname = new URL(request.url).pathname;
+    const prefix = `${runtime.basePath}/devtools-frontend/`;
+    const asset = pathname.slice(prefix.length) || "inspector.html";
+    if (asset.split("/").includes("..")) {
+      return HttpServerResponse.text("Invalid asset path", { status: 400 });
+    }
+    const upstream = yield* Effect.promise(() =>
+      fetch(`https://chrome-devtools-frontend.appspot.com/serve_rev/@${FRONTEND_REVISION}/${asset}${new URL(request.url).search}`)
+    );
+    return HttpServerResponse.raw(new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
+        "Cache-Control": "public, max-age=604800",
+      },
+    }));
+  })),
+  HttpRouter.get("/devtools/page/*", Effect.gen(function*() {
+    const runtime = yield* HttpRuntime;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const source = requestSource(request.source);
+    const pathname = new URL(source.url).pathname;
+    const prefix = `${runtime.basePath}/devtools`;
+    return yield* bridgeSocket(
+      request,
+      `/devtools${pathname.slice(prefix.length)}${new URL(source.url).search}`,
+      runtime.getBridge,
+    );
+  })),
+);

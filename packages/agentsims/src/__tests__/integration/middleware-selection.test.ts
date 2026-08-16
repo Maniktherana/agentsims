@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import {
-  matchInstalledAppByDisplayName,
-  parseForegroundAppLogMessage,
-  previewConfigForState,
-} from "../../server/http/server";
-import { exposeDeviceState } from "../../server/devices/device-gateway";
+import { parseForegroundAppLogMessage } from "../../server/devices/app-state";
+import { matchInstalledAppByDisplayName } from "../../server/devices/installed-apps";
+import { previewConfigForState } from "../../server/preview/preview-config";
+import { exposeDeviceState } from "../../server/devices/device-state-exposure";
 import { selectDeviceState } from "../../server/devices/device-lifecycle";
 import type { DeviceState } from "../../shared/state";
 

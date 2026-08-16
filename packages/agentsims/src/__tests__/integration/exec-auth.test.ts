@@ -1,28 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { createServer } from "http";
-import type { AddressInfo } from "net";
-import { simMiddleware } from "../../server/http/server";
+import { startTestServer } from "../helpers/server";
+
+const TOKEN = "test-token-abc123";
 
 async function withServer<T>(fn: (origin: string) => Promise<T>): Promise<T> {
-  const TOKEN = "test-token-abc123";
-  const handler = simMiddleware({ basePath: "/", execToken: TOKEN });
-  const server = createServer((req, res) => {
-    handler(req, res, async () => {
-      if (!res.headersSent) res.statusCode = 404;
-      res.end("Not found");
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  const origin = `http://127.0.0.1:${port}`;
+  const { origin, server } = await startTestServer({ execToken: TOKEN });
   try {
     return await fn(origin);
   } finally {
-    await new Promise<void>((r) => server.close(() => r()));
+    server.stop();
   }
 }
-
-const TOKEN = "test-token-abc123";
 
 describe("/exec auth", () => {
   test("rejects unauthenticated POST", async () => {

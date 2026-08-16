@@ -4,6 +4,7 @@ import { join, resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
 import { dirnameOf } from "../../server/runtime/runtime";
 import { configuredDistDirectory } from "../../server/runtime/runtime-paths";
+import { CliError } from "../../cli/error";
 
 // Bun's bundler inlines a bare `__dirname` as the build machine's source
 // directory; shadow it with the runtime location so the published bundle
@@ -300,17 +301,10 @@ export async function uiSettings(args: string[]): Promise<void> {
     return;
   }
   const parsed = parseUiArgs(args);
-  if (parsed.error) {
-    console.error(parsed.error);
-    console.error(USAGE);
-    process.exit(1);
-  }
+  if (parsed.error) throw new CliError(`${parsed.error}\n${USAGE}`);
 
-  const udid = parsed.device ? resolveDevice(parsed.device) : findBootedDevice();
-  if (!udid) {
-    console.error("No booted simulator found. Boot one or pass -d <udid>.");
-    process.exit(1);
-  }
+  const udid = parsed.device ? await resolveDevice(parsed.device) : await findBootedDevice();
+  if (!udid) throw new CliError("No booted simulator found. Boot one or pass -d <udid>.");
 
   if (parsed.command === "status") {
     const status = await getUiStatus(udid);

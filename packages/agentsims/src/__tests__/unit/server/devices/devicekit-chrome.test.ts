@@ -34,10 +34,10 @@ describe("DeviceKit chrome helpers", () => {
     ).toEqual({ width: 402, height: 874 });
   });
 
-  test("resolves stock watch chrome from installed DeviceKit assets when available", () => {
+  test("resolves stock watch chrome from installed DeviceKit assets when available", async () => {
     if (!existsSync("/Library/Developer/DeviceKit/Chrome/watch2.devicechrome")) return;
 
-    const chrome = resolveDeviceKitChrome({
+    const chrome = await resolveDeviceKitChrome({
       name: "renamed clone",
       deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-SE-3-40mm",
     });
@@ -52,7 +52,7 @@ describe("DeviceKit chrome helpers", () => {
     expect(chrome?.buttons.some((button) => button.name === "digital-crown")).toBe(true);
   });
 
-  test("resolves Device Hub-style placeholder assets from CoreTypes metadata", () => {
+  test("resolves Device Hub-style placeholder assets from CoreTypes metadata", async () => {
     if (!existsSync("/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/MobileDevices.bundle")) return;
 
     // The CoreTypes icon set ships with the host SDK, so older runner images
@@ -60,32 +60,32 @@ describe("DeviceKit chrome helpers", () => {
     // When a device's asset is absent the resolver returns null — skip that
     // case rather than pinning one machine's SDK. When it does resolve, assert
     // the metadata mapping (icon name) and that cropping produced sane bounds.
-    const expectPlaceholder = (
+    const expectPlaceholder = async (
       device: { name: string; deviceTypeIdentifier: string },
       expectedName: string,
     ) => {
-      const resolved = resolveDevicePlaceholderAsset(device);
+      const resolved = await resolveDevicePlaceholderAsset(device);
       if (!resolved) return;
       expect(resolved.name).toBe(expectedName);
       expect(resolved.width).toBeGreaterThan(0);
       expect(resolved.height).toBeGreaterThan(0);
     };
 
-    expectPlaceholder(
+    await expectPlaceholder(
       {
         name: "iPhone 17 Pro",
         deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
       },
       "com.apple.iphone-17-pro-2",
     );
-    expectPlaceholder(
+    await expectPlaceholder(
       {
         name: "Apple Watch Ultra 3 (49mm)",
         deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Ultra-3-49mm",
       },
       "com.apple.apple-watch-ultra-3-8",
     );
-    expectPlaceholder(
+    await expectPlaceholder(
       {
         name: "iPad Air 11-inch (M4)",
         deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M4",

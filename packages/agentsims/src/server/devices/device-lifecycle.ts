@@ -130,7 +130,7 @@ export class DeviceLifecycle {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EPERM") {
             debugMw("helper pid=%d gone, removing %s", state.pid, path);
-            try { unlinkSync(path); } catch {}
+            try { unlinkSync(path); } catch (error) { console.warn("[agentsims:server] recoverable operation failed", error); }
             continue;
           }
         }
@@ -143,15 +143,15 @@ export class DeviceLifecycle {
 
         if (action === "recycle-self") {
           const androidSerial = androidSerialFromStateId(state.device);
-          if (androidSerial) closeAndroidSession(androidSerial);
-          else closeDeviceSession(state.device);
+          if (androidSerial) await closeAndroidSession(androidSerial);
+          else await closeDeviceSession(state.device);
           debugMw("closing in-process session for unavailable device %s", state.device);
         } else {
           debugMw("recycling stale helper pid=%d for unavailable device %s", state.pid, state.device);
-          try { process.kill(state.pid, "SIGTERM"); } catch {}
+          try { process.kill(state.pid, "SIGTERM"); } catch (error) { console.warn("[agentsims:server] recoverable operation failed", error); }
         }
-        try { unlinkSync(path); } catch {}
-      } catch {}
+        try { unlinkSync(path); } catch (error) { console.warn("[agentsims:server] recoverable operation failed", error); }
+      } catch (error) { console.warn("[agentsims:server] recoverable operation failed", error); }
     }
     return states;
   }
@@ -203,7 +203,7 @@ export class DeviceLifecycle {
   private async performShutdown(device: string): Promise<string | null> {
     const androidSerial = androidSerialFromStateId(device);
     if (androidSerial) {
-      closeAndroidSession(androidSerial);
+      await closeAndroidSession(androidSerial);
       removeDeviceState(device);
       this.invalidate();
       if (!androidSerial.startsWith("emulator-")) return null;
@@ -212,7 +212,7 @@ export class DeviceLifecycle {
     }
 
     if (!isIosSimulatorId(device)) return "Invalid or missing device";
-    closeDeviceSession(device);
+    await closeDeviceSession(device);
     removeDeviceState(device);
     this.invalidate();
     const result = await this.execute("xcrun", ["simctl", "shutdown", device], 30_000);
@@ -230,7 +230,7 @@ export class DeviceLifecycle {
         booted = Object.values(data.devices).flat().some(
           (device) => device.udid === udid && device.state === "Booted",
         );
-      } catch {}
+      } catch (error) { console.warn("[agentsims:server] recoverable operation failed", error); }
       if (!booted) return `Device ${udid} failed to reach booted state`;
     }
     try {
@@ -239,7 +239,7 @@ export class DeviceLifecycle {
       this.invalidate();
       return null;
     } catch (error) {
-      closeDeviceSession(udid);
+      await closeDeviceSession(udid);
       return error instanceof Error ? error.message : String(error);
     }
   }
@@ -309,6 +309,7 @@ export class DeviceLifecycle {
   }
 
   private async bootedIosDevices(): Promise<Set<string> | null> {
+    if (process.platform !== "darwin") return new Set();
     const now = Date.now();
     if (this.iosSnapshot.devices && now - this.iosSnapshot.at < 1_500) {
       return this.iosSnapshot.devices;
