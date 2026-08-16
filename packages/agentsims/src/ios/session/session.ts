@@ -251,6 +251,10 @@ export class DeviceSession {
     throw new Error("The iOS stream has not produced a frame yet");
   }
 
+  async readAccessibility(): Promise<unknown> {
+    return JSON.parse(await axDescribeAsync(this.udid));
+  }
+
   handleScreenshot(_req: IncomingMessage, res: ServerResponse): void {
     void this.captureScreenshot()
       .then((jpeg) => {
@@ -301,13 +305,13 @@ export class DeviceSession {
     const cfg = this.configFrame();
     if (cfg) ws.send(cfg); // seed dimensions/orientation, replacing the old poll
     ws.on("message", (data: Buffer) =>
-      this.handleHidMessage(Buffer.isBuffer(data) ? data : Buffer.from(data)),
+      this.dispatchInputFrame(Buffer.isBuffer(data) ? data : Buffer.from(data)),
     );
     ws.on("close", () => this.hidSockets.delete(ws));
     ws.on("error", () => this.hidSockets.delete(ws));
   }
 
-  private async handleHidMessage(data: Buffer): Promise<void> {
+  async dispatchInputFrame(data: Buffer): Promise<void> {
     if (data.length < 1) return;
     const tag = data[0];
     const body = data.length > 1 ? data.subarray(1) : null;

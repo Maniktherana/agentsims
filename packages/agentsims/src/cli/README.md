@@ -4,6 +4,11 @@ The CLI and browser use the same application commands. The CLI does not create
 a second device-control path. Commands print JSON unless they write a binary
 file.
 
+## Runtime
+
+Install Bun 1.3.11 or newer before you start Agentsims. The `agentsims`
+executable uses Bun for the CLI and server.
+
 ## Start and stop
 
 The empty command starts the complete workspace:
@@ -16,7 +21,7 @@ agentsims stop
 agentsims stop <device>
 ```
 
-Use `--server <url>` on a device command when Agentsims does not use
+Use `--url <url>` on a command when Agentsims does not use
 `http://127.0.0.1:3200`.
 
 ## Configure Metro

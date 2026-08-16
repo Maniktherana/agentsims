@@ -38,6 +38,21 @@ export class ApplicationCommandClient {
     });
   }
 
+  async status(): Promise<unknown> {
+    return this.request("/status");
+  }
+
+  async observeDevice(deviceId: string, includeAccessibility = true): Promise<unknown> {
+    const query = includeAccessibility ? "" : "?ax=0";
+    return this.request(`/device/${encodeURIComponent(deviceId)}/observe${query}`);
+  }
+
+  async actDevice(deviceId: string, actions: ReadonlyArray<unknown>): Promise<unknown> {
+    return this.request(`/device/${encodeURIComponent(deviceId)}/act`, {
+      method: "POST",
+      body: JSON.stringify({ actions }),
+    });
+  }
   private async request(path: string, init?: RequestInit): Promise<unknown> {
     let response: Response;
     try {

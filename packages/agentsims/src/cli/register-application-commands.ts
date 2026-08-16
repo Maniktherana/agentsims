@@ -8,7 +8,6 @@ import {
   typeText,
 } from "./device-control";
 import { ApplicationCommandClient } from "./application-command-client";
-import { readAllStates } from "./device-state";
 
 type ServeOptions = {
   port?: number;
@@ -49,17 +48,17 @@ export function deviceHelp(deviceId: string | undefined, args: string[]): string
   const [group, action] = args;
   if (group === "camera") {
     if (action === "front" || action === "back") {
-      return `Usage: agentsims device ${device} camera ${action} <source> [--server <url>]\n`;
+      return `Usage: agentsims device ${device} camera ${action} <source> [--url <url>]\n`;
     }
     if (action === "source") {
-      return `Usage: agentsims device ${device} camera source <source> [value] [--server <url>]\n`;
+      return `Usage: agentsims device ${device} camera source <source> [value] [--url <url>]\n`;
     }
     return `Usage: agentsims device ${device} camera <command>\n\nCommands:\n  status\n  front <source>\n  back <source>\n  source <source> [value]\n`;
   }
   if (group === "audio") {
     if (action) {
       const value = action === "status" ? "" : action === "microphone" ? " <on|off>" : " <value>";
-      return `Usage: agentsims device ${device} audio ${action}${value} [--server <url>]\n`;
+      return `Usage: agentsims device ${device} audio ${action}${value} [--url <url>]\n`;
     }
     return `Usage: agentsims device ${device} audio <command>\n\nCommands:\n  status\n  microphone <on|off>\n  input <host-input-id>\n  output <host-output-id>\n  volume <0..1>\n`;
   }
@@ -99,7 +98,10 @@ export function registerApplicationCommands(
   program
     .command("status")
     .description("Show running Agentsims workspaces")
-    .action(() => printJson({ workspaces: readAllStates() }));
+    .option("--url <url>", "Agentsims server URL")
+    .action((commandOptions) =>
+      run(async () => printJson(await client(commandOptions.url).status())),
+    );
 
   program
     .command("stop [device]")
@@ -110,24 +112,24 @@ export function registerApplicationCommands(
   devices
     .command("list")
     .description("List all devices")
-    .option("--server <url>", "Agentsims server URL")
+    .option("--url <url>", "Agentsims server URL")
     .action((commandOptions) =>
-      run(async () => printJson(await client(commandOptions.server).listDevices())),
+      run(async () => printJson(await client(commandOptions.url).listDevices())),
     );
   devices
     .command("boot <device>")
     .alias("start")
     .description("Boot a device and attach its stream")
-    .option("--server <url>", "Agentsims server URL")
+    .option("--url <url>", "Agentsims server URL")
     .action((device: string, commandOptions) =>
-      run(async () => printJson(await client(commandOptions.server).startDevice(device))),
+      run(async () => printJson(await client(commandOptions.url).startDevice(device))),
     );
   devices
     .command("shutdown <device>")
     .description("Shut down a device")
-    .option("--server <url>", "Agentsims server URL")
+    .option("--url <url>", "Agentsims server URL")
     .action((device: string, commandOptions) =>
-      run(async () => printJson(await client(commandOptions.server).shutdownDevice(device))),
+      run(async () => printJson(await client(commandOptions.url).shutdownDevice(device))),
     );
 
   program
@@ -135,7 +137,7 @@ export function registerApplicationCommands(
     .description("Inspect or control one device")
     .helpOption(false)
     .option("-h, --help", "Show help for this command")
-    .option("--server <url>", "Agentsims server URL")
+    .option("--url <url>", "Agentsims server URL")
     .option("-o, --output <path>", "Screenshot output path")
     .option("--no-ax", "Do not capture accessibility data")
     .action((deviceId: string | undefined, args: string[], commandOptions) =>
@@ -145,7 +147,7 @@ export function registerApplicationCommands(
           return;
         }
         deviceId = requiredArgument(deviceId, "device");
-        const appClient = client(commandOptions.server);
+        const appClient = client(commandOptions.url);
         const [group, action, ...values] = args;
         if (group === "status") {
           const page = (await appClient.listDevices()) as {
@@ -160,6 +162,7 @@ export function registerApplicationCommands(
               device: deviceId,
               output: commandOptions.output,
               includeAccessibility: commandOptions.ax,
+              origin: commandOptions.url,
             }),
           );
         } else if (group === "screenshot") {
@@ -168,10 +171,11 @@ export function registerApplicationCommands(
               device: deviceId,
               output: commandOptions.output,
               includeAccessibility: false,
+              origin: commandOptions.url,
             }),
           );
         } else if (group === "ax" && action === "tree") {
-          printJson(await readAccessibilityTree(deviceId));
+          printJson(await readAccessibilityTree(deviceId, commandOptions.url));
         } else if (group === "camera") {
           if (action === "status") printJson(await appClient.media(deviceId));
           else if (action === "front" || action === "back") {
@@ -225,11 +229,14 @@ export function registerApplicationCommands(
               requiredArgument(values[0], "x coordinate"),
               requiredArgument(values[1], "y coordinate"),
               deviceId,
+              commandOptions.url,
             );
-          } else if (action === "button") await button(values[0] ?? "home", deviceId);
-          else if (action === "type") await typeText(values, { device: deviceId });
-          else if (action === "rotate") {
-            await rotate(requiredArgument(values[0], "orientation"), deviceId);
+          } else if (action === "button") {
+            await button(values[0] ?? "home", deviceId, commandOptions.url);
+          } else if (action === "type") {
+            await typeText(values, { device: deviceId, origin: commandOptions.url });
+          } else if (action === "rotate") {
+            await rotate(requiredArgument(values[0], "orientation"), deviceId, commandOptions.url);
           } else throw new Error("Use input tap, button, type, or rotate");
         } else {
           throw new Error("Unknown device command. Use `agentsims device --help` for help");
