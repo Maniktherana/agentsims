@@ -7,6 +7,7 @@ import {
   acquireIosSimulatorTestLock,
   IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
+import { parseDetachedOutput } from "../helpers/detached-output";
 
 /**
  * Integration test for the idle-frame-floor guarantee.
@@ -144,7 +145,7 @@ describeWithSim(`serve-sim idle frame floor (booted sim ${bootedUdid ?? "<skippe
       );
     }
     try {
-      const info = JSON.parse(detach.stdout.trim()) as { streamUrl: string };
+      const info = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
       streamUrl = info.streamUrl;
     } catch {
       throw new Error(
