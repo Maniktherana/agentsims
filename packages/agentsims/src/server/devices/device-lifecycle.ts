@@ -60,13 +60,18 @@ function execFileResult(
   timeout: number,
 ): Promise<{ error: Error | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(command, args, { encoding: "utf-8", timeout }, (error, stdout, stderr) => {
-      resolve({
-        error: error ? new Error(error.message) : null,
-        stdout: stdout?.toString() ?? "",
-        stderr: stderr?.toString() ?? "",
-      });
-    });
+    execFile(
+      command,
+      args,
+      { encoding: "utf-8", timeout, maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        resolve({
+          error: error ? new Error(error.message) : null,
+          stdout: stdout?.toString() ?? "",
+          stderr: stderr?.toString() ?? "",
+        });
+      },
+    );
   });
 }
 
@@ -122,10 +127,12 @@ export class DeviceLifecycle {
         const state = JSON.parse(readFileSync(path, "utf-8")) as DeviceState;
         try {
           process.kill(state.pid, 0);
-        } catch {
-          debugMw("helper pid=%d gone, removing %s", state.pid, path);
-          try { unlinkSync(path); } catch {}
-          continue;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+            debugMw("helper pid=%d gone, removing %s", state.pid, path);
+            try { unlinkSync(path); } catch {}
+            continue;
+          }
         }
 
         const action = classifyStaleDeviceState(state, live, process.pid);

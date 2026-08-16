@@ -226,7 +226,7 @@ export class DeviceCatalog {
       execFile(
         "xcrun",
         ["simctl", "list", "devices", "-j"],
-        { encoding: "utf-8", timeout: 3_000 },
+        { encoding: "utf-8", timeout: 3_000, maxBuffer: 8 * 1024 * 1024 },
         (error, stdout) => {
           if (error) return resolve([]);
           try {
