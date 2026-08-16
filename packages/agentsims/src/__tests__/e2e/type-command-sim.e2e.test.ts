@@ -41,8 +41,17 @@ function firstBootedIosSim(): string | null {
 const bootedUdid = firstBootedIosSim();
 const describeWithSim = bootedUdid ? describe : describe.skip;
 
+function serverUrlFromOutput(output: string): string {
+  const value: unknown = JSON.parse(output);
+  if (!value || typeof value !== "object" || !("url" in value) || typeof value.url !== "string") {
+    throw new Error("Detached server output did not contain a URL");
+  }
+  return value.url;
+}
+
 describeWithSim(`serve-sim type e2e (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let logFile: string;
+  let serverUrl: string;
 
   beforeAll(() => {
     try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
@@ -60,6 +69,7 @@ describeWithSim(`serve-sim type e2e (booted sim ${bootedUdid ?? "<skipped>"})`, 
         `serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\nstdout: ${detach.stdout}`,
       );
     }
+    serverUrl = serverUrlFromOutput(detach.stdout);
     logFile = join(STATE_DIR, `server-${bootedUdid!}.log`);
   }, 60_000);
 
@@ -75,11 +85,15 @@ describeWithSim(`serve-sim type e2e (booted sim ${bootedUdid ?? "<skipped>"})`, 
     //   H: shift down, KeyH down, KeyH up, shift up      (0xe1, 0x0b, 0x0b, 0xe1)
     //   i: KeyI down, KeyI up                            (0x0c, 0x0c)
     //   !: shift down, Digit1 down, Digit1 up, shift up  (0xe1, 0x1e, 0x1e, 0xe1)
-    const result = spawnSync("bun", ["run", CLI_PATH, "type", "Hi!", "-d", bootedUdid!], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 15_000,
-    });
+    const result = spawnSync(
+      "bun",
+      ["run", CLI_PATH, "type", "Hi!", "-d", bootedUdid!, "--url", serverUrl],
+      {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 15_000,
+      },
+    );
     expect(result.status).toBe(0);
 
     // Wait briefly for the helper to flush its stdout log — sendKey is sync,
