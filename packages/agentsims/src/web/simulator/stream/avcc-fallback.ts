@@ -15,53 +15,53 @@
  * and `dispatch` live in the component.
  */
 export interface AvccFallbackState {
-  /** True once AVCC has yielded a frame for the current stream. */
-  streamed: boolean;
-  /** True once we've given up on AVCC and switched to MJPEG. */
-  fellBack: boolean;
+	/** True once AVCC has yielded a frame for the current stream. */
+	streamed: boolean;
+	/** True once we've given up on AVCC and switched to MJPEG. */
+	fellBack: boolean;
 }
 
 export type AvccFallbackEvent =
-  /** A frame (seed or decoded) was painted under AVCC. */
-  | "frame"
-  /** The startup window elapsed; fall back unless a frame already arrived. */
-  | "timeout"
-  /**
-   * The WebCodecs decoder failed fatally mid-stream. Unlike `timeout`, this
-   * downgrades even after AVCC was working — hardware H.264 decode is no longer
-   * viable (e.g. a screen recorder is starving VideoToolbox), so retrying it
-   * just loops.
-   */
-  | "error"
-  /** Target stream changed (device switch / reconnect) — re-arm AVCC. */
-  | "reset";
+	/** A frame (seed or decoded) was painted under AVCC. */
+	| "frame"
+	/** The startup window elapsed; fall back unless a frame already arrived. */
+	| "timeout"
+	/**
+	 * The WebCodecs decoder failed fatally mid-stream. Unlike `timeout`, this
+	 * downgrades even after AVCC was working — hardware H.264 decode is no longer
+	 * viable (e.g. a screen recorder is starving VideoToolbox), so retrying it
+	 * just loops.
+	 */
+	| "error"
+	/** Target stream changed (device switch / reconnect) — re-arm AVCC. */
+	| "reset";
 
 export const initialAvccFallback: AvccFallbackState = {
-  streamed: false,
-  fellBack: false,
+	streamed: false,
+	fellBack: false,
 };
 
 export function avccFallbackReducer(
-  state: AvccFallbackState,
-  event: AvccFallbackEvent,
+	state: AvccFallbackState,
+	event: AvccFallbackEvent,
 ): AvccFallbackState {
-  switch (event) {
-    case "frame":
-      return state.streamed ? state : { ...state, streamed: true };
-    case "timeout":
-      // Only fall back if AVCC never produced a frame. A later stall (helper
-      // dies mid-session) is handled by the normal reconnect path, not by
-      // permanently downgrading a stream that was working.
-      return state.streamed || state.fellBack
-        ? state
-        : { ...state, fellBack: true };
-    case "error":
-      // A fatal decoder error downgrades unconditionally — even mid-stream
-      // after frames were flowing, since hardware decode just failed.
-      return state.fellBack ? state : { ...state, fellBack: true };
-    case "reset":
-      return initialAvccFallback;
-  }
+	switch (event) {
+		case "frame":
+			return state.streamed ? state : { ...state, streamed: true };
+		case "timeout":
+			// Only fall back if AVCC never produced a frame. A later stall (helper
+			// dies mid-session) is handled by the normal reconnect path, not by
+			// permanently downgrading a stream that was working.
+			return state.streamed || state.fellBack
+				? state
+				: { ...state, fellBack: true };
+		case "error":
+			// A fatal decoder error downgrades unconditionally — even mid-stream
+			// after frames were flowing, since hardware decode just failed.
+			return state.fellBack ? state : { ...state, fellBack: true };
+		case "reset":
+			return initialAvccFallback;
+	}
 }
 
 /**

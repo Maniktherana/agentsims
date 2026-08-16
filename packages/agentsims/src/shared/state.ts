@@ -7,17 +7,17 @@ export const STATE_DIR = join(tmpdir(), "agentsims");
 
 /** Per-device state file: `/tmp/agentsims/server-{udid}.json` */
 export function stateFileForDevice(udid: string): string {
-  return join(STATE_DIR, `server-${udid}.json`);
+	return join(STATE_DIR, `server-${udid}.json`);
 }
 
 /** Runtime record for a device streamed in-process by a preview server. */
 export interface DeviceState {
-  pid: number;
-  port: number;
-  device: string;
-  url: string;
-  streamUrl: string;
-  wsUrl: string;
+	pid: number;
+	port: number;
+	device: string;
+	url: string;
+	streamUrl: string;
+	wsUrl: string;
 }
 
 /**
@@ -26,49 +26,51 @@ export interface DeviceState {
  * `{base}/helper/<device>/…` routes backed by native device sessions.
  */
 export function inProcessDeviceState(
-  udid: string,
-  port: number,
-  base = "/",
-  host = "127.0.0.1",
+	udid: string,
+	port: number,
+	base = "/",
+	host = "127.0.0.1",
 ): DeviceState {
-  const h = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-  // Normalize to a leading-slash, no-trailing-slash prefix so a base without a
-  // leading slash (e.g. "foo") still yields well-formed `…:port/foo/helper/…`.
-  const trimmed = base.replace(/^\/+/, "").replace(/\/+$/, "");
-  const prefix = trimmed === "" ? "" : `/${trimmed}`;
-  const streamPath = udid.startsWith("android:") ? "stream.avcc" : "stream.mjpeg";
-  return {
-    pid: process.pid,
-    port,
-    device: udid,
-    url: `http://${h}:${port}`,
-    streamUrl: `http://${h}:${port}${prefix}/helper/${udid}/${streamPath}`,
-    wsUrl: `ws://${h}:${port}${prefix}/helper/${udid}/ws`,
-  };
+	const h = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+	// Normalize to a leading-slash, no-trailing-slash prefix so a base without a
+	// leading slash (e.g. "foo") still yields well-formed `…:port/foo/helper/…`.
+	const trimmed = base.replace(/^\/+/, "").replace(/\/+$/, "");
+	const prefix = trimmed === "" ? "" : `/${trimmed}`;
+	const streamPath = udid.startsWith("android:")
+		? "stream.avcc"
+		: "stream.mjpeg";
+	return {
+		pid: process.pid,
+		port,
+		device: udid,
+		url: `http://${h}:${port}`,
+		streamUrl: `http://${h}:${port}${prefix}/helper/${udid}/${streamPath}`,
+		wsUrl: `ws://${h}:${port}${prefix}/helper/${udid}/ws`,
+	};
 }
 
 /** Persist a device's state so other processes / the grid can enumerate it.
  *  Writes atomically (temp file + rename) so a concurrent reader never observes
  *  a truncated or partially-written file. */
 export function writeDeviceState(state: DeviceState): void {
-  mkdirSync(STATE_DIR, { recursive: true });
-  const file = stateFileForDevice(state.device);
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state, null, 2));
-  renameSync(tmp, file);
+	mkdirSync(STATE_DIR, { recursive: true });
+	const file = stateFileForDevice(state.device);
+	const tmp = `${file}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify(state, null, 2));
+	renameSync(tmp, file);
 }
 
 export function removeDeviceState(device: string): void {
-  rmSync(stateFileForDevice(device), { force: true });
+	rmSync(stateFileForDevice(device), { force: true });
 }
 
 /** List all per-device state files in the state directory. */
 export function listStateFiles(): string[] {
-  try {
-    return readdirSync(STATE_DIR)
-      .filter((f) => f.startsWith("server-") && f.endsWith(".json"))
-      .map((f) => join(STATE_DIR, f));
-  } catch {
-    return [];
-  }
+	try {
+		return readdirSync(STATE_DIR)
+			.filter((f) => f.startsWith("server-") && f.endsWith(".json"))
+			.map((f) => join(STATE_DIR, f));
+	} catch {
+		return [];
+	}
 }

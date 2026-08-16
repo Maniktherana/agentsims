@@ -87,7 +87,7 @@ const { withAgentsims } = require("agentsims/metro");
 const config = getDefaultConfig(__dirname);
 
 module.exports = withAgentsims(config, {
-  projectRoot: __dirname,
+	projectRoot: __dirname,
 });
 ```
 

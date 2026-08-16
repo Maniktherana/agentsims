@@ -79,9 +79,9 @@ and their running sessions.
 
 Platform transport details stay behind the same workspace and CLI contracts:
 
-| Target | Live video and control |
-| --- | --- |
-| iOS Simulator | Native simulator capture and HID control |
+| Target           | Live video and control                                               |
+| ---------------- | -------------------------------------------------------------------- |
+| iOS Simulator    | Native simulator capture and HID control                             |
 | Android emulator | Emulator gRPC capture, shared-memory frames, H.264, and native input |
 
 ADB remains responsible for Android discovery, lifecycle operations, explicit
@@ -99,8 +99,8 @@ Use the browser workspace for two related tasks:
 2. **Inspect accessibility.** Use the accessibility-tree toolbar button for a
    device to browse native targets, search them, inspect bounds and state, and
    highlight the corresponding element on the phone.
-Accessibility selection temporarily captures phone taps. Turn selection off—or
-press Escape—to return input to the app.
+   Accessibility selection temporarily captures phone taps. Turn selection off—or
+   press Escape—to return input to the app.
 
 ## Optional React Native source mapping
 
@@ -130,7 +130,7 @@ const { withAgentsims } = require("agentsims/metro");
 const config = getDefaultConfig(__dirname);
 
 module.exports = withAgentsims(config, {
-  projectRoot: __dirname,
+	projectRoot: __dirname,
 });
 ```
 

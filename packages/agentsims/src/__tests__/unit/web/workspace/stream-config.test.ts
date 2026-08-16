@@ -9,35 +9,35 @@ import { streamConfigFrom } from "../../../../web/app/sim-endpoint";
 // not producing frames" watchdog on a page that should show the device picker.
 
 const fullConfig = {
-  url: "http://127.0.0.1:3100",
-  streamUrl: "http://127.0.0.1:3100/stream.mjpeg",
-  wsUrl: "ws://127.0.0.1:3100/ws",
-  pid: 123,
-  port: 3100,
-  device: "ABCD-1234",
-  basePath: "",
-  execToken: "tok",
+	url: "http://127.0.0.1:3100",
+	streamUrl: "http://127.0.0.1:3100/stream.mjpeg",
+	wsUrl: "ws://127.0.0.1:3100/ws",
+	pid: 123,
+	port: 3100,
+	device: "ABCD-1234",
+	basePath: "",
+	execToken: "tok",
 };
 
 describe("streamConfigFrom", () => {
-  test("accepts a full helper state", () => {
-    expect(streamConfigFrom(fullConfig)).toBe(fullConfig);
-  });
+	test("accepts a full helper state", () => {
+		expect(streamConfigFrom(fullConfig)).toBe(fullConfig);
+	});
 
-  test("rejects the minimal empty-state injection", () => {
-    expect(
-      streamConfigFrom({ basePath: "", execToken: "tok" } as never),
-    ).toBeNull();
-  });
+	test("rejects the minimal empty-state injection", () => {
+		expect(
+			streamConfigFrom({ basePath: "", execToken: "tok" } as never),
+		).toBeNull();
+	});
 
-  test("rejects null and undefined", () => {
-    expect(streamConfigFrom(null)).toBeNull();
-    expect(streamConfigFrom(undefined)).toBeNull();
-  });
+	test("rejects null and undefined", () => {
+		expect(streamConfigFrom(null)).toBeNull();
+		expect(streamConfigFrom(undefined)).toBeNull();
+	});
 
-  test("rejects a config missing the stream url", () => {
-    expect(
-      streamConfigFrom({ ...fullConfig, url: undefined } as never),
-    ).toBeNull();
-  });
+	test("rejects a config missing the stream url", () => {
+		expect(
+			streamConfigFrom({ ...fullConfig, url: undefined } as never),
+		).toBeNull();
+	});
 });

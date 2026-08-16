@@ -1,15 +1,20 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "composite": false,
-    "declaration": false,
-    "declarationMap": false,
-    "noEmit": true,
-    "exactOptionalPropertyTypes": false,
-    "types": ["bun", "node"]
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/__tests__/**", "src/**/*.test.ts", "src/**/*.test.tsx", "src/web/**"]
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"composite": false,
+		"declaration": false,
+		"declarationMap": false,
+		"noEmit": true,
+		"exactOptionalPropertyTypes": false,
+		"types": ["bun", "node"]
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": [
+		"src/__tests__/**",
+		"src/**/*.test.ts",
+		"src/**/*.test.tsx",
+		"src/web/**"
+	]
 }

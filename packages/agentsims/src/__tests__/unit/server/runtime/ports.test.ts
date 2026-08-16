@@ -12,42 +12,46 @@ import { getPortHolders } from "../../../../server/runtime/ports";
 const PORT = 3461;
 
 function spawnNode(script: string): Promise<ChildProcess> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("node", ["-e", script], { stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout!.once("data", () => resolve(child));
-    child.once("error", reject);
-    child.once("exit", (code) => reject(new Error(`child exited early (${code})`)));
-  });
+	return new Promise((resolve, reject) => {
+		const child = spawn("node", ["-e", script], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		child.stdout!.once("data", () => resolve(child));
+		child.once("error", reject);
+		child.once("exit", (code) =>
+			reject(new Error(`child exited early (${code})`)),
+		);
+	});
 }
 
 let listener: ChildProcess;
 let client: ChildProcess;
 
 beforeAll(async () => {
-  listener = await spawnNode(
-    `const net = require("net");
+	listener = await spawnNode(
+		`const net = require("net");
      const srv = net.createServer((s) => s.pipe(s));
      srv.listen(${PORT}, "127.0.0.1", () => console.log("ready"));`,
-  );
-  client = await spawnNode(
-    `const net = require("net");
+	);
+	client = await spawnNode(
+		`const net = require("net");
      const s = net.connect(${PORT}, "127.0.0.1", () => console.log("connected"));
      s.on("error", () => {});
      setInterval(() => {}, 1000);`,
-  );
+	);
 });
 
 afterAll(() => {
-  client?.kill("SIGKILL");
-  listener?.kill("SIGKILL");
+	client?.kill("SIGKILL");
+	listener?.kill("SIGKILL");
 });
 
 describe("getPortHolders", () => {
-  test("returns the listener pid", async () => {
-    expect(await getPortHolders(PORT)).toContain(listener.pid!);
-  });
+	test("returns the listener pid", async () => {
+		expect(await getPortHolders(PORT)).toContain(listener.pid!);
+	});
 
-  test("does not return pids of connected clients", async () => {
-    expect(await getPortHolders(PORT)).not.toContain(client.pid!);
-  });
+	test("does not return pids of connected clients", async () => {
+		expect(await getPortHolders(PORT)).not.toContain(client.pid!);
+	});
 });
