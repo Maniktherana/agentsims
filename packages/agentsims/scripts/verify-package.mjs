@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -44,8 +44,8 @@ assert.equal(manifest.publishConfig?.access, "public");
 assert.equal(manifest.publishConfig?.registry, "https://registry.npmjs.org/");
 assert.equal(
   manifest.scripts?.start,
-  "node dist/agentsims.js",
-  "start must execute the built production CLI with Node",
+  "bun dist/agentsims.js",
+  "start must execute the built production CLI with Bun",
 );
 assert.ok(
   !(manifest.files ?? []).some((file) => file.endsWith(".map")),
@@ -81,7 +81,7 @@ assert.ok(
 const binTarget = manifest.bin?.agentsims;
 assert.equal(typeof binTarget, "string", "bin.agentsims is required");
 const binPath = assertFile(binTarget);
-assert.equal(readFileSync(binPath, "utf8").split(/\r?\n/, 1)[0], "#!/usr/bin/env node");
+assert.equal(readFileSync(binPath, "utf8").split(/\r?\n/, 1)[0], "#!/usr/bin/env bun");
 
 for (const [subpath, conditions] of Object.entries(manifest.exports ?? {})) {
   assert.equal(typeof conditions, "object", `invalid exports entry: ${subpath}`);
@@ -109,7 +109,7 @@ for (const conditions of Object.values(manifest.exports ?? {})) {
   if (conditions.import) await import(pathToFileURL(packagePath(conditions.import)).href);
 }
 
-const cli = spawnSync(process.execPath, [binPath, "--version"], {
+const cli = spawnSync("bun", [binPath, "--version"], {
   cwd: packageRoot,
   encoding: "utf8",
 });

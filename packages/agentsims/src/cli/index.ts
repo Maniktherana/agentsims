@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { Command, InvalidArgumentError } from "commander";
 import { execSync, spawn as nodeSpawn, type ChildProcess } from "child_process";
 import {
@@ -22,7 +22,7 @@ import {
 } from "../shared/state";
 import { dirnameOf, sleepSync, isPortFree, servePreview } from "../server/runtime/runtime";
 import { killPortHolder } from "../server/runtime/ports";
-import { findBootedDevice, resolveDevice } from "../ios/device/device";
+import { findBootedDevice, resolveDevice, SIMCTL_LIST_MAX_BUFFER_BYTES } from "../ios/device/device";
 import {
   androidSerialFromStateId,
   androidStateId,
@@ -115,7 +115,10 @@ function clearState(udid?: string) {
  */
 function pickDefaultDevice(): { udid: string; name: string } | null {
   try {
-    const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
+    const output = execSync("xcrun simctl list devices -j", {
+      encoding: "utf-8",
+      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
+    });
     const data = JSON.parse(output) as {
       devices: Record<
         string,
@@ -140,7 +143,10 @@ function pickDefaultDevice(): { udid: string; name: string } | null {
 
 function getDeviceName(udid: string): string | null {
   try {
-    const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
+    const output = execSync("xcrun simctl list devices -j", {
+      encoding: "utf-8",
+      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
+    });
     const data = JSON.parse(output) as {
       devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
     };
@@ -155,7 +161,10 @@ function getDeviceName(udid: string): string | null {
 
 function isDeviceBooted(udid: string): boolean {
   try {
-    const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
+    const output = execSync("xcrun simctl list devices -j", {
+      encoding: "utf-8",
+      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
+    });
     const data = JSON.parse(output) as {
       devices: Record<string, Array<{ udid: string; state: string }>>;
     };
@@ -188,10 +197,10 @@ function stopProcess(pid: number): void {
   while (Date.now() < deadline) {
     try {
       process.kill(pid, 0);
-      sleepSync(25);
-    } catch {
-      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") return;
     }
+    sleepSync(25);
   }
   try {
     process.kill(pid, "SIGKILL");
@@ -200,10 +209,10 @@ function stopProcess(pid: number): void {
   while (Date.now() < deadline2) {
     try {
       process.kill(pid, 0);
-      sleepSync(25);
-    } catch {
-      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") return;
     }
+    sleepSync(25);
   }
 }
 
@@ -1482,7 +1491,10 @@ Examples:
 
 function listBootedAppleDevices(): string[] {
   try {
-    const output = execSync("xcrun simctl list devices booted -j", { encoding: "utf8" });
+    const output = execSync("xcrun simctl list devices booted -j", {
+      encoding: "utf8",
+      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
+    });
     const data = JSON.parse(output) as {
       devices: Record<string, Array<{ udid: string; state: string }>>;
     };

@@ -1,6 +1,7 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
 import { androidSerialFromStateId } from "../android/device/device";
+import { SIMCTL_LIST_MAX_BUFFER_BYTES } from "../ios/device/device";
 import { debugState } from "../shared/debug";
 import {
   listStateFiles,
@@ -25,6 +26,7 @@ function getBootedUdids(): Set<string> | null {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 3_000,
+      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
     });
     const data = JSON.parse(output) as {
       devices: Record<string, Array<{ udid: string; state: string }>>;

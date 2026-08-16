@@ -1,5 +1,7 @@
 import { execSync } from "child_process";
 
+export const SIMCTL_LIST_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
+
 /**
  * UDID of a booted simulator, or null if none is booted. Prefers an iOS device
  * — a machine may also have a booted watchOS/tvOS sim, which `serve-sim`'s
@@ -7,7 +9,10 @@ import { execSync } from "child_process";
  */
 export function findBootedDevice(): string | null {
   try {
-    const output = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
+    const output = execSync("xcrun simctl list devices booted -j", {
+      encoding: "utf-8",
+      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
+    });
     const data = JSON.parse(output) as {
       devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
     };
@@ -34,7 +39,10 @@ export function resolveDevice(nameOrUDID: string): string {
     return nameOrUDID;
   }
   try {
-    const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
+    const output = execSync("xcrun simctl list devices -j", {
+      encoding: "utf-8",
+      maxBuffer: SIMCTL_LIST_MAX_BUFFER_BYTES,
+    });
     const data = JSON.parse(output) as {
       devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
     };

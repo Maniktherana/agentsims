@@ -3,14 +3,14 @@
  * Unified Agentsims build.
  *
  * Produces, all minified and with no runtime deps on workspace packages:
- *   dist/agentsims.js      ESM bin (node target) referenced by package.json#bin
+ *   dist/agentsims.js      ESM bin (Bun target) referenced by package.json#bin
  *   dist/middleware.js    Public subpath export "agentsims/middleware" (ESM)
  *   dist/middleware.cjs   Public subpath export "agentsims/middleware" (CJS)
  *   dist/preview/*        Browser HTML and hashed static assets
  *
- * The bin and middleware bundles target `node` so users without `bun` on
- * their PATH can still run `npx agentsims` / mount the Connect middleware.
- * Runtime server and timing behavior is implemented with Node stdlib APIs.
+ * The CLI bundle targets Bun. Middleware and React Native exports still target
+ * Node because they run in host framework processes. Runtime server and timing
+ * behavior continues to use Node-compatible standard-library APIs.
  *
  * Browser files stay on disk beside the server bundles. This avoids embedding
  * the same large preview payload in both the CLI and middleware artifacts.
@@ -297,7 +297,7 @@ writeFileSync(
 
 const binJsResult = await Bun.build({
   entrypoints: [resolve(root, "src/cli/index.ts")],
-  target: "node",
+  target: "bun",
   format: "esm",
   minify: true,
   outdir: distDir,
