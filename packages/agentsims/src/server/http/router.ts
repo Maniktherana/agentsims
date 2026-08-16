@@ -10,23 +10,23 @@ import { helperRoutes } from "./routes/helpers";
 import { previewRoutes } from "./routes/preview";
 
 export const featureRoutes = HttpRouter.concatAll(
-  accessibilityRoutes,
-  deviceAssetRoutes,
-  controlRoutes,
-  devtoolsRoutes,
-  helperRoutes,
-  previewRoutes,
+	accessibilityRoutes,
+	deviceAssetRoutes,
+	controlRoutes,
+	devtoolsRoutes,
+	helperRoutes,
+	previewRoutes,
 );
 
 export const FeatureRoutesLive = HttpApiBuilder.Router.use((router) =>
-  Effect.gen(function*() {
-    const runtime = yield* HttpRuntime;
-    const shell = yield* ShellExec;
-    const routes = featureRoutes.pipe(
-      HttpRouter.provideService(HttpRuntime, runtime),
-      HttpRouter.provideService(ShellExec, shell),
-    );
-    if (runtime.basePath === "") yield* router.concat(routes);
-    else yield* router.mount(runtime.basePath, routes);
-  })
+	Effect.gen(function* () {
+		const runtime = yield* HttpRuntime;
+		const shell = yield* ShellExec;
+		const routes = featureRoutes.pipe(
+			HttpRouter.provideService(HttpRuntime, runtime),
+			HttpRouter.provideService(ShellExec, shell),
+		);
+		if (runtime.basePath === "") yield* router.concat(routes);
+		else yield* router.mount(runtime.basePath, routes);
+	}),
 );

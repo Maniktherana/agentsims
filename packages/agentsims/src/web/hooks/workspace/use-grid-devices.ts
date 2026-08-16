@@ -8,20 +8,20 @@ const LOAD_ALL_LIMIT = 1000;
 
 /** Prevents slower catalog responses from overwriting a newer lifecycle view. */
 export class LatestGridRequest {
-  private sequence = 0;
+	private sequence = 0;
 
-  begin(): number {
-    this.sequence += 1;
-    return this.sequence;
-  }
+	begin(): number {
+		this.sequence += 1;
+		return this.sequence;
+	}
 
-  isCurrent(request: number): boolean {
-    return request === this.sequence;
-  }
+	isCurrent(request: number): boolean {
+		return request === this.sequence;
+	}
 
-  invalidate(): void {
-    this.sequence += 1;
-  }
+	invalidate(): void {
+		this.sequence += 1;
+	}
 }
 
 /**
@@ -37,46 +37,48 @@ export class LatestGridRequest {
  * visible list).
  */
 export function useGridDevices(
-  endpoint: string | undefined,
-  enabled: boolean,
-  fast: boolean,
-  pageSize: number = DEFAULT_PAGE_SIZE,
+	endpoint: string | undefined,
+	enabled: boolean,
+	fast: boolean,
+	pageSize: number = DEFAULT_PAGE_SIZE,
 ) {
-  const [devices, setDevices] = useState<GridDevice[] | null>(null);
-  const [total, setTotal] = useState(0);
-  const [limit, setLimit] = useState(pageSize);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const requestsRef = useRef(new LatestGridRequest());
-  useEffect(() => {
-    if (!enabled || !endpoint) return;
-    let cancelled = false;
-    const sep = endpoint.includes("?") ? "&" : "?";
-    const tick = async () => {
-      const request = requestsRef.current.begin();
-      try {
-        const res = await fetch(`${endpoint}${sep}limit=${limit}&offset=0`, { cache: "no-store" });
-        const json = await res.json();
-        if (cancelled || !requestsRef.current.isCurrent(request)) return;
-        setDevices(json.devices ?? []);
-        if (typeof json.total === "number") setTotal(json.total);
-      } catch {
-        // Preserve the last good catalog through transient discovery failures.
-      }
-    };
-    tick();
-    const id = setInterval(tick, fast ? 750 : 3000);
-    return () => {
-      cancelled = true;
-      requestsRef.current.invalidate();
-      clearInterval(id);
-    };
-  }, [endpoint, enabled, refreshKey, fast, limit]);
-  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-  const loadMore = useCallback(() => setLimit((l) => l + pageSize), [pageSize]);
-  const loadAll = useCallback(() => setLimit(LOAD_ALL_LIMIT), []);
-  // Return to the paged window — e.g. when search is cleared — so the poll stops
-  // pulling the whole catalog every interval after a one-off `loadAll`.
-  const resetPage = useCallback(() => setLimit(pageSize), [pageSize]);
-  const hasMore = total > (devices?.length ?? 0);
-  return { devices, total, refresh, loadMore, loadAll, resetPage, hasMore };
+	const [devices, setDevices] = useState<GridDevice[] | null>(null);
+	const [total, setTotal] = useState(0);
+	const [limit, setLimit] = useState(pageSize);
+	const [refreshKey, setRefreshKey] = useState(0);
+	const requestsRef = useRef(new LatestGridRequest());
+	useEffect(() => {
+		if (!enabled || !endpoint) return;
+		let cancelled = false;
+		const sep = endpoint.includes("?") ? "&" : "?";
+		const tick = async () => {
+			const request = requestsRef.current.begin();
+			try {
+				const res = await fetch(`${endpoint}${sep}limit=${limit}&offset=0`, {
+					cache: "no-store",
+				});
+				const json = await res.json();
+				if (cancelled || !requestsRef.current.isCurrent(request)) return;
+				setDevices(json.devices ?? []);
+				if (typeof json.total === "number") setTotal(json.total);
+			} catch {
+				// Preserve the last good catalog through transient discovery failures.
+			}
+		};
+		tick();
+		const id = setInterval(tick, fast ? 750 : 3000);
+		return () => {
+			cancelled = true;
+			requestsRef.current.invalidate();
+			clearInterval(id);
+		};
+	}, [endpoint, enabled, refreshKey, fast, limit]);
+	const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+	const loadMore = useCallback(() => setLimit((l) => l + pageSize), [pageSize]);
+	const loadAll = useCallback(() => setLimit(LOAD_ALL_LIMIT), []);
+	// Return to the paged window — e.g. when search is cleared — so the poll stops
+	// pulling the whole catalog every interval after a one-off `loadAll`.
+	const resetPage = useCallback(() => setLimit(pageSize), [pageSize]);
+	const hasMore = total > (devices?.length ?? 0);
+	return { devices, total, refresh, loadMore, loadAll, resetPage, hasMore };
 }

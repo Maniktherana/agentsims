@@ -5,12 +5,12 @@ import { startTestServer } from "../helpers/server";
 const DEVICE = "server-scope-test-device";
 
 test("server shutdown closes the session registry scope", async () => {
-  const original = iosSessions.get(DEVICE);
-  const { server } = await startTestServer({ previewAssets: {} });
+	const original = iosSessions.get(DEVICE);
+	const { server } = await startTestServer({ previewAssets: {} });
 
-  await server.stop();
+	await server.stop();
 
-  const replacement = iosSessions.get(DEVICE);
-  expect(replacement).not.toBe(original);
-  await iosSessions.close(DEVICE);
+	const replacement = iosSessions.get(DEVICE);
+	expect(replacement).not.toBe(original);
+	await iosSessions.close(DEVICE);
 });

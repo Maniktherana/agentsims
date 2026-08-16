@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execSync, spawnSync } from "child_process";
 import { join } from "path";
 import {
-  acquireIosSimulatorTestLock,
-  IOS_E2E_HOOK_TIMEOUT_MS,
+	acquireIosSimulatorTestLock,
+	IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
 import { parseDetachedOutput } from "../helpers/detached-output";
 
@@ -25,109 +25,154 @@ const AX_READY_BUDGET_MS = process.env.CI ? 120_000 : 10_000;
 const AX_READY_POLL_INTERVAL_MS = 500;
 
 function firstBootedIosSim(): string | null {
-  try {
-    const out = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
-    const data = JSON.parse(out) as {
-      devices: Record<string, Array<{ udid: string; state: string; name?: string }>>;
-    };
-    for (const [runtime, devices] of Object.entries(data.devices)) {
-      if (!runtime.includes("iOS")) continue;
-      for (const device of devices) {
-        if (device.state === "Booted") return device.udid;
-      }
-    }
-  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
-  return null;
+	try {
+		const out = execSync("xcrun simctl list devices booted -j", {
+			encoding: "utf-8",
+		});
+		const data = JSON.parse(out) as {
+			devices: Record<
+				string,
+				Array<{ udid: string; state: string; name?: string }>
+			>;
+		};
+		for (const [runtime, devices] of Object.entries(data.devices)) {
+			if (!runtime.includes("iOS")) continue;
+			for (const device of devices) {
+				if (device.state === "Booted") return device.udid;
+			}
+		}
+	} catch (error) {
+		console.warn(
+			"[agentsims:test] recoverable setup or cleanup failure",
+			error,
+		);
+	}
+	return null;
 }
 
 const bootedUdid = firstBootedIosSim();
 const describeWithSim = bootedUdid ? describe : describe.skip;
 
-describeWithSim(`serve-sim accessibility endpoint (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
-  let axUrl: string;
-  let releaseTestLock = () => {};
+describeWithSim(
+	`serve-sim accessibility endpoint (booted sim ${bootedUdid ?? "<skipped>"})`,
+	() => {
+		let axUrl: string;
+		let releaseTestLock = () => {};
 
-  beforeAll(async () => {
-    releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
-    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+		beforeAll(async () => {
+			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
+			try {
+				execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" });
+			} catch (error) {
+				console.warn(
+					"[agentsims:test] recoverable setup or cleanup failure",
+					error,
+				);
+			}
 
-    // Random high port avoids collisions with the user's running serve-sim
-    // (default 3100) and with concurrent test runs on the same machine. The
-    // CLI's findAvailablePort scans up from this if it's taken.
-    const startPort = 40_000 + Math.floor(Math.random() * 20_000);
-    const detach = spawnSync("bun", ["run", CLI_PATH, "--detach", "-p", String(startPort), bootedUdid!], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "inherit"],
-      timeout: 45_000,
-    });
+			// Random high port avoids collisions with the user's running serve-sim
+			// (default 3100) and with concurrent test runs on the same machine. The
+			// CLI's findAvailablePort scans up from this if it's taken.
+			const startPort = 40_000 + Math.floor(Math.random() * 20_000);
+			const detach = spawnSync(
+				"bun",
+				["run", CLI_PATH, "--detach", "-p", String(startPort), bootedUdid!],
+				{
+					encoding: "utf-8",
+					stdio: ["ignore", "pipe", "inherit"],
+					timeout: 45_000,
+				},
+			);
 
-    if (detach.status !== 0 || !detach.stdout) {
-      throw new Error(
-        `serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\n` +
-        `stdout: ${detach.stdout ?? "<none>"}`,
-      );
-    }
+			if (detach.status !== 0 || !detach.stdout) {
+				throw new Error(
+					`serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\n` +
+						`stdout: ${detach.stdout ?? "<none>"}`,
+				);
+			}
 
-    // The raw axe-shaped tree is served in-process at /helper/<device>/ax
-    // (the root /ax is the normalized SSE stream). Derive it from streamUrl.
-    const state = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
-    axUrl = state.streamUrl.replace("stream.mjpeg", "ax");
-  }, IOS_E2E_HOOK_TIMEOUT_MS);
+			// The raw axe-shaped tree is served in-process at /helper/<device>/ax
+			// (the root /ax is the normalized SSE stream). Derive it from streamUrl.
+			const state = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
+			axUrl = state.streamUrl.replace("stream.mjpeg", "ax");
+		}, IOS_E2E_HOOK_TIMEOUT_MS);
 
-  afterAll(() => {
-    try {
-      try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
-    } finally {
-      releaseTestLock();
-    }
-  }, 30_000);
+		afterAll(() => {
+			try {
+				try {
+					execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, {
+						stdio: "pipe",
+					});
+				} catch (error) {
+					console.warn(
+						"[agentsims:test] recoverable setup or cleanup failure",
+						error,
+					);
+				}
+			} finally {
+				releaseTestLock();
+			}
+		}, 30_000);
 
-  test("returns a bounded accessibility tree without crashing the helper", async () => {
-    const deadline = Date.now() + AX_READY_BUDGET_MS;
-    let lastStatus = 0;
+		test(
+			"returns a bounded accessibility tree without crashing the helper",
+			async () => {
+				const deadline = Date.now() + AX_READY_BUDGET_MS;
+				let lastStatus = 0;
 
-    while (Date.now() < deadline) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), AX_RESPONSE_BUDGET_MS);
-      try {
-        const res = await fetch(axUrl, { signal: controller.signal });
-        lastStatus = res.status;
-        if (res.status === 200) {
-          const tree = await res.json() as Array<{ frame?: unknown; type?: string }>;
-          expect(Array.isArray(tree)).toBe(true);
-          expect(tree.length).toBeGreaterThan(0);
-          expect(tree[0]?.frame).toBeTruthy();
-          expect(typeof tree[0]?.type).toBe("string");
-          return;
-        }
-        // 503 = helper alive but AX not yet ready (sim still warming up).
-        // Anything else is a hard failure.
-        if (res.status !== 503) break;
-      } catch (err) {
-        // A slow response that blows the per-request budget aborts the fetch;
-        // treat it like a 503 (helper still warming up) and keep polling until
-        // the overall AX_READY_BUDGET_MS deadline rather than failing outright.
-        if ((err as { name?: string }).name !== "AbortError") throw err;
-      } finally {
-        clearTimeout(timer);
-      }
-      await new Promise((r) => setTimeout(r, AX_READY_POLL_INTERVAL_MS));
-    }
+				while (Date.now() < deadline) {
+					const controller = new AbortController();
+					const timer = setTimeout(
+						() => controller.abort(),
+						AX_RESPONSE_BUDGET_MS,
+					);
+					try {
+						const res = await fetch(axUrl, { signal: controller.signal });
+						lastStatus = res.status;
+						if (res.status === 200) {
+							const tree = (await res.json()) as Array<{
+								frame?: unknown;
+								type?: string;
+							}>;
+							expect(Array.isArray(tree)).toBe(true);
+							expect(tree.length).toBeGreaterThan(0);
+							expect(tree[0]?.frame).toBeTruthy();
+							expect(typeof tree[0]?.type).toBe("string");
+							return;
+						}
+						// 503 = helper alive but AX not yet ready (sim still warming up).
+						// Anything else is a hard failure.
+						if (res.status !== 503) break;
+					} catch (err) {
+						// A slow response that blows the per-request budget aborts the fetch;
+						// treat it like a 503 (helper still warming up) and keep polling until
+						// the overall AX_READY_BUDGET_MS deadline rather than failing outright.
+						if ((err as { name?: string }).name !== "AbortError") throw err;
+					} finally {
+						clearTimeout(timer);
+					}
+					await new Promise((r) => setTimeout(r, AX_READY_POLL_INTERVAL_MS));
+				}
 
-    // A 503 the whole way through means the helper stayed alive but the
-    // simulator's AX framework never warmed up — an intermittent CI runner
-    // condition, not a regression in the tree-walking code this test guards.
-    // Soft-pass with a warning rather than flaking the suite (and gating the
-    // publish job). Any *other* terminal status (the `break` above) is a real
-    // failure and still throws.
-    if (lastStatus === 503) {
-      console.warn(
-        `[ax-test] AX endpoint stuck at 503 for the full ${AX_READY_BUDGET_MS}ms ` +
-        `(simulator AX framework never warmed) — skipping rather than failing.`,
-      );
-      return;
-    }
+				// A 503 the whole way through means the helper stayed alive but the
+				// simulator's AX framework never warmed up — an intermittent CI runner
+				// condition, not a regression in the tree-walking code this test guards.
+				// Soft-pass with a warning rather than flaking the suite (and gating the
+				// publish job). Any *other* terminal status (the `break` above) is a real
+				// failure and still throws.
+				if (lastStatus === 503) {
+					console.warn(
+						`[ax-test] AX endpoint stuck at 503 for the full ${AX_READY_BUDGET_MS}ms ` +
+							`(simulator AX framework never warmed) — skipping rather than failing.`,
+					);
+					return;
+				}
 
-    throw new Error(`AX endpoint never returned 200 within ${AX_READY_BUDGET_MS}ms (last status ${lastStatus})`);
-  }, AX_READY_BUDGET_MS + 5_000);
-});
+				throw new Error(
+					`AX endpoint never returned 200 within ${AX_READY_BUDGET_MS}ms (last status ${lastStatus})`,
+				);
+			},
+			AX_READY_BUDGET_MS + 5_000,
+		);
+	},
+);

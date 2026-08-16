@@ -8,7 +8,11 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-ffmpeg-next = { version = "9.0.0", default-features = false, features = ["codec", "format", "software-scaling"] }
+ffmpeg-next = { version = "9.0.0", default-features = false, features = [
+	"codec",
+	"format",
+	"software-scaling",
+] }
 memmap2 = "0.9.11"
 napi = { version = "3.12.1", default-features = false, features = ["napi6"] }
 napi-derive = "3.6.3"

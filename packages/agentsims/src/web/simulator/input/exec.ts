@@ -1,9 +1,9 @@
 import { simEndpoint } from "../../app/sim-endpoint";
 
 export interface ExecResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
+	stdout: string;
+	stderr: string;
+	exitCode: number;
 }
 
 // Everything the preview page asks of the host — shell execs, simulator
@@ -18,22 +18,22 @@ const CONNECT_TIMEOUT_MS = 5_000;
 const STREAM_RETRY_MS = 2_000;
 
 type SocketReply = {
-  id?: number;
-  sub?: number;
-  data?: string;
-  end?: boolean;
-  ready?: boolean;
-  error?: string;
+	id?: number;
+	sub?: number;
+	data?: string;
+	end?: boolean;
+	ready?: boolean;
+	error?: string;
 } & Partial<ExecResult> & { status?: Record<string, string>; ok?: boolean };
 
 interface PendingRequest {
-  resolve: (reply: SocketReply) => void;
-  reject: (err: unknown) => void;
+	resolve: (reply: SocketReply) => void;
+	reject: (err: unknown) => void;
 }
 
 interface ActiveSubscription {
-  onData: (chunk: string) => void;
-  onEnd: () => void;
+	onData: (chunk: string) => void;
+	onEnd: () => void;
 }
 
 let socketPromise: Promise<WebSocket> | null = null;
@@ -44,142 +44,147 @@ const pendingRequests = new Map<number, PendingRequest>();
 const activeSubscriptions = new Map<number, ActiveSubscription>();
 
 function execSocketUrl(): string {
-  const url = new URL(simEndpoint("exec-ws"), window.location.href);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
+	const url = new URL(simEndpoint("exec-ws"), window.location.href);
+	url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+	return url.toString();
 }
 
 function rejectAllPending(reason: Error): void {
-  for (const pending of pendingRequests.values()) pending.reject(reason);
-  pendingRequests.clear();
+	for (const pending of pendingRequests.values()) pending.reject(reason);
+	pendingRequests.clear();
 }
 
 function openExecSocket(): Promise<WebSocket> {
-  socketPromise ??= new Promise<WebSocket>((resolve, reject) => {
-    let settled = false;
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(execSocketUrl());
-    } catch (e) {
-      socketPromise = null;
-      reject(e);
-      return;
-    }
-    // Fail fast if the server never completes the handshake or auth — a
-    // hung connection must not stall every request behind it.
-    const connectTimer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        socketPromise = null;
-        reject(new Error("control socket connect timeout"));
-        ws.close();
-      }
-    }, CONNECT_TIMEOUT_MS);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ token: window.__SIM_PREVIEW__?.execToken ?? "" }));
-    };
-    ws.onmessage = (event) => {
-      let msg: SocketReply;
-      try {
-        msg = JSON.parse(String(event.data));
-      } catch {
-        return;
-      }
-      if (msg.ready) {
-        if (!settled) {
-          settled = true;
-          clearTimeout(connectTimer);
-          openSocket = ws;
-          resolve(ws);
-        }
-        return;
-      }
-      if (typeof msg.sub === "number") {
-        const subscription = activeSubscriptions.get(msg.sub);
-        if (!subscription) return;
-        if (msg.end) {
-          activeSubscriptions.delete(msg.sub);
-          subscription.onEnd();
-        } else if (typeof msg.data === "string") {
-          subscription.onData(msg.data);
-        }
-        return;
-      }
-      if (typeof msg.id !== "number") return;
-      const pending = pendingRequests.get(msg.id);
-      if (!pending) return;
-      pendingRequests.delete(msg.id);
-      pending.resolve(msg);
-    };
-    const fail = () => {
-      socketPromise = null;
-      openSocket = null;
-      const err = new Error("control socket closed — reload the page if this persists");
-      rejectAllPending(err);
-      const subscriptions = [...activeSubscriptions.values()];
-      activeSubscriptions.clear();
-      for (const subscription of subscriptions) subscription.onEnd();
-      if (!settled) {
-        settled = true;
-        clearTimeout(connectTimer);
-        reject(err);
-      }
-    };
-    ws.onerror = fail;
-    ws.onclose = fail;
-  });
-  return socketPromise;
+	socketPromise ??= new Promise<WebSocket>((resolve, reject) => {
+		let settled = false;
+		let ws: WebSocket;
+		try {
+			ws = new WebSocket(execSocketUrl());
+		} catch (e) {
+			socketPromise = null;
+			reject(e);
+			return;
+		}
+		// Fail fast if the server never completes the handshake or auth — a
+		// hung connection must not stall every request behind it.
+		const connectTimer = setTimeout(() => {
+			if (!settled) {
+				settled = true;
+				socketPromise = null;
+				reject(new Error("control socket connect timeout"));
+				ws.close();
+			}
+		}, CONNECT_TIMEOUT_MS);
+		ws.onopen = () => {
+			ws.send(
+				JSON.stringify({ token: window.__SIM_PREVIEW__?.execToken ?? "" }),
+			);
+		};
+		ws.onmessage = (event) => {
+			let msg: SocketReply;
+			try {
+				msg = JSON.parse(String(event.data));
+			} catch {
+				return;
+			}
+			if (msg.ready) {
+				if (!settled) {
+					settled = true;
+					clearTimeout(connectTimer);
+					openSocket = ws;
+					resolve(ws);
+				}
+				return;
+			}
+			if (typeof msg.sub === "number") {
+				const subscription = activeSubscriptions.get(msg.sub);
+				if (!subscription) return;
+				if (msg.end) {
+					activeSubscriptions.delete(msg.sub);
+					subscription.onEnd();
+				} else if (typeof msg.data === "string") {
+					subscription.onData(msg.data);
+				}
+				return;
+			}
+			if (typeof msg.id !== "number") return;
+			const pending = pendingRequests.get(msg.id);
+			if (!pending) return;
+			pendingRequests.delete(msg.id);
+			pending.resolve(msg);
+		};
+		const fail = () => {
+			socketPromise = null;
+			openSocket = null;
+			const err = new Error(
+				"control socket closed — reload the page if this persists",
+			);
+			rejectAllPending(err);
+			const subscriptions = [...activeSubscriptions.values()];
+			activeSubscriptions.clear();
+			for (const subscription of subscriptions) subscription.onEnd();
+			if (!settled) {
+				settled = true;
+				clearTimeout(connectTimer);
+				reject(err);
+			}
+		};
+		ws.onerror = fail;
+		ws.onclose = fail;
+	});
+	return socketPromise;
 }
 
 async function socketRequest(
-  body: Record<string, unknown>,
-  signal?: AbortSignal,
+	body: Record<string, unknown>,
+	signal?: AbortSignal,
 ): Promise<SocketReply> {
-  const ws = await openExecSocket();
-  if (ws.readyState !== WebSocket.OPEN) throw new Error("control socket not open");
-  return new Promise<SocketReply>((resolve, reject) => {
-    const id = nextRequestId++;
-    const onAbort = () => {
-      pendingRequests.delete(id);
-      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
-    };
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
-    pendingRequests.set(id, {
-      resolve: (reply) => {
-        signal?.removeEventListener("abort", onAbort);
-        resolve(reply);
-      },
-      reject: (err) => {
-        signal?.removeEventListener("abort", onAbort);
-        reject(err);
-      },
-    });
-    ws.send(JSON.stringify({ id, ...body }));
-  });
+	const ws = await openExecSocket();
+	if (ws.readyState !== WebSocket.OPEN)
+		throw new Error("control socket not open");
+	return new Promise<SocketReply>((resolve, reject) => {
+		const id = nextRequestId++;
+		const onAbort = () => {
+			pendingRequests.delete(id);
+			reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+		};
+		if (signal) {
+			if (signal.aborted) {
+				onAbort();
+				return;
+			}
+			signal.addEventListener("abort", onAbort, { once: true });
+		}
+		pendingRequests.set(id, {
+			resolve: (reply) => {
+				signal?.removeEventListener("abort", onAbort);
+				resolve(reply);
+			},
+			reject: (err) => {
+				signal?.removeEventListener("abort", onAbort);
+				reject(err);
+			},
+		});
+		ws.send(JSON.stringify({ id, ...body }));
+	});
 }
 
 export async function execOnHost(
-  command: string,
-  opts?: { signal?: AbortSignal },
+	command: string,
+	opts?: { signal?: AbortSignal },
 ): Promise<ExecResult> {
-  const reply = await socketRequest({ command }, opts?.signal);
-  return {
-    stdout: reply.stdout ?? "",
-    stderr: reply.stderr ?? "",
-    exitCode: reply.exitCode ?? 1,
-  };
+	const reply = await socketRequest({ command }, opts?.signal);
+	return {
+		stdout: reply.stdout ?? "",
+		stderr: reply.stderr ?? "",
+		exitCode: reply.exitCode ?? 1,
+	};
 }
 
 export interface UiRequestPayload {
-  device: string;
-  option?: string;
-  value?: string;
+	device: string;
+	option?: string;
+	value?: string;
 }
 
 /**
@@ -189,18 +194,18 @@ export interface UiRequestPayload {
  * error message for invalid requests or failed sets.
  */
 export async function hostUiRequest(
-  payload: UiRequestPayload,
-  opts?: { signal?: AbortSignal },
+	payload: UiRequestPayload,
+	opts?: { signal?: AbortSignal },
 ): Promise<Record<string, string> | null> {
-  const reply = await socketRequest({ ui: payload }, opts?.signal);
-  if (reply.error) throw new Error(reply.error);
-  return reply.status ?? null;
+	const reply = await socketRequest({ ui: payload }, opts?.signal);
+	if (reply.error) throw new Error(reply.error);
+	return reply.status ?? null;
 }
 
 export interface HostEventStream {
-  onmessage: ((event: { data: string }) => void) | null;
-  onerror: (() => void) | null;
-  close(): void;
+	onmessage: ((event: { data: string }) => void) | null;
+	onerror: (() => void) | null;
+	close(): void;
 }
 
 /**
@@ -208,66 +213,75 @@ export interface HostEventStream {
  * socket. The client reconnects when the socket or upstream route closes.
  */
 export function openHostEventStream(path: string): HostEventStream {
-  const stream: HostEventStream = { onmessage: null, onerror: null, close: () => {} };
-  let closed = false;
-  let subId: number | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let sseBuffer = "";
+	const stream: HostEventStream = {
+		onmessage: null,
+		onerror: null,
+		close: () => {},
+	};
+	let closed = false;
+	let subId: number | null = null;
+	let retryTimer: ReturnType<typeof setTimeout> | null = null;
+	let sseBuffer = "";
 
-  const handleChunk = (chunk: string) => {
-    sseBuffer += chunk.replace(/\r\n/g, "\n");
-    let boundary: number;
-    while ((boundary = sseBuffer.indexOf("\n\n")) !== -1) {
-      const block = sseBuffer.slice(0, boundary);
-      sseBuffer = sseBuffer.slice(boundary + 2);
-      const data = block
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).replace(/^ /, ""))
-        .join("\n");
-      if (data) stream.onmessage?.({ data });
-    }
-  };
+	const handleChunk = (chunk: string) => {
+		sseBuffer += chunk.replace(/\r\n/g, "\n");
+		let boundary: number;
+		while ((boundary = sseBuffer.indexOf("\n\n")) !== -1) {
+			const block = sseBuffer.slice(0, boundary);
+			sseBuffer = sseBuffer.slice(boundary + 2);
+			const data = block
+				.split("\n")
+				.filter((line) => line.startsWith("data:"))
+				.map((line) => line.slice(5).replace(/^ /, ""))
+				.join("\n");
+			if (data) stream.onmessage?.({ data });
+		}
+	};
 
-  const scheduleRetry = () => {
-    if (closed || retryTimer) return;
-    stream.onerror?.();
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      void subscribe();
-    }, STREAM_RETRY_MS);
-  };
+	const scheduleRetry = () => {
+		if (closed || retryTimer) return;
+		stream.onerror?.();
+		retryTimer = setTimeout(() => {
+			retryTimer = null;
+			void subscribe();
+		}, STREAM_RETRY_MS);
+	};
 
-  const subscribe = async () => {
-    if (closed) return;
-    try {
-      const ws = await openExecSocket();
-      if (closed) return;
-      sseBuffer = "";
-      subId = nextSubId++;
-      activeSubscriptions.set(subId, { onData: handleChunk, onEnd: scheduleRetry });
-      ws.send(JSON.stringify({ sub: subId, path }));
-    } catch {
-      scheduleRetry();
-    }
-  };
+	const subscribe = async () => {
+		if (closed) return;
+		try {
+			const ws = await openExecSocket();
+			if (closed) return;
+			sseBuffer = "";
+			subId = nextSubId++;
+			activeSubscriptions.set(subId, {
+				onData: handleChunk,
+				onEnd: scheduleRetry,
+			});
+			ws.send(JSON.stringify({ sub: subId, path }));
+		} catch {
+			scheduleRetry();
+		}
+	};
 
-  void subscribe();
+	void subscribe();
 
-  stream.close = () => {
-    closed = true;
-    if (retryTimer) clearTimeout(retryTimer);
-    if (subId !== null) {
-      activeSubscriptions.delete(subId);
-      try {
-        openSocket?.send(JSON.stringify({ unsub: subId }));
-      } catch (error) { console.warn("[agentsims:web] recoverable operation failed", error); }
-      subId = null;
-    }
-  };
-  return stream;
+	stream.close = () => {
+		closed = true;
+		if (retryTimer) clearTimeout(retryTimer);
+		if (subId !== null) {
+			activeSubscriptions.delete(subId);
+			try {
+				openSocket?.send(JSON.stringify({ unsub: subId }));
+			} catch (error) {
+				console.warn("[agentsims:web] recoverable operation failed", error);
+			}
+			subId = null;
+		}
+	};
+	return stream;
 }
 
 export function shellEscape(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
+	return `'${s.replace(/'/g, "'\\''")}'`;
 }

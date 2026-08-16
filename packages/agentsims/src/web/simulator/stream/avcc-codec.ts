@@ -27,58 +27,65 @@ export const AVCC_TAG_PRESENTATION = 0x05;
 export const AVCC_TAG_SIMULATOR_FRAME_TIMING = 0x06;
 
 export type AvccChunkType =
-  | "description"
-  | "keyframe"
-  | "delta"
-  | "seed"
-  | "presentation"
-  | "simulator-frame-timing";
+	| "description"
+	| "keyframe"
+	| "delta"
+	| "seed"
+	| "presentation"
+	| "simulator-frame-timing";
 
 export interface AvccChunk {
-  type: AvccChunkType;
-  /** Payload bytes (tag stripped). */
-  payload: Uint8Array;
+	type: AvccChunkType;
+	/** Payload bytes (tag stripped). */
+	payload: Uint8Array;
 }
 
 const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
-  [AVCC_TAG_DESCRIPTION]: "description",
-  [AVCC_TAG_KEYFRAME]: "keyframe",
-  [AVCC_TAG_DELTA]: "delta",
-  [AVCC_TAG_SEED]: "seed",
-  [AVCC_TAG_PRESENTATION]: "presentation",
-  [AVCC_TAG_SIMULATOR_FRAME_TIMING]: "simulator-frame-timing",
+	[AVCC_TAG_DESCRIPTION]: "description",
+	[AVCC_TAG_KEYFRAME]: "keyframe",
+	[AVCC_TAG_DELTA]: "delta",
+	[AVCC_TAG_SEED]: "seed",
+	[AVCC_TAG_PRESENTATION]: "presentation",
+	[AVCC_TAG_SIMULATOR_FRAME_TIMING]: "simulator-frame-timing",
 };
 
 export type AndroidFramePresentation = {
-  generation: number;
+	generation: number;
 };
 
 export function parseAndroidFramePresentation(
-  payload: Uint8Array,
+	payload: Uint8Array,
 ): AndroidFramePresentation | null {
-  try {
-    const value = JSON.parse(
-      new TextDecoder().decode(payload),
-    ) as Partial<AndroidFramePresentation>;
-    if (!Number.isSafeInteger(value.generation) || value.generation! < 1) return null;
-    return { generation: value.generation! };
-  } catch {
-    return null;
-  }
+	try {
+		const value = JSON.parse(
+			new TextDecoder().decode(payload),
+		) as Partial<AndroidFramePresentation>;
+		if (!Number.isSafeInteger(value.generation) || value.generation! < 1)
+			return null;
+		return { generation: value.generation! };
+	} catch {
+		return null;
+	}
 }
 
 export type SimulatorFrameTiming = {
-  sequence: bigint;
-  timestampUs: bigint;
+	sequence: bigint;
+	timestampUs: bigint;
 };
 
-export function parseSimulatorFrameTiming(payload: Uint8Array): SimulatorFrameTiming | null {
-  if (payload.length !== 16) return null;
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  return {
-    sequence: view.getBigUint64(0, false),
-    timestampUs: view.getBigUint64(8, false),
-  };
+export function parseSimulatorFrameTiming(
+	payload: Uint8Array,
+): SimulatorFrameTiming | null {
+	if (payload.length !== 16) return null;
+	const view = new DataView(
+		payload.buffer,
+		payload.byteOffset,
+		payload.byteLength,
+	);
+	return {
+		sequence: view.getBigUint64(0, false),
+		timestampUs: view.getBigUint64(8, false),
+	};
 }
 
 /**
@@ -87,78 +94,84 @@ export function parseSimulatorFrameTiming(payload: Uint8Array): SimulatorFrameTi
  * and retains any trailing partial bytes for the next call.
  */
 export class AvccDemuxer {
-  // Growable accumulation buffer. `len` is the logical end of valid bytes;
-  // `start` is the read cursor of already-consumed bytes. Appending in place
-  // (amortised doubling) instead of rebuilding the whole buffer per chunk keeps
-  // this O(bytes) overall rather than O(bytes²): a port-forward tunnel splits
-  // each frame — keyframes especially — into many small, separately-delivered
-  // reads, and the old per-chunk `new Uint8Array(...)` + double copy churned
-  // enough throwaway buffers to freeze the tab. See the matching note in
-  // `utils/mjpeg-frame-parser.ts`.
-  private buffer = new Uint8Array(64 * 1024);
-  private len = 0;
-  private start = 0;
+	// Growable accumulation buffer. `len` is the logical end of valid bytes;
+	// `start` is the read cursor of already-consumed bytes. Appending in place
+	// (amortised doubling) instead of rebuilding the whole buffer per chunk keeps
+	// this O(bytes) overall rather than O(bytes²): a port-forward tunnel splits
+	// each frame — keyframes especially — into many small, separately-delivered
+	// reads, and the old per-chunk `new Uint8Array(...)` + double copy churned
+	// enough throwaway buffers to freeze the tab. See the matching note in
+	// `utils/mjpeg-frame-parser.ts`.
+	private buffer = new Uint8Array(64 * 1024);
+	private len = 0;
+	private start = 0;
 
-  private append(bytes: Uint8Array): void {
-    if (this.len + bytes.length > this.buffer.length) {
-      // Reclaim the consumed prefix first; only grow if still short.
-      if (this.start > 0) {
-        this.buffer.copyWithin(0, this.start, this.len);
-        this.len -= this.start;
-        this.start = 0;
-      }
-      if (this.len + bytes.length > this.buffer.length) {
-        let cap = this.buffer.length;
-        while (cap < this.len + bytes.length) cap *= 2;
-        const grown = new Uint8Array(cap);
-        grown.set(this.buffer.subarray(0, this.len));
-        this.buffer = grown;
-      }
-    }
-    this.buffer.set(bytes, this.len);
-    this.len += bytes.length;
-  }
+	private append(bytes: Uint8Array): void {
+		if (this.len + bytes.length > this.buffer.length) {
+			// Reclaim the consumed prefix first; only grow if still short.
+			if (this.start > 0) {
+				this.buffer.copyWithin(0, this.start, this.len);
+				this.len -= this.start;
+				this.start = 0;
+			}
+			if (this.len + bytes.length > this.buffer.length) {
+				let cap = this.buffer.length;
+				while (cap < this.len + bytes.length) cap *= 2;
+				const grown = new Uint8Array(cap);
+				grown.set(this.buffer.subarray(0, this.len));
+				this.buffer = grown;
+			}
+		}
+		this.buffer.set(bytes, this.len);
+		this.len += bytes.length;
+	}
 
-  push(bytes: Uint8Array): AvccChunk[] {
-    if (bytes.length > 0) this.append(bytes);
+	push(bytes: Uint8Array): AvccChunk[] {
+		if (bytes.length > 0) this.append(bytes);
 
-    const chunks: AvccChunk[] = [];
-    const buf = this.buffer;
-    while (this.len - this.start >= 4) {
-      const o = this.start;
-      // Big-endian u32; `>>> 0` keeps it unsigned (bit 31 would otherwise sign).
-      const length =
-        ((buf[o]! << 24) | (buf[o + 1]! << 16) | (buf[o + 2]! << 8) | buf[o + 3]!) >>> 0;
-      // length covers the tag byte + payload; need that many bytes after the
-      // 4-byte header before the chunk is complete.
-      if (this.len - o - 4 < length) break;
-      if (length < 1) {
-        // Malformed (length must include the tag byte). Skip the header and
-        // resync rather than spinning forever.
-        this.start += 4;
-        continue;
-      }
-      const tag = buf[o + 4]!;
-      const type = TAG_TO_TYPE[tag];
-      // Copy the payload out: the backing buffer is reused/compacted in place.
-      if (type) chunks.push({ type, payload: buf.slice(o + 5, o + 4 + length) });
-      this.start += 4 + length;
-    }
+		const chunks: AvccChunk[] = [];
+		const buf = this.buffer;
+		while (this.len - this.start >= 4) {
+			const o = this.start;
+			// Big-endian u32; `>>> 0` keeps it unsigned (bit 31 would otherwise sign).
+			const length =
+				((buf[o]! << 24) |
+					(buf[o + 1]! << 16) |
+					(buf[o + 2]! << 8) |
+					buf[o + 3]!) >>>
+				0;
+			// length covers the tag byte + payload; need that many bytes after the
+			// 4-byte header before the chunk is complete.
+			if (this.len - o - 4 < length) break;
+			if (length < 1) {
+				// Malformed (length must include the tag byte). Skip the header and
+				// resync rather than spinning forever.
+				this.start += 4;
+				continue;
+			}
+			const tag = buf[o + 4]!;
+			const type = TAG_TO_TYPE[tag];
+			// Copy the payload out: the backing buffer is reused/compacted in place.
+			if (type)
+				chunks.push({ type, payload: buf.slice(o + 5, o + 4 + length) });
+			this.start += 4 + length;
+		}
 
-    // Compact the consumed prefix so the buffer only holds the unparsed tail.
-    if (this.start > 0) {
-      if (this.start < this.len) this.buffer.copyWithin(0, this.start, this.len);
-      this.len -= this.start;
-      this.start = 0;
-    }
-    return chunks;
-  }
+		// Compact the consumed prefix so the buffer only holds the unparsed tail.
+		if (this.start > 0) {
+			if (this.start < this.len)
+				this.buffer.copyWithin(0, this.start, this.len);
+			this.len -= this.start;
+			this.start = 0;
+		}
+		return chunks;
+	}
 
-  reset(): void {
-    // Keep the allocated capacity; just drop any buffered bytes.
-    this.len = 0;
-    this.start = 0;
-  }
+	reset(): void {
+		// Keep the allocated capacity; just drop any buffered bytes.
+		this.len = 0;
+		this.start = 0;
+	}
 }
 
 /**
@@ -167,14 +180,20 @@ export class AvccDemuxer {
  * yielding e.g. `avc1.640028`.
  */
 export function avcCodecString(description: Uint8Array): string {
-  if (description.length < 4) return "avc1.42E01E";
-  const hex2 = (b: number) => b.toString(16).padStart(2, "0");
-  return "avc1." + hex2(description[1]!) + hex2(description[2]!) + hex2(description[3]!);
+	if (description.length < 4) return "avc1.42E01E";
+	const hex2 = (b: number) => b.toString(16).padStart(2, "0");
+	return (
+		"avc1." +
+		hex2(description[1]!) +
+		hex2(description[2]!) +
+		hex2(description[3]!)
+	);
 }
 
 /** True when the runtime can decode the AVCC stream (WebCodecs available). */
 export function isAvccSupported(): boolean {
-  return (
-    typeof globalThis !== "undefined" && typeof (globalThis as any).VideoDecoder !== "undefined"
-  );
+	return (
+		typeof globalThis !== "undefined" &&
+		typeof (globalThis as any).VideoDecoder !== "undefined"
+	);
 }

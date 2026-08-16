@@ -4,8 +4,8 @@ import { readdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  acquireIosSimulatorTestLock,
-  IOS_E2E_HOOK_TIMEOUT_MS,
+	acquireIosSimulatorTestLock,
+	IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
 import { parseDetachedOutput } from "../helpers/detached-output";
 
@@ -38,21 +38,31 @@ const IDLE_WINDOW_MS = process.env.CI ? 5000 : 2000;
 const MIN_FRAMES_IN_IDLE_WINDOW = 3;
 
 function firstBootedIosSim(): string | null {
-  try {
-    const out = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
-    const data = JSON.parse(out) as {
-      devices: Record<string, Array<{ udid: string; state: string; name?: string }>>;
-    };
-    for (const [runtime, devs] of Object.entries(data.devices)) {
-      // Only iOS simulators — watchOS/tvOS have different framebuffer shapes
-      // and aren't what the production code targets.
-      if (!runtime.includes("iOS")) continue;
-      for (const d of devs) {
-        if (d.state === "Booted") return d.udid;
-      }
-    }
-  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
-  return null;
+	try {
+		const out = execSync("xcrun simctl list devices booted -j", {
+			encoding: "utf-8",
+		});
+		const data = JSON.parse(out) as {
+			devices: Record<
+				string,
+				Array<{ udid: string; state: string; name?: string }>
+			>;
+		};
+		for (const [runtime, devs] of Object.entries(data.devices)) {
+			// Only iOS simulators — watchOS/tvOS have different framebuffer shapes
+			// and aren't what the production code targets.
+			if (!runtime.includes("iOS")) continue;
+			for (const d of devs) {
+				if (d.state === "Booted") return d.udid;
+			}
+		}
+	} catch (error) {
+		console.warn(
+			"[agentsims:test] recoverable setup or cleanup failure",
+			error,
+		);
+	}
+	return null;
 }
 
 const bootedUdid = firstBootedIosSim();
@@ -60,191 +70,255 @@ const describeWithSim = bootedUdid ? describe : describe.skip;
 
 // ── Multipart parser (standalone copy to keep this package self-contained). ──
 interface ParsedFrame {
-  jpeg: Buffer;
+	jpeg: Buffer;
 }
 
-function parseMjpegStream(buf: Buffer): { frames: ParsedFrame[]; rest: Buffer } {
-  const BOUNDARY = Buffer.from("--frame");
-  const HEADER_END = Buffer.from("\r\n\r\n");
-  const frames: ParsedFrame[] = [];
-  let cursor = buf;
+function parseMjpegStream(buf: Buffer): {
+	frames: ParsedFrame[];
+	rest: Buffer;
+} {
+	const BOUNDARY = Buffer.from("--frame");
+	const HEADER_END = Buffer.from("\r\n\r\n");
+	const frames: ParsedFrame[] = [];
+	let cursor = buf;
 
-  while (true) {
-    const boundaryIdx = cursor.indexOf(BOUNDARY);
-    if (boundaryIdx === -1) break;
-    const headerEndIdx = cursor.indexOf(HEADER_END, boundaryIdx);
-    if (headerEndIdx === -1) break;
+	while (true) {
+		const boundaryIdx = cursor.indexOf(BOUNDARY);
+		if (boundaryIdx === -1) break;
+		const headerEndIdx = cursor.indexOf(HEADER_END, boundaryIdx);
+		if (headerEndIdx === -1) break;
 
-    const headerStr = cursor.toString("utf8", boundaryIdx, headerEndIdx);
-    const clMatch = headerStr.match(/Content-Length:\s*(\d+)/i);
-    if (!clMatch) {
-      cursor = cursor.subarray(headerEndIdx + HEADER_END.length);
-      continue;
-    }
-    const contentLength = parseInt(clMatch[1]!, 10);
-    const frameStart = headerEndIdx + HEADER_END.length;
-    if (cursor.length < frameStart + contentLength) break;
+		const headerStr = cursor.toString("utf8", boundaryIdx, headerEndIdx);
+		const clMatch = headerStr.match(/Content-Length:\s*(\d+)/i);
+		if (!clMatch) {
+			cursor = cursor.subarray(headerEndIdx + HEADER_END.length);
+			continue;
+		}
+		const contentLength = parseInt(clMatch[1]!, 10);
+		const frameStart = headerEndIdx + HEADER_END.length;
+		if (cursor.length < frameStart + contentLength) break;
 
-    const jpeg = cursor.subarray(frameStart, frameStart + contentLength);
-    frames.push({ jpeg: Buffer.from(jpeg) });
+		const jpeg = cursor.subarray(frameStart, frameStart + contentLength);
+		frames.push({ jpeg: Buffer.from(jpeg) });
 
-    let nextStart = frameStart + contentLength;
-    if (
-      nextStart + 1 < cursor.length &&
-      cursor[nextStart] === 0x0d &&
-      cursor[nextStart + 1] === 0x0a
-    ) {
-      nextStart += 2;
-    }
-    cursor = cursor.subarray(nextStart);
-  }
+		let nextStart = frameStart + contentLength;
+		if (
+			nextStart + 1 < cursor.length &&
+			cursor[nextStart] === 0x0d &&
+			cursor[nextStart + 1] === 0x0a
+		) {
+			nextStart += 2;
+		}
+		cursor = cursor.subarray(nextStart);
+	}
 
-  return { frames, rest: Buffer.from(cursor) };
+	return { frames, rest: Buffer.from(cursor) };
 }
 
 /** Dump every serve-sim helper log file so CI failures are self-explanatory. */
 function dumpHelperLogs(): string {
-  const stateDir = join(tmpdir(), "serve-sim");
-  const out: string[] = [];
-  try {
-    for (const f of readdirSync(stateDir)) {
-      if (!f.startsWith("server-") || !f.endsWith(".log")) continue;
-      try {
-        const content = readFileSync(join(stateDir, f), "utf-8");
-        out.push(`── ${f} ──\n${content}`);
-      } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
-    }
-  } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
-  return out.join("\n\n");
+	const stateDir = join(tmpdir(), "serve-sim");
+	const out: string[] = [];
+	try {
+		for (const f of readdirSync(stateDir)) {
+			if (!f.startsWith("server-") || !f.endsWith(".log")) continue;
+			try {
+				const content = readFileSync(join(stateDir, f), "utf-8");
+				out.push(`── ${f} ──\n${content}`);
+			} catch (error) {
+				console.warn(
+					"[agentsims:test] recoverable setup or cleanup failure",
+					error,
+				);
+			}
+		}
+	} catch (error) {
+		console.warn(
+			"[agentsims:test] recoverable setup or cleanup failure",
+			error,
+		);
+	}
+	return out.join("\n\n");
 }
 
-describeWithSim(`serve-sim idle frame floor (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
-  let streamUrl: string;
-  let releaseTestLock = () => {};
+describeWithSim(
+	`serve-sim idle frame floor (booted sim ${bootedUdid ?? "<skipped>"})`,
+	() => {
+		let streamUrl: string;
+		let releaseTestLock = () => {};
 
-  beforeAll(async () => {
-    releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
-    // Try kill any prior state — best effort.
-    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+		beforeAll(async () => {
+			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
+			// Try kill any prior state — best effort.
+			try {
+				execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" });
+			} catch (error) {
+				console.warn(
+					"[agentsims:test] recoverable setup or cleanup failure",
+					error,
+				);
+			}
 
-    // stderr is inherited so any diagnostic from serve-sim or the Swift helper
-    // lands directly in the test output — critical when the subprocess hangs
-    // under CI and we need to know *where*. stdout stays captured so we can
-    // still parse the JSON state blob.
-    const detach = spawnSync("bun", ["run", CLI_PATH, "--detach", bootedUdid!], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "inherit"],
-      timeout: 45_000,
-    });
-    if (detach.status !== 0 || !detach.stdout) {
-      const helperLogs = dumpHelperLogs();
-      throw new Error(
-        `serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\n` +
-        `stdout: ${detach.stdout ?? "<none>"}\n` +
-        `helper logs:\n${helperLogs || "<none>"}`,
-      );
-    }
-    try {
-      const info = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
-      streamUrl = info.streamUrl;
-    } catch {
-      throw new Error(
-        `serve-sim --detach returned unparseable stdout: ${detach.stdout}\n` +
-        `helper logs:\n${dumpHelperLogs()}`,
-      );
-    }
-  }, IOS_E2E_HOOK_TIMEOUT_MS);
+			// stderr is inherited so any diagnostic from serve-sim or the Swift helper
+			// lands directly in the test output — critical when the subprocess hangs
+			// under CI and we need to know *where*. stdout stays captured so we can
+			// still parse the JSON state blob.
+			const detach = spawnSync(
+				"bun",
+				["run", CLI_PATH, "--detach", bootedUdid!],
+				{
+					encoding: "utf-8",
+					stdio: ["ignore", "pipe", "inherit"],
+					timeout: 45_000,
+				},
+			);
+			if (detach.status !== 0 || !detach.stdout) {
+				const helperLogs = dumpHelperLogs();
+				throw new Error(
+					`serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\n` +
+						`stdout: ${detach.stdout ?? "<none>"}\n` +
+						`helper logs:\n${helperLogs || "<none>"}`,
+				);
+			}
+			try {
+				const info = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
+				streamUrl = info.streamUrl;
+			} catch {
+				throw new Error(
+					`serve-sim --detach returned unparseable stdout: ${detach.stdout}\n` +
+						`helper logs:\n${dumpHelperLogs()}`,
+				);
+			}
+		}, IOS_E2E_HOOK_TIMEOUT_MS);
 
-  afterAll(() => {
-    try {
-      try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
-    } finally {
-      releaseTestLock();
-    }
-  }, 30_000);
+		afterAll(() => {
+			try {
+				try {
+					execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" });
+				} catch (error) {
+					console.warn(
+						"[agentsims:test] recoverable setup or cleanup failure",
+						error,
+					);
+				}
+			} finally {
+				releaseTestLock();
+			}
+		}, 30_000);
 
-  test("first frame arrives quickly even on an idle simulator", async () => {
-    const t0 = Date.now();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FIRST_FRAME_BUDGET_MS + 500);
+		test(
+			"first frame arrives quickly even on an idle simulator",
+			async () => {
+				const t0 = Date.now();
+				const controller = new AbortController();
+				const timer = setTimeout(
+					() => controller.abort(),
+					FIRST_FRAME_BUDGET_MS + 500,
+				);
 
-    const res = await fetch(streamUrl, { signal: controller.signal });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type") ?? "").toContain("multipart/x-mixed-replace");
+				const res = await fetch(streamUrl, { signal: controller.signal });
+				expect(res.status).toBe(200);
+				expect(res.headers.get("content-type") ?? "").toContain(
+					"multipart/x-mixed-replace",
+				);
 
-    const reader = res.body!.getReader();
-    let buf = Buffer.alloc(0);
-    let firstFrameAt: number | null = null;
+				const reader = res.body!.getReader();
+				let buf = Buffer.alloc(0);
+				let firstFrameAt: number | null = null;
 
-    try {
-      while (Date.now() - t0 < FIRST_FRAME_BUDGET_MS) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf = Buffer.concat([buf, Buffer.from(value)]);
-        const parsed = parseMjpegStream(buf);
-        buf = parsed.rest as Buffer<ArrayBuffer>;
-        if (parsed.frames.length > 0) {
-          firstFrameAt = Date.now() - t0;
-          // Sanity: every frame must start with JPEG SOI.
-          for (const f of parsed.frames) {
-            expect(f.jpeg[0]).toBe(0xff);
-            expect(f.jpeg[1]).toBe(0xd8);
-          }
-          break;
-        }
-      }
-    } catch (err) {
-      // AbortError from the budget timer is expected when the stream stalls;
-      // fall through so the assertion below reports the real diagnosis
-      // (firstFrameAt === null) instead of a confusing unhandled rejection.
-      if ((err as { name?: string }).name !== "AbortError") throw err;
-    }
+				try {
+					while (Date.now() - t0 < FIRST_FRAME_BUDGET_MS) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						buf = Buffer.concat([buf, Buffer.from(value)]);
+						const parsed = parseMjpegStream(buf);
+						buf = parsed.rest as Buffer<ArrayBuffer>;
+						if (parsed.frames.length > 0) {
+							firstFrameAt = Date.now() - t0;
+							// Sanity: every frame must start with JPEG SOI.
+							for (const f of parsed.frames) {
+								expect(f.jpeg[0]).toBe(0xff);
+								expect(f.jpeg[1]).toBe(0xd8);
+							}
+							break;
+						}
+					}
+				} catch (err) {
+					// AbortError from the budget timer is expected when the stream stalls;
+					// fall through so the assertion below reports the real diagnosis
+					// (firstFrameAt === null) instead of a confusing unhandled rejection.
+					if ((err as { name?: string }).name !== "AbortError") throw err;
+				}
 
-    clearTimeout(timer);
-    try { reader.cancel(); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+				clearTimeout(timer);
+				try {
+					reader.cancel();
+				} catch (error) {
+					console.warn(
+						"[agentsims:test] recoverable setup or cleanup failure",
+						error,
+					);
+				}
 
-    expect(firstFrameAt).not.toBeNull();
-    expect(firstFrameAt).toBeLessThanOrEqual(FIRST_FRAME_BUDGET_MS);
-  }, FIRST_FRAME_BUDGET_MS + 5000);
+				expect(firstFrameAt).not.toBeNull();
+				expect(firstFrameAt).toBeLessThanOrEqual(FIRST_FRAME_BUDGET_MS);
+			},
+			FIRST_FRAME_BUDGET_MS + 5000,
+		);
 
-  test(`idle floor emits >= ${MIN_FRAMES_IN_IDLE_WINDOW} frames in ${IDLE_WINDOW_MS}ms`, async () => {
-    const t0 = Date.now();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), IDLE_WINDOW_MS + 500);
+		test(
+			`idle floor emits >= ${MIN_FRAMES_IN_IDLE_WINDOW} frames in ${IDLE_WINDOW_MS}ms`,
+			async () => {
+				const t0 = Date.now();
+				const controller = new AbortController();
+				const timer = setTimeout(
+					() => controller.abort(),
+					IDLE_WINDOW_MS + 500,
+				);
 
-    const res = await fetch(streamUrl, { signal: controller.signal });
-    const reader = res.body!.getReader();
+				const res = await fetch(streamUrl, { signal: controller.signal });
+				const reader = res.body!.getReader();
 
-    let buf = Buffer.alloc(0);
-    let frameCount = 0;
-    const sizes: number[] = [];
+				let buf = Buffer.alloc(0);
+				let frameCount = 0;
+				const sizes: number[] = [];
 
-    try {
-      while (Date.now() - t0 < IDLE_WINDOW_MS) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf = Buffer.concat([buf, Buffer.from(value)]);
-        const parsed = parseMjpegStream(buf);
-        buf = parsed.rest as Buffer<ArrayBuffer>;
-        for (const f of parsed.frames) {
-          frameCount++;
-          sizes.push(f.jpeg.length);
-          expect(f.jpeg[0]).toBe(0xff);
-          expect(f.jpeg[1]).toBe(0xd8);
-        }
-      }
-    } catch (err) {
-      // The abort-controller deadline is supposed to fire at the end of the
-      // window — let the frame-count assertion be the actual signal.
-      if ((err as { name?: string }).name !== "AbortError") throw err;
-    }
+				try {
+					while (Date.now() - t0 < IDLE_WINDOW_MS) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						buf = Buffer.concat([buf, Buffer.from(value)]);
+						const parsed = parseMjpegStream(buf);
+						buf = parsed.rest as Buffer<ArrayBuffer>;
+						for (const f of parsed.frames) {
+							frameCount++;
+							sizes.push(f.jpeg.length);
+							expect(f.jpeg[0]).toBe(0xff);
+							expect(f.jpeg[1]).toBe(0xd8);
+						}
+					}
+				} catch (err) {
+					// The abort-controller deadline is supposed to fire at the end of the
+					// window — let the frame-count assertion be the actual signal.
+					if ((err as { name?: string }).name !== "AbortError") throw err;
+				}
 
-    clearTimeout(timer);
-    try { reader.cancel(); } catch (error) { console.warn("[agentsims:test] recoverable setup or cleanup failure", error); }
+				clearTimeout(timer);
+				try {
+					reader.cancel();
+				} catch (error) {
+					console.warn(
+						"[agentsims:test] recoverable setup or cleanup failure",
+						error,
+					);
+				}
 
-    expect(frameCount).toBeGreaterThanOrEqual(MIN_FRAMES_IN_IDLE_WINDOW);
-    // Every frame should have a reasonable size — serve-sim emits a real
-    // JPEG, not an empty buffer.
-    for (const s of sizes) expect(s).toBeGreaterThan(1000);
-  }, IDLE_WINDOW_MS + 5000);
-});
+				expect(frameCount).toBeGreaterThanOrEqual(MIN_FRAMES_IN_IDLE_WINDOW);
+				// Every frame should have a reasonable size — serve-sim emits a real
+				// JPEG, not an empty buffer.
+				for (const s of sizes) expect(s).toBeGreaterThan(1000);
+			},
+			IDLE_WINDOW_MS + 5000,
+		);
+	},
+);

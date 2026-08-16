@@ -11,12 +11,12 @@ const BUNDLES = ["dist/agentsims.js"] as const;
 // CI builds dist before running this directory; locally, run
 // `bun run build.ts` first or the suite skips.
 const describeIfBuilt = BUNDLES.every((b) => existsSync(join(PKG_DIR, b)))
-  ? describe
-  : describe.skip;
+	? describe
+	: describe.skip;
 
 describeIfBuilt("bundle portability", () => {
-  test.each([...BUNDLES])("%s has no build-machine path baked in", (bundle) => {
-    const js = readFileSync(join(PKG_DIR, bundle), "utf-8");
-    expect(js).not.toContain(PKG_DIR);
-  });
+	test.each([...BUNDLES])("%s has no build-machine path baked in", (bundle) => {
+		const js = readFileSync(join(PKG_DIR, bundle), "utf-8");
+		expect(js).not.toContain(PKG_DIR);
+	});
 });

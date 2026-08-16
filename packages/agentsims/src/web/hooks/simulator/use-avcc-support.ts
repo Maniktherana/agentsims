@@ -13,6 +13,6 @@ import { isAvccSupported } from "../../simulator/stream/avcc-codec";
  * connect and on every change — so this hook no longer touches the network.
  */
 export function useAvccStream() {
-  const [supported] = useState(isAvccSupported);
-  return { supported };
+	const [supported] = useState(isAvccSupported);
+	return { supported };
 }
