@@ -134,6 +134,23 @@ actor HIDInjector {
         hidLog("[hid] IndigoHIDMessageForMouseNSEvent loaded (with edge gesture support)")
     }
 
+    func stop() {
+        scrollEndWork?.cancel()
+        scrollEndWork = nil
+        if scrollDragActive {
+            rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
+            scrollDragActive = false
+        }
+        hidClient = nil
+        sendSel = nil
+        simDevice = nil
+        mouseFunc = nil
+        buttonFunc = nil
+        hidArbitraryFunc = nil
+        keyboardFunc = nil
+        digitalCrownFunc = nil
+    }
+
     // IndigoHIDEdge values (x4 param to IndigoHIDMessageForMouseNSEvent).
     // These control system edge gesture recognition in the simulated iOS device.
     // Determined by disassembling IndigoHIDMessageForMouseNSEvent and testing

@@ -3,8 +3,8 @@
  * that replaces the spawned helper. HID is the first surface;
  * frame capture + encoders land here next.
  *
- * The .node is resolved from disk (dist/native/) relative to this module or a
- * native launcher, so it loads under `npx agentsims` and mounted middleware.
+ * The loader resolves the addon from the selected platform package. The addon
+ * stays on disk beside the compiled binary because `dlopen` requires a path.
  */
 import { createRequire } from "module";
 import { dirname, join } from "path";
@@ -14,10 +14,8 @@ import { configuredDistDirectory } from "../../server/runtime/runtime-paths";
 
 const require = createRequire(import.meta.url);
 
-// The addon exposes two NodeClasses (SimHID, SimCapture) plus two async
-// functions. NodeClass instances clean up their native resources when the JS
-// handle is garbage-collected (Swift `deinit`), so there are no explicit
-// destroy/free calls here.
+// Native handles expose explicit stop methods. Swift `deinit` remains a
+// last-resort fallback when a caller loses a handle without closing its scope.
 interface SimHIDHandle {
   touch(type: TouchType, x: number, y: number, w: number, hh: number, edge: number): Promise<void>;
   multiTouch(
@@ -45,6 +43,7 @@ interface SimHIDHandle {
   memoryWarning(): Promise<void>;
   softwareKeyboard(): Promise<void>;
   caDebug(name: string, enabled: boolean): Promise<boolean>;
+  stop(): Promise<void>;
 }
 
 interface SimCaptureHandle {
@@ -121,13 +120,16 @@ export const Orientation = {
 } as const;
 
 function resolveAddon(): string {
+  if (process.platform !== "darwin") {
+    throw new Error(`iOS Simulator native support is not available on ${process.platform}`);
+  }
   const configuredDist = configuredDistDirectory();
   const candidates = [
     ...(configuredDist ? [join(configuredDist, "native", "agentsims-native.node")] : []),
-    // Beside an optional native launcher (dist/agentsims → dist/native/…).
-    // The shipped addon contains Intel and Apple Silicon slices.
+    // Beside the compiled Bun binary in the optional platform package.
+    // The shipped iOS addon contains Intel and Apple Silicon slices.
     join(dirname(process.execPath), "native", "agentsims-native.node"),
-    // Beside the bundled JS (dist/agentsims.js or dist/middleware.js).
+    // Beside an uncompiled development bundle.
     join(dirname(fileURLToPath(import.meta.url)), "native", "agentsims-native.node"),
     // Dev: running from source (src/ios/stream/native.ts -> ../../../dist/native/...).
     join(
@@ -249,6 +251,14 @@ export class NativeHid {
   caDebug(name: string, enabled: boolean): Promise<boolean> {
     return this.guard("caDebug", () => this.handle.caDebug(name, enabled), false);
   }
+
+  private stopped = false;
+
+  async stop(): Promise<void> {
+    if (this.stopped) return;
+    this.stopped = true;
+    await this.guard("stop", () => this.handle.stop(), undefined);
+  }
 }
 
 /**
@@ -328,7 +338,7 @@ export class NativeCapture {
     };
   }
 
-  /** Halt frame production. Full teardown happens when this object is GC'd. */
+  /** Halt frame production and release native capture resources. */
   async stop(): Promise<void> {
     this.avccListeners.clear();
     const unsubscribe = this.avccUnsubscribe;

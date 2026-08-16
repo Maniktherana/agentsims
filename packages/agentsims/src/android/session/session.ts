@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
+import { Effect } from "effect";
 import type { AndroidCornerRadii, AndroidScreenConfig, AndroidStatus } from "../device/types";
 import {
   createAndroidTransport,
@@ -7,6 +8,7 @@ import {
   type AndroidTransportConfig,
 } from "../stream/transport";
 import type { HidSocket } from "../../ios/session/session";
+import { ScopedResourceRegistry } from "../../shared/scoped-resource-registry";
 import {
   androidButton,
   androidKeyEvent,
@@ -235,7 +237,7 @@ export class AndroidSession {
   private lastEmulatorViewport: string | null = null;
   private closed = false;
   private pendingEmulatorRotation: AndroidRotation | null = null;
-  private inputQueue: Promise<void> = Promise.resolve();
+  private readonly inputSemaphore = Effect.runSync(Effect.makeSemaphore(1));
   private emulatorScrollGesture: {
     transport: AndroidTransport;
     x: number;
@@ -507,6 +509,44 @@ export class AndroidSession {
     await transport.attachAvcc(res);
   }
 
+  avccResponse(): Response {
+    let closed = false;
+    let detach: (() => void) | undefined;
+    const closeCallbacks = new Set<() => void>();
+    const drainCallbacks = new Set<() => void>();
+    const stream = new ReadableStream<Uint8Array>({
+      start: async (controller) => {
+        const transport = await this.ensureTransportStarted();
+        detach = await transport.attachAvccSink({
+          get closed() { return closed; },
+          get bufferedBytes() { return (controller.desiredSize ?? 1) <= 0 ? 512 * 1024 : 0; },
+          write(chunk) { if (!closed) controller.enqueue(Buffer.from(chunk)); },
+          close() { if (!closed) controller.close(); closed = true; },
+          onClose(callback) { closeCallbacks.add(callback); },
+          onDrain(callback) { drainCallbacks.add(callback); },
+        });
+      },
+      pull() {
+        for (const callback of drainCallbacks) callback();
+      },
+      cancel: () => {
+        if (closed) return;
+        closed = true;
+        detach?.();
+        for (const callback of closeCallbacks) callback();
+        this.updateTransportIdleTimer();
+      },
+    }, { highWaterMark: 1 });
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Cache-Control": "no-cache, no-store",
+        ...CORS,
+      },
+    });
+  }
+
   handleScreenshot(_req: IncomingMessage, res: ServerResponse): void {
     void (async () => {
       try {
@@ -549,19 +589,20 @@ export class AndroidSession {
       });
   }
 
+  async readStatus(): Promise<AndroidStatus> {
+    return this.decorateStatus(await getAndroidStatus(this.serial));
+  }
+
   handleHealth(_req: IncomingMessage, res: ServerResponse): void {
     sendJson(res, 200, { status: "ok", platform: "android" });
   }
 
   handleStatus(_req: IncomingMessage, res: ServerResponse): void {
-    void (async () => {
-      try {
-        const status = await getAndroidStatus(this.serial);
-        sendJson(res, 200, this.decorateStatus(status));
-      } catch (error) {
+    void this.readStatus()
+      .then((status) => sendJson(res, 200, status))
+      .catch((error) => {
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-      }
-    })();
+      });
   }
 
   private decorateStatus(status: AndroidStatus): AndroidStatus {
@@ -624,7 +665,12 @@ export class AndroidSession {
   }
 
   private queueHidMessage(message: Buffer): void {
-    this.inputQueue = this.inputQueue.then(() => this.dispatchInputFrame(message)).catch(() => {});
+    Effect.runFork(
+      Effect.promise(() => this.dispatchInputFrame(message)).pipe(
+        this.inputSemaphore.withPermits(1),
+        Effect.catchAllCause(() => Effect.void),
+      ),
+    );
   }
 
   private emulatorScrollTouch(
@@ -870,26 +916,38 @@ export class AndroidSession {
   }
 }
 
-const sessions = new Map<string, AndroidSession>();
+export class AndroidSessions {
+  private readonly sessions = new ScopedResourceRegistry(
+    (serial: string) => new AndroidSession(serial),
+    (session) => session.close(),
+  );
 
-export async function getAndroidSession(serial: string): Promise<AndroidSession> {
-  if (!isAndroidEmulatorSerial(serial)) {
-    throw new Error(`Agentsims live Android sessions require an emulator: ${serial}`);
+  async get(serial: string): Promise<AndroidSession> {
+    if (!isAndroidEmulatorSerial(serial)) {
+      throw new Error(`Agentsims live Android sessions require an emulator: ${serial}`);
+    }
+    const session = this.sessions.get(serial);
+    await session.start();
+    return session;
   }
-  let session = sessions.get(serial);
-  if (!session) {
-    session = new AndroidSession(serial);
-    sessions.set(serial, session);
+
+  close(serial: string): Promise<void> {
+    return this.sessions.close(serial);
   }
-  await session.start();
-  return session;
+
+  closeAll(): Promise<void> {
+    return this.sessions.closeAll();
+  }
 }
 
-export function closeAndroidSession(serial: string): void {
-  const session = sessions.get(serial);
-  if (!session) return;
-  session.close();
-  sessions.delete(serial);
+export const androidSessions = new AndroidSessions();
+
+export function getAndroidSession(serial: string): Promise<AndroidSession> {
+  return androidSessions.get(serial);
+}
+
+export function closeAndroidSession(serial: string): Promise<void> {
+  return androidSessions.close(serial);
 }
 
 export async function serveAndroidHelper(
