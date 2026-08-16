@@ -107,7 +107,6 @@ struct EncoderState {
     source: frame::Video,
     converted: frame::Video,
     frame_index: i64,
-    emitted_description: bool,
 }
 
 impl EncoderState {
@@ -160,7 +159,6 @@ impl EncoderState {
             source: frame::Video::new(format::Pixel::RGBA, width, height),
             converted: frame::Video::new(format::Pixel::NV12, width, height),
             frame_index: 0,
-            emitted_description: false,
         })
     }
 
@@ -208,34 +206,12 @@ impl EncoderState {
                 .data()
                 .ok_or_else(|| "FFmpeg returned an empty H.264 packet".to_string())?;
             let normalized = normalize_h264_packet(packet_data)?;
-            if packet.is_key() && !self.emitted_description {
-                if let Some(description) = avcc_description(&normalized.nals) {
-                    self.emitted_description = true;
-                    outputs.push(EncodedOutput {
-                        data: envelope(AVCC_TAG_DESCRIPTION, &description),
-                        width: self.width,
-                        height: self.height,
-                        flags: FLAG_DESCRIPTION,
-                    });
-                }
-            }
-            let payload = avcc_payload(&normalized.nals);
-            if !payload.is_empty() {
-                let keyframe = packet.is_key();
-                outputs.push(EncodedOutput {
-                    data: envelope(
-                        if keyframe {
-                            AVCC_TAG_KEYFRAME
-                        } else {
-                            AVCC_TAG_DELTA
-                        },
-                        &payload,
-                    ),
-                    width: self.width,
-                    height: self.height,
-                    flags: if keyframe { FLAG_KEYFRAME } else { 0 },
-                });
-            }
+            outputs.extend(encoded_packet_outputs(
+                &normalized,
+                packet.is_key(),
+                self.width,
+                self.height,
+            ));
             packet = Packet::empty();
         }
         Ok(outputs)
@@ -374,6 +350,38 @@ fn avcc_description(nals: &[Vec<u8>]) -> Option<Vec<u8>> {
     Some(description)
 }
 
+fn encoded_packet_outputs(
+    packet: &NormalizedPacket,
+    keyframe: bool,
+    width: u32,
+    height: u32,
+) -> Vec<EncodedOutput> {
+    let mut outputs = Vec::new();
+    if keyframe {
+        if let Some(description) = avcc_description(&packet.nals) {
+            outputs.push(EncodedOutput {
+                data: envelope(AVCC_TAG_DESCRIPTION, &description),
+                width,
+                height,
+                flags: FLAG_DESCRIPTION,
+            });
+        }
+    }
+    let payload = avcc_payload(&packet.nals);
+    if !payload.is_empty() {
+        outputs.push(EncodedOutput {
+            data: envelope(
+                if keyframe { AVCC_TAG_KEYFRAME } else { AVCC_TAG_DELTA },
+                &payload,
+            ),
+            width,
+            height,
+            flags: if keyframe { FLAG_KEYFRAME } else { 0 },
+        });
+    }
+    outputs
+}
+
 fn envelope(tag: u8, payload: &[u8]) -> Vec<u8> {
     let mut encoded = Vec::with_capacity(payload.len() + 5);
     encoded.extend_from_slice(&((payload.len() + 1) as u32).to_be_bytes());
@@ -427,7 +435,6 @@ fn worker(
                 for output in outputs {
                     let status = callback.call(output, ThreadsafeFunctionCallMode::NonBlocking);
                     if status != Status::Ok {
-                        current.emitted_description = false;
                         callback_dropped.store(true, Ordering::Release);
                         break;
                     }
@@ -545,6 +552,17 @@ mod tests {
     }
 
     #[test]
+    fn mailbox_stop_unblocks_worker_receive() {
+        let mailbox = Arc::new(Mailbox::new());
+        let worker_mailbox = Arc::clone(&mailbox);
+        let worker = thread::spawn(move || worker_mailbox.receive());
+
+        mailbox.stop();
+
+        assert!(worker.join().unwrap().is_none());
+    }
+
+    #[test]
     fn normalizes_annex_b_and_builds_avcc_description_and_payload() {
         let packet = [
             0, 0, 0, 1, 0x67, 0x64, 0, 0x28, 0xaa, 0, 0, 1, 0x68, 0xee, 0x3c, 0x80, 0, 0, 1, 0x65,
@@ -555,6 +573,25 @@ mod tests {
         assert_eq!(&description[..6], &[1, 0x64, 0, 0x28, 0xff, 0xe1]);
         let payload = avcc_payload(&normalized.nals);
         assert_eq!(payload, [0, 0, 0, 4, 0x65, 1, 2, 3]);
+    }
+
+    #[test]
+    fn every_keyframe_carries_a_decoder_description_for_reconnects() {
+        let packet = [
+            0, 0, 0, 1, 0x67, 0x64, 0, 0x28, 0xaa,
+            0, 0, 1, 0x68, 0xee, 0x3c, 0x80,
+            0, 0, 1, 0x65, 1, 2, 3,
+        ];
+        let normalized = normalize_h264_packet(&packet).unwrap();
+
+        for _reconnect in 0..2 {
+            let outputs = encoded_packet_outputs(&normalized, true, 1080, 2424);
+            assert_eq!(outputs.len(), 2);
+            assert_eq!(outputs[0].flags, FLAG_DESCRIPTION);
+            assert_eq!(outputs[0].data[4], AVCC_TAG_DESCRIPTION);
+            assert_eq!(outputs[1].flags, FLAG_KEYFRAME);
+            assert_eq!(outputs[1].data[4], AVCC_TAG_KEYFRAME);
+        }
     }
 
     #[test]

@@ -18,16 +18,19 @@ private func u32(_ v: Int) -> UInt32 {
 // MARK: - HID
 
 /// In-process HID injector for one simulator. Mirrors the WebSocket HID protocol
-/// the spawned helper used to handle, as direct native calls. The instance is
-/// released (freeing the injector) when its JS handle is garbage-collected.
+/// In-process HID injector for one simulator. `stop()` releases the native HID
+/// client immediately. `deinit` remains a last-resort fallback.
 @NodeClass @NodeActor final class SimHID {
     private let injector: HIDInjector
     private let udid: String
+    private var setupTask: Task<Void, Error>?
+    private var stopped = false
 
     @NodeConstructor init(_ udid: String) throws {
         self.udid = udid
-        injector = HIDInjector()
-        Task { try await injector.setup(deviceUDID: udid) }
+        let injector = HIDInjector()
+        self.injector = injector
+        self.setupTask = Task { try await injector.setup(deviceUDID: udid) }
     }
 
     @NodeMethod func touch(_ type: String, _ x: Double, _ y: Double,
@@ -81,6 +84,20 @@ private func u32(_ v: Int) -> UInt32 {
 
     @NodeMethod func caDebug(_ name: String, _ enabled: Bool) async -> Bool {
         await injector.setCADebugOption(name: name, enabled: enabled)
+    }
+
+    @NodeMethod func stop() async {
+        if stopped { return }
+        stopped = true
+        setupTask?.cancel()
+        _ = try? await setupTask?.value
+        setupTask = nil
+        await injector.stop()
+    }
+
+    deinit {
+        setupTask?.cancel()
+        Task { [injector] in await injector.stop() }
     }
 }
 

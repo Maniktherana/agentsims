@@ -90,6 +90,8 @@ actor CaptureEngine {
     private(set) var screenSize = Dimensions(width: 0, height: 0)
     private var consumers = [UUID: CaptureConsuming]()
     private var avccEncoders = [UUID: AVCCEncoder]()
+    private var frameContinuation: AsyncStream<Frame>.Continuation?
+    private var frameTask: Task<Void, Never>?
 
     init(deviceUDID: String) {
         self.deviceUDID = deviceUDID
@@ -105,12 +107,14 @@ actor CaptureEngine {
             // drop old frames if there's backpressure
             bufferingPolicy: .bufferingNewest(1)
         )
+        self.frameContinuation = frameContinuation
         try await frameCapture.start(deviceUDID: deviceUDID) { pixelBuffer, _, nativeTiming in
             frameContinuation.yield(Frame(pixelBuffer: pixelBuffer, nativeTiming: nativeTiming))
         }
-        Task {
+        frameTask = Task { [weak self] in
             for await frame in frames {
-                handleFrame(frame)
+                guard let self else { return }
+                await self.handleFrame(frame)
             }
         }
         phase = .running
@@ -207,12 +211,18 @@ actor CaptureEngine {
         }
     }
 
-    func stop() {
+    func stop() async {
         if phase == .stopped { return }
         phase = .stopped
-        Task { [frameCapture] in await frameCapture.stop() }
+        frameContinuation?.finish()
+        frameContinuation = nil
+        frameTask?.cancel()
+        frameTask = nil
+        await frameCapture.stop()
         consumers.removeAll()
+        let encoders = Array(avccEncoders.values)
         avccEncoders.removeAll()
+        for encoder in encoders { await encoder.stop() }
     }
 }
 
@@ -256,6 +266,10 @@ actor AVCCEncoder: FrameEncoder {
     func requestKeyframe() async {
         forceKeyframe = true
         await h264Encoder.reemitDescription()
+    }
+
+    func stop() async {
+        await h264Encoder.stop()
     }
 
     deinit {

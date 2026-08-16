@@ -15,6 +15,7 @@
  * original byte-for-byte so the existing browser client is unchanged.
  */
 import type { IncomingMessage, ServerResponse } from "http";
+import { ScopedResourceRegistry } from "../../shared/scoped-resource-registry";
 import {
   NativeCapture,
   NativeHid,
@@ -93,6 +94,41 @@ function waitForDrain(res: ServerResponse): Promise<void> {
   });
 }
 
+function streamedResponse(
+  headers: Record<string, string>,
+  subscribe: (write: (chunk: Uint8Array) => Promise<void>) => Promise<() => void>,
+  initial?: Uint8Array,
+): Response {
+  let unsubscribe: (() => void) | undefined;
+  let cancelled = false;
+  let resume: (() => void) | undefined;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = async (chunk: Uint8Array) => {
+        while (!cancelled && (controller.desiredSize ?? 1) <= 0) {
+          const gate = Promise.withResolvers<void>();
+          resume = gate.resolve;
+          await gate.promise;
+        }
+        if (!cancelled) controller.enqueue(Buffer.from(chunk));
+      };
+      if (initial) await write(initial);
+      unsubscribe = await subscribe(write);
+      if (cancelled) unsubscribe();
+    },
+    pull() {
+      resume?.();
+      resume = undefined;
+    },
+    cancel() {
+      cancelled = true;
+      resume?.();
+      unsubscribe?.();
+    },
+  }, { highWaterMark: 1 });
+  return new Response(stream, { status: 200, headers });
+}
+
 export class DeviceSession {
   private readonly capture: NativeCapture;
   private readonly hid: NativeHid;
@@ -137,19 +173,19 @@ export class DeviceSession {
       this.phase = "stopped";
       try {
         await this.capture.stop();
-      } catch {}
+      } catch (error) { console.warn("[agentsims:ios] recoverable operation failed", error); }
       throw error;
     });
     return this.startPromise;
   }
 
-  close(): void {
+  async close(): Promise<void> {
     if (this.phase === "stopped") return;
     this.phase = "stopped";
     for (const ws of this.hidSockets) ws.close();
     this.unsubscribeMjpeg?.();
     this.hidSockets.clear();
-    void this.capture.stop().catch(() => {});
+    await Promise.allSettled([this.capture.stop(), this.hid.stop()]);
   }
 
   // ── Frame handling ───────────────────────────────────────────────────────
@@ -233,6 +269,33 @@ export class DeviceSession {
     })();
   }
 
+  mjpegResponse(raw = false): Response {
+    const initial = this.latestJpeg();
+    const seed = initial
+      ? Buffer.concat([mjpegHeader(initial.length), Buffer.from(initial), MJPEG_TRAILER])
+      : undefined;
+    return streamedResponse({
+      "Content-Type": raw
+        ? "application/octet-stream"
+        : "multipart/x-mixed-replace; boundary=frame",
+      "Cache-Control": "no-cache, no-store",
+      ...CORS,
+    }, async (write) => this.capture.subscribeMjpeg(async (frame) => {
+      await write(Buffer.concat([mjpegHeader(frame.data.length), Buffer.from(frame.data), MJPEG_TRAILER]));
+    }), seed);
+  }
+
+  avccResponse(): Response {
+    const latest = this.latestJpeg();
+    return streamedResponse({
+      "Content-Type": "application/octet-stream",
+      "Cache-Control": "no-cache, no-store",
+      ...CORS,
+    }, async (write) => this.capture.subscribeAvcc(async (frame) => {
+      await write(Buffer.from(frame.data));
+    }), latest ? avccSeed(Buffer.from(latest)) : undefined);
+  }
+
   handleConfig(_req: IncomingMessage, res: ServerResponse): void {
     this.sendJson(res, 200, this.screenConfig());
   }
@@ -269,6 +332,10 @@ export class DeviceSession {
       .catch((error) => {
         this.sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       });
+  }
+
+  async readForeground(): Promise<unknown> {
+    return JSON.parse(await axFrontmostAsync(this.udid));
   }
 
   handleAx(_req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -431,26 +498,31 @@ export class DeviceSession {
 
 // ── Registry ─────────────────────────────────────────────────────────────
 
-const sessions = new Map<string, DeviceSession>();
+export class IosSessions {
+  private readonly sessions = new ScopedResourceRegistry(
+    (udid: string) => new DeviceSession(udid),
+    (session) => session.close(),
+  );
 
-/**
- * Get or lazily create the in-process session for `udid`. Callers await
- * `session.start()` before advertising or serving it. The session lives until
- * `closeDeviceSession`.
- */
-export function getDeviceSession(udid: string): DeviceSession {
-  let session = sessions.get(udid);
-  if (!session) {
-    session = new DeviceSession(udid);
-    sessions.set(udid, session);
+  get(udid: string): DeviceSession {
+    return this.sessions.get(udid);
   }
-  return session;
+
+  close(udid: string): Promise<void> {
+    return this.sessions.close(udid);
+  }
+
+  closeAll(): Promise<void> {
+    return this.sessions.closeAll();
+  }
 }
 
-export function closeDeviceSession(udid: string): void {
-  const session = sessions.get(udid);
-  if (session) {
-    session.close();
-    sessions.delete(udid);
-  }
+export const iosSessions = new IosSessions();
+
+export function getDeviceSession(udid: string): DeviceSession {
+  return iosSessions.get(udid);
+}
+
+export function closeDeviceSession(udid: string): Promise<void> {
+  return iosSessions.close(udid);
 }

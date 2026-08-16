@@ -289,7 +289,14 @@ actor FrameCapture {
         callbackUUIDs.removeAll()
         descriptors.removeAll()
         lastSeeds.removeAll()
+        onFrame = nil
         ioClient = nil
+        capturedWidth = 0
+        capturedHeight = 0
+        frameCount = 0
+        nativeFrameSequence = 0
+        rewireTickCount = 0
+
     }
 
     // MARK: - Helpers

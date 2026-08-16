@@ -1,5 +1,5 @@
 import type { ServerResponse } from "http";
-import { AndroidEmulatorSession, type AndroidEmulatorConfig } from "./emulator-controller";
+import { AndroidEmulatorSession, type AndroidEmulatorConfig, type AvccSubscriberSink } from "./emulator-controller";
 
 export type AndroidTransportConfig = AndroidEmulatorConfig;
 export type AndroidTouchPhase = "begin" | "move" | "end" | "cancel";
@@ -16,6 +16,7 @@ export interface AndroidTransport {
   start(): Promise<void>;
   close(): void;
   attachAvcc(res: ServerResponse): Promise<void>;
+  attachAvccSink(sink: AvccSubscriberSink): Promise<() => void>;
   resetVideo(): boolean;
   setPresentationGeneration?(generation: number): void;
   injectTouch(

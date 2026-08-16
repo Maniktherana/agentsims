@@ -60,8 +60,17 @@ type ControllerMetadata = {
   token: string;
 };
 
+export type AvccSubscriberSink = {
+  readonly closed: boolean;
+  readonly bufferedBytes: number;
+  write(chunk: Buffer): void;
+  close(): void;
+  onClose(callback: () => void): void;
+  onDrain(callback: () => void): void;
+};
+
 type AvccSubscriber = {
-  res: ServerResponse;
+  sink: AvccSubscriberSink;
   waitingForKeyframe: boolean;
   needsKeyframe: boolean;
 };
@@ -352,16 +361,25 @@ export class AndroidAvccFrameCoordinator {
   }
 
   attach(res: ServerResponse): void {
+    this.attachSink({
+      get closed() { return res.writableEnded || res.destroyed; },
+      get bufferedBytes() { return res.writableLength; },
+      write(chunk) { res.write(chunk); },
+      close() { res.end(); },
+      onClose(callback) { res.on("close", callback); res.on("error", callback); },
+      onDrain(callback) { res.on("drain", callback); },
+    });
+  }
+
+  attachSink(sink: AvccSubscriberSink): () => void {
     const subscriber: AvccSubscriber = {
-      res,
+      sink,
       waitingForKeyframe: true,
       needsKeyframe: false,
     };
     this.subscribers.add(subscriber);
     this.onSubscriberCountChange?.(this.subscribers.size);
-    if (this.lastPresentationMetadata) {
-      this.writeSubscriber(subscriber, this.lastPresentationMetadata);
-    }
+    if (this.lastPresentationMetadata) this.writeSubscriber(subscriber, this.lastPresentationMetadata);
     if (this.lastDescription) this.writeSubscriber(subscriber, this.lastDescription);
     this.capture.requestKeyframe();
     if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
@@ -379,9 +397,9 @@ export class AndroidAvccFrameCoordinator {
       this.capture.requestKeyframe();
       if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
     };
-    res.on("close", cleanup);
-    res.on("error", cleanup);
-    res.on("drain", resume);
+    sink.onClose(cleanup);
+    sink.onDrain(resume);
+    return cleanup;
   }
 
   publish(chunk: Buffer, isDescription = false): void {
@@ -399,8 +417,8 @@ export class AndroidAvccFrameCoordinator {
   close(): void {
     for (const subscriber of this.subscribers) {
       try {
-        subscriber.res.end();
-      } catch {}
+        subscriber.sink.close();
+      } catch (error) { console.warn("[agentsims:android] recoverable operation failed", error); }
     }
     this.subscribers.clear();
     this.onSubscriberCountChange?.(0);
@@ -413,9 +431,9 @@ export class AndroidAvccFrameCoordinator {
   }
 
   private writeSubscriber(subscriber: AvccSubscriber, chunk: Buffer): void {
-    if (subscriber.res.writableEnded || subscriber.res.destroyed) return;
+    if (subscriber.sink.closed) return;
     const tag = chunk[4];
-    if (subscriber.res.writableLength >= MAX_SUBSCRIBER_BUFFER_BYTES) {
+    if (subscriber.sink.bufferedBytes >= MAX_SUBSCRIBER_BUFFER_BYTES) {
       if (tag === AVCC_TAG_KEYFRAME || tag === AVCC_TAG_DELTA) {
         subscriber.waitingForKeyframe = true;
         subscriber.needsKeyframe = true;
@@ -428,14 +446,14 @@ export class AndroidAvccFrameCoordinator {
         tag === AVCC_TAG_PRESENTATION ||
         tag === AVCC_TAG_SIMULATOR_FRAME_TIMING
       ) {
-        subscriber.res.write(chunk);
+        subscriber.sink.write(chunk);
       } else if (tag === AVCC_TAG_KEYFRAME) {
         subscriber.waitingForKeyframe = false;
-        subscriber.res.write(chunk);
+        subscriber.sink.write(chunk);
       }
       return;
     }
-    subscriber.res.write(chunk);
+    subscriber.sink.write(chunk);
   }
 }
 
@@ -500,6 +518,11 @@ export class AndroidEmulatorSession {
     this.frameCoordinator?.attach(res);
   }
 
+  async attachAvccSink(sink: AvccSubscriberSink): Promise<() => void> {
+    await this.start();
+    return this.frameCoordinator?.attachSink(sink) ?? (() => {});
+  }
+
   resetVideo(): boolean {
     this.capture?.requestKeyframe();
     return !!this.capture;
@@ -554,7 +577,7 @@ export class AndroidEmulatorSession {
     this.client = null;
     try {
       unlinkSync(this.mmapPath);
-    } catch {}
+    } catch (error) { console.warn("[agentsims:android] recoverable operation failed", error); }
   }
 
   private async startImpl(): Promise<void> {
