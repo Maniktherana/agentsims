@@ -78,8 +78,8 @@ describe("Android presented surface geometry parity", () => {
 		expect(simulatorView).toContain("data-agentsims-presentation-plane");
 		expect(simulatorView).toContain('transform: "none"');
 		expect(simulatorView).toContain("{presentationOverlay}");
-		expect(simulatorView).toContain(
-			"const presentationScreenSize = relayMode && streamConfig ? streamConfig : screenSize;",
+		expect(simulatorView).toMatch(
+			/const presentationScreenSize\s*=\s*relayMode && streamConfig\s*\? streamConfig\s*:\s*screenSize;/,
 		);
 		expect(simulatorView).toContain("if (hasPresentationPlane) return null;");
 		expect(simulatorView).toContain(
@@ -89,8 +89,8 @@ describe("Android presented surface geometry parity", () => {
 			"inset: hasPresentationPlane ? 0 : undefined",
 		);
 		expect(simulatorView).toContain("? (presentationRotationDegrees ?? 0)");
-		expect(workspace).toContain(
-			"presentationPlaneStyle={isAndroidDevice ? effectivePlane.planeStyle : undefined}",
+		expect(workspace).toMatch(
+			/presentationPlaneStyle=\{\s*isAndroidDevice\s*\? effectivePlane\.planeStyle\s*:\s*undefined\s*\}/,
 		);
 		expect(workspace).not.toContain("androidPresentationPendingRef.current");
 	});
