@@ -43,6 +43,7 @@ export interface AndroidAvdInfo {
 }
 
 const androidReactNativePackages = new Set<string>();
+const androidNonReactNativeProcesses = new Set<string>();
 const ANDROID_RN_LOG_MARKERS =
 	/\b(?:ReactNativeJS|ReactNative|Hermes|ExpoModules|expo\.modules)\b/i;
 const ANDROID_RN_FILE_MARKERS =
@@ -1493,9 +1494,10 @@ export function parseAndroidForegroundPackage(output: string): string | null {
 async function androidPidForPackage(
 	serial: string,
 	bundleId: string,
+	execute: (args: string[], timeout?: number) => Promise<string>,
 ): Promise<number | undefined> {
 	try {
-		const output = await adbText(
+		const output = await execute(
 			["-s", serial, "shell", "pidof", bundleId],
 			3_000,
 		);
@@ -1510,76 +1512,79 @@ async function detectAndroidReactNative(
 	serial: string,
 	bundleId: string,
 	pid: number | undefined,
+	execute: (args: string[], timeout?: number) => Promise<string>,
 ): Promise<boolean> {
 	if (androidReactNativePackages.has(bundleId)) return true;
+	const processKey = `${serial}:${bundleId}:${pid ?? "unknown"}`;
+	if (androidNonReactNativeProcesses.has(processKey)) return false;
 
 	if (pid) {
-		try {
-			const logs = await adbText(
-				[
-					"-s",
-					serial,
-					"logcat",
-					`--pid=${pid}`,
-					"-d",
-					"-t",
-					"300",
-					"-v",
-					"brief",
-				],
-				4_000,
-			);
-			if (ANDROID_RN_LOG_MARKERS.test(logs)) {
-				androidReactNativePackages.add(bundleId);
-				return true;
-			}
-		} catch (error) {
-			console.warn("[agentsims:android] recoverable operation failed", error);
+		const logs = await execute(
+			[
+				"-s",
+				serial,
+				"logcat",
+				`--pid=${pid}`,
+				"-d",
+				"-t",
+				"300",
+				"-v",
+				"brief",
+			],
+			4_000,
+		).catch(() => "");
+		if (ANDROID_RN_LOG_MARKERS.test(logs)) {
+			androidReactNativePackages.add(bundleId);
+			return true;
 		}
 	}
 
 	// Debuggable RN/Expo apps expose their sandbox through run-as. This catches
 	// a quiet app whose logcat buffer does not currently contain an RN tag.
-	try {
-		const files = await adbText(
-			[
-				"-s",
-				serial,
-				"shell",
-				"run-as",
-				bundleId,
-				"find",
-				"files",
-				"shared_prefs",
-				"-maxdepth",
-				"3",
-				"-type",
-				"f",
-			],
-			4_000,
-		);
-		if (ANDROID_RN_FILE_MARKERS.test(files)) {
-			androidReactNativePackages.add(bundleId);
-			return true;
-		}
-	} catch (error) {
-		console.warn("[agentsims:android] recoverable operation failed", error);
+	const files = await execute(
+		[
+			"-s",
+			serial,
+			"shell",
+			"run-as",
+			bundleId,
+			"find",
+			"files",
+			"shared_prefs",
+			"-maxdepth",
+			"3",
+			"-type",
+			"f",
+		],
+		4_000,
+	).catch(() => "");
+	if (ANDROID_RN_FILE_MARKERS.test(files)) {
+		androidReactNativePackages.add(bundleId);
+		return true;
 	}
 
+	androidNonReactNativeProcesses.add(processKey);
 	return false;
 }
 
 export async function getAndroidForegroundApp(
 	serial: string,
+	execute: (args: string[], timeout?: number) => Promise<string> = adbText,
 ): Promise<AndroidForegroundApp | null> {
-	const activities = await adbText(
+	const activities = await execute(
 		["-s", serial, "shell", "dumpsys", "activity", "activities"],
 		5_000,
-	);
+	).catch(() => null);
+	if (activities === null) return null;
 	const bundleId = parseAndroidForegroundPackage(activities);
 	if (!bundleId) return null;
-	const pid = await androidPidForPackage(serial, bundleId);
-	const isReactNative = await detectAndroidReactNative(serial, bundleId, pid);
+	const pid = await androidPidForPackage(serial, bundleId, execute);
+	const isReactNative = await detectAndroidReactNative(
+		serial,
+		bundleId,
+		pid,
+		execute,
+	);
 	return pid === undefined
 		? { bundleId, isReactNative }
 		: { bundleId, pid, isReactNative };

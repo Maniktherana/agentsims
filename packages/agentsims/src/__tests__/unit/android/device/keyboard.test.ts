@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
 	androidKeycodeForHidUsage,
 	androidNightModeEnabled,
+	getAndroidForegroundApp,
 	parseAndroidForegroundPackage,
 } from "../../../../android/device/device";
 
@@ -46,5 +47,49 @@ describe("Android app and appearance parsing", () => {
 		expect(androidNightModeEnabled("Night mode: yes")).toBe(true);
 		expect(androidNightModeEnabled("Night mode: no")).toBe(false);
 		expect(androidNightModeEnabled("Night mode: 2")).toBe(true);
+	});
+
+	test("returns no foreground app when the selected emulator disappears", async () => {
+		const calls: string[][] = [];
+		const execute = async (args: string[]): Promise<string> => {
+			calls.push(args);
+			throw new Error("adb: device 'emulator-gone' not found");
+		};
+
+		expect(await getAndroidForegroundApp("emulator-gone", execute)).toBeNull();
+		expect(calls).toHaveLength(1);
+	});
+
+	test("memoizes a non-debuggable foreground process without warning", async () => {
+		const calls: string[][] = [];
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		const execute = async (args: string[]): Promise<string> => {
+			calls.push(args);
+			if (args.includes("dumpsys")) {
+				return "topResumedActivity=ActivityRecord{1 u0 com.example.launcher/.Main t2}";
+			}
+			if (args.includes("pidof")) return "4242";
+			if (args.includes("logcat")) return "";
+			throw new Error("run-as: package not debuggable: com.example.launcher");
+		};
+
+		try {
+			const expected = {
+				bundleId: "com.example.launcher",
+				pid: 4242,
+				isReactNative: false,
+			};
+			expect(await getAndroidForegroundApp("emulator-test", execute)).toEqual(
+				expected,
+			);
+			expect(await getAndroidForegroundApp("emulator-test", execute)).toEqual(
+				expected,
+			);
+			expect(calls.filter((args) => args.includes("logcat"))).toHaveLength(1);
+			expect(calls.filter((args) => args.includes("run-as"))).toHaveLength(1);
+			expect(warn).not.toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
+		}
 	});
 });
