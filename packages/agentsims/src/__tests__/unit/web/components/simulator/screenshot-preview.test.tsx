@@ -3,16 +3,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-	DeviceScreenshotPreview,
+	ScreenshotPreviewOverlay,
 	ScreenshotFlash,
 	copyScreenshotBlob,
 	resolveScreenshotPreviewSidecar,
-} from "./device-screenshot-feedback";
+} from "../../../../../web/components/simulator/screenshot-preview";
 
 describe("device screenshot feedback", () => {
 	test("does not use a browser download for screenshot persistence", () => {
 		const source = readFileSync(
-			join(import.meta.dir, "../workspace/simulator-device-view.tsx"),
+			join(
+				import.meta.dir,
+				"../../../../../web/components/workspace/simulator-device-view.tsx",
+			),
 			"utf8",
 		);
 		expect(source).not.toContain("link.click()");
@@ -35,6 +38,10 @@ describe("device screenshot feedback", () => {
 			top: 460,
 			width: 100,
 			height: 200,
+			sourceLeft: 200,
+			sourceTop: 60,
+			sourceWidth: 300,
+			sourceHeight: 600,
 		});
 	});
 
@@ -64,7 +71,7 @@ describe("device screenshot feedback", () => {
 
 	test("renders external accessible controls and image-only border geometry", () => {
 		const html = renderToStaticMarkup(
-			<DeviceScreenshotPreview
+			<ScreenshotPreviewOverlay
 				deviceId="android:emulator-5554"
 				preview={{
 					id: "shot-2",
@@ -75,7 +82,17 @@ describe("device screenshot feedback", () => {
 					copying: false,
 					error: null,
 				}}
-				layout={{ side: "right", left: 120, top: 451, width: 120, height: 269 }}
+				layout={{
+					side: "right",
+					left: 120,
+					top: 451,
+					width: 120,
+					height: 269,
+					sourceLeft: 0,
+					sourceTop: 0,
+					sourceWidth: 360,
+					sourceHeight: 808,
+				}}
 				onCopy={() => {}}
 				onDismiss={() => {}}
 			/>,
@@ -88,8 +105,6 @@ describe("device screenshot feedback", () => {
 		expect(html).toContain('data-phase="visible"');
 		expect(html).toContain('aria-label="Copy image"');
 		expect(html).toContain('aria-label="Discard screenshot"');
-		expect(html).toContain('title="Copy image"');
-		expect(html).toContain('title="Discard screenshot"');
 		expect(html).toContain("width:120px");
 		expect(html).toContain("height:269px");
 		expect(html).toContain("agentsims-screenshot-preview-image");
@@ -98,7 +113,7 @@ describe("device screenshot feedback", () => {
 
 	test("shows clipboard failures without turning them into a download", () => {
 		const html = renderToStaticMarkup(
-			<DeviceScreenshotPreview
+			<ScreenshotPreviewOverlay
 				deviceId="ios:phone"
 				preview={{
 					id: "shot-3",
@@ -109,7 +124,17 @@ describe("device screenshot feedback", () => {
 					copying: false,
 					error: "Clipboard permission denied",
 				}}
-				layout={{ side: "left", left: 10, top: 20, width: 100, height: 200 }}
+				layout={{
+					side: "left",
+					left: 10,
+					top: 20,
+					width: 100,
+					height: 200,
+					sourceLeft: 100,
+					sourceTop: 100,
+					sourceWidth: 200,
+					sourceHeight: 400,
+				}}
 				onCopy={() => {}}
 				onDismiss={() => {}}
 			/>,

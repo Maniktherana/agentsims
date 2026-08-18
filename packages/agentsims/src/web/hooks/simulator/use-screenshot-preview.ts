@@ -3,7 +3,7 @@ import {
 	copyScreenshotBlob,
 	type ScreenshotFlashState,
 	type ScreenshotPreview,
-} from "../../components/feedback/device-screenshot-feedback";
+} from "../../components/simulator/screenshot-preview";
 
 export type CapturedScreenshotPreview = {
 	id: string;
@@ -16,8 +16,8 @@ export type CapturedScreenshotPreview = {
 	release?: () => void;
 };
 
-const FLASH_HOLD_MS = 45;
-const FLASH_FADE_MS = 145;
+const FLASH_HOLD_MS = 75;
+const FLASH_FADE_MS = 210;
 export const PREVIEW_READY_COUNTDOWN_MS = 5000;
 export const PREVIEW_EXIT_MS = 160;
 
@@ -165,7 +165,7 @@ export async function completeScreenshotPreview({
 	else onRemove(id);
 }
 
-export function useDeviceScreenshotFeedback() {
+export function useScreenshotPreview(onCopied?: () => void) {
 	const [flash, setFlash] = useState<ScreenshotFlashState | null>(null);
 	const [preview, setPreview] = useState<ActiveScreenshotPreview | null>(null);
 	const sessionRef = useRef<ScreenshotCaptureSession | null>(null);
@@ -362,6 +362,7 @@ export function useDeviceScreenshotFeedback() {
 		);
 		try {
 			await copyScreenshotBlob(activePreviewRef.current?.blob ?? current.blob);
+			onCopied?.();
 			exitPreview(current.id);
 		} catch (error) {
 			setPreview((value) =>
@@ -377,7 +378,7 @@ export function useDeviceScreenshotFeedback() {
 					: value,
 			);
 		}
-	}, [cancelActiveWork, exitPreview, preview]);
+	}, [cancelActiveWork, exitPreview, onCopied, preview]);
 
 	const reset = useCallback(() => {
 		sessionRef.current?.invalidate();

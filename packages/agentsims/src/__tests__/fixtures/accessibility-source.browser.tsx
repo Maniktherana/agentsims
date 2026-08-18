@@ -1,6 +1,6 @@
 import "@fontsource/geist-mono/latin-400.css";
 import "@fontsource/geist-mono/latin-500.css";
-import "../../web/app/global.css";
+import "../../web/global.css";
 import { createRoot } from "react-dom/client";
 import { AccessibilityDetails } from "../../web/components/accessibility/tree";
 import type { AxElement } from "../../accessibility/model";

@@ -1,6 +1,6 @@
 import { Monitor, RefreshCw, Smartphone, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { simEndpoint } from "../../../app/sim-endpoint";
+import { simEndpoint } from "../../../preview/sim-endpoint";
 import type { AndroidStatus } from "../../../../android/device/types";
 import { SettingRow } from "./simulator-settings-tool";
 

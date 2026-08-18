@@ -9,7 +9,7 @@ import {
 import { useGridDevices } from "./use-grid-devices";
 import { openHostEventStream } from "../../simulator/input/exec";
 import { proxyPreviewConfigForBrowser } from "../../workspace/preview-config";
-import { simEndpoint, streamConfigFrom } from "../../app/sim-endpoint";
+import { simEndpoint, streamConfigFrom } from "../../preview/sim-endpoint";
 import {
 	createWorkspaceSelectionState,
 	effectiveDeviceId,

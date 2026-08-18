@@ -1,11 +1,11 @@
-import { simEndpoint } from "../../app/sim-endpoint";
+import { simEndpoint } from "../../preview/sim-endpoint";
 
 export async function saveScreenshotToHost(
 	blob: Blob,
 	deviceId: string,
 	signal: AbortSignal,
+	token: string,
 ): Promise<string> {
-	const token = window.__SIM_PREVIEW__?.execToken ?? "";
 	const endpoint = new URL(
 		simEndpoint("screenshot/save"),
 		window.location.href,

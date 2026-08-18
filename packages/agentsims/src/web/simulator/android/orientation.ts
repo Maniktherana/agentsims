@@ -1,4 +1,4 @@
-import type { SimulatorOrientation, StreamConfig } from "../../app/types.js";
+import type { SimulatorOrientation, StreamConfig } from "../types.js";
 
 export const ROTATE_LEFT_CYCLE: Record<
 	SimulatorOrientation,

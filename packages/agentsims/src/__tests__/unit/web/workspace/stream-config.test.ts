@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { streamConfigFrom } from "../../../../web/app/sim-endpoint";
+import { streamConfigFrom } from "../../../../web/preview/sim-endpoint";
 
 // The middleware injects a minimal `{basePath, execToken}` __SIM_PREVIEW__
 // when no helper is attached (the empty state needs the exec token before a

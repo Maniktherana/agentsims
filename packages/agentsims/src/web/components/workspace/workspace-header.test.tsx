@@ -208,7 +208,7 @@ describe("WorkspaceHeader", () => {
 		expect(html).toContain('aria-label="Devices, 1 shown"');
 		expect(html).toContain('aria-label="Device settings"');
 		expect(html).not.toContain('aria-label="Add simulator"');
-		expect(html).not.toContain('aria-label="WebKit DevTools"');
+		expect(html).not.toContain('aria-label="Browser DevTools"');
 	});
 
 	test("mounts Settings inside the same expanded dock", () => {

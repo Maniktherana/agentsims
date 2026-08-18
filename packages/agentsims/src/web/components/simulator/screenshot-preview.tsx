@@ -1,5 +1,6 @@
 import { Copy, X } from "lucide-react";
 import type { CSSProperties } from "react";
+import { IconButton } from "../ui/icon-button";
 
 export type ScreenshotPreviewSide = "right" | "left";
 
@@ -24,6 +25,10 @@ export type ScreenshotPreviewLayout = {
 	top: number;
 	width: number;
 	height: number;
+	sourceLeft: number;
+	sourceTop: number;
+	sourceWidth: number;
+	sourceHeight: number;
 };
 
 type Rect = {
@@ -117,7 +122,17 @@ export function resolveScreenshotPreviewSidecar({
 		return null;
 	}
 	const left = side === "right" ? screenRight + gap : screen.left - gap - width;
-	return { side, left, top: screenBottom - height, width, height };
+	return {
+		side,
+		left,
+		top: screenBottom - height,
+		width,
+		height,
+		sourceLeft: screen.left,
+		sourceTop: screen.top,
+		sourceWidth: screen.width,
+		sourceHeight: screen.height,
+	};
 }
 
 export async function copyScreenshotBlob<Item = ClipboardItem>(
@@ -178,16 +193,18 @@ export function ScreenshotFlash({
 	);
 }
 
-export function DeviceScreenshotPreview({
+export function ScreenshotPreviewOverlay({
 	deviceId,
 	preview,
 	layout,
+	borderRadius,
 	onCopy,
 	onDismiss,
 }: {
 	deviceId: string;
 	preview: ScreenshotPreview | null;
 	layout: ScreenshotPreviewLayout | null;
+	borderRadius?: CSSProperties["borderRadius"];
 	onCopy: () => void;
 	onDismiss: () => void;
 }) {
@@ -198,47 +215,56 @@ export function DeviceScreenshotPreview({
 			data-side={layout.side}
 			data-phase={preview.phase}
 			className="agentsims-screenshot-preview pointer-events-none absolute z-40"
-			style={{
-				left: layout.left,
-				top: layout.top,
-				width: layout.width,
-				height: layout.height,
-			}}
+			style={
+				{
+					left: layout.left,
+					top: layout.top,
+					width: layout.width,
+					height: layout.height,
+					borderRadius,
+					"--screenshot-enter-x": `${layout.sourceLeft - layout.left}px`,
+					"--screenshot-enter-y": `${layout.sourceTop - layout.top}px`,
+					"--screenshot-enter-scale-x": layout.sourceWidth / layout.width,
+					"--screenshot-enter-scale-y": layout.sourceHeight / layout.height,
+				} as CSSProperties
+			}
 		>
-			<div className="agentsims-screenshot-preview-image size-full overflow-hidden rounded-[10px] bg-black">
+			<div
+				className="agentsims-screenshot-preview-image size-full overflow-hidden bg-black"
+				style={{ borderRadius }}
+			>
 				<img
 					key={preview.id}
 					src={preview.src}
 					alt=""
 					draggable={false}
 					className="block size-full select-none"
-					style={{
-						objectFit: "contain",
-						pointerEvents: "none",
-					}}
+					style={{ objectFit: "contain", pointerEvents: "none" }}
 				/>
 			</div>
 			<div
 				className="agentsims-screenshot-preview-controls pointer-events-auto absolute bottom-0 flex flex-col items-center"
 				data-side={layout.side}
 			>
-				<button
-					type="button"
-					aria-label="Copy image"
-					title="Copy image"
+				<IconButton
+					label="Copy image"
+					tooltip="Copy image"
+					size="panel"
+					surface="toolbar"
 					disabled={preview.copying}
 					onClick={onCopy}
 				>
-					<Copy aria-hidden="true" size={12} strokeWidth={2} />
-				</button>
-				<button
-					type="button"
-					aria-label="Discard screenshot"
-					title="Discard screenshot"
+					<Copy aria-hidden="true" size={14} strokeWidth={2} />
+				</IconButton>
+				<IconButton
+					label="Discard screenshot"
+					tooltip="Discard"
+					size="panel"
+					surface="toolbar"
 					onClick={onDismiss}
 				>
-					<X aria-hidden="true" size={13} strokeWidth={2} />
-				</button>
+					<X aria-hidden="true" size={14} strokeWidth={2} />
+				</IconButton>
 			</div>
 			{preview.error ? (
 				<div

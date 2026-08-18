@@ -20,7 +20,14 @@ import {
 	type StreamConfig,
 } from "../../simulator/index";
 
-import { ArrowLeft, GripVertical, ListTree, Menu, Upload } from "lucide-react";
+import {
+	ArrowLeft,
+	CodeXml,
+	GripVertical,
+	ListTree,
+	Menu,
+	Upload,
+} from "lucide-react";
 import { ReloadIcon } from "../icons/index";
 import { AccessibilityInspectorController } from "../accessibility/controller";
 import { AxDomOverlay } from "../accessibility/overlay";
@@ -29,18 +36,15 @@ import {
 	accessibilityInspectorReducer,
 	createAccessibilityInspectorState,
 } from "../../accessibility/state";
+import { DeviceFrame, type FrameButtonPress } from "../simulator/device-frame";
 import {
-	DeviceKitChrome,
-	type ChromeButtonPress,
-} from "../simulator/device-chrome-frame";
-import {
-	DeviceScreenshotPreview,
+	ScreenshotPreviewOverlay,
 	ScreenshotFlash,
 	normalizeScreenshotPng,
 	readScreenshotImageSize,
 	resolveScreenshotPreviewSidecar,
 	type ScreenshotPreviewLayout,
-} from "../feedback/device-screenshot-feedback";
+} from "../simulator/screenshot-preview";
 import { ResizeHandle } from "../simulator/resize-handle";
 import { SimulatorResizeCornerHandle } from "../simulator/simulator-resize-corner-handle";
 import { SimulatorResizeSizeBadge } from "../simulator/simulator-resize-size-badge";
@@ -51,17 +55,21 @@ import {
 	CODEC_PREFERENCE_STORAGE_KEY,
 	type CodecPreference,
 } from "../dock/settings/stream-settings-tool";
-import { WebKitDevtoolsPanel } from "../devtools/webkit-devtools-panel";
+import { DevToolsPanel } from "../devtools/devtools-panel";
 import { useMediaDrop } from "../../hooks/media/use-media-drop";
-import { useDeviceScreenshotFeedback } from "../../hooks/feedback/use-device-screenshot-feedback";
+import { useScreenshotPreview } from "../../hooks/simulator/use-screenshot-preview";
 import { useMjpegStream } from "../../hooks/simulator/use-mjpeg-stream";
 import { useAvccStream } from "../../hooks/simulator/use-avcc-support";
 import { useResizableWidth } from "../../hooks/simulator/use-resizable-width";
 import { useScreenshotToast } from "../../hooks/feedback/use-screenshot-toast";
 import { useSimulatorResize } from "../../hooks/simulator/use-simulator-resize";
 import { useUploadToasts } from "../../hooks/feedback/use-upload-toasts";
-import { useWebKitDevtools } from "../../hooks/devtools/use-webkit-devtools";
-import type { DeviceKitChromeDescriptor } from "../../workspace/grid";
+import { useDevTools } from "../../hooks/devtools/use-devtools";
+import {
+	devToolsTargetsForForegroundApp,
+	isForegroundBrowserApp,
+} from "../../devtools/availability";
+import type { DeviceFrameDescriptor } from "../../workspace/grid";
 import {
 	avccFallbackReducer,
 	initialAvccFallback,
@@ -70,11 +78,8 @@ import {
 import { fileExtension } from "../../media/drop";
 import { execOnHost, openHostEventStream } from "../../simulator/input/exec";
 import { hidUsageForCode } from "../../simulator/input/hid";
-import {
-	DEVTOOLS_PANEL_WIDTH,
-	PANEL_WIDTH,
-} from "../../workspace/panel-widths";
-import { simEndpoint } from "../../app/sim-endpoint";
+import { PANEL_WIDTH } from "../../workspace/panel-widths";
+import { simEndpoint } from "../../preview/sim-endpoint";
 import type { RenderedScreenshot } from "../../simulator/screenshot/rendered-screenshot";
 import { startScreenshotCapture } from "../../simulator/screenshot/screenshot-capture-flow";
 import { saveScreenshotToHost } from "../../simulator/screenshot/screenshot-save";
@@ -115,7 +120,7 @@ export interface SimulatorDeviceViewProps {
 	config: PreviewConfig;
 	deviceName: string | null;
 	deviceRuntime: string | null;
-	chrome: DeviceKitChromeDescriptor | null;
+	chrome: DeviceFrameDescriptor | null;
 	preferMjpeg: boolean;
 	toolsOpen: boolean;
 	setToolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -181,6 +186,9 @@ export function SimulatorDeviceView({
 	}, [deviceName, focused]);
 
 	const isAndroidDevice = config.device.startsWith("android:");
+	const [currentApp, setCurrentApp] = useState<ForegroundApp | null>(
+		() => currentAppCache.get(config.device) ?? null,
+	);
 	const [axRefreshSignal, requestAxRefresh] = useReducer(
 		(value: number) => value + 1,
 		0,
@@ -196,29 +204,42 @@ export function SimulatorDeviceView({
 		if (!isAndroidDevice || !needsAxSnapshot) axRefreshScheduler.cancel();
 	}, [axRefreshScheduler, isAndroidDevice, needsAxSnapshot]);
 	useEffect(() => () => axRefreshScheduler.cancel(), [axRefreshScheduler]);
-	const devtools = useWebKitDevtools(
+	const devtools = useDevTools(
 		config.devtoolsEndpoint ?? simEndpoint("devtools"),
-		panelsEnabled && !isAndroidDevice && devtoolsOpen,
+		panelsEnabled &&
+			focused &&
+			isForegroundBrowserApp(config.device, currentApp),
 	);
-	const webkitDevtoolsOpen = !isAndroidDevice && devtoolsOpen;
+	const availableDevToolsTargets = devToolsTargetsForForegroundApp(
+		config.device,
+		currentApp,
+		devtools.targets,
+	);
+	const devtoolsPanelOpen =
+		panelsEnabled && devtoolsOpen && availableDevToolsTargets.length > 0;
 
 	useEffect(() => {
-		if (!panelsEnabled || !webkitDevtoolsOpen) return;
+		if (!panelsEnabled || !devtoolsPanelOpen) return;
 		if (
-			selectedDevtoolsTargetId &&
-			devtools.targets.some((target) => target.id === selectedDevtoolsTargetId)
+			availableDevToolsTargets.some(
+				(target) => target.id === selectedDevtoolsTargetId,
+			)
 		)
 			return;
-		setSelectedDevtoolsTargetId(
-			devtools.targets.length === 1 ? devtools.targets[0]!.id : null,
-		);
+		setSelectedDevtoolsTargetId(availableDevToolsTargets[0]?.id ?? null);
 	}, [
 		panelsEnabled,
-		webkitDevtoolsOpen,
-		devtools.targets,
+		devtoolsPanelOpen,
+		availableDevToolsTargets,
 		selectedDevtoolsTargetId,
 		setSelectedDevtoolsTargetId,
 	]);
+
+	useEffect(() => {
+		if (availableDevToolsTargets.length === 0 && devtoolsOpen) {
+			setDevtoolsOpen(false);
+		}
+	}, [availableDevToolsTargets.length, devtoolsOpen, setDevtoolsOpen]);
 
 	useEffect(() => {
 		if (!focused) return;
@@ -377,14 +398,14 @@ export function SimulatorDeviceView({
 	});
 	const {
 		deviceType,
-		useChrome,
+		useDeviceFrame,
 		defaultWidth: containerDefaultWidth,
 		aspectRatio: containerAspectRatio,
 		aspectRatioValue: containerAspectRatioValue,
 	} = deviceLayout;
 	const imgBorderRadius = screenBorderRadius(deviceType, activeStreamConfig);
 	const hasRoundedScreen = imgBorderRadius !== "0px";
-	const imgCornerShape = useChrome
+	const imgCornerShape = useDeviceFrame
 		? undefined
 		: screenCornerShape(deviceType, activeStreamConfig);
 
@@ -485,8 +506,8 @@ export function SimulatorDeviceView({
 	// A hardware button on the device chrome was pressed/released. Forward its HID
 	// (page, usage) so the helper injects it via arbitrary HID — `down`/`up` phases
 	// let power / side buttons be held for their long-press menus.
-	const handleChromeButton = useCallback(
-		({ phase, button }: ChromeButtonPress) => {
+	const handleFrameButton = useCallback(
+		({ phase, button }: FrameButtonPress) => {
 			if (button.usagePage == null || button.usage == null) return;
 			sendWs(0x04, {
 				button: button.name,
@@ -563,19 +584,8 @@ export function SimulatorDeviceView({
 		[scheduleAxRefresh, sendWs],
 	);
 
-	// Subscribe to app-state SSE.
-	const [currentApp, setCurrentApp] = useState<ForegroundApp | null>(
-		() => currentAppCache.get(config.device) ?? null,
-	);
 	const { width: toolsPanelWidth, onPointerDown: onToolsResize } =
 		useResizableWidth("agentsims:tools-panel-width", PANEL_WIDTH, 240, 720);
-	const { width: devtoolsPanelWidth, onPointerDown: onDevtoolsResize } =
-		useResizableWidth(
-			"agentsims:devtools-panel-width",
-			DEVTOOLS_PANEL_WIDTH,
-			420,
-			1400,
-		);
 	const [viewportWidth, setViewportWidth] = useState(() =>
 		typeof window !== "undefined" ? window.innerWidth : 0,
 	);
@@ -594,21 +604,13 @@ export function SimulatorDeviceView({
 		const es = openHostEventStream(
 			config.appStateEndpoint ?? simEndpoint("appstate"),
 		);
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		es.onmessage = (e) => {
-			const next = decodeForegroundAppEvent(e.data);
+		es.onmessage = (event) => {
+			const next = decodeForegroundAppEvent(event.data);
 			if (!next) return;
-			clearTimeout(timer);
-			const delay = next.isReactNative ? 0 : 600;
-			timer = setTimeout(() => {
-				currentAppCache.set(config.device, next);
-				setCurrentApp(next);
-			}, delay);
+			currentAppCache.set(config.device, next);
+			setCurrentApp(next);
 		};
-		return () => {
-			clearTimeout(timer);
-			es.close();
-		};
+		return () => es.close();
 	}, [config.appStateEndpoint, config.device]);
 
 	// Cmd+R to reload the RN/Expo bundle.
@@ -749,8 +751,8 @@ export function SimulatorDeviceView({
 	}, [sendWs, config.device, rotateBy, isAndroidDevice]);
 
 	const uploads = useUploadToasts();
-	const screenshot = useScreenshotToast(config.device);
-	const screenshotFeedback = useDeviceScreenshotFeedback();
+	const screenshot = useScreenshotToast();
+	const screenshotPreview = useScreenshotPreview(screenshot.reportCopied);
 	const [screenshotPreviewLayout, setScreenshotPreviewLayout] =
 		useState<ScreenshotPreviewLayout | null>(null);
 	const screenshotRequestRef = useRef<AbortController | null>(null);
@@ -766,10 +768,15 @@ export function SimulatorDeviceView({
 
 	const saveCapturedScreenshot = useCallback(
 		async (blob: Blob, signal: AbortSignal) => {
-			const path = await saveScreenshotToHost(blob, config.device, signal);
+			const path = await saveScreenshotToHost(
+				blob,
+				config.device,
+				signal,
+				config.execToken ?? "",
+			);
 			screenshot.reportSaved(path);
 		},
-		[config.device, screenshot],
+		[config.device, config.execToken, screenshot],
 	);
 
 	const captureDeviceScreenshot = useCallback(
@@ -809,7 +816,7 @@ export function SimulatorDeviceView({
 		[config.streamUrl, saveCapturedScreenshot],
 	);
 
-	const resetScreenshotFeedback = screenshotFeedback.reset;
+	const resetScreenshotFeedback = screenshotPreview.reset;
 	useEffect(
 		() => () => {
 			screenshotRequestRef.current?.abort();
@@ -836,9 +843,9 @@ export function SimulatorDeviceView({
 					cancel: () => controller.abort(),
 				};
 			},
-			begin: screenshotFeedback.beginCapture,
+			begin: screenshotPreview.beginCapture,
 			captureAuthoritative: () => captureDeviceScreenshot(controller),
-			replace: screenshotFeedback.replaceCapture,
+			replace: screenshotPreview.replaceCapture,
 			reportError: screenshot.reportError,
 		});
 		if (!flow) {
@@ -857,11 +864,11 @@ export function SimulatorDeviceView({
 		captureDeviceScreenshot,
 		saveCapturedScreenshot,
 		screenshot,
-		screenshotFeedback,
+		screenshotPreview,
 	]);
 
 	useLayoutEffect(() => {
-		const preview = screenshotFeedback.preview;
+		const preview = screenshotPreview.preview;
 		const screen = screenSurfaceRef.current;
 		const stack = deviceStackRef.current;
 		if (!preview || !screen || !stack) {
@@ -925,20 +932,20 @@ export function SimulatorDeviceView({
 		};
 	}, [
 		config.device,
-		screenshotFeedback.preview?.height,
-		screenshotFeedback.preview?.id,
-		screenshotFeedback.preview?.width,
+		screenshotPreview.preview?.height,
+		screenshotPreview.preview?.id,
+		screenshotPreview.preview?.width,
 	]);
 	useEffect(() => {
-		if (screenshotFeedback.preview) {
-			screenshotFeedback.markPreviewReady(
-				screenshotFeedback.preview.id,
+		if (screenshotPreview.preview) {
+			screenshotPreview.markPreviewReady(
+				screenshotPreview.preview.id,
 				Boolean(screenshotPreviewLayout),
 			);
 		}
 	}, [
-		screenshotFeedback.markPreviewReady,
-		screenshotFeedback.preview,
+		screenshotPreview.markPreviewReady,
+		screenshotPreview.preview,
 		screenshotPreviewLayout,
 	]);
 	const mediaDrop = useMediaDrop({
@@ -956,7 +963,7 @@ export function SimulatorDeviceView({
 				message: `Unsupported: ${file.type || fileExtension(file)}`,
 			});
 		},
-		onHostPathDrop: screenshot.dismiss,
+		onHostPathDrop: screenshotPreview.dismissPreview,
 	});
 
 	const simulatorResize = useSimulatorResize({
@@ -1106,9 +1113,9 @@ export function SimulatorDeviceView({
 												// content and, on the <canvas> path, composites its
 												// semi-transparent white against the black page as a visible
 												// outline. An inset shadow paints over the (opaque) video edge.
-												borderRadius: useChrome ? 0 : imgBorderRadius,
+												borderRadius: useDeviceFrame ? 0 : imgBorderRadius,
 												cornerShape: imgCornerShape,
-												...(useChrome || !hasRoundedScreen
+												...(useDeviceFrame || !hasRoundedScreen
 													? {}
 													: {
 															boxShadow:
@@ -1208,13 +1215,15 @@ export function SimulatorDeviceView({
 										>
 											<ScreenshotFlash
 												deviceId={config.device}
-												flash={screenshotFeedback.flash}
-												borderRadius={useChrome ? undefined : imgBorderRadius}
+												flash={screenshotPreview.flash}
+												borderRadius={
+													useDeviceFrame ? undefined : imgBorderRadius
+												}
 											/>
 										</div>
 									</>
 								);
-								const screenContent = useChrome ? (
+								const screenContent = useDeviceFrame ? (
 									rawScreenContent
 								) : (
 									<div
@@ -1230,17 +1239,17 @@ export function SimulatorDeviceView({
 										{rawScreenContent}
 									</div>
 								);
-								if (!useChrome) return screenContent;
+								if (!useDeviceFrame) return screenContent;
 								// The screen slot is the bezel's true opening; the stream letterboxes
 								// (contains) inside it, filling the constraining axis and leaving a
 								// thin black margin on the other — the device's own black screen
 								// border. Containing (not covering) keeps the stream from ever
 								// overflowing past the bezel.
 								return (
-									<DeviceKitChrome
+									<DeviceFrame
 										chrome={chrome!}
 										interactive
-										onButton={handleChromeButton}
+										onButton={handleFrameButton}
 										onCrownWheel={(deltaY, deltaMode) => {
 											const delta = digitalCrownDeltaFromWheel(
 												deltaY,
@@ -1260,7 +1269,7 @@ export function SimulatorDeviceView({
 									// frame for the whole drag — the tint alone stays cheap.
 									className="absolute inset-0 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-[color-mix(in_oklch,var(--agentsims-accent)_16%,transparent)] text-accent pointer-events-none z-20"
 									style={{
-										borderRadius: useChrome ? undefined : imgBorderRadius,
+										borderRadius: useDeviceFrame ? undefined : imgBorderRadius,
 									}}
 								>
 									<Upload size={32} strokeWidth={1.5} />
@@ -1359,12 +1368,30 @@ export function SimulatorDeviceView({
 									)}
 									<SimulatorToolbar.ScreenshotButton
 										title="Screenshot"
-										onClick={(e) => {
-											e.preventDefault();
+										onClick={(event) => {
+											event.preventDefault();
 											void captureScreenshot();
 										}}
 									/>
 									<SimulatorToolbar.RotateButton title="Rotate device" />
+									{availableDevToolsTargets.length > 0 && (
+										<SimulatorToolbar.Button
+											aria-label="Browser DevTools"
+											aria-pressed={devtoolsPanelOpen}
+											title="Browser DevTools"
+											onClick={() => setDevtoolsOpen(!devtoolsPanelOpen)}
+											style={
+												devtoolsPanelOpen
+													? {
+															color: "rgba(255, 255, 255, 0.92)",
+															background: "rgba(255, 255, 255, 0.1)",
+														}
+													: undefined
+											}
+										>
+											<CodeXml size={18} strokeWidth={2} />
+										</SimulatorToolbar.Button>
+									)}
 									<SimulatorToolbar.Button
 										aria-label="Accessibility tree"
 										aria-pressed={accessibilityOpen}
@@ -1386,12 +1413,13 @@ export function SimulatorDeviceView({
 								</SimulatorToolbar.Actions>
 							</SimulatorToolbar>
 						</div>
-						<DeviceScreenshotPreview
+						<ScreenshotPreviewOverlay
 							deviceId={config.device}
-							preview={screenshotFeedback.preview}
+							preview={screenshotPreview.preview}
 							layout={screenshotPreviewLayout}
-							onCopy={() => void screenshotFeedback.copyPreview()}
-							onDismiss={screenshotFeedback.dismissPreview}
+							borderRadius={imgBorderRadius}
+							onCopy={() => void screenshotPreview.copyPreview()}
+							onDismiss={screenshotPreview.dismissPreview}
 						/>
 					</div>
 
@@ -1413,34 +1441,27 @@ export function SimulatorDeviceView({
 							settingsPosition={settingsPosition}
 						/>
 					)}
+					{panelsEnabled && !embedded && (
+						<ResizeHandle
+							panelWidth={toolsPanelWidth}
+							visible={toolsOpen}
+							onPointerDown={onToolsResize}
+							ariaLabel="Resize tools panel"
+						/>
+					)}
 					{panelsEnabled && (
-						<>
-							<ResizeHandle
-								panelWidth={toolsPanelWidth}
-								visible={toolsOpen && !embedded}
-								onPointerDown={onToolsResize}
-								ariaLabel="Resize tools panel"
-							/>
-
-							<WebKitDevtoolsPanel
-								open={webkitDevtoolsOpen}
-								onClose={() => setDevtoolsOpen(false)}
-								udid={config.device}
-								targets={devtools.targets}
-								selectedTargetId={selectedDevtoolsTargetId}
-								onSelectTarget={setSelectedDevtoolsTargetId}
-								loading={devtools.loading}
-								error={devtools.error}
-								onRefresh={() => void devtools.refresh()}
-								width={devtoolsPanelWidth}
-							/>
-							<ResizeHandle
-								panelWidth={devtoolsPanelWidth}
-								visible={webkitDevtoolsOpen}
-								onPointerDown={onDevtoolsResize}
-								ariaLabel="Resize WebKit DevTools panel"
-							/>
-						</>
+						<DevToolsPanel
+							open={devtoolsPanelOpen}
+							onClose={() => setDevtoolsOpen(false)}
+							anchor={simContainerRef.current}
+							udid={config.device}
+							deviceName={deviceName ?? config.device}
+							targets={availableDevToolsTargets}
+							selectedTargetId={selectedDevtoolsTargetId}
+							onSelectTarget={setSelectedDevtoolsTargetId}
+							loading={devtools.loading}
+							error={devtools.error}
+						/>
 					)}
 				</div>
 			</AccessibilityInspectorController>

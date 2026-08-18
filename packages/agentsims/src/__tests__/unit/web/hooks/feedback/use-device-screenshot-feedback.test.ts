@@ -6,7 +6,7 @@ import {
 	ScreenshotSaveCoordinator,
 	completeScreenshotPreview,
 	replaceScreenshotCapture,
-} from "../../../../../web/hooks/feedback/use-device-screenshot-feedback";
+} from "../../../../../web/hooks/simulator/use-screenshot-preview";
 
 const blob = new Blob(["png"], { type: "image/png" });
 

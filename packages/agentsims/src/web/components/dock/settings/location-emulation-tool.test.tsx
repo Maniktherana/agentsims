@@ -23,7 +23,7 @@ describe("LocationEmulationTool", () => {
 
 	test("keeps location summary chevron anchored at compact widths", () => {
 		const css = readFileSync(
-			new URL("../../../app/global.css", import.meta.url),
+			new URL("../../../global.css", import.meta.url),
 			"utf8",
 		);
 

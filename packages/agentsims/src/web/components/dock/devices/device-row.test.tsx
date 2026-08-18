@@ -299,7 +299,7 @@ describe("DeviceRow", () => {
 
 	test("removes continuous status motion under reduced motion", () => {
 		const css = readFileSync(
-			new URL("../../../app/global.css", import.meta.url),
+			new URL("../../../global.css", import.meta.url),
 			"utf8",
 		);
 		expect(css).toContain("@media (prefers-reduced-motion: reduce)");

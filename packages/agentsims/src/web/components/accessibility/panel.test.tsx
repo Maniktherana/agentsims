@@ -129,7 +129,7 @@ describe("accessibility panel", () => {
 			</AccessibilityPanel>,
 		);
 		expect(html).toContain("Accessibility");
-		expect(html).toContain("data-agentsims-accessibility-resize-handle");
+		expect(html).toContain("data-agentsims-floating-panel-resize-handle");
 		expect(html).not.toContain("<textarea");
 	});
 

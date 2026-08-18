@@ -1,10 +1,12 @@
-import { simEndpoint } from "../app/sim-endpoint";
+import { simEndpoint } from "../preview/sim-endpoint";
 
-export interface WebKitDevtoolsTarget {
+export interface DevToolsTarget {
 	id: string;
 	title: string;
 	url: string;
 	type: string;
+	provider: "webkit" | "android-cdp";
+	device: string;
 	appName?: string;
 	bundleId?: string;
 	webSocketDebuggerUrl: string;
@@ -12,18 +14,18 @@ export interface WebKitDevtoolsTarget {
 	inUseByOtherInspector?: boolean;
 }
 
-export interface WebKitDevtoolsResponse {
-	port: number;
-	targets: WebKitDevtoolsTarget[];
+export interface DevToolsResponse {
+	targets: DevToolsTarget[];
 	error?: string;
 }
 
 type LocationLike = Pick<Location, "host" | "protocol">;
 
-export function proxyWebKitDevtoolsTargetForBrowser(
-	target: WebKitDevtoolsTarget,
+export function proxyDevToolsTargetForBrowser(
+	target: DevToolsTarget,
 	location: LocationLike,
-): WebKitDevtoolsTarget {
+): DevToolsTarget {
+	if (target.provider === "webkit") return target;
 	let debuggerUrl: URL;
 	try {
 		debuggerUrl = new URL(target.webSocketDebuggerUrl);
