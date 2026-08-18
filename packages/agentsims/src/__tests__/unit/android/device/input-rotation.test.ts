@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
 	androidScreenConfigFromOutputs,
 	androidCornerRadiiForRotation,
+	androidDeviceRotationCommands,
+	androidDeviceRotationRestoreCommands,
 	androidEmulatorNativeRotationCommands,
 	androidEmulatorAbsoluteRotationCommands,
 	androidPowerNeedsWake,
@@ -130,6 +132,47 @@ describe("Android rotated emulator input", () => {
 		]);
 	});
 
+	test("holds a physical rotation instead of handing it back to the sensor", () => {
+		expect(androidDeviceRotationCommands("R5CW1234ABC", 1)).toEqual([
+			[
+				"-s",
+				"R5CW1234ABC",
+				"shell",
+				"wm",
+				"set-ignore-orientation-request",
+				"true",
+			],
+			[
+				"-s",
+				"R5CW1234ABC",
+				"shell",
+				"cmd",
+				"window",
+				"fixed-to-user-rotation",
+				"enabled",
+			],
+			[
+				"-s",
+				"R5CW1234ABC",
+				"shell",
+				"cmd",
+				"window",
+				"user-rotation",
+				"lock",
+				"1",
+			],
+		]);
+		expect(
+			androidDeviceRotationRestoreCommands("R5CW1234ABC").map((command) =>
+				command.slice(3).join(" "),
+			),
+		).toEqual([
+			"cmd window user-rotation free",
+			"cmd window fixed-to-user-rotation default",
+			"wm set-ignore-orientation-request reset",
+		]);
+	});
+
 	test("scopes an absolute emulator rotation and restores normal autorotate", () => {
 		expect(
 			androidEmulatorAbsoluteRotationCommands("emulator-5554", 1, 2),
@@ -245,7 +288,11 @@ describe("Android rotated emulator input", () => {
 			rotation: 3,
 		});
 		expect(
-			androidTouchCoordinatesForTransport({ x: 0.25, y: 0.75 }, config!),
+			androidTouchCoordinatesForTransport(
+				"emulator-controller",
+				{ x: 0.25, y: 0.75 },
+				config!,
+			),
 		).toEqual({ x: 1920, y: 1200, width: 2560, height: 1600 });
 	});
 
@@ -413,11 +460,24 @@ describe("Android rotated emulator input", () => {
 			);
 			expect(
 				androidTouchCoordinatesForTransport(
+					"emulator-controller",
 					{ x: 0.25, y: 0.75 },
 					{ ...logical, rotation },
 				),
 			).toEqual(expectedByRotation[rotation]);
 		}
+	});
+
+	test("leaves scrcpy in logical display coordinates", () => {
+		// A physical device streams through scrcpy, which already reports the
+		// rotated logical display, so agentsims must not re-map the axes.
+		expect(
+			androidTouchCoordinatesForTransport(
+				"scrcpy",
+				{ x: 0.25, y: 0.75 },
+				{ width: 1600, height: 2560, rotation: 1 },
+			),
+		).toEqual({ x: 400, y: 1920, width: 1600, height: 2560 });
 	});
 
 	test("maps portrait-native phones through the same physical-axis table", () => {
@@ -435,6 +495,7 @@ describe("Android rotated emulator input", () => {
 			);
 			expect(
 				androidTouchCoordinatesForTransport(
+					"emulator-controller",
 					{ x: 0.25, y: 0.75 },
 					{ ...logical, rotation },
 				),
@@ -461,15 +522,19 @@ describe("Android rotated emulator input", () => {
 				);
 				expect(relayed).toEqual(displayPoint);
 				expect(
-					androidTouchCoordinatesForTransport(relayed, {
+					androidTouchCoordinatesForTransport("emulator-controller", relayed, {
 						...logical,
 						rotation,
 					}),
 				).toEqual(
-					androidTouchCoordinatesForTransport(displayPoint, {
-						...logical,
-						rotation,
-					}),
+					androidTouchCoordinatesForTransport(
+						"emulator-controller",
+						displayPoint,
+						{
+							...logical,
+							rotation,
+						},
+					),
 				);
 			}
 		}
@@ -478,10 +543,12 @@ describe("Android rotated emulator input", () => {
 	test("turns a displayed vertical gesture into the matching physical direction", () => {
 		const logical = { width: 2560, height: 1600, rotation: 2 } as const;
 		const begin = androidTouchCoordinatesForTransport(
+			"emulator-controller",
 			{ x: 0.4, y: 0.25 },
 			logical,
 		);
 		const end = androidTouchCoordinatesForTransport(
+			"emulator-controller",
 			{ x: 0.4, y: 0.75 },
 			logical,
 		);

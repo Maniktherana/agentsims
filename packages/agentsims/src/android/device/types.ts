@@ -57,8 +57,8 @@ export interface AndroidStatus {
 	};
 	screen: AndroidScreenConfig;
 	stream: {
-		backend: "emulator-controller" | "unsupported";
-		transport: "mmap-ffmpeg-h264" | "none";
+		backend: "emulator-controller" | "scrcpy";
+		transport: "mmap-ffmpeg-h264" | "scrcpy-h264";
 		source: "display";
 		canChangeSource: false;
 	};

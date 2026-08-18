@@ -6,8 +6,8 @@ import type {
 	AndroidStatus,
 } from "../device/types";
 import {
+	androidTransportKindForSerial,
 	createAndroidTransport,
-	isAndroidEmulatorSerial,
 	type AndroidTransport,
 	type AndroidTransportConfig,
 } from "../stream/transport";
@@ -28,6 +28,8 @@ import {
 	getAndroidScreenConfig,
 	freeAndroidEmulatorRotation,
 	reloadAndroidReactNative,
+	restoreAndroidDeviceRotation,
+	rotateAndroidDevice,
 	rotateAndroidEmulatorNative,
 	rotateAndroidEmulatorAbsolute,
 	toggleAndroidDarkMode,
@@ -132,9 +134,21 @@ export function androidRotationForOrientation(
 }
 
 export function androidTouchCoordinatesForTransport(
+	backend: AndroidTransport["backend"],
 	point: { x: number; y: number },
 	screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
 ): { x: number; y: number; width: number; height: number } {
+	// scrcpy already reports the logical display, so its input coordinates need
+	// no physical-axis mapping. The emulator's gRPC input stream does.
+	if (backend === "scrcpy") {
+		return {
+			x: point.x * screen.width,
+			y: point.y * screen.height,
+			width: screen.width,
+			height: screen.height,
+		};
+	}
+
 	const rotation = normalizedAndroidRotation(screen.rotation);
 	const native = nativeSizeForScreen(screen);
 	const physicalPoint =
@@ -230,6 +244,8 @@ export interface AndroidSessionDependencies {
 		currentRotation: AndroidRotation,
 		targetRotation: AndroidRotation,
 	): Promise<void>;
+	rotateDevice(serial: string, targetRotation: AndroidRotation): Promise<void>;
+	restoreDeviceRotation(serial: string): Promise<void>;
 }
 
 const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
@@ -243,6 +259,8 @@ const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
 	freeEmulatorRotation: freeAndroidEmulatorRotation,
 	rotateEmulator: rotateAndroidEmulatorNative,
 	rotateEmulatorAbsolute: rotateAndroidEmulatorAbsolute,
+	rotateDevice: rotateAndroidDevice,
+	restoreDeviceRotation: restoreAndroidDeviceRotation,
 };
 
 export class AndroidSession {
@@ -262,10 +280,12 @@ export class AndroidSession {
 	private emulatorConfigRefresh: Promise<void> | null = null;
 	private emulatorConfigRefreshPending = false;
 	private lastEmulatorFrameConfig: string | null = null;
+	private lastScrcpyFrameConfig: string | null = null;
 	private emulatorViewportTimer: ReturnType<typeof setTimeout> | null = null;
 	private emulatorViewportPoll: Promise<void> | null = null;
 	private lastEmulatorViewport: string | null = null;
 	private closed = false;
+	private deviceRotationLocked = false;
 	private pendingEmulatorRotation: AndroidRotation | null = null;
 	private readonly inputSemaphore = Effect.runSync(Effect.makeSemaphore(1));
 	private emulatorScrollGesture: {
@@ -297,11 +317,6 @@ export class AndroidSession {
 	}
 
 	private async initialize(): Promise<void> {
-		if (!isAndroidEmulatorSerial(this.serial)) {
-			throw new Error(
-				`Agentsims live Android sessions require an emulator: ${this.serial}`,
-			);
-		}
 		const config = await this.dependencies.readScreenConfig(this.serial);
 		this.applyScreenConfig(config);
 		// Pay the one-time framework traversal cost in the background while the
@@ -327,6 +342,11 @@ export class AndroidSession {
 		this.transport?.close();
 		this.transport = null;
 		this.dependencies.closeAx(this.serial);
+		if (this.deviceRotationLocked) {
+			// Never leave a physical device ignoring its own orientation.
+			this.deviceRotationLocked = false;
+			void this.dependencies.restoreDeviceRotation(this.serial).catch(() => {});
+		}
 	}
 
 	private screenConfig() {
@@ -376,7 +396,24 @@ export class AndroidSession {
 		for (const ws of this.hidSockets) ws.send(frame);
 	}
 
+	/**
+	 * scrcpy encodes a scaled copy of the panel, so its dimensions describe the
+	 * video rather than the device. Treat a change as the rotation signal and let
+	 * adb stay the one source of screen geometry, exactly as the emulator does —
+	 * otherwise the session would report the encoder size while screenshots and
+	 * accessibility rects stayed in device pixels.
+	 */
+	private observeScrcpyFrameConfig(config: AndroidTransportConfig): void {
+		const key = `${config.width}x${config.height}`;
+		if (key === this.lastScrcpyFrameConfig) return;
+		const firstObservation = this.lastScrcpyFrameConfig === null;
+		this.lastScrcpyFrameConfig = key;
+		if (firstObservation) return;
+		this.scheduleEmulatorConfigRefresh();
+	}
+
 	private observeEmulatorFrameConfig(config: AndroidTransportConfig): void {
+		if (!("rotation" in config)) return;
 		const key = `${config.width}x${config.height}:${config.rotation}`;
 		if (key === this.lastEmulatorFrameConfig) return;
 		const firstObservation = this.lastEmulatorFrameConfig === null;
@@ -421,6 +458,9 @@ export class AndroidSession {
 	private emulatorViewportWatchActive(): boolean {
 		return (
 			!this.closed &&
+			// scrcpy reports its own viewport with every session packet, so polling
+			// adb would only race the transport's geometry.
+			androidTransportKindForSerial(this.serial) === "emulator-controller" &&
 			(this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0)
 		);
 	}
@@ -481,6 +521,7 @@ export class AndroidSession {
 
 	private transportSession(): AndroidTransport {
 		if (!this.transport || this.transport.closed) {
+			const backend = androidTransportKindForSerial(this.serial);
 			this.transport = this.dependencies.createTransport(
 				this.serial,
 				{
@@ -488,7 +529,10 @@ export class AndroidSession {
 					height: this.height,
 					presentationGeneration: this.presentationGeneration || 1,
 				},
-				(config) => this.observeEmulatorFrameConfig(config),
+				(config) => {
+					if (backend === "scrcpy") this.observeScrcpyFrameConfig(config);
+					else this.observeEmulatorFrameConfig(config);
+				},
 				() => this.updateTransportIdleTimer(),
 			);
 		}
@@ -757,6 +801,7 @@ export class AndroidSession {
 		y: number,
 	): boolean {
 		const point = androidTouchCoordinatesForTransport(
+			transport.backend,
 			{ x, y },
 			{ width: this.width, height: this.height, rotation: this.rotation },
 		);
@@ -838,6 +883,7 @@ export class AndroidSession {
 			const transport = await this.activeTransport();
 			const transportPoint = transport
 				? androidTouchCoordinatesForTransport(
+						transport.backend,
 						{ x: m.x, y: m.y },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
@@ -931,12 +977,14 @@ export class AndroidSession {
 			const transport = await this.activeTransport();
 			const first = transport
 				? androidTouchCoordinatesForTransport(
+						transport.backend,
 						{ x: m.x1, y: m.y1 },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
 				: null;
 			const second = transport
 				? androidTouchCoordinatesForTransport(
+						transport.backend,
 						{ x: m.x2, y: m.y2 },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
@@ -973,11 +1021,33 @@ export class AndroidSession {
 			const m = json<{ orientation: string; nativeStep?: "clockwise" }>();
 			if (!m?.orientation) return;
 			await this.activeTransport();
-			// One toolbar action is one native emulator clockwise step. The viewport
-			// watcher owns the resulting canonical screen config and touch mapping.
-			await this.dependencies.rotateEmulator(this.serial, 1);
+			if (
+				androidTransportKindForSerial(this.serial) === "emulator-controller"
+			) {
+				// One toolbar action is one native emulator clockwise step. The
+				// viewport watcher owns the resulting canonical screen config and
+				// touch mapping.
+				await this.dependencies.rotateEmulator(this.serial, 1);
+				this.transport?.resetVideo();
+				this.updateEmulatorViewportWatch();
+				return;
+			}
+
+			const requestedRotation = androidRotationForOrientation(m.orientation, {
+				width: this.width,
+				height: this.height,
+				rotation: this.rotation,
+			});
+			try {
+				await this.dependencies.rotateDevice(this.serial, requestedRotation);
+				this.deviceRotationLocked = true;
+			} catch (error) {
+				console.warn("[agentsims:android] rotation failed", error);
+			}
 			this.transport?.resetVideo();
-			this.updateEmulatorViewportWatch();
+			const config = await this.dependencies.readScreenConfig(this.serial);
+			this.applyScreenConfig(config);
+			this.broadcastConfig();
 			return;
 		}
 
@@ -987,7 +1057,10 @@ export class AndroidSession {
 			const anchorX = m.x * this.width;
 			const anchorY = m.y * this.height;
 			const transport = await this.activeTransport();
-			if (transport && this.injectEmulatorScrollGesture(transport, m)) {
+			if (
+				transport?.backend === "emulator-controller" &&
+				this.injectEmulatorScrollGesture(transport, m)
+			) {
 				return;
 			}
 			if (
@@ -1046,11 +1119,6 @@ class AndroidSessionRegistry {
 	);
 
 	async get(serial: string): Promise<AndroidSession> {
-		if (!isAndroidEmulatorSerial(serial)) {
-			throw new Error(
-				`Agentsims live Android sessions require an emulator: ${serial}`,
-			);
-		}
 		const session = this.sessions.get(serial);
 		await session.start();
 		return session;

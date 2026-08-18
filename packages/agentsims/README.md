@@ -125,14 +125,25 @@ The published package currently requires a macOS 14 or newer host and Node.js
 20 or newer. Install Xcode for iOS Simulator support. Install Android Studio or
 the Android SDK and put `adb` on `PATH` for Android support.
 
-| Target           | Live video and control                    |
-| ---------------- | ----------------------------------------- |
-| iOS Simulator    | Native simulator capture and HID control  |
-| Android emulator | Emulator capture, H.264, and native input |
+| Target                  | Live video and control                    |
+| ----------------------- | ----------------------------------------- |
+| iOS Simulator           | Native simulator capture and HID control  |
+| Android emulator        | Emulator capture, H.264, and native input |
+| Physical Android device | scrcpy capture, H.264, and scrcpy control |
 
 Android live video requires browser WebCodecs support and has no MJPEG or ADB
 PNG fallback. iOS Simulator streams can use `--codec mjpeg` when the H.264 path
 is unavailable.
+
+A physical Android device needs scrcpy 3.0 or newer on the host (`brew install
+scrcpy`); agentsims runs the installed `scrcpy-server` on the device over adb. Set
+`AGENTSIMS_SCRCPY_SERVER_PATH` when that file lives outside the usual install
+locations. Capture is capped at 1920 px on the longer edge, 8 Mbps, and 60 fps;
+override with
+`AGENTSIMS_SCRCPY_MAX_SIZE`, `AGENTSIMS_SCRCPY_BIT_RATE`, and
+`AGENTSIMS_SCRCPY_MAX_FPS`. Camera injection, virtual scene images, host
+microphone routing, and location emulation remain emulator-only because they
+use the emulator console.
 
 ## Agent CLI
 

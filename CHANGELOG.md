@@ -2,6 +2,34 @@
 
 What changed in agentsims, day by day, newest first.
 
+## 2026-08-19
+
+### Added
+
+- **Physical Android devices work again.** A connected phone appears in the device
+  list, boots a live session, and streams H.264 through the host's scrcpy, with
+  touch, multi-touch, scroll, keys, and rotation. Install scrcpy 3.0 or newer on
+  the host (`brew install scrcpy`) or set `AGENTSIMS_SCRCPY_SERVER_PATH`.
+  Capture limits are tunable with `AGENTSIMS_SCRCPY_MAX_SIZE`,
+  `AGENTSIMS_SCRCPY_BIT_RATE`, and `AGENTSIMS_SCRCPY_MAX_FPS`.
+- **Android device settings and media volume on physical devices.** Night mode,
+  font scale, animation scale, touch overlays, and volume now work on a phone,
+  not just an emulator.
+- **Rotation on a physical device.** The toolbar turns a phone by holding a
+  user-rotation lock, because a phone has no virtual accelerometer to keep it
+  turned. Closing the device session hands orientation back to the device.
+
+### Fixed
+
+- Booting or inspecting a physical Android device no longer fails with
+  "Agentsims supports Android emulators only". Device discovery, the CLI, and the
+  session registry no longer filter on the `emulator-` serial prefix.
+
+### Notes
+
+- Camera injection, virtual scene images, host microphone routing, and location
+  emulation remain emulator-only: they are emulator console features.
+
 ## 2026-08-14
 
 ### Added

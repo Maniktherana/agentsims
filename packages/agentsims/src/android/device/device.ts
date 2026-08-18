@@ -729,9 +729,6 @@ export async function setAndroidMediaVolumeLevel(
 	serial: string,
 	level: number,
 ): Promise<void> {
-	if (!/^emulator-\d+$/.test(serial)) {
-		throw new Error("Media volume is only available for Android emulators");
-	}
 	if (!Number.isInteger(level)) {
 		throw new Error("Android media volume level must be an integer");
 	}
@@ -819,8 +816,8 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
 		serial,
 		screen,
 		stream: {
-			backend: emulator ? "emulator-controller" : "unsupported",
-			transport: emulator ? "mmap-ffmpeg-h264" : "none",
+			backend: emulator ? "emulator-controller" : "scrcpy",
+			transport: emulator ? "mmap-ffmpeg-h264" : "scrcpy-h264",
 			source: "display",
 			canChangeSource: false,
 		},
@@ -1334,6 +1331,83 @@ export function androidEmulatorNativeRotationCommands(
 
 export function androidEmulatorRotationUnlockCommand(serial: string): string[] {
 	return ["-s", serial, "shell", "cmd", "window", "user-rotation", "free"];
+}
+
+export function androidDeviceRotationCommands(
+	serial: string,
+	targetRotation: 0 | 1 | 2 | 3,
+): string[][] {
+	return [
+		["-s", serial, "shell", "wm", "set-ignore-orientation-request", "true"],
+		[
+			"-s",
+			serial,
+			"shell",
+			"cmd",
+			"window",
+			"fixed-to-user-rotation",
+			"enabled",
+		],
+		[
+			"-s",
+			serial,
+			"shell",
+			"cmd",
+			"window",
+			"user-rotation",
+			"lock",
+			String(targetRotation),
+		],
+	];
+}
+
+export function androidDeviceRotationRestoreCommands(
+	serial: string,
+): string[][] {
+	return [
+		["-s", serial, "shell", "cmd", "window", "user-rotation", "free"],
+		[
+			"-s",
+			serial,
+			"shell",
+			"cmd",
+			"window",
+			"fixed-to-user-rotation",
+			"default",
+		],
+		["-s", serial, "shell", "wm", "set-ignore-orientation-request", "reset"],
+	];
+}
+
+export async function rotateAndroidDevice(
+	serial: string,
+	targetRotation: 0 | 1 | 2 | 3,
+): Promise<void> {
+	await wakeAndroidIfNeeded(serial);
+	for (const command of androidDeviceRotationCommands(serial, targetRotation)) {
+		await adbText(command, 5_000);
+	}
+	const deadline = Date.now() + 2_000;
+	for (;;) {
+		const viewport = await getAndroidEmulatorViewportState(serial).catch(
+			() => null,
+		);
+		if (viewport?.rotation === targetRotation) return;
+		if (Date.now() >= deadline) {
+			throw new Error(
+				`Android device did not reach rotation ${targetRotation}`,
+			);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 40));
+	}
+}
+
+export async function restoreAndroidDeviceRotation(
+	serial: string,
+): Promise<void> {
+	for (const command of androidDeviceRotationRestoreCommands(serial)) {
+		await adbText(command, 5_000).catch(() => "");
+	}
 }
 
 export function androidEmulatorAbsoluteRotationCommands(

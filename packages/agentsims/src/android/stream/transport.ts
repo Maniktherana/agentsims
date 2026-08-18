@@ -4,14 +4,17 @@ import {
 	type AndroidEmulatorConfig,
 	type AvccSubscriberSink,
 } from "./emulator-controller";
+import { AndroidScrcpySession, type AndroidScrcpyConfig } from "./scrcpy";
 
-export type AndroidTransportConfig = AndroidEmulatorConfig;
+export type AndroidTransportConfig =
+	| AndroidEmulatorConfig
+	| AndroidScrcpyConfig;
 export type AndroidTouchPhase = "begin" | "move" | "end" | "cancel";
 export type AndroidButtonPhase = "down" | "up" | "press";
 
 export interface AndroidTransport {
-	readonly backend: "emulator-controller";
-	readonly wireTransport: "mmap-ffmpeg-h264";
+	readonly backend: "emulator-controller" | "scrcpy";
+	readonly wireTransport: "mmap-ffmpeg-h264" | "scrcpy-h264";
 	readonly closed: boolean;
 	readonly running: boolean;
 	readonly subscriberCount: number;
@@ -55,6 +58,16 @@ export function isAndroidEmulatorSerial(serial: string): boolean {
 	return /^emulator-\d+$/.test(serial);
 }
 
+/**
+ * Emulators expose a gRPC controller with an MMAP framebuffer; physical devices
+ * expose neither, so they stream and take input through the host's scrcpy.
+ */
+export function androidTransportKindForSerial(
+	serial: string,
+): AndroidTransport["backend"] {
+	return isAndroidEmulatorSerial(serial) ? "emulator-controller" : "scrcpy";
+}
+
 export function createAndroidTransport(
 	serial: string,
 	physicalScreen: {
@@ -65,9 +78,12 @@ export function createAndroidTransport(
 	onConfig: (config: AndroidTransportConfig) => void,
 	onSubscriberCountChange: (count: number) => void,
 ): AndroidTransport {
-	if (!isAndroidEmulatorSerial(serial)) {
-		throw new Error(
-			`Agentsims live Android sessions require an emulator: ${serial}`,
+	if (androidTransportKindForSerial(serial) === "scrcpy") {
+		return new AndroidScrcpySession(
+			serial,
+			onConfig,
+			onSubscriberCountChange,
+			physicalScreen.presentationGeneration ?? 1,
 		);
 	}
 	return new AndroidEmulatorSession(
