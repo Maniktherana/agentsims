@@ -15,7 +15,7 @@ import type {
 } from "../../../../server/media/model";
 import { uploadFileToTmp } from "../../../media/drop";
 import { execOnHost } from "../../../simulator/input/exec";
-import { simEndpoint } from "../../../app/sim-endpoint";
+import { simEndpoint } from "../../../preview/sim-endpoint";
 import { CameraTool } from "./camera-tool";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { SettingRow, SettingSelect } from "./simulator-settings-tool";

@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-	proxyWebKitDevtoolsTargetForBrowser,
-	type WebKitDevtoolsResponse,
-	type WebKitDevtoolsTarget,
+	proxyDevToolsTargetForBrowser,
+	type DevToolsResponse,
+	type DevToolsTarget,
 } from "../../devtools/client";
 
-export function useWebKitDevtools(
-	endpoint: string | undefined,
-	enabled: boolean,
-) {
-	const [targets, setTargets] = useState<WebKitDevtoolsTarget[]>([]);
+export function useDevTools(endpoint: string | undefined, enabled: boolean) {
+	const [targets, setTargets] = useState<DevToolsTarget[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 
@@ -19,22 +16,20 @@ export function useWebKitDevtools(
 		setError(null);
 		try {
 			const res = await fetch(endpoint, { cache: "no-store" });
-			const json = (await res.json()) as WebKitDevtoolsResponse;
+			const json = (await res.json()) as DevToolsResponse;
 			if (!res.ok || json.error)
-				throw new Error(json.error || "Failed to list WebKit targets");
+				throw new Error(json.error || "Failed to list DevTools targets");
 			const location = typeof window === "undefined" ? null : window.location;
 			const rawTargets = json.targets ?? [];
 			setTargets(
 				location
 					? rawTargets.map((target) =>
-							proxyWebKitDevtoolsTargetForBrowser(target, location),
+							proxyDevToolsTargetForBrowser(target, location),
 						)
 					: rawTargets,
 			);
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to start WebKit DevTools",
-			);
+			setError(err instanceof Error ? err.message : "Failed to start DevTools");
 		} finally {
 			setLoading(false);
 		}

@@ -8,7 +8,10 @@ import {
 	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
 } from "react";
-import type { SimulatorOrientation, StreamConfig } from "../../app/types.js";
+import type {
+	SimulatorOrientation,
+	StreamConfig,
+} from "../../simulator/types.js";
 import {
 	HID_EDGE_BOTTOM,
 	homeIndicatorEdge,

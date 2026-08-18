@@ -1,16 +1,16 @@
 import { Tooltip } from "@base-ui/react/tooltip";
+import { Toaster } from "sonner";
 import { useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { AgentsimsToaster } from "../components/feedback/app-toasts";
-import { AgentsimsBrandLink } from "../components/ui/agentsims-brand-link";
-import { resolveDeviceLifecyclePhase } from "../components/dock/devices/device-row";
-import { WorkspaceHeader } from "../components/workspace/workspace-header";
-import { SimulatorDeviceView } from "../components/workspace/simulator-device-view";
-import { useDeviceWorkspace } from "../hooks/workspace/use-device-workspace";
-import { resetWorkspaceLayout } from "../workspace/layout-events";
-import { WorkspaceCanvas } from "../components/workspace/workspace-canvas";
+import { AgentsimsBrandLink } from "./components/ui/agentsims-brand-link";
+import { resolveDeviceLifecyclePhase } from "./components/dock/devices/device-row";
+import { WorkspaceHeader } from "./components/workspace/workspace-header";
+import { SimulatorDeviceView } from "./components/workspace/simulator-device-view";
+import { useDeviceWorkspace } from "./hooks/workspace/use-device-workspace";
+import { resetWorkspaceLayout } from "./workspace/layout-events";
+import { WorkspaceCanvas } from "./components/workspace/workspace-canvas";
+import { BadgeCheckIcon } from "./components/icons/badge-check";
 
-function App() {
+export function App() {
 	const workspace = useDeviceWorkspace();
 	const [devicePickerOpen, setDevicePickerOpen] = useState(false);
 	const [toolsOpen, setToolsOpen] = useState(false);
@@ -87,7 +87,16 @@ function App() {
 					);
 				}}
 			/>
-			<AgentsimsToaster />
+			<Toaster
+				theme="dark"
+				position="bottom-center"
+				visibleToasts={4}
+				gap={8}
+				offset={{ bottom: 24 }}
+				style={{ zIndex: 2147483647 }}
+				icons={{ success: <BadgeCheckIcon size={18} /> }}
+				containerAriaLabel="agentsims notifications"
+			/>
 			<WorkspaceHeader
 				pickerOpen={devicePickerOpen}
 				onPickerOpenChange={(open) => {
@@ -126,9 +135,3 @@ function App() {
 		</Tooltip.Provider>
 	);
 }
-
-const rootHost = window as Window & { __AGENTSIMS_REACT_ROOT__?: Root };
-const reactRoot = (rootHost.__AGENTSIMS_REACT_ROOT__ ??= createRoot(
-	document.getElementById("root")!,
-));
-reactRoot.render(<App />);

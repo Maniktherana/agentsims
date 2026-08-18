@@ -1,4 +1,4 @@
-import type { CapturedScreenshotPreview } from "../../hooks/feedback/use-device-screenshot-feedback";
+import type { CapturedScreenshotPreview } from "../../hooks/simulator/use-screenshot-preview";
 
 export type ScreenshotCaptureFlow = {
 	requestId: number;

@@ -1,4 +1,4 @@
-import { simEndpoint } from "../../app/sim-endpoint";
+import { simEndpoint } from "../../preview/sim-endpoint";
 
 export interface ExecResult {
 	stdout: string;

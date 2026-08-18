@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { SimulatorOrientation, StreamConfig } from "../../app/types.js";
+import type { SimulatorOrientation, StreamConfig } from "../types.js";
 import { streamDisplayGeometry } from "./orientation.js";
 
 export type AndroidPresentedFrame = {

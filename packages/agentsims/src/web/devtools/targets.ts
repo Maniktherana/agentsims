@@ -1,13 +1,12 @@
-// Shared types + helpers for the WebKit DevTools target picker. Kept out of
-// the client bundle so we can unit-test grouping behavior with `bun test`.
+// Shared types and grouping for the DevTools target picker.
 
-export interface WebKitTargetLike {
+export interface DevToolsTargetLike {
 	id: string;
 	appName?: string;
 	bundleId?: string;
 }
 
-export interface AppGroup<T extends WebKitTargetLike> {
+export interface AppGroup<T extends DevToolsTargetLike> {
 	key: string;
 	appName: string;
 	bundleId?: string;
@@ -17,7 +16,7 @@ export interface AppGroup<T extends WebKitTargetLike> {
 // Group inspectable targets by their host application, the way Safari's
 // Develop menu lists pages under the app that owns them. Stable order:
 // groups appear in the order their first target was returned by the bridge.
-export function groupTargetsByApp<T extends WebKitTargetLike>(
+export function groupTargetsByApp<T extends DevToolsTargetLike>(
 	targets: T[],
 ): AppGroup<T>[] {
 	const order: string[] = [];

@@ -18,5 +18,5 @@ export {
 	ROTATE_RIGHT_CYCLE,
 } from "./android/orientation.js";
 export type { DeviceType } from "../components/simulator/device-frames.js";
-export type { SimulatorOrientation, StreamConfig } from "../app/types.js";
+export type { SimulatorOrientation, StreamConfig } from "./types.js";
 export { digitalCrownDeltaFromWheel } from "./input/digital-crown.js";

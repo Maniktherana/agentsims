@@ -11,7 +11,7 @@ import {
 	type HTMLAttributes,
 	type ReactNode,
 } from "react";
-import type { SimulatorOrientation } from "../../app/types.js";
+import type { SimulatorOrientation } from "../../simulator/types.js";
 import { getDeviceType, type DeviceType } from "./device-frames.js";
 import { ROTATE_LEFT_CYCLE } from "../../simulator/android/orientation.js";
 

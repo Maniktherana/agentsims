@@ -1,4 +1,4 @@
-import type { StreamConfig } from "../../app/types.js";
+import type { StreamConfig } from "../types.js";
 
 export type ScreenConfigSource = "external" | "reported";
 

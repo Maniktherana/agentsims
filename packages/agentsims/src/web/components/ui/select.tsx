@@ -20,6 +20,7 @@ export function Select({
 	disabled,
 	onChange,
 	className,
+	matchTriggerWidth = false,
 }: {
 	label: string;
 	value: string;
@@ -27,6 +28,7 @@ export function Select({
 	disabled?: boolean;
 	onChange: (next: string) => void;
 	className?: string;
+	matchTriggerWidth?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -34,13 +36,13 @@ export function Select({
 	const [pos, setPos] = useState<{
 		top: number;
 		left: number;
-		minWidth: number;
+		width: number;
 	} | null>(null);
 
 	const place = () => {
 		const rect = triggerRef.current?.getBoundingClientRect();
 		if (!rect) return;
-		setPos({ top: rect.bottom + 4, left: rect.left, minWidth: rect.width });
+		setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
 	};
 
 	useLayoutEffect(() => {
@@ -159,8 +161,14 @@ export function Select({
 						role="listbox"
 						aria-label={label}
 						onKeyDown={onPopupKeyDown}
-						style={{ top: pos.top, left: pos.left, minWidth: pos.minWidth }}
-						className="fixed max-h-90 overflow-y-auto bg-panel border border-white/12 rounded-[10px] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] text-[12px] text-white/90 z-50"
+						style={{
+							top: pos.top,
+							left: pos.left,
+							...(matchTriggerWidth
+								? { width: pos.width }
+								: { minWidth: pos.width }),
+						}}
+						className="fixed z-[80] max-h-90 overflow-y-auto rounded-[10px] border border-white/12 bg-panel p-1 text-[12px] text-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
 					>
 						{options.map((o) => (
 							<button
@@ -173,7 +181,7 @@ export function Select({
 									setOpen(false);
 									triggerRef.current?.focus();
 								}}
-								className={`block w-full text-left font-[inherit] px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap transition-colors hover:bg-white/8 focus-visible:bg-white/8 outline-none ${o.value === value ? "text-accent" : ""}`}
+								className={`block w-full overflow-hidden text-ellipsis text-left font-[inherit] px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap transition-colors hover:bg-white/8 focus-visible:bg-white/8 outline-none ${o.value === value ? "text-accent" : ""}`}
 							>
 								{o.label}
 							</button>

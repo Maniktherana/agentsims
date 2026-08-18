@@ -4,20 +4,16 @@ import {
 	X,
 } from "lucide-react";
 import {
-	useEffect,
 	useId,
-	useMemo,
-	useRef,
-	useState,
 	type KeyboardEventHandler,
 	type PointerEventHandler,
 	type ReactNode,
 } from "react";
 import { IconButton } from "../ui/icon-button";
-import { SimulatorResizeCornerAffordance } from "../simulator/simulator-resize-corner-handle";
-import { simulatorResizeCornerArc } from "../../simulator/index";
-import type { ResizeVisualPhase } from "../../simulator/resize/simulator-resize";
-
+import {
+	FloatingPanelResizeHandle,
+	floatingPanelResizeVisualPhase,
+} from "../ui/floating-panel-resize-handle";
 export interface AccessibilityDeviceIdentity {
 	id: string;
 	name: string;
@@ -46,114 +42,6 @@ export function shouldStartAccessibilityHeaderDrag(target: unknown): boolean {
 	const closest = (target as { closest?: (selector: string) => unknown } | null)
 		?.closest;
 	return typeof closest !== "function" || !closest.call(target, "button");
-}
-
-export function accessibilityResizeVisualPhase(
-	dragging: boolean,
-	hovered: boolean,
-): ResizeVisualPhase {
-	if (dragging) return "drag";
-	if (hovered) return "hover";
-	return "idle";
-}
-
-function AccessibilityResizeCornerHandle({
-	onPointerDown,
-	onKeyDown,
-}: {
-	onPointerDown: PointerEventHandler<HTMLDivElement>;
-	onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
-}) {
-	const handleRef = useRef<HTMLDivElement | null>(null);
-	const [containerSize, setContainerSize] = useState({
-		width: 540,
-		height: 520,
-	});
-	const [hovered, setHovered] = useState(false);
-	const [dragging, setDragging] = useState(false);
-	const [focusVisible, setFocusVisible] = useState(false);
-
-	useEffect(() => {
-		const panel = handleRef.current?.closest<HTMLElement>(
-			"[data-accessibility-panel]",
-		);
-		if (!panel || typeof ResizeObserver === "undefined") return;
-		const update = () => {
-			const bounds = panel.getBoundingClientRect();
-			setContainerSize({ width: bounds.width, height: bounds.height });
-		};
-		update();
-		const observer = new ResizeObserver(update);
-		observer.observe(panel);
-		return () => observer.disconnect();
-	}, []);
-
-	const arc = useMemo(
-		() =>
-			simulatorResizeCornerArc({
-				type: "android",
-				config: null,
-				containerWidth: containerSize.width,
-				containerHeight: containerSize.height,
-			}),
-		[containerSize],
-	);
-	const phase = accessibilityResizeVisualPhase(dragging, hovered);
-
-	return (
-		<div
-			ref={handleRef}
-			role="separator"
-			aria-label="Resize accessibility panel"
-			aria-orientation="vertical"
-			tabIndex={0}
-			data-agentsims-accessibility-resize-handle
-			data-resize-phase={phase}
-			data-focus-visible={focusVisible}
-			onPointerDown={(event) => {
-				setDragging(true);
-				onPointerDown(event);
-			}}
-			onPointerUp={() => setDragging(false)}
-			onPointerCancel={() => setDragging(false)}
-			onLostPointerCapture={() => setDragging(false)}
-			onPointerEnter={() => setHovered(true)}
-			onPointerLeave={() => setHovered(false)}
-			onFocus={(event) =>
-				setFocusVisible(
-					event.currentTarget.matches?.(":focus-visible") ?? false,
-				)
-			}
-			onBlur={() => setFocusVisible(false)}
-			onKeyDown={onKeyDown}
-			style={{
-				position: "absolute",
-				right: -14,
-				bottom: -14,
-				zIndex: 50,
-				display: "flex",
-				width: 60,
-				height: 60,
-				alignItems: "flex-end",
-				justifyContent: "flex-end",
-				border: 0,
-				padding: 0,
-				margin: 0,
-				background: "transparent",
-				cursor: "nwse-resize",
-				touchAction: "none",
-				pointerEvents: "auto",
-				outline: "none",
-				WebkitTapHighlightColor: "transparent",
-			}}
-		>
-			<SimulatorResizeCornerAffordance
-				arc={arc}
-				phase={phase}
-				focusVisible={focusVisible}
-			/>
-		</div>
-	);
 }
 
 export function AccessibilityPanel({
@@ -194,6 +82,7 @@ export function AccessibilityPanel({
 			data-device-id={device.id}
 			data-device-platform={device.platform}
 			data-accessibility-panel
+			data-agentsims-floating-panel
 			className={`agentsims-accessibility-panel-enter relative flex min-w-0 flex-col overflow-visible rounded-[14px] border border-white/[0.1] bg-[var(--agentsims-panel-bg,#181818)] text-white shadow-[0_12px_40px_rgba(0,0,0,0.55)] ${placementClass} ${className}`}
 		>
 			<header
@@ -264,11 +153,14 @@ export function AccessibilityPanel({
 				</footer>
 			)}
 			{onResizePointerDown && (
-				<AccessibilityResizeCornerHandle
+				<FloatingPanelResizeHandle
 					onPointerDown={onResizePointerDown}
 					onKeyDown={onResizeKeyDown}
+					ariaLabel="Resize accessibility panel"
 				/>
 			)}
 		</aside>
 	);
 }
+
+export const accessibilityResizeVisualPhase = floatingPanelResizeVisualPhase;

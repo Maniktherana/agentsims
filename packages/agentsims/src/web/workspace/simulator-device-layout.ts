@@ -8,14 +8,14 @@ import {
 	type DeviceType,
 	type StreamConfig,
 } from "../simulator/index";
-import type { DeviceKitChromeDescriptor } from "./grid";
+import type { DeviceFrameDescriptor } from "./grid";
 
 export const EMBEDDED_WORKSPACE_VERTICAL_RESERVE = 200;
 
 export interface SimulatorDeviceLayout {
 	deviceType: DeviceType;
 	streamConfig: StreamConfig;
-	useChrome: boolean;
+	useDeviceFrame: boolean;
 	defaultWidth: number;
 	aspectRatio: string;
 	aspectRatioValue: number;
@@ -31,7 +31,7 @@ export function resolveSimulatorDeviceLayout({
 	streamConfig,
 }: {
 	deviceName?: string | null;
-	chrome?: DeviceKitChromeDescriptor | null;
+	chrome?: DeviceFrameDescriptor | null;
 	streamConfig?: StreamConfig | null;
 }): SimulatorDeviceLayout {
 	const deviceType = getDeviceType(deviceName);
@@ -45,20 +45,21 @@ export function resolveSimulatorDeviceLayout({
 	const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
 	const displayConfig = displayStreamConfig(activeStreamConfig)!;
 	const screenAspectRatioValue = displayConfig.width / displayConfig.height;
-	const useChrome = Boolean(chrome) && !isLandscapeConfig(activeStreamConfig);
-	const chromeScale = useChrome
+	const useDeviceFrame =
+		Boolean(chrome) && !isLandscapeConfig(activeStreamConfig);
+	const chromeScale = useDeviceFrame
 		? chrome!.frame.width / chrome!.screen.width
 		: 1;
 
 	return {
 		deviceType,
 		streamConfig: activeStreamConfig,
-		useChrome,
+		useDeviceFrame,
 		defaultWidth: frameMaxWidth * chromeScale,
-		aspectRatio: useChrome
+		aspectRatio: useDeviceFrame
 			? `${chrome!.frame.width} / ${chrome!.frame.height}`
 			: simulatorAspectRatio(activeStreamConfig),
-		aspectRatioValue: useChrome
+		aspectRatioValue: useDeviceFrame
 			? chrome!.frame.width / chrome!.frame.height
 			: screenAspectRatioValue,
 	};

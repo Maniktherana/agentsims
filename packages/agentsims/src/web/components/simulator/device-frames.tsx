@@ -3,7 +3,7 @@
  * Supports iPhone, iPad, and Apple Watch frames.
  */
 
-import type { StreamConfig } from "../../app/types.js";
+import type { StreamConfig } from "../../simulator/types.js";
 import {
 	displayStreamConfig,
 	isLandscapeConfig,

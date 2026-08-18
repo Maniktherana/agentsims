@@ -1,6 +1,5 @@
 import { useCallback, useRef } from "react";
-import { toast as sonnerToast } from "sonner";
-import { UploadToastContent } from "../../components/feedback/app-toasts";
+import { toast } from "sonner";
 import type { DropKind } from "../../media/drop";
 
 export type UploadToast = {
@@ -8,82 +7,60 @@ export type UploadToast = {
 	name: string;
 	kind: DropKind;
 	status: "uploading" | "success" | "error";
-	// Determinate transfer progress 0..1; null once the upload completes
-	// (install/addmedia phase has no progress signal — the bar goes indeterminate).
 	progress: number | null;
 	message?: string;
 };
 
 export function useUploadToasts() {
-	const toastsRef = useRef(new Map<string, UploadToast>());
-	const dismissTimersRef = useRef(
-		new Map<string, ReturnType<typeof setTimeout>>(),
-	);
+	const uploads = useRef(new Map<string, Pick<UploadToast, "name" | "kind">>());
 
-	const clearDismissTimer = useCallback((id: string) => {
-		const timer = dismissTimersRef.current.get(id);
-		if (timer) clearTimeout(timer);
-		dismissTimersRef.current.delete(id);
+	const add = useCallback((name: string, kind: DropKind): string => {
+		const id = crypto.randomUUID();
+		uploads.current.set(id, { name, kind });
+		toast.loading(`Uploading ${name}…`, { id });
+		return id;
 	}, []);
 
-	const render = useCallback((toast: UploadToast, duration = Infinity) => {
-		sonnerToast.custom(() => <UploadToastContent toast={toast} />, {
-			id: toast.id,
-			duration,
-		});
-	}, []);
-
-	const add = useCallback(
-		(name: string, kind: DropKind): string => {
-			const id = crypto.randomUUID();
-			const next: UploadToast = {
-				id,
-				name,
-				kind,
-				status: "uploading",
-				progress: 0,
-			};
-			toastsRef.current.set(id, next);
-			render(next);
-			return id;
-		},
-		[render],
-	);
-
-	const update = useCallback(
-		(id: string, patch: Partial<UploadToast>) => {
-			const current = toastsRef.current.get(id);
-			if (!current) return;
-			clearDismissTimer(id);
-			const next = { ...current, ...patch };
-			toastsRef.current.set(id, next);
-			render(
-				next,
-				patch.status === "success" || patch.status === "error"
-					? 3000
-					: Infinity,
+	const update = useCallback((id: string, patch: Partial<UploadToast>) => {
+		const upload = uploads.current.get(id);
+		if (!upload) return;
+		if (patch.status === "success") {
+			toast.success(
+				upload.kind === "ipa"
+					? `Installed ${upload.name}`
+					: `Added ${upload.name} to Photos`,
+				{ id, duration: 3000 },
 			);
-			if (patch.status === "success" || patch.status === "error") {
-				const timer = setTimeout(() => {
-					toastsRef.current.delete(id);
-					dismissTimersRef.current.delete(id);
-				}, 3000);
-				dismissTimersRef.current.set(id, timer);
-			}
-		},
-		[clearDismissTimer, render],
-	);
+			uploads.current.delete(id);
+			return;
+		}
+		if (patch.status === "error") {
+			toast.error(`${upload.name}: ${patch.message ?? "Upload failed"}`, {
+				id,
+				duration: 3000,
+			});
+			uploads.current.delete(id);
+			return;
+		}
+		toast.loading(
+			upload.kind === "ipa"
+				? `Installing ${upload.name}…`
+				: `Adding ${upload.name}…`,
+			{ id },
+		);
+	}, []);
 
-	const setProgress = useCallback(
-		(id: string, progress: number | null) => {
-			const current = toastsRef.current.get(id);
-			if (!current) return;
-			const next = { ...current, progress };
-			toastsRef.current.set(id, next);
-			render(next);
-		},
-		[render],
-	);
+	const setProgress = useCallback((id: string, progress: number | null) => {
+		const upload = uploads.current.get(id);
+		if (!upload) return;
+		const message =
+			progress === null
+				? upload.kind === "ipa"
+					? `Installing ${upload.name}…`
+					: `Adding ${upload.name}…`
+				: `Uploading ${upload.name}… ${Math.round(progress * 100)}%`;
+		toast.loading(message, { id });
+	}, []);
 
 	return { add, update, setProgress };
 }

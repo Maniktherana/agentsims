@@ -3,7 +3,7 @@ export interface GridDevice {
 	name: string;
 	runtime: string;
 	state: string;
-	chrome?: DeviceKitChromeDescriptor | null;
+	chrome?: DeviceFrameDescriptor | null;
 	placeholderAsset?: DevicePlaceholderAssetDescriptor | null;
 	helper: {
 		port: number;
@@ -19,7 +19,7 @@ export interface DevicePlaceholderAssetDescriptor {
 	height: number;
 }
 
-export interface DeviceKitChromeDescriptor {
+export interface DeviceFrameDescriptor {
 	identifier: string;
 	frame: GridSize;
 	body: GridRect;
@@ -29,12 +29,12 @@ export interface DeviceKitChromeDescriptor {
 	innerCornerRadius: number;
 	screenRadius: number;
 	compositeImage: string | null;
-	slice: DeviceKitChromeSlice | null;
+	slice: DeviceFrameSlice | null;
 	corner: GridSize | null;
-	buttons: DeviceKitChromeButton[];
+	buttons: DeviceFrameButton[];
 }
 
-export interface DeviceKitChromeButton {
+export interface DeviceFrameButton {
 	name: string;
 	image: string;
 	imageDown: string | null;
@@ -45,7 +45,7 @@ export interface DeviceKitChromeButton {
 	usage: number | null;
 }
 
-export interface DeviceKitChromeSlice {
+export interface DeviceFrameSlice {
 	topLeft: string;
 	top: string;
 	topRight: string;

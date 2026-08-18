@@ -1,11 +1,11 @@
 import { screenBorderRadius } from "../../simulator/index";
 import { useEffect, useState } from "react";
 import type {
-	DeviceKitChromeDescriptor,
+	DeviceFrameDescriptor,
 	DevicePlaceholderAssetDescriptor,
 } from "../../workspace/grid";
 import { runtimeLabel } from "../../workspace/grid";
-import { DeviceKitChrome } from "./device-chrome-frame";
+import { DeviceFrame } from "./device-frame";
 import {
 	EMBEDDED_WORKSPACE_VERTICAL_RESERVE,
 	resolveSimulatorDeviceLayout,
@@ -32,7 +32,7 @@ export function DevicePlaceholder({
 }: {
 	name: string;
 	runtime: string;
-	chrome?: DeviceKitChromeDescriptor | null;
+	chrome?: DeviceFrameDescriptor | null;
 	placeholderAsset?: DevicePlaceholderAssetDescriptor | null;
 	busy: boolean;
 	busyLabel?: string;
@@ -47,7 +47,7 @@ export function DevicePlaceholder({
 		layout.aspectRatioValue,
 		embedded,
 	);
-	const activeChrome = layout.useChrome ? chrome : null;
+	const activeFrame = layout.useDeviceFrame ? chrome : null;
 
 	return (
 		<div className="flex flex-col items-center gap-5 min-w-0 w-full">
@@ -61,12 +61,9 @@ export function DevicePlaceholder({
 					aspectRatio: layout.aspectRatio,
 				}}
 			>
-				{activeChrome ? (
+				{activeFrame ? (
 					<div className="absolute inset-0 pointer-events-none">
-						<DeviceKitChrome
-							chrome={activeChrome}
-							screen={<PlaceholderScreen />}
-						/>
+						<DeviceFrame chrome={activeFrame} screen={<PlaceholderScreen />} />
 					</div>
 				) : (
 					<div

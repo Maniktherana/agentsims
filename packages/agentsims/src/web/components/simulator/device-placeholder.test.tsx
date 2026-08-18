@@ -4,7 +4,7 @@ import { DevicePlaceholder } from "./device-placeholder";
 import { resolveSimulatorDeviceLayout } from "../../workspace/simulator-device-layout";
 import { restoredSimulatorFrameWidth } from "../../simulator/resize/simulator-resize";
 import type {
-	DeviceKitChromeDescriptor,
+	DeviceFrameDescriptor,
 	DevicePlaceholderAssetDescriptor,
 } from "../../workspace/grid";
 
@@ -16,7 +16,7 @@ function renderPlaceholder({
 }: {
 	name?: string;
 	runtime?: string;
-	chrome?: DeviceKitChromeDescriptor | null;
+	chrome?: DeviceFrameDescriptor | null;
 	placeholderAsset?: DevicePlaceholderAssetDescriptor | null;
 } = {}) {
 	return renderToStaticMarkup(
@@ -83,7 +83,7 @@ describe("DevicePlaceholder", () => {
 			slice: null,
 			corner: null,
 			buttons: [],
-		} satisfies DeviceKitChromeDescriptor;
+		} satisfies DeviceFrameDescriptor;
 		const loading = resolveSimulatorDeviceLayout({
 			deviceName: "iPhone 17",
 			chrome,
@@ -163,7 +163,7 @@ describe("DevicePlaceholder", () => {
 					usage: 512,
 				},
 			],
-		} satisfies DeviceKitChromeDescriptor;
+		} satisfies DeviceFrameDescriptor;
 
 		const html = renderPlaceholder({
 			name: "iPhone 17 Pro",

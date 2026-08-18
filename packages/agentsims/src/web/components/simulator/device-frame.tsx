@@ -8,37 +8,34 @@ import {
 	type ReactNode,
 } from "react";
 import type {
-	DeviceKitChromeButton,
-	DeviceKitChromeDescriptor,
+	DeviceFrameButton,
+	DeviceFrameDescriptor,
 	GridRect,
 } from "../../workspace/grid";
-import { simEndpoint } from "../../app/sim-endpoint";
+import { simEndpoint } from "../../preview/sim-endpoint";
 
-// Shared DeviceKit chrome renderer. Lays everything out in the chrome's own
-// frame coordinate space (every piece positioned as a percentage of
-// `chrome.frame`), so the bezel, screen, and hardware buttons stay aligned at
-// any rendered size. Used by both the offline placeholder (static) and the live
-// stream view (interactive buttons + a real stream in the screen slot).
+// Shared Apple device-frame renderer. It lays out each asset in the frame's
+// coordinate space so the bezel, screen, and hardware buttons stay aligned at
+// every rendered size. Placeholders and live streams use the same renderer.
 
-export type ChromeButtonPress = {
-	/** "down" on press, "up" on release. Lets the caller hold power / side
-	 *  buttons for their long-press menus. */
+export type FrameButtonPress = {
+	/** "down" on press, "up" on release for hardware-button long presses. */
 	phase: "down" | "up";
-	button: DeviceKitChromeButton;
+	button: DeviceFrameButton;
 };
 
-export function DeviceKitChrome({
+export function DeviceFrame({
 	chrome,
 	screen,
 	interactive = false,
 	onButton,
 	onCrownWheel,
 }: {
-	chrome: DeviceKitChromeDescriptor;
+	chrome: DeviceFrameDescriptor;
 	/** Rendered inside the screen cutout (the live stream, or a black fill). */
 	screen?: ReactNode;
 	interactive?: boolean;
-	onButton?: (press: ChromeButtonPress) => void;
+	onButton?: (press: FrameButtonPress) => void;
 	/** Wheel over the Digital Crown — forwards rotation to scroll the watch. */
 	onCrownWheel?: (deltaY: number, deltaMode: number) => void;
 }) {
@@ -49,7 +46,7 @@ export function DeviceKitChrome({
 	return (
 		<div className="absolute inset-0">
 			{chrome.buttons.map((button) => (
-				<ChromeButton
+				<FrameButton
 					key={`button-${button.name}`}
 					chrome={chrome}
 					button={button}
@@ -67,14 +64,14 @@ export function DeviceKitChrome({
           border, which frames the stream the way a real display's black border
           does (the metal edge → black border → active screen). */}
 			{chrome.compositeImage ? (
-				<ChromeImage
+				<FrameImage
 					chrome={chrome}
 					image={chrome.compositeImage}
 					rect={chrome.body}
 					zIndex={1}
 				/>
 			) : chrome.slice && chrome.corner ? (
-				<NineSliceChrome chrome={chrome} />
+				<NineSliceFrame chrome={chrome} />
 			) : null}
 
 			{/* Stream ON TOP of the bezel (z2), clipped to the active screen rect with
@@ -84,7 +81,7 @@ export function DeviceKitChrome({
 				className="absolute overflow-hidden bg-black"
 				style={{
 					...rectStyle(chrome, chrome.screen, 2),
-					borderRadius: deviceKitScreenRadius(chrome),
+					borderRadius: deviceFrameScreenRadius(chrome),
 				}}
 			>
 				{screen}
@@ -94,25 +91,23 @@ export function DeviceKitChrome({
 }
 
 /** CSS border-radius for the screen cutout, matched to its measured corner radius. */
-export function deviceKitScreenRadius(
-	chrome: DeviceKitChromeDescriptor,
-): string {
+export function deviceFrameScreenRadius(chrome: DeviceFrameDescriptor): string {
 	return `${(chrome.screenRadius / chrome.screen.width) * 100}% / ${
 		(chrome.screenRadius / chrome.screen.height) * 100
 	}%`;
 }
 
-function ChromeButton({
+function FrameButton({
 	chrome,
 	button,
 	interactive,
 	onButton,
 	onWheel,
 }: {
-	chrome: DeviceKitChromeDescriptor;
-	button: DeviceKitChromeButton;
+	chrome: DeviceFrameDescriptor;
+	button: DeviceFrameButton;
 	interactive: boolean;
-	onButton?: (press: ChromeButtonPress) => void;
+	onButton?: (press: FrameButtonPress) => void;
 	/** Wheel over this cap (the Digital Crown) → (deltaY, deltaMode). */
 	onWheel?: (deltaY: number, deltaMode: number) => void;
 }) {
@@ -218,7 +213,7 @@ function ChromeButton({
 					alt=""
 					aria-hidden
 					draggable={false}
-					src={chromeAssetUrl(chrome.identifier, sprite)}
+					src={frameAssetUrl(chrome.identifier, sprite)}
 					className="absolute inset-0 size-full select-none"
 					style={
 						{
@@ -244,11 +239,7 @@ function buttonLabel(name: string): string {
 		.join(" ");
 }
 
-export function NineSliceChrome({
-	chrome,
-}: {
-	chrome: DeviceKitChromeDescriptor;
-}) {
+export function NineSliceFrame({ chrome }: { chrome: DeviceFrameDescriptor }) {
 	if (!chrome.slice || !chrome.corner) return null;
 	const { body, corner, slice } = chrome;
 	const midWidth = Math.max(body.width - corner.width * 2, 0);
@@ -341,7 +332,7 @@ export function NineSliceChrome({
 			{pieces
 				.filter((piece) => piece.rect.width > 0 && piece.rect.height > 0)
 				.map((piece) => (
-					<ChromeImage
+					<FrameImage
 						key={piece.key}
 						chrome={chrome}
 						image={piece.image}
@@ -353,13 +344,13 @@ export function NineSliceChrome({
 	);
 }
 
-export function ChromeImage({
+export function FrameImage({
 	chrome,
 	image,
 	rect,
 	zIndex,
 }: {
-	chrome: DeviceKitChromeDescriptor;
+	chrome: DeviceFrameDescriptor;
 	image: string;
 	rect: GridRect;
 	zIndex: number;
@@ -369,7 +360,7 @@ export function ChromeImage({
 			alt=""
 			aria-hidden
 			draggable={false}
-			src={chromeAssetUrl(chrome.identifier, image)}
+			src={frameAssetUrl(chrome.identifier, image)}
 			className="absolute select-none"
 			style={
 				{
@@ -384,13 +375,13 @@ export function ChromeImage({
 	);
 }
 
-export function chromeAssetUrl(identifier: string, image: string): string {
-	const path = `grid/api/devicekit-chrome?chrome=${encodeURIComponent(identifier)}&image=${encodeURIComponent(image)}`;
+export function frameAssetUrl(identifier: string, image: string): string {
+	const path = `grid/api/device-frame-assets?frame=${encodeURIComponent(identifier)}&image=${encodeURIComponent(image)}`;
 	return typeof window === "undefined" ? `/${path}` : simEndpoint(path);
 }
 
 function rectStyle(
-	chrome: DeviceKitChromeDescriptor,
+	chrome: DeviceFrameDescriptor,
 	rect: GridRect,
 	zIndex: number,
 ): CSSProperties {
