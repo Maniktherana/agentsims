@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { InvalidCommandInput } from "../../commands/errors";
-import type { HttpServerOptions } from "../../server/http/router";
 import type { PreviewServer } from "../../server/runtime/runtime";
-import { startTestServer } from "../helpers/server";
+import { startTestServer, type TestServerOverrides } from "../helpers/server";
 
 const servers: PreviewServer[] = [];
 
@@ -12,7 +11,7 @@ afterEach(() => {
 });
 
 async function startServer(
-	commands: NonNullable<HttpServerOptions["deviceCommands"]>,
+	commands: NonNullable<TestServerOverrides["deviceCommands"]>,
 ) {
 	const result = await startTestServer({
 		deviceCommands: commands,
@@ -23,7 +22,7 @@ async function startServer(
 }
 
 function commandStubs(
-	overrides: Partial<NonNullable<HttpServerOptions["deviceCommands"]>> = {},
+	overrides: Partial<NonNullable<TestServerOverrides["deviceCommands"]>> = {},
 ) {
 	return {
 		list: () => Effect.succeed({ devices: [], total: 0, offset: 0, limit: 0 }),
@@ -194,12 +193,12 @@ describe("device command routes", () => {
 	test("mounts DeviceKit asset requests before the preview fallback", async () => {
 		const origin = await startServer(commandStubs());
 
-		const response = await fetch(`${origin}/grid/api/devicekit-chrome`);
+		const response = await fetch(`${origin}/grid/api/device-frame-assets`);
 
 		expect(response.status).toBe(400);
 		expect(await response.json()).toEqual({
 			ok: false,
-			error: "Invalid chrome asset request",
+			error: "Invalid device frame asset request",
 		});
 	});
 });

@@ -5,7 +5,9 @@ import {
 } from "@effect/platform";
 import { Effect, Stream } from "effect";
 import { readRnSourceFile } from "../../../accessibility/rn-source";
-import { HttpRuntime } from "../../../services/http-runtime";
+import { AxStreamers } from "../../../accessibility/snapshot";
+import { DeviceLifecycleService } from "../../devices/device-lifecycle";
+import { ServerConfig } from "../../runtime/server-config";
 import { json, requestSource, requestedDevice } from "./shared";
 import { selectDeviceState } from "../../devices/device-lifecycle";
 
@@ -50,45 +52,49 @@ export const accessibilityRoutes = HttpRouter.empty.pipe(
 	HttpRouter.post(
 		"/ax/refresh",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
+			const lifecycle = yield* DeviceLifecycleService;
+			const streamers = yield* AxStreamers;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
 			);
 			const url = new URL(request.url);
-			const requested = requestedDevice(url, runtime);
-			if (requested && runtime.streamers.refreshActive(requested)) {
+			const requested = requestedDevice(url, config);
+			if (requested && streamers.refreshActive(requested)) {
 				return HttpServerResponse.raw(json({ ok: true }, 202));
 			}
-			const states = yield* runtime.readStates;
-			runtime.streamers.prune(states.map((item) => item.device));
+			const states = yield* Effect.promise(() => lifecycle.states());
+			streamers.prune(states.map((item) => item.device));
 			const state = selectDeviceState(states, requested);
 			if (!state)
 				return HttpServerResponse.raw(
 					json({ error: "No agentsims device" }, 404),
 				);
-			runtime.streamers.get(state.device).refresh();
+			streamers.get(state.device).refresh();
 			return HttpServerResponse.raw(json({ ok: true }, 202));
 		}),
 	),
 	HttpRouter.get(
 		"/ax",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
+			const lifecycle = yield* DeviceLifecycleService;
+			const streamers = yield* AxStreamers;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
 			);
 			const url = new URL(request.url);
-			const states = yield* runtime.readStates;
-			const state = selectDeviceState(states, requestedDevice(url, runtime));
+			const states = yield* Effect.promise(() => lifecycle.states());
+			const state = selectDeviceState(states, requestedDevice(url, config));
 			if (!state)
 				return HttpServerResponse.text("No agentsims device", { status: 404 });
-			runtime.streamers.prune(states.map((item) => item.device));
+			streamers.prune(states.map((item) => item.device));
 			const encoder = new TextEncoder();
 			const updates = Stream.asyncScoped<Uint8Array>(
 				(emit) =>
 					Effect.acquireRelease(
 						Effect.sync(() =>
-							runtime.streamers.get(state.device).addClient({
+							streamers.get(state.device).addClient({
 								write: (chunk) => {
 									void emit.single(encoder.encode(chunk));
 								},

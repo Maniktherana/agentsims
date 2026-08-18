@@ -6,9 +6,15 @@ import {
 import { Effect } from "effect";
 import type { Scope } from "effect/Scope";
 import { androidSerialFromStateId } from "../../../android/device/device";
-import { getAndroidSession } from "../../../android/session/session";
-import { getDeviceSession } from "../../../ios/session/session";
-import { HttpRuntime } from "../../../services/http-runtime";
+import {
+	AndroidSessions,
+	type AndroidSessionsService,
+} from "../../../android/session/session";
+import {
+	IosSessions,
+	type IosSessionsService,
+} from "../../../ios/session/session";
+import { ServerConfig } from "../../runtime/server-config";
 import { HidSocketAdapter } from "../../websocket/hid-socket";
 import { bytes, json, requestSource } from "./shared";
 
@@ -34,12 +40,14 @@ async function response(
 	request: Request,
 	device: string,
 	endpoint: string,
+	androidSessions: AndroidSessionsService,
+	iosSessions: IosSessionsService,
 ): Promise<Response> {
 	const url = new URL(request.url);
 	const serial = androidSerialFromStateId(device);
 	if (serial) {
 		try {
-			const session = await getAndroidSession(serial);
+			const session = await Effect.runPromise(androidSessions.get(serial));
 			switch (endpoint) {
 				case "stream.avcc":
 					return session.avccResponse();
@@ -73,7 +81,7 @@ async function response(
 		}
 	}
 	try {
-		const session = getDeviceSession(device);
+		const session = Effect.runSync(iosSessions.get(device));
 		await session.start();
 		switch (endpoint) {
 			case "stream.mjpeg":
@@ -104,18 +112,21 @@ async function response(
 function upgrade(
 	request: HttpServerRequest.HttpServerRequest,
 	device: string,
-): Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, Scope> {
+): Effect.Effect<
+	HttpServerResponse.HttpServerResponse,
+	unknown,
+	Scope | AndroidSessions | IosSessions
+> {
 	return Effect.gen(function* () {
+		const androidSessions = yield* AndroidSessions;
+		const iosSessions = yield* IosSessions;
 		const socket = yield* request.upgrade;
 		const write = yield* socket.writer;
 		const adapter = new HidSocketAdapter(write);
 		const serial = androidSerialFromStateId(device);
-		if (serial)
-			(yield* Effect.promise(() => getAndroidSession(serial))).attachHidSocket(
-				adapter,
-			);
+		if (serial) (yield* androidSessions.get(serial)).attachHidSocket(adapter);
 		else {
-			const session = getDeviceSession(device);
+			const session = yield* iosSessions.get(device);
 			yield* Effect.promise(() => session.start());
 			session.attachHidSocket(adapter);
 		}
@@ -133,17 +144,25 @@ export const helperRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(
 		"/helper/*",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
+			const androidSessions = yield* AndroidSessions;
+			const iosSessions = yield* IosSessions;
 			const serverRequest = yield* HttpServerRequest.HttpServerRequest;
 			const request = requestSource(serverRequest.source);
-			const match = target(new URL(request.url).pathname, runtime.basePath);
+			const match = target(new URL(request.url).pathname, config.basePath);
 			if (!match)
 				return HttpServerResponse.text("No agentsims device", { status: 404 });
 			if (match.endpoint === "ws")
 				return yield* upgrade(serverRequest, match.device);
 			return HttpServerResponse.raw(
 				yield* Effect.promise(() =>
-					response(request, match.device, match.endpoint),
+					response(
+						request,
+						match.device,
+						match.endpoint,
+						androidSessions,
+						iosSessions,
+					),
 				),
 			);
 		}),

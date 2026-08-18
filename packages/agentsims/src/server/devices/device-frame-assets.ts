@@ -71,7 +71,7 @@ export type DevicePlaceholderAssetDescriptor = {
 	height: number;
 };
 
-export type DeviceKitChromeDescriptor = {
+export type DeviceFrameDescriptor = {
 	identifier: string;
 	frame: Size;
 	body: Rect;
@@ -82,12 +82,12 @@ export type DeviceKitChromeDescriptor = {
 	/** The active screen's corner radius (composite px) for rounding the stream. */
 	screenRadius: number;
 	compositeImage: string | null;
-	slice: DeviceKitChromeSlice | null;
+	slice: DeviceFrameSlice | null;
 	corner: Size | null;
-	buttons: DeviceKitChromeButton[];
+	buttons: DeviceFrameButton[];
 };
 
-export type DeviceKitChromeButton = {
+export type DeviceFrameButton = {
 	name: string;
 	image: string;
 	/** Pressed-state sprite (chrome.json `imageDown`), shown while held. */
@@ -102,7 +102,7 @@ export type DeviceKitChromeButton = {
 	usage: number | null;
 };
 
-export type DeviceKitChromeSlice = {
+export type DeviceFrameSlice = {
 	topLeft: string;
 	top: string;
 	topRight: string;
@@ -135,7 +135,7 @@ type ParsedChrome = {
 	outerCornerRadius: number;
 	innerCornerRadius: number;
 	compositeImage: string | null;
-	slice: DeviceKitChromeSlice | null;
+	slice: DeviceFrameSlice | null;
 	buttons: ParsedButton[];
 	allowedImages: Set<string>;
 };
@@ -157,7 +157,7 @@ let deviceTypeNameByIdentifier: Promise<Map<string, string>> | null = null;
 const chromeCache = new Map<string, ParsedChrome | null>();
 const descriptorCache = new Map<
 	string,
-	Promise<DeviceKitChromeDescriptor | null>
+	Promise<DeviceFrameDescriptor | null>
 >();
 const placeholderDescriptorCache = new Map<
 	string,
@@ -218,14 +218,14 @@ export function logicalScreenSizeFromProfile(
 	return { width: size.width / scale, height: size.height / scale };
 }
 
-export async function resolveDeviceKitChrome(device: {
+export async function resolveDeviceFrame(device: {
 	name: string;
 	deviceTypeIdentifier?: string;
-}): Promise<DeviceKitChromeDescriptor | null> {
+}): Promise<DeviceFrameDescriptor | null> {
 	const profileName = await profileNameForDevice(device);
 	const existing = descriptorCache.get(profileName);
 	if (existing) return existing;
-	const resolving = resolveDeviceKitChromeUncached(profileName);
+	const resolving = resolveDeviceFrameUncached(profileName);
 	descriptorCache.set(profileName, resolving);
 	return resolving;
 }
@@ -271,14 +271,12 @@ function webPng(bytes: Uint8Array): Response {
 	});
 }
 
-export async function serveDeviceKitChromeAssetWeb(
-	url: URL,
-): Promise<Response> {
-	const identifier = bareChromeIdentifier(url.searchParams.get("chrome") ?? "");
+export async function serveDeviceFrameAssetWeb(url: URL): Promise<Response> {
+	const identifier = bareChromeIdentifier(url.searchParams.get("frame") ?? "");
 	const imageName = url.searchParams.get("image") ?? "";
 	if (!/^[A-Za-z0-9_-]+$/.test(identifier) || !imageName) {
 		return Response.json(
-			{ ok: false, error: "Invalid chrome asset request" },
+			{ ok: false, error: "Invalid device frame asset request" },
 			{ status: 400 },
 		);
 	}
@@ -289,14 +287,14 @@ export async function serveDeviceKitChromeAssetWeb(
 		imageName.includes("/")
 	) {
 		return Response.json(
-			{ ok: false, error: "Chrome asset not found" },
+			{ ok: false, error: "Device frame asset not found" },
 			{ status: 404 },
 		);
 	}
 	const pdfPath = chromeAssetPath(identifier, imageName);
 	if (!existsSync(pdfPath)) {
 		return Response.json(
-			{ ok: false, error: "Chrome asset not found" },
+			{ ok: false, error: "Device frame asset not found" },
 			{ status: 404 },
 		);
 	}
@@ -380,9 +378,9 @@ function fallbackPlaceholderAsset(
 		: null;
 }
 
-async function resolveDeviceKitChromeUncached(
+async function resolveDeviceFrameUncached(
 	profileName: string,
-): Promise<DeviceKitChromeDescriptor | null> {
+): Promise<DeviceFrameDescriptor | null> {
 	const profilePath = profilePathForName(profileName);
 	if (!existsSync(profilePath)) return null;
 
@@ -462,7 +460,7 @@ async function resolveDeviceKitChromeUncached(
 		? pdfAssetSize(chrome.identifier, chrome.slice.topLeft)
 		: null;
 	const capsOnTop = chrome.identifier.startsWith("watch");
-	const buttons = chrome.buttons.flatMap((button): DeviceKitChromeButton[] => {
+	const buttons = chrome.buttons.flatMap((button): DeviceFrameButton[] => {
 		const imageSize = pdfAssetSize(chrome.identifier, button.image);
 		if (!imageSize) return [];
 		const topLeft = buttonTopLeft(
@@ -740,7 +738,7 @@ function parseChromeJson(json: JsonRecord): ParsedChrome | null {
 	};
 }
 
-function parseSlice(images: JsonRecord): DeviceKitChromeSlice | null {
+function parseSlice(images: JsonRecord): DeviceFrameSlice | null {
 	const topLeft = stringValue(images.topLeft);
 	const top = stringValue(images.top);
 	const topRight = stringValue(images.topRight);

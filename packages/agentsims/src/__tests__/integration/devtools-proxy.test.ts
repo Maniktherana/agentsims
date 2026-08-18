@@ -14,8 +14,8 @@ afterEach(() => {
 	preview = null;
 });
 
-describe("Bun DevTools proxy", () => {
-	test("lists targets and bridges CDP text frames", async () => {
+describe("Bun DevTools routing", () => {
+	test("lists iOS targets and connects directly to the WebKit bridge", async () => {
 		let cdpSawText = false;
 		cdp = Bun.serve({
 			hostname: "127.0.0.1",
@@ -82,7 +82,7 @@ describe("Bun DevTools proxy", () => {
 		}
 		const target = body.targets[0];
 		expect(target.webSocketDebuggerUrl).toBe(
-			`ws://127.0.0.1:${started.port}/devtools/page/${encodeURIComponent(targetId)}`,
+			`ws://127.0.0.1:${cdp.port}/devtools/page/${encodeURIComponent(targetId)}`,
 		);
 
 		const echoed = await new Promise<string>((resolve, reject) => {

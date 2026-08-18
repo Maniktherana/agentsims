@@ -1,17 +1,22 @@
-import { runDebug } from "./logger";
+import createDebug from "debug";
+
+const cli = createDebug("agentsims:cli");
+const helper = createDebug("agentsims:helper");
+const state = createDebug("agentsims:state");
+const middleware = createDebug("agentsims:mw");
 
 export const debugCli = (formatter: unknown, ...args: unknown[]): void => {
-	runDebug("cli", formatter, ...args);
+	cli(formatter, ...args);
 };
 
 export const debugHelper = (formatter: unknown, ...args: unknown[]): void => {
-	runDebug("helper", formatter, ...args);
+	helper(formatter, ...args);
 };
 
 export const debugState = (formatter: unknown, ...args: unknown[]): void => {
-	runDebug("state", formatter, ...args);
+	state(formatter, ...args);
 };
 
 export const debugMw = (formatter: unknown, ...args: unknown[]): void => {
-	runDebug("mw", formatter, ...args);
+	middleware(formatter, ...args);
 };

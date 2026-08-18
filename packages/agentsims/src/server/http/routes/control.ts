@@ -12,13 +12,17 @@ import {
 	normalizeUiValue,
 	setUiOption,
 } from "../../../ios/device/ui-settings";
-import { HttpRuntime } from "../../../services/http-runtime";
-import { ShellExec, type ShellExecService } from "../../../services/runtime";
+import { ScreenshotOperations } from "../../screenshot/operations";
+import {
+	ServerConfig,
+	type ServerConfigValue,
+} from "../../runtime/server-config";
+import { ShellExec, type ShellExecService } from "../../runtime/shell-exec";
 import { json, requestSource, requestedDevice } from "./shared";
 
 function execSocket(
 	request: HttpServerRequest.HttpServerRequest,
-	runtime: typeof HttpRuntime.Service,
+	config: ServerConfigValue,
 	shell: ShellExecService,
 ): Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, Scope> {
 	return Effect.gen(function* () {
@@ -63,7 +67,7 @@ function execSocket(
 					}
 					if (!value || typeof value !== "object") return;
 					if (!authenticated) {
-						if ("token" in value && value.token === runtime.execToken) {
+						if ("token" in value && value.token === config.execToken) {
 							authenticated = true;
 							yield* Fiber.interrupt(authTimeout);
 							yield* send({ ready: true });
@@ -84,9 +88,9 @@ function execSocket(
 						const sub = value.sub;
 						const path = value.path;
 						const allowed = [
-							`${runtime.basePath}/api/events`,
-							`${runtime.basePath}/appstate`,
-							`${runtime.basePath}/ax`,
+							`${config.basePath}/api/events`,
+							`${config.basePath}/appstate`,
+							`${config.basePath}/ax`,
 						];
 						if (!allowed.includes(path.split("?", 1)[0]!)) {
 							yield* send({ sub, end: true, error: "path not allowed" });
@@ -191,13 +195,11 @@ function execSocket(
 	});
 }
 
-const screenshotFibers = new Map<string, Fiber.RuntimeFiber<string, unknown>>();
-
 export const controlRoutes = HttpRouter.empty.pipe(
 	HttpRouter.post(
 		"/exec",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
 			const shell = yield* ShellExec;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
@@ -217,9 +219,7 @@ export const controlRoutes = HttpRouter.empty.pipe(
 						403,
 					),
 				);
-			if (
-				request.headers.get("authorization") !== `Bearer ${runtime.execToken}`
-			)
+			if (request.headers.get("authorization") !== `Bearer ${config.execToken}`)
 				return HttpServerResponse.raw(
 					json({ stdout: "", stderr: "Unauthorized", exitCode: 1 }, 401),
 				);
@@ -243,7 +243,7 @@ export const controlRoutes = HttpRouter.empty.pipe(
 		Effect.gen(function* () {
 			return yield* execSocket(
 				yield* HttpServerRequest.HttpServerRequest,
-				yield* HttpRuntime,
+				yield* ServerConfig,
 				yield* ShellExec,
 			);
 		}),
@@ -251,7 +251,8 @@ export const controlRoutes = HttpRouter.empty.pipe(
 	HttpRouter.post(
 		"/screenshot/save",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
+			const screenshots = yield* ScreenshotOperations;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
 			);
@@ -264,7 +265,7 @@ export const controlRoutes = HttpRouter.empty.pipe(
 				);
 			}
 			if (
-				request.headers.get("authorization") !== `Bearer ${runtime.execToken}`
+				request.headers.get("authorization") !== `Bearer ${config.execToken}`
 			) {
 				return HttpServerResponse.raw(json({ error: "Unauthorized" }, 401));
 			}
@@ -285,18 +286,11 @@ export const controlRoutes = HttpRouter.empty.pipe(
 					json({ error: "Screenshot is not a PNG" }, 400),
 				);
 			}
-			const fiber = yield* Effect.fork(
-				runtime.saveScreenshot(
+			const exit = yield* Effect.exit(
+				screenshots.save(
+					saveId,
 					data,
-					requestedDevice(url, runtime) ?? "unknown",
-				),
-			);
-			if (saveId) screenshotFibers.set(saveId, fiber);
-			const exit = yield* Fiber.await(fiber).pipe(
-				Effect.ensuring(
-					Effect.sync(() => {
-						if (saveId) screenshotFibers.delete(saveId);
-					}),
+					requestedDevice(url, config) ?? "unknown",
 				),
 			);
 			if (Exit.isFailure(exit)) {
@@ -318,15 +312,14 @@ export const controlRoutes = HttpRouter.empty.pipe(
 	HttpRouter.del(
 		"/screenshot/save",
 		Effect.gen(function* () {
+			const screenshots = yield* ScreenshotOperations;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
 			);
 			const url = new URL(request.url);
 			const saveId =
 				url.searchParams.get("saveId") ?? url.searchParams.get("id") ?? "";
-			const fiber = screenshotFibers.get(saveId);
-			if (fiber) yield* Fiber.interrupt(fiber);
-			screenshotFibers.delete(saveId);
+			yield* screenshots.cancel(saveId);
 			return HttpServerResponse.raw(json({ ok: true }, 202));
 		}),
 	),

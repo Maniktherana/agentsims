@@ -5,7 +5,7 @@ import {
 	isApplicationCommandError,
 } from "../../../commands/errors";
 import type { DeviceState } from "../../../shared/state";
-import type { HttpRuntimeService } from "../../../services/http-runtime";
+import type { ServerConfigValue } from "../../runtime/server-config";
 import { exposeDeviceState } from "../../devices/device-state-exposure";
 import { selectDeviceState } from "../../devices/device-lifecycle";
 import { previewConfigForState } from "../../preview/preview-config";
@@ -57,45 +57,44 @@ export function requestSource(source: unknown): Request {
 
 export function requestedDevice(
 	url: URL,
-	runtime: HttpRuntimeService,
+	config: ServerConfigValue,
 ): string | null {
-	return url.searchParams.get("device") ?? runtime.device ?? null;
+	return url.searchParams.get("device") ?? config.device ?? null;
 }
 
 export function selectedState(
 	url: URL,
-	runtime: HttpRuntimeService,
-): Effect.Effect<DeviceState | null> {
-	return Effect.map(runtime.readStates, (states) =>
-		selectDeviceState(states, requestedDevice(url, runtime)),
-	);
+	config: ServerConfigValue,
+	states: readonly DeviceState[],
+): DeviceState | null {
+	return selectDeviceState([...states], requestedDevice(url, config));
 }
 
 export function exposedState(
 	request: Request,
-	runtime: HttpRuntimeService,
+	config: ServerConfigValue,
 	state: DeviceState,
 ): DeviceState {
 	return exposeDeviceState(
 		state,
 		request.headers.get("host") ?? undefined,
-		runtime.basePath,
+		config.basePath,
 		request.headers.get("x-forwarded-proto") === "https" ? "https" : "http",
-		runtime.proxyHelpers,
+		config.proxyHelpers,
 	);
 }
 
 export function previewConfig(
 	request: Request,
-	runtime: HttpRuntimeService,
+	config: ServerConfigValue,
 	state: DeviceState,
 ): unknown {
 	return previewConfigForState(
-		exposedState(request, runtime, state),
-		runtime.basePath,
-		runtime.agentsimsBin,
-		runtime.execToken,
-		runtime.codec,
-		runtime.proxyHelpers,
+		exposedState(request, config, state),
+		config.basePath,
+		config.agentsimsBin,
+		config.execToken,
+		config.codec,
+		config.proxyHelpers,
 	);
 }

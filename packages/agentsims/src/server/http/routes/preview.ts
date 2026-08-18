@@ -5,10 +5,12 @@ import {
 	HttpServerResponse,
 } from "@effect/platform";
 import { Effect, Option, Schedule, Stream } from "effect";
+import { ForegroundApps } from "../../devices/foreground-apps";
+import { DeviceLifecycleService } from "../../devices/device-lifecycle";
 import {
-	HttpRuntime,
-	type HttpRuntimeService,
-} from "../../../services/http-runtime";
+	ServerConfig,
+	type ServerConfigValue,
+} from "../../runtime/server-config";
 import {
 	previewAssetContentType,
 	previewAssetKeyForRequest,
@@ -36,14 +38,18 @@ function previewAssetResponse(
 	});
 }
 
-function staticResponse(request: Request, runtime: HttpRuntimeService) {
+function staticResponse(
+	request: Request,
+	config: ServerConfigValue,
+	lifecycle: typeof DeviceLifecycleService.Service,
+) {
 	return Effect.gen(function* () {
 		const fileSystem = yield* FileSystem.FileSystem;
 		const url = new URL(request.url);
 		const rawUrl = `${url.pathname}${url.search}`;
-		const assetKey = previewAssetKeyForRequest(rawUrl, runtime.basePath);
-		const embedded = runtime.previewAssets
-			? resolvePreviewAsset(rawUrl, runtime.basePath, runtime.previewAssets)
+		const assetKey = previewAssetKeyForRequest(rawUrl, config.basePath);
+		const embedded = config.previewAssets
+			? resolvePreviewAsset(rawUrl, config.basePath, config.previewAssets)
 			: null;
 		if (embedded === false || assetKey === "")
 			return new Response("Preview asset not found", { status: 404 });
@@ -51,40 +57,41 @@ function staticResponse(request: Request, runtime: HttpRuntimeService) {
 			return previewAssetResponse(
 				assetKey!,
 				Buffer.from(embedded.contentBase64, "base64"),
-				runtime.basePath,
+				config.basePath,
 			);
 		}
 		if (assetKey) {
-			const path = `${runtime.previewRoot}/${assetKey}`;
+			const path = `${config.previewRoot}/${assetKey}`;
 			if (!(yield* fileSystem.exists(path))) {
 				return new Response("Preview asset not found", { status: 404 });
 			}
 			return previewAssetResponse(
 				assetKey,
 				yield* fileSystem.readFile(path),
-				runtime.basePath,
+				config.basePath,
 			);
 		}
 		const isRoot =
-			url.pathname === runtime.basePath ||
-			url.pathname === `${runtime.basePath}/` ||
-			(runtime.basePath === "" && url.pathname === "/");
+			url.pathname === config.basePath ||
+			url.pathname === `${config.basePath}/` ||
+			(config.basePath === "" && url.pathname === "/");
 		if (!isRoot) return null;
-		const state = yield* selectedState(url, runtime);
+		const states = yield* Effect.promise(() => lifecycle.states());
+		const state = selectedState(url, config, states);
 		let html = yield* fileSystem.readFileString(
-			`${runtime.previewRoot}/index.html`,
+			`${config.previewRoot}/index.html`,
 		);
-		html = html.replaceAll("/__SIM_PREVIEW_BASE__", runtime.basePath);
+		html = html.replaceAll("/__SIM_PREVIEW_BASE__", config.basePath);
 		html = html.replace(
 			/(href="[^"]+\.css)"/g,
-			`$1?v=${encodeURIComponent(runtime.execToken)}"`,
+			`$1?v=${encodeURIComponent(config.execToken)}"`,
 		);
-		const config = state
-			? previewConfig(request, runtime, state)
-			: { basePath: runtime.basePath, execToken: runtime.execToken };
+		const preview = state
+			? previewConfig(request, config, state)
+			: { basePath: config.basePath, execToken: config.execToken };
 		html = html.replace(
 			"<!--__SIM_PREVIEW_CONFIG__-->",
-			`<script>window.__SIM_PREVIEW__=${JSON.stringify(config)}</script>`,
+			`<script>window.__SIM_PREVIEW__=${JSON.stringify(preview)}</script>`,
 		);
 		return new Response(html, {
 			headers: {
@@ -96,12 +103,13 @@ function staticResponse(request: Request, runtime: HttpRuntimeService) {
 }
 
 const previewHandler = Effect.gen(function* () {
-	const runtime = yield* HttpRuntime;
+	const config = yield* ServerConfig;
+	const lifecycle = yield* DeviceLifecycleService;
 	const request = requestSource(
 		(yield* HttpServerRequest.HttpServerRequest).source,
 	);
 	return HttpServerResponse.raw(
-		(yield* staticResponse(request, runtime)) ??
+		(yield* staticResponse(request, config, lifecycle)) ??
 			new Response("Not found", { status: 404 }),
 	);
 });
@@ -131,14 +139,16 @@ export const previewRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(
 		"/api",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
+			const lifecycle = yield* DeviceLifecycleService;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
 			);
-			const state = yield* selectedState(new URL(request.url), runtime);
+			const states = yield* Effect.promise(() => lifecycle.states());
+			const state = selectedState(new URL(request.url), config, states);
 			return HttpServerResponse.raw(
 				state
-					? json(previewConfig(request, runtime, state))
+					? json(previewConfig(request, config, state))
 					: json({ error: "No agentsims device" }, 404),
 			);
 		}),
@@ -146,17 +156,19 @@ export const previewRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(
 		"/api/events",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
+			const lifecycle = yield* DeviceLifecycleService;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
 			);
 			const url = new URL(request.url);
 			return pollingSse(
-				selectedState(url, runtime).pipe(
+				Effect.promise(() => lifecycle.states()).pipe(
+					Effect.map((states) => selectedState(url, config, states)),
 					Effect.map((state) =>
 						Option.fromNullable(
 							state
-								? JSON.stringify(previewConfig(request, runtime, state))
+								? JSON.stringify(previewConfig(request, config, state))
 								: null,
 						),
 					),
@@ -167,15 +179,18 @@ export const previewRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(
 		"/appstate",
 		Effect.gen(function* () {
-			const runtime = yield* HttpRuntime;
+			const config = yield* ServerConfig;
+			const lifecycle = yield* DeviceLifecycleService;
+			const foregroundApps = yield* ForegroundApps;
 			const request = requestSource(
 				(yield* HttpServerRequest.HttpServerRequest).source,
 			);
-			const state = yield* selectedState(new URL(request.url), runtime);
+			const states = yield* Effect.promise(() => lifecycle.states());
+			const state = selectedState(new URL(request.url), config, states);
 			if (!state)
 				return HttpServerResponse.text("No agentsims device", { status: 404 });
-			const readForeground = runtime
-				.foregroundApp(state.device)
+			const readForeground = foregroundApps
+				.read(state.device)
 				.pipe(
 					Effect.map((value) =>
 						Option.fromNullable(value ? JSON.stringify(value) : null),

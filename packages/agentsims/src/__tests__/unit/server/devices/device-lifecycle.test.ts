@@ -91,7 +91,7 @@ describe("device lifecycle reconciliation", () => {
 
 		const first = lifecycle.shutdown(IOS);
 		const second = lifecycle.shutdown(IOS);
-		await Promise.resolve();
+		await Bun.sleep(0);
 		expect(calls).toBe(1);
 		finishShutdown();
 		expect(await Promise.all([first, second])).toEqual([null, null]);

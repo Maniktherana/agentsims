@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "fs";
+import { Effect } from "effect";
 import {
 	AndroidAxServerClient,
+	AndroidAxServers,
 	androidAxRequestLine,
+	androidAxServersLayer,
 	parseAndroidAxServerLine,
 	resolveAndroidAxServer,
 	subscribeAndroidAxChanges,
@@ -134,5 +137,24 @@ describe("persistent Android AX server", () => {
 		expect(snapshot.errors?.[0]).toContain(
 			"Fast Android AX unavailable; using stock UIAutomator",
 		);
+	});
+
+	test("closes cached AX clients with the service Layer", async () => {
+		let closes = 0;
+		const layer = androidAxServersLayer(() => ({
+			snapshot: async () => XML,
+			warm: async () => {},
+			close: () => {
+				closes += 1;
+			},
+		}));
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const servers = yield* AndroidAxServers;
+				expect(yield* servers.read("emulator-test")).toBe(XML);
+				yield* servers.warm("emulator-test");
+			}).pipe(Effect.provide(layer)),
+		);
+		expect(closes).toBe(1);
 	});
 });

@@ -8,17 +8,20 @@ import {
 import { Effect, Layer, Schema } from "effect";
 import {
 	CommandNotFound,
-	InvalidCommandInput,
 	type ApplicationCommandError,
 } from "../../commands/errors";
 import {
 	DeviceObservationOutputSchema,
 	DeviceStartOutputSchema,
+	MediaRouteActionSchema,
 } from "../../commands/schemas";
-import { HttpRuntime } from "../../services/http-runtime";
+import { ApplicationCommands } from "../../commands/device-commands";
+import { DeviceLifecycleService } from "../devices/device-lifecycle";
+import { MediaRouting } from "../media/service";
+import { ServerConfig } from "../runtime/server-config";
 import { selectDeviceState } from "../devices/device-lifecycle";
-import { isMediaRouteAction } from "../media/router";
 import { exposedState, requestSource } from "./routes/shared";
+import { JsonOnly } from "./json-only";
 
 const invalidInput = Schema.Struct({
 	type: Schema.Literal("InvalidCommandInput"),
@@ -82,11 +85,13 @@ const deviceGroup = HttpApiGroup.make("devices")
 	)
 	.add(
 		HttpApiEndpoint.post("startDevice", "/grid/api/start")
+			.middleware(JsonOnly)
 			.setPayload(Schema.Struct({ udid: Schema.String }))
 			.addSuccess(DeviceStartOutputSchema),
 	)
 	.add(
 		HttpApiEndpoint.post("shutdownDevice", "/grid/api/shutdown")
+			.middleware(JsonOnly)
 			.setPayload(Schema.Struct({ udid: Schema.String }))
 			.addSuccess(Schema.Struct({ ok: Schema.Boolean })),
 	)
@@ -99,6 +104,7 @@ const deviceGroup = HttpApiGroup.make("devices")
 	.add(
 		HttpApiEndpoint.post("act", "/device/:device/act")
 			.setPath(Schema.Struct({ device: Schema.String }))
+			.middleware(JsonOnly)
 			.setPayload(Schema.Struct({ actions: Schema.Array(Schema.Unknown) }))
 			.addSuccess(Schema.Struct({ ok: Schema.Boolean })),
 	);
@@ -117,7 +123,8 @@ const mediaGroup = HttpApiGroup.make("media")
 	.add(
 		HttpApiEndpoint.post("applyMedia", "/media")
 			.setUrlParams(Schema.Struct({ device: Schema.optional(Schema.String) }))
-			.setPayload(Schema.Unknown)
+			.middleware(JsonOnly)
+			.setPayload(MediaRouteActionSchema)
 			.addSuccess(Schema.Unknown),
 	);
 
@@ -131,65 +138,60 @@ export const DeviceApiLive = HttpApiBuilder.group(
 	(handlers) =>
 		handlers
 			.handle("workspaceStatus", () =>
-				Effect.flatMap(HttpRuntime, (runtime) =>
+				Effect.flatMap(ApplicationCommands, (commands) =>
 					wireErrors(
-						Effect.map(runtime.commands.workspaces(), (workspaces) => ({
-							workspaces,
-						})),
+						Effect.map(commands.workspaces(), (workspaces) => ({ workspaces })),
 					),
 				),
 			)
 			.handle("listDevices", ({ urlParams }) =>
 				Effect.gen(function* () {
-					const runtime = yield* HttpRuntime;
+					const commands = yield* ApplicationCommands;
+					const config = yield* ServerConfig;
 					const request = requestSource(
 						(yield* HttpServerRequest.HttpServerRequest).source,
 					);
 					return yield* wireErrors(
-						runtime.commands.list({
-							selectedDevice: urlParams.device ?? runtime.device ?? null,
+						commands.list({
+							selectedDevice: urlParams.device ?? config.device ?? null,
 							limit: urlParams.limit ?? null,
 							offset: urlParams.offset ?? 0,
-							exposeState: (state) => exposedState(request, runtime, state),
+							exposeState: (state) => exposedState(request, config, state),
 						}),
 					);
 				}),
 			)
 			.handle("memory", () =>
-				Effect.flatMap(HttpRuntime, (runtime) =>
-					wireErrors(runtime.commands.memory()),
+				Effect.flatMap(ApplicationCommands, (commands) =>
+					wireErrors(commands.memory()),
 				),
 			)
 			.handle("startDevice", ({ payload }) =>
-				Effect.flatMap(HttpRuntime, (runtime) =>
-					wireErrors(
-						runtime.commands.start(payload.udid, {
-							port: runtime.port,
-							basePath: runtime.basePath,
+				Effect.gen(function* () {
+					const commands = yield* ApplicationCommands;
+					const config = yield* ServerConfig;
+					return yield* wireErrors(
+						commands.start(payload.udid, {
+							port: config.port,
+							basePath: config.basePath,
 						}),
-					),
-				),
+					);
+				}),
 			)
 			.handle("shutdownDevice", ({ payload }) =>
-				Effect.flatMap(HttpRuntime, (runtime) =>
-					wireErrors(
-						Effect.as(runtime.commands.shutdown(payload.udid), { ok: true }),
-					),
+				Effect.flatMap(ApplicationCommands, (commands) =>
+					wireErrors(Effect.as(commands.shutdown(payload.udid), { ok: true })),
 				),
 			)
 			.handle("observe", ({ path, urlParams }) =>
-				Effect.flatMap(HttpRuntime, (runtime) =>
-					wireErrors(
-						runtime.commands.observe(path.device, urlParams.ax !== "0"),
-					),
+				Effect.flatMap(ApplicationCommands, (commands) =>
+					wireErrors(commands.observe(path.device, urlParams.ax !== "0")),
 				),
 			)
 			.handle("act", ({ path, payload }) =>
-				Effect.flatMap(HttpRuntime, (runtime) =>
+				Effect.flatMap(ApplicationCommands, (commands) =>
 					wireErrors(
-						Effect.as(runtime.commands.act(path.device, payload.actions), {
-							ok: true,
-						}),
+						Effect.as(commands.act(path.device, payload.actions), { ok: true }),
 					),
 				),
 			),
@@ -202,39 +204,36 @@ export const MediaApiLive = HttpApiBuilder.group(
 		handlers
 			.handle("readMedia", ({ urlParams }) =>
 				Effect.gen(function* () {
-					const runtime = yield* HttpRuntime;
+					const config = yield* ServerConfig;
+					const lifecycle = yield* DeviceLifecycleService;
+					const media = yield* MediaRouting;
+					const states = yield* Effect.promise(() => lifecycle.states());
 					const state = selectDeviceState(
-						yield* runtime.readStates,
-						urlParams.device ?? runtime.device,
+						states,
+						urlParams.device ?? config.device,
 					);
 					if (!state)
 						return yield* Effect.fail(
 							new CommandNotFound({ message: "No agentsims device" }),
 						);
-					return yield* runtime.media.read(state.device);
+					return yield* media.read(state.device);
 				}).pipe(wireErrors),
 			)
 			.handle("applyMedia", ({ urlParams, payload }) =>
 				Effect.gen(function* () {
-					const runtime = yield* HttpRuntime;
+					const config = yield* ServerConfig;
+					const lifecycle = yield* DeviceLifecycleService;
+					const media = yield* MediaRouting;
+					const states = yield* Effect.promise(() => lifecycle.states());
 					const state = selectDeviceState(
-						yield* runtime.readStates,
-						urlParams.device ?? runtime.device,
+						states,
+						urlParams.device ?? config.device,
 					);
 					if (!state)
 						return yield* Effect.fail(
 							new CommandNotFound({ message: "No agentsims device" }),
 						);
-					if (!isMediaRouteAction(payload)) {
-						return yield* Effect.fail(
-							new InvalidCommandInput({ message: "Unknown media action" }),
-						);
-					}
-					return yield* runtime.media.apply(
-						state.device,
-						payload,
-						runtime.port,
-					);
+					return yield* media.apply(state.device, payload, config.port);
 				}).pipe(wireErrors),
 			),
 );

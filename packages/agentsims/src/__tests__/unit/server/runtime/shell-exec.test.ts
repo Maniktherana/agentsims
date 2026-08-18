@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { ShellExec } from "../../../services/runtime";
+import { ShellExec } from "../../../../server/runtime/shell-exec";
 
 describe("ShellExec", () => {
 	test("accepts a stub layer without module mocking", async () => {

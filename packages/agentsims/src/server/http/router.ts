@@ -1,7 +1,14 @@
-import { HttpApiBuilder, HttpRouter } from "@effect/platform";
+import { FileSystem, HttpApiBuilder, HttpRouter } from "@effect/platform";
 import { Effect } from "effect";
-import { HttpRuntime } from "../../services/http-runtime";
-import { ShellExec } from "../../services/runtime";
+import { ServerConfig } from "../runtime/server-config";
+import { AxStreamers } from "../../accessibility/snapshot";
+import { AndroidSessions } from "../../android/session/session";
+import { IosSessions } from "../../ios/session/session";
+import { ShellExec } from "../runtime/shell-exec";
+import { ForegroundApps } from "../devices/foreground-apps";
+import { DeviceLifecycleService } from "../devices/device-lifecycle";
+import { DevTools } from "../devtools/service";
+import { ScreenshotOperations } from "../screenshot/operations";
 import { accessibilityRoutes } from "./routes/accessibility";
 import { controlRoutes } from "./routes/control";
 import { deviceAssetRoutes } from "./routes/device-assets";
@@ -20,13 +27,29 @@ export const featureRoutes = HttpRouter.concatAll(
 
 export const FeatureRoutesLive = HttpApiBuilder.Router.use((router) =>
 	Effect.gen(function* () {
-		const runtime = yield* HttpRuntime;
-		const shell = yield* ShellExec;
+		const config = yield* ServerConfig;
 		const routes = featureRoutes.pipe(
-			HttpRouter.provideService(HttpRuntime, runtime),
-			HttpRouter.provideService(ShellExec, shell),
+			HttpRouter.provideService(AxStreamers, yield* AxStreamers),
+			HttpRouter.provideService(AndroidSessions, yield* AndroidSessions),
+			HttpRouter.provideService(IosSessions, yield* IosSessions),
+			HttpRouter.provideService(ShellExec, yield* ShellExec),
+			HttpRouter.provideService(ForegroundApps, yield* ForegroundApps),
+			HttpRouter.provideService(
+				DeviceLifecycleService,
+				yield* DeviceLifecycleService,
+			),
+			HttpRouter.provideService(DevTools, yield* DevTools),
+			HttpRouter.provideService(
+				ScreenshotOperations,
+				yield* ScreenshotOperations,
+			),
+			HttpRouter.provideService(ServerConfig, config),
+			HttpRouter.provideService(
+				FileSystem.FileSystem,
+				yield* FileSystem.FileSystem,
+			),
 		);
-		if (runtime.basePath === "") yield* router.concat(routes);
-		else yield* router.mount(runtime.basePath, routes);
+		if (config.basePath === "") yield* router.concat(routes);
+		else yield* router.mount(config.basePath, routes);
 	}),
 );

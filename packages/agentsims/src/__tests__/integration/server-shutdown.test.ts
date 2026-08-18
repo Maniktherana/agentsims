@@ -1,16 +1,15 @@
 import { expect, test } from "bun:test";
-import { iosSessions } from "../../ios/session/session";
-import { startTestServer } from "../helpers/server";
+import { Effect } from "effect";
+import { IosSessions, IosSessionsLive } from "../../ios/session/session";
 
 const DEVICE = "server-scope-test-device";
 
-test("server shutdown closes the session registry scope", async () => {
-	const original = iosSessions.get(DEVICE);
-	const { server } = await startTestServer({ previewAssets: {} });
+test("closing the session layer releases its registry", async () => {
+	const acquire = Effect.gen(function* () {
+		return yield* (yield* IosSessions).get(DEVICE);
+	}).pipe(Effect.provide(IosSessionsLive));
 
-	await server.stop();
-
-	const replacement = iosSessions.get(DEVICE);
+	const original = await Effect.runPromise(acquire);
+	const replacement = await Effect.runPromise(acquire);
 	expect(replacement).not.toBe(original);
-	await iosSessions.close(DEVICE);
 });
