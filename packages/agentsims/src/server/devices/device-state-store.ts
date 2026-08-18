@@ -1,10 +1,11 @@
 import { FileSystem, Path } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
-import type { DeviceState } from "../shared/state";
+import type { DeviceState } from "../../shared/state";
 
 export type DeviceStateStoreService = {
 	write(state: DeviceState): Effect.Effect<void, unknown>;
 	remove(device: string): Effect.Effect<void, unknown>;
+	removeFile(file: string): Effect.Effect<void, unknown>;
 	listFiles(): Effect.Effect<string[]>;
 	read(file: string): Effect.Effect<DeviceState, unknown>;
 };
@@ -35,6 +36,8 @@ export const deviceStateStoreLayer = (directory: string, pid: number) =>
 					}),
 				remove: (device) =>
 					fs.remove(fileFor(device)).pipe(Effect.catchAll(() => Effect.void)),
+				removeFile: (file) =>
+					fs.remove(file).pipe(Effect.catchAll(() => Effect.void)),
 				listFiles: () =>
 					fs.readDirectory(directory).pipe(
 						Effect.map((files) =>

@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import {
-	AppConfig,
-	appConfigLayer,
-	resolveAppConfig,
-} from "../../../services/app-config";
+import { resolveAppConfig } from "../../../cli/app-config";
 
 describe("AppConfig", () => {
 	test("resolves environment defaults behind one service", async () => {
@@ -53,13 +49,5 @@ describe("AppConfig", () => {
 		await expect(
 			Effect.runPromise(resolveAppConfig({}, { PORT: "invalid" })),
 		).rejects.toThrow("PORT must be an integer");
-	});
-
-	test("supports a stub layer without process environment mutation", async () => {
-		const program = Effect.gen(function* () {
-			return yield* AppConfig;
-		}).pipe(Effect.provide(appConfigLayer({ port: 9000 }, {})));
-
-		expect(await Effect.runPromise(program)).toMatchObject({ port: 9000 });
 	});
 });

@@ -21,7 +21,7 @@ import {
 import { createHash, randomBytes } from "crypto";
 import { networkInterfaces } from "os";
 import { join, resolve } from "path";
-import { resolveAppConfig } from "../services/app-config";
+import { resolveAppConfig } from "./app-config";
 import {
 	STATE_DIR,
 	stateFileForDevice,

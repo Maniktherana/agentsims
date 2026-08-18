@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
-import type { IncomingMessage, ServerResponse } from "http";
-import { serveAndroidHelper } from "../../../../android/session/session";
 import { isAndroidEmulatorSerial } from "../../../../android/stream/transport";
 import {
 	AndroidAvccFrameCoordinator,
@@ -176,33 +174,5 @@ describe("Android stream transport", () => {
 
 		coordinator.submitIdleFrame(200, 2_000);
 		expect(writes).toHaveLength(writesAfterTiming + 2);
-	});
-
-	test("rejects MJPEG before opening an Android device session", async () => {
-		let status = 0;
-		let body = "";
-		const response = {
-			writeHead(nextStatus: number) {
-				status = nextStatus;
-				return this;
-			},
-			end(chunk?: string) {
-				body += chunk ?? "";
-				return this;
-			},
-		} as unknown as ServerResponse;
-
-		const handled = await serveAndroidHelper(
-			{} as IncomingMessage,
-			response,
-			"serial-that-must-not-be-opened",
-			"/stream.mjpeg",
-		);
-
-		expect(handled).toBe(true);
-		expect(status).toBe(410);
-		expect(JSON.parse(body)).toEqual({
-			error: "Android MJPEG/ADB PNG streaming is disabled. Use /stream.avcc.",
-		});
 	});
 });

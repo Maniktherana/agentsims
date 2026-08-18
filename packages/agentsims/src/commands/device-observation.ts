@@ -1,6 +1,3 @@
-import { androidSerialFromStateId } from "../android/device/device";
-import { getAndroidSession } from "../android/session/session";
-import { getDeviceSession } from "../ios/session/session";
 import { Effect } from "effect";
 import {
 	commandFailure,
@@ -22,7 +19,7 @@ export type DeviceObservation = {
 	warnings: string[];
 };
 
-type ObservationSession = {
+export type ObservationSession = {
 	platform: "ios" | "android";
 	mimeType: string;
 	captureScreenshot(): Promise<Buffer>;
@@ -30,40 +27,12 @@ type ObservationSession = {
 	readAccessibility(): Promise<unknown>;
 };
 
-type ResolveObservationSession = (
+export type ResolveObservationSession = (
 	device: string,
 ) => Promise<ObservationSession>;
 
-async function defaultResolveSession(
-	device: string,
-): Promise<ObservationSession> {
-	const androidSerial = androidSerialFromStateId(device);
-	if (androidSerial) {
-		const session = await getAndroidSession(androidSerial);
-		return {
-			platform: "android",
-			mimeType: "image/png",
-			captureScreenshot: () => session.captureScreenshot(),
-			readConfig: () => session.readConfig(),
-			readAccessibility: () => session.readAccessibility("settled"),
-		};
-	}
-
-	const session = getDeviceSession(device);
-	await session.start();
-	return {
-		platform: "ios",
-		mimeType: "image/jpeg",
-		captureScreenshot: () => session.captureScreenshot(),
-		readConfig: async () => session.screenConfig(),
-		readAccessibility: () => session.readAccessibility(),
-	};
-}
-
 export class DeviceObservationCommands {
-	constructor(
-		private readonly resolveSession: ResolveObservationSession = defaultResolveSession,
-	) {}
+	constructor(private readonly resolveSession: ResolveObservationSession) {}
 
 	observe(
 		device: string,
@@ -113,5 +82,3 @@ export class DeviceObservationCommands {
 		});
 	}
 }
-
-export const deviceObservationCommands = new DeviceObservationCommands();

@@ -5,10 +5,10 @@ import {
 	logicalScreenSizeFromProfile,
 	parsePdfPageSize,
 	resolveDevicePlaceholderAsset,
-	resolveDeviceKitChrome,
-} from "../../../../server/devices/devicekit-chrome";
+	resolveDeviceFrame,
+} from "../../../../server/devices/device-frame-assets";
 
-describe("DeviceKit chrome helpers", () => {
+describe("Device frame asset helpers", () => {
 	test("strips Apple's chrome bundle prefix", () => {
 		expect(bareChromeIdentifier("com.apple.dt.devicekit.chrome.phone11")).toBe(
 			"phone11",
@@ -42,7 +42,7 @@ describe("DeviceKit chrome helpers", () => {
 		if (!existsSync("/Library/Developer/DeviceKit/Chrome/watch2.devicechrome"))
 			return;
 
-		const chrome = await resolveDeviceKitChrome({
+		const chrome = await resolveDeviceFrame({
 			name: "renamed clone",
 			deviceTypeIdentifier:
 				"com.apple.CoreSimulator.SimDeviceType.Apple-Watch-SE-3-40mm",

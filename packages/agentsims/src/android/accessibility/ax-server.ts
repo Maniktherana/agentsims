@@ -1,3 +1,4 @@
+import { Context, Effect, Layer } from "effect";
 import {
 	execFile,
 	spawn,
@@ -413,31 +414,76 @@ export class AndroidAxServerClient {
 	}
 }
 
-const clients = new Map<string, AndroidAxServerClient>();
+type AndroidAxClient = Pick<
+	AndroidAxServerClient,
+	"snapshot" | "warm" | "close"
+>;
 
-export function getAndroidAxServer(serial: string): AndroidAxServerClient {
-	let client = clients.get(serial);
-	if (!client) {
-		client = new AndroidAxServerClient(serial);
-		clients.set(serial, client);
+class AndroidAxServerRegistry {
+	constructor(
+		private readonly makeClient: (serial: string) => AndroidAxClient = (
+			serial,
+		) => new AndroidAxServerClient(serial),
+	) {}
+	private readonly clients = new Map<string, AndroidAxClient>();
+
+	private get(serial: string): AndroidAxClient {
+		let client = this.clients.get(serial);
+		if (!client) {
+			client = this.makeClient(serial);
+			this.clients.set(serial, client);
+		}
+		return client;
 	}
-	return client;
+
+	read(serial: string, mode: AndroidAxMode = "fresh"): Promise<string> {
+		return this.get(serial).snapshot(mode);
+	}
+
+	warm(serial: string): Promise<void> {
+		return this.get(serial).warm();
+	}
+
+	close(serial: string): void {
+		const client = this.clients.get(serial);
+		if (!client) return;
+		this.clients.delete(serial);
+		client.close();
+	}
+
+	closeAll(): void {
+		for (const client of this.clients.values()) client.close();
+		this.clients.clear();
+	}
 }
 
-export function readAndroidAxXml(
-	serial: string,
-	mode: AndroidAxMode = "fresh",
-): Promise<string> {
-	return getAndroidAxServer(serial).snapshot(mode);
-}
+export type AndroidAxServersService = {
+	read(serial: string, mode?: AndroidAxMode): Effect.Effect<string, unknown>;
+	warm(serial: string): Effect.Effect<void, unknown>;
+	close(serial: string): Effect.Effect<void>;
+};
+export class AndroidAxServers extends Context.Tag(
+	"@agentsims/AndroidAxServers",
+)<AndroidAxServers, AndroidAxServersService>() {}
 
-export function warmAndroidAxServer(serial: string): Promise<void> {
-	return getAndroidAxServer(serial).warm();
-}
+export const androidAxServersLayer = (
+	makeClient?: (serial: string) => AndroidAxClient,
+) =>
+	Layer.scoped(
+		AndroidAxServers,
+		Effect.acquireRelease(
+			Effect.sync(() => new AndroidAxServerRegistry(makeClient)),
+			(registry) => Effect.sync(() => registry.closeAll()),
+		).pipe(
+			Effect.map((registry) =>
+				AndroidAxServers.of({
+					read: (serial, mode) =>
+						Effect.tryPromise(() => registry.read(serial, mode)),
+					warm: (serial) => Effect.tryPromise(() => registry.warm(serial)),
+					close: (serial) => Effect.sync(() => registry.close(serial)),
+				}),
+			),
+		),
+	);
 
-export function closeAndroidAxServer(serial: string): void {
-	const client = clients.get(serial);
-	if (!client) return;
-	clients.delete(serial);
-	client.close();
-}
+export const AndroidAxServersLive = androidAxServersLayer();

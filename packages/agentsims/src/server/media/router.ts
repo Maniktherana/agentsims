@@ -12,7 +12,7 @@ import {
 	type AndroidWebcam,
 } from "../../android/device/device";
 import type { AndroidStatus } from "../../android/device/types";
-import { deviceLifecycle } from "../devices/device-lifecycle";
+import type { DeviceLifecycleServiceValue } from "../devices/device-lifecycle";
 import type {
 	DeviceMediaState,
 	MediaApplyMode,
@@ -40,8 +40,6 @@ import {
 	updateStoredMediaRoute,
 	type StoredMediaRoute,
 } from "./route-store";
-
-const microphoneRoutes = new Map<string, boolean>();
 
 export function mediaDeviceFromRequestUrl(
 	rawUrl: string | undefined,
@@ -374,7 +372,11 @@ async function waitForAndroidDisconnect(serial: string): Promise<void> {
 }
 
 export class MediaRouter {
-	constructor(private readonly base: string) {}
+	constructor(
+		private readonly base: string,
+		private readonly lifecycle: DeviceLifecycleServiceValue,
+		private readonly microphoneRoutes = new Map<string, boolean>(),
+	) {}
 
 	async read(device: string): Promise<DeviceMediaState> {
 		const serial = androidSerialFromStateId(device);
@@ -422,7 +424,7 @@ export class MediaRouter {
 			device,
 			status,
 			webcams,
-			microphoneRoutes.get(serial),
+			this.microphoneRoutes.get(serial),
 			hostAudio,
 			[],
 			undefined,
@@ -445,7 +447,7 @@ export class MediaRouter {
 				if (typeof body.enabled !== "boolean")
 					throw new Error("Missing enabled flag");
 				await setAndroidHostMicrophone(serial, body.enabled);
-				microphoneRoutes.set(serial, body.enabled);
+				this.microphoneRoutes.set(serial, body.enabled);
 				return { ok: true, apply: "live" };
 
 			case "android-camera-source": {
@@ -531,7 +533,7 @@ export class MediaRouter {
 				updateStoredMediaRoute(device, { inputDeviceId: body.deviceId });
 				if (serial && /^emulator-\d+$/.test(serial)) {
 					await setAndroidHostMicrophone(serial, true);
-					microphoneRoutes.set(serial, true);
+					this.microphoneRoutes.set(serial, true);
 				}
 				return { ok: true, apply: "live" };
 
@@ -605,10 +607,10 @@ export class MediaRouter {
 				const status = await getAndroidStatus(serial);
 				if (!status.avdName)
 					throw new Error("Only Android emulators can be restarted here");
-				const shutdownError = await deviceLifecycle.shutdown(device);
+				const shutdownError = await this.lifecycle.shutdown(device);
 				if (shutdownError) throw new Error(shutdownError);
 				await waitForAndroidDisconnect(serial);
-				const started = await deviceLifecycle.start(
+				const started = await this.lifecycle.start(
 					androidAvdStateId(status.avdName),
 					publicPort,
 					this.base,

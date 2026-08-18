@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import type { ScreenshotPersistence } from "../../server/http/screenshot-service";
+import type { ScreenshotStoreService } from "../../server/screenshot/store";
 import { startTestServer } from "../helpers/server";
 
 const TOKEN = "screenshot-save-token";
 
 async function withServer<T>(
 	fn: (origin: string) => Promise<T>,
-	saveScreenshot?: ScreenshotPersistence,
+	saveScreenshot?: ScreenshotStoreService["save"],
 ): Promise<T> {
 	const { origin, server } = await startTestServer({
 		execToken: TOKEN,

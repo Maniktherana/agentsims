@@ -1,3 +1,4 @@
+import { Context, Effect, Layer } from "effect";
 import { AX_UNAVAILABLE_ERROR } from "./model";
 import type { AxElement, AxRect, AxSnapshot } from "./model";
 import {
@@ -5,6 +6,7 @@ import {
 	collectAndroidAxSnapshot,
 } from "../android/device/device";
 import { subscribeAndroidAxChanges } from "../android/accessibility/ax-server";
+import { AndroidAxServers } from "../android/accessibility/ax-server";
 import { axDescribeAsync } from "../ios/stream/native";
 import { enrichAxSnapshotWithRnSource } from "./rn-source";
 
@@ -418,6 +420,7 @@ export interface AxStreamerCache {
 	refreshActive(udid: string): boolean;
 	prune(activeUdids: Iterable<string>): void;
 	size(): number;
+	dispose(): void;
 }
 
 export function createAxStreamerCache(
@@ -468,5 +471,35 @@ export function createAxStreamerCache(
 		size() {
 			return streamers.size;
 		},
+		dispose() {
+			for (const streamer of streamers.values()) streamer.dispose();
+			streamers.clear();
+		},
 	};
 }
+
+export class AxStreamers extends Context.Tag("@agentsims/AxStreamers")<
+	AxStreamers,
+	AxStreamerCache
+>() {}
+
+export const AxStreamersLive = Layer.scoped(
+	AxStreamers,
+	Effect.gen(function* () {
+		const axServers = yield* AndroidAxServers;
+		const cache = createAxStreamerCache({
+			collect: (udid) => {
+				const serial = androidSerialFromStateId(udid);
+				return serial
+					? collectAndroidAxSnapshot(serial, {
+							readFastXml: (target, mode) =>
+								Effect.runPromise(axServers.read(target, mode)),
+						})
+					: collectAxSnapshot(udid);
+			},
+		});
+		return yield* Effect.acquireRelease(Effect.succeed(cache), (value) =>
+			Effect.sync(() => value.dispose()),
+		);
+	}),
+);

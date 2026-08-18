@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Effect } from "effect";
 
 export type StreamCodec = "auto" | "h264" | "mjpeg";
 
@@ -16,11 +16,6 @@ export type AppEnvironment = Readonly<Record<string, string | undefined>>;
 export class InvalidAppConfigError extends Error {
 	readonly _tag = "InvalidAppConfigError";
 }
-
-export class AppConfig extends Context.Tag("@agentsims/AppConfig")<
-	AppConfig,
-	AppConfigValue
->() {}
 
 function portFromEnvironment(environment: AppEnvironment): number | undefined {
 	const raw = environment.PORT?.trim();
@@ -58,11 +53,4 @@ export function resolveAppConfig(
 						error instanceof Error ? error.message : String(error),
 					),
 	});
-}
-
-export function appConfigLayer(
-	overrides: AppConfigOverrides = {},
-	environment: AppEnvironment = {},
-): Layer.Layer<AppConfig, InvalidAppConfigError> {
-	return Layer.effect(AppConfig, resolveAppConfig(overrides, environment));
 }

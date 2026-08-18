@@ -5,9 +5,9 @@ import {
 } from "@effect/platform";
 import { Effect } from "effect";
 import {
-	serveDeviceKitChromeAssetWeb,
+	serveDeviceFrameAssetWeb,
 	serveDevicePlaceholderAssetWeb,
-} from "../../devices/devicekit-chrome";
+} from "../../devices/device-frame-assets";
 import { requestSource } from "./shared";
 
 function requestUrl(source: unknown): URL {
@@ -16,12 +16,12 @@ function requestUrl(source: unknown): URL {
 
 export const deviceAssetRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(
-		"/grid/api/devicekit-chrome",
+		"/grid/api/device-frame-assets",
 		Effect.gen(function* () {
 			const request = yield* HttpServerRequest.HttpServerRequest;
 			return HttpServerResponse.raw(
 				yield* Effect.promise(() =>
-					serveDeviceKitChromeAssetWeb(requestUrl(request.source)),
+					serveDeviceFrameAssetWeb(requestUrl(request.source)),
 				),
 			);
 		}),

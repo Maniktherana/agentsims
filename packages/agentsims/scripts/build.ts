@@ -158,9 +158,15 @@ await buildBrowserClientWithVite();
 const pkgVersion = JSON.parse(
 	readFileSync(resolve(root, "package.json"), "utf-8"),
 ).version as string;
+const devtoolsFrontendRevision =
+	process.env.AGENTSIMS_DEVTOOLS_FRONTEND_REVISION ??
+	"854a02be78c7ffea104cb523636efa991bef5c5b";
 
 const PREVIEW_DEFINE = {
 	__AGENTSIMS_VERSION__: JSON.stringify(pkgVersion),
+	__AGENTSIMS_DEVTOOLS_FRONTEND_REVISION__: JSON.stringify(
+		devtoolsFrontendRevision,
+	),
 };
 
 // ─── 2b. First-party Android accessibility server ────────────────────────

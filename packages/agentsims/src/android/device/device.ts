@@ -11,10 +11,7 @@ import type {
 	AndroidScreenConfig,
 	AndroidStatus,
 } from "./types";
-import {
-	readAndroidAxXml,
-	type AndroidAxMode,
-} from "../accessibility/ax-server";
+import type { AndroidAxMode } from "../accessibility/ax-server";
 
 export const ANDROID_DEVICE_PREFIX = "android:";
 export const ANDROID_AVD_PREFIX = "android-avd:";
@@ -1755,11 +1752,14 @@ export async function collectAndroidAxSnapshot(
 	const readXml =
 		dependencies.readXml ??
 		(async (targetSerial: string) => {
-			const readFastXml = dependencies.readFastXml ?? readAndroidAxXml;
 			const readFallbackXml =
 				dependencies.readFallbackXml ?? readUiautomatorXml;
+			if (!dependencies.readFastXml) return readFallbackXml(targetSerial);
 			try {
-				return await readFastXml(targetSerial, dependencies.mode ?? "fresh");
+				return await dependencies.readFastXml(
+					targetSerial,
+					dependencies.mode ?? "fresh",
+				);
 			} catch (error) {
 				// Hidden UiAutomation APIs vary across Android releases and another
 				// automation tool may temporarily own the single system connection.

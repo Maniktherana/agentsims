@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type {
 	AndroidCornerRadii,
 	AndroidScreenConfig,
@@ -34,11 +34,12 @@ import {
 	toggleAndroidSoftwareKeyboard,
 } from "../device/device";
 import { enrichAxSnapshotWithRnSource } from "../../accessibility/rn-source";
+import type { AxSnapshot } from "../../accessibility/model";
 import { LatestValueScheduler } from "../../shared/latest-value-scheduler";
 import {
-	closeAndroidAxServer,
-	warmAndroidAxServer,
+	AndroidAxServers,
 	type AndroidAxMode,
+	type AndroidAxServersService,
 } from "../accessibility/ax-server";
 
 const CORS = {
@@ -213,6 +214,8 @@ export interface AndroidSessionDependencies {
 	}>;
 	emulatorViewportPollMs?: number;
 	warmAx(serial: string): Promise<void>;
+	readAx(serial: string, mode: AndroidAxMode): Promise<AxSnapshot>;
+	closeAx(serial: string): void;
 	createTransport(
 		serial: string,
 		screen: { width: number; height: number; presentationGeneration?: number },
@@ -232,7 +235,9 @@ export interface AndroidSessionDependencies {
 const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
 	readScreenConfig: getAndroidScreenConfig,
 	readEmulatorViewport: getAndroidEmulatorViewportState,
-	warmAx: warmAndroidAxServer,
+	warmAx: async () => {},
+	readAx: (serial, mode) => collectAndroidAxSnapshot(serial, { mode }),
+	closeAx: () => {},
 	createTransport: createAndroidTransport,
 	rotate: androidRotate,
 	freeEmulatorRotation: freeAndroidEmulatorRotation,
@@ -274,11 +279,13 @@ export class AndroidSession {
 		(message) => this.queueHidMessage(message),
 	);
 
+	private readonly dependencies: AndroidSessionDependencies;
 	constructor(
 		public readonly serial: string,
-		private readonly dependencies: AndroidSessionDependencies = DEFAULT_SESSION_DEPENDENCIES,
-	) {}
-
+		dependencies: Partial<AndroidSessionDependencies> = {},
+	) {
+		this.dependencies = { ...DEFAULT_SESSION_DEPENDENCIES, ...dependencies };
+	}
 	async start(): Promise<void> {
 		if (!this.startPromise) {
 			this.startPromise = this.initialize().catch((error) => {
@@ -319,7 +326,7 @@ export class AndroidSession {
 		this.hidSockets.clear();
 		this.transport?.close();
 		this.transport = null;
-		closeAndroidAxServer(this.serial);
+		this.dependencies.closeAx(this.serial);
 	}
 
 	private screenConfig() {
@@ -637,7 +644,7 @@ export class AndroidSession {
 
 	async readAccessibility(mode: AndroidAxMode = "settled"): Promise<unknown> {
 		return enrichAxSnapshotWithRnSource(
-			await collectAndroidAxSnapshot(this.serial, { mode }),
+			await this.dependencies.readAx(this.serial, mode),
 		);
 	}
 
@@ -1020,9 +1027,21 @@ export class AndroidSession {
 	}
 }
 
-export class AndroidSessions {
+class AndroidSessionRegistry {
+	constructor(private readonly axServers: AndroidAxServersService) {}
 	private readonly sessions = new ScopedResourceRegistry(
-		(serial: string) => new AndroidSession(serial),
+		(serial: string) =>
+			new AndroidSession(serial, {
+				...DEFAULT_SESSION_DEPENDENCIES,
+				warmAx: (target) => Effect.runPromise(this.axServers.warm(target)),
+				readAx: (target, mode) =>
+					collectAndroidAxSnapshot(target, {
+						mode,
+						readFastXml: (value, requestedMode) =>
+							Effect.runPromise(this.axServers.read(value, requestedMode)),
+					}),
+				closeAx: (target) => Effect.runSync(this.axServers.close(target)),
+			}),
 		(session) => session.close(),
 	);
 
@@ -1046,73 +1065,27 @@ export class AndroidSessions {
 	}
 }
 
-export const androidSessions = new AndroidSessions();
+export type AndroidSessionsService = {
+	get(serial: string): Effect.Effect<AndroidSession, unknown>;
+	close(serial: string): Effect.Effect<void>;
+};
 
-export function getAndroidSession(serial: string): Promise<AndroidSession> {
-	return androidSessions.get(serial);
-}
+export class AndroidSessions extends Context.Tag("@agentsims/AndroidSessions")<
+	AndroidSessions,
+	AndroidSessionsService
+>() {}
 
-export function closeAndroidSession(serial: string): Promise<void> {
-	return androidSessions.close(serial);
-}
-
-export async function serveAndroidHelper(
-	req: IncomingMessage,
-	res: ServerResponse,
-	serial: string,
-	path: string,
-): Promise<boolean> {
-	const pathname = path.split("?", 1)[0];
-	if (pathname === "/stream.mjpeg") {
-		res.writeHead(410, {
-			"Content-Type": "application/json",
-			"Cache-Control": "no-store",
-			...CORS,
-		});
-		res.end(
-			JSON.stringify({
-				error: "Android MJPEG/ADB PNG streaming is disabled. Use /stream.avcc.",
-			}),
+export const AndroidSessionsLive = Layer.scoped(
+	AndroidSessions,
+	Effect.gen(function* () {
+		const axServers = yield* AndroidAxServers;
+		const registry = yield* Effect.acquireRelease(
+			Effect.sync(() => new AndroidSessionRegistry(axServers)),
+			(value) => Effect.promise(() => value.closeAll()),
 		);
-		return true;
-	}
-
-	const session = await getAndroidSession(serial);
-	switch (pathname) {
-		case "/config":
-			session.handleConfig(req, res);
-			return true;
-		case "/health":
-			session.handleHealth(req, res);
-			return true;
-		case "/status":
-		case "/media":
-			session.handleStatus(req, res);
-			return true;
-		case "/screenshot.png":
-			session.handleScreenshot(req, res);
-			return true;
-		case "/ax":
-			session.handleAx(req, res);
-			return true;
-		case "/stream.avcc":
-			try {
-				await session.attachAvcc(res);
-			} catch (error) {
-				if (!res.headersSent) {
-					res.writeHead(503, { "Content-Type": "application/json", ...CORS });
-					res.end(
-						JSON.stringify({
-							error: error instanceof Error ? error.message : String(error),
-						}),
-					);
-				} else if (!res.writableEnded) {
-					res.end();
-				}
-				return true;
-			}
-			return true;
-		default:
-			return false;
-	}
-}
+		return AndroidSessions.of({
+			get: (serial) => Effect.tryPromise(() => registry.get(serial)),
+			close: (serial) => Effect.promise(() => registry.close(serial)),
+		});
+	}),
+);

@@ -6,12 +6,12 @@ import {
 	listAndroidDevices,
 } from "../../android/device/device";
 import {
-	resolveDeviceKitChrome,
+	resolveDeviceFrame,
 	resolveDevicePlaceholderAsset,
-	type DeviceKitChromeDescriptor,
+	type DeviceFrameDescriptor,
 	type DevicePlaceholderAssetDescriptor,
-} from "./devicekit-chrome";
-import { deviceLifecycle, type DeviceLifecycle } from "./device-lifecycle";
+} from "./device-frame-assets";
+import type { DeviceLifecycleServiceValue } from "./device-lifecycle";
 import type { DeviceState } from "../../shared/state";
 import { hostCommandText } from "../runtime/host-tools-runtime";
 
@@ -33,7 +33,7 @@ export type GridDevice = {
 	name: string;
 	runtime: string;
 	state: string;
-	chrome: DeviceKitChromeDescriptor | null;
+	chrome: DeviceFrameDescriptor | null;
 	placeholderAsset: DevicePlaceholderAssetDescriptor | null;
 	helper: Pick<DeviceState, "port" | "url" | "streamUrl" | "wsUrl"> | null;
 };
@@ -89,7 +89,7 @@ export class DeviceCatalog {
 		udid: null,
 	};
 
-	constructor(private readonly lifecycle: DeviceLifecycle = deviceLifecycle) {}
+	constructor(private readonly lifecycle: DeviceLifecycleServiceValue) {}
 
 	async page(options: {
 		selectedDevice: string | null;
@@ -211,7 +211,7 @@ export class DeviceCatalog {
 				ios
 					? {
 							...row,
-							chrome: await resolveDeviceKitChrome(ios),
+							chrome: await resolveDeviceFrame(ios),
 							placeholderAsset: await resolveDevicePlaceholderAsset(ios),
 						}
 					: row,
@@ -332,5 +332,3 @@ export class DeviceCatalog {
 		return -(major * 1_000 + minor);
 	}
 }
-
-export const deviceCatalog = new DeviceCatalog();

@@ -1,68 +1,91 @@
-import {
-	HttpApiBuilder,
-	HttpServerRequest,
-	HttpServerResponse,
-	type HttpApp,
-} from "@effect/platform";
-import { BunContext, BunHttpServer } from "@effect/platform-bun";
+import { BunContext } from "@effect/platform-bun";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { ShellExecLive } from "../../services/runtime";
+import { AxStreamersLive } from "../../accessibility/snapshot";
+import { AndroidAxServersLive } from "../../android/accessibility/ax-server";
+import { AndroidSessionsLive } from "../../android/session/session";
+import { ApplicationCommandsLive } from "../../commands/device-commands";
+import { IosSessionsLive } from "../../ios/session/session";
+import { STATE_DIR } from "../../shared/state";
+import { deviceStateStoreLayer } from "../devices/device-state-store";
+import { DeviceLifecycleLive } from "../devices/device-lifecycle";
+import { ForegroundAppsLive } from "../devices/foreground-apps";
 import {
-	httpRuntimeLayer,
-	type HttpServerOptions,
-} from "../../services/http-runtime";
-import { SessionResourcesLive } from "../runtime/session-resources";
+	AndroidCdpAdapterLive,
+	AndroidDevToolsLive,
+} from "../devtools/android";
+import { DevToolsLive } from "../devtools/service";
+import { WebKitDevToolsLive } from "../devtools/webkit";
+import { MediaRoutingLive } from "../media/service";
+import { ScreenshotOperationsLive } from "../screenshot/operations";
+import { ScreenshotStoreLive } from "../screenshot/store";
+import { ShellExecLive } from "../runtime/shell-exec";
+import {
+	serverConfigLayer,
+	type ServerConfigInput,
+} from "../runtime/server-config";
 import type { PreviewServer } from "../runtime/runtime";
-import { CommandApiLive } from "./api";
-import { FeatureRoutesLive } from "./router";
+import { httpApplicationLive } from "./application";
+import { JsonOnlyLive } from "./json-only";
 
-const jsonContentTypeGuard = (app: HttpApp.Default) =>
-	Effect.gen(function* () {
-		const serverRequest = yield* HttpServerRequest.HttpServerRequest;
-		const source = serverRequest.source;
-		if (source instanceof Request && source.method === "POST") {
-			const pathname = new URL(source.url).pathname;
-			const requiresJson =
-				pathname === "/media" ||
-				pathname === "/grid/api/start" ||
-				pathname === "/grid/api/shutdown" ||
-				/^\/device\/[^/]+\/act$/.test(pathname);
-			if (
-				requiresJson &&
-				!source.headers.get("content-type")?.startsWith("application/json")
-			) {
-				return HttpServerResponse.unsafeJson(
-					{ error: "Unsupported Media Type" },
-					{ status: 415 },
-				);
-			}
-		}
-		return yield* app;
-	});
+export type HttpServerOptions = ServerConfigInput;
+
+export function serverServicesLive(options: HttpServerOptions) {
+	const configLive = serverConfigLayer(options);
+	const axServersLive = AndroidAxServersLive;
+	const sessionsLive = Layer.mergeAll(
+		axServersLive,
+		AndroidSessionsLive.pipe(Layer.provide(axServersLive)),
+		IosSessionsLive,
+	);
+	const stateStoreLive = deviceStateStoreLayer(STATE_DIR, process.pid);
+	const lifecycleDependenciesLive = Layer.merge(sessionsLive, stateStoreLive);
+	const coreLive = DeviceLifecycleLive.pipe(
+		Layer.provideMerge(lifecycleDependenciesLive),
+	);
+	const commandsLive = ApplicationCommandsLive.pipe(
+		Layer.provideMerge(coreLive),
+	);
+	const configuredCommandsLive = Layer.merge(configLive, commandsLive);
+	const mediaLive = MediaRoutingLive.pipe(
+		Layer.provideMerge(configuredCommandsLive),
+	);
+	const foregroundLive = ForegroundAppsLive.pipe(Layer.provide(coreLive));
+	const streamersLive = AxStreamersLive.pipe(Layer.provide(coreLive));
+	const screenshotsLive = ScreenshotOperationsLive.pipe(
+		Layer.provideMerge(ScreenshotStoreLive),
+	);
+	const androidDevToolsLive = AndroidDevToolsLive.pipe(
+		Layer.provide(AndroidCdpAdapterLive),
+	);
+	const devToolsProvidersLive = Layer.merge(
+		WebKitDevToolsLive,
+		androidDevToolsLive,
+	);
+	const devToolsLive = DevToolsLive.pipe(
+		Layer.provideMerge(devToolsProvidersLive),
+	);
+	return Layer.mergeAll(
+		mediaLive,
+		foregroundLive,
+		streamersLive,
+		screenshotsLive,
+		devToolsLive,
+		ShellExecLive,
+		JsonOnlyLive,
+	);
+}
+
+export function serverLive(options: HttpServerOptions) {
+	return httpApplicationLive(options.host, options.port).pipe(
+		Layer.provide(serverServicesLive(options)),
+		Layer.provide(BunContext.layer),
+	);
+}
 
 export async function servePreview(
-	options: HttpServerOptions & {
-		host: string;
-		port: number;
-	},
+	options: HttpServerOptions,
 ): Promise<PreviewServer> {
-	const RuntimeLive = httpRuntimeLayer(options);
-	const HttpLive = HttpApiBuilder.serve(jsonContentTypeGuard).pipe(
-		Layer.provide(FeatureRoutesLive),
-		Layer.provide(CommandApiLive),
-		Layer.provide(RuntimeLive),
-		Layer.provide(ShellExecLive),
-		Layer.provide(BunContext.layer),
-		Layer.provide(
-			BunHttpServer.layer({
-				hostname: options.host,
-				port: options.port,
-				idleTimeout: 0,
-			}),
-		),
-	);
-	const ServerLive = Layer.mergeAll(HttpLive, SessionResourcesLive);
-	const runtime = ManagedRuntime.make(ServerLive);
+	const runtime = ManagedRuntime.make(serverLive(options));
 	await runtime.runPromise(Effect.void);
 	return { stop: () => runtime.dispose() };
 }

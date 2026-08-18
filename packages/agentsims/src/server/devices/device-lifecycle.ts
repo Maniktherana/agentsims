@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync } from "fs";
+import { Context, Effect, Layer } from "effect";
 import { execFile } from "child_process";
 import {
 	androidAvdNameFromStateId,
@@ -9,22 +9,13 @@ import {
 	listAndroidDevices,
 } from "../../android/device/device";
 import {
-	closeAndroidSession,
-	getAndroidSession,
+	AndroidSessions,
 	type AndroidSession,
 } from "../../android/session/session";
-import {
-	closeDeviceSession,
-	getDeviceSession,
-} from "../../ios/session/session";
+import { IosSessions } from "../../ios/session/session";
 import { debugMw } from "../../shared/debug";
-import {
-	inProcessDeviceState,
-	listStateFiles,
-	removeDeviceState,
-	writeDeviceState,
-	type DeviceState,
-} from "../../shared/state";
+import { inProcessDeviceState, type DeviceState } from "../../shared/state";
+import { DeviceStateStore } from "./device-state-store";
 import { getStoredMediaRoute } from "../media/route-store";
 
 type SimctlBootedList = {
@@ -84,12 +75,34 @@ export interface DeviceLifecycleDependencies {
 	getAndroidSession(
 		serial: string,
 	): Promise<Pick<AndroidSession, "startTransport">>;
-	writeDeviceState(state: DeviceState): void;
+	closeAndroidSession(serial: string): Promise<void>;
+	getIosSession(udid: string): { start(): Promise<void> };
+	closeIosSession(udid: string): Promise<void>;
+	writeDeviceState(state: DeviceState): Promise<void>;
+	removeDeviceState(device: string): Promise<void>;
+	listStateFiles(): Promise<string[]>;
+	readDeviceState(file: string): Promise<DeviceState>;
+	removeStateFile(file: string): Promise<void>;
 }
 
-const DEFAULT_LIFECYCLE_DEPENDENCIES: DeviceLifecycleDependencies = {
-	getAndroidSession,
-	writeDeviceState,
+const UNCONFIGURED_LIFECYCLE_DEPENDENCIES: DeviceLifecycleDependencies = {
+	getAndroidSession: async () => {
+		throw new Error("AndroidSessions service is not configured");
+	},
+	closeAndroidSession: async () => {},
+	getIosSession: () => ({
+		start: async () => {
+			throw new Error("IosSessions service is not configured");
+		},
+	}),
+	closeIosSession: async () => {},
+	writeDeviceState: async () => {},
+	removeDeviceState: async () => {},
+	listStateFiles: async () => [],
+	readDeviceState: async () => {
+		throw new Error("DeviceStateStore service is not configured");
+	},
+	removeStateFile: async () => {},
 };
 
 export const DEVICE_SHUTTING_DOWN_ERROR = "Device is shutting down";
@@ -111,7 +124,7 @@ export class DeviceLifecycle {
 
 	constructor(
 		private readonly execute = execFileResult,
-		private readonly dependencies = DEFAULT_LIFECYCLE_DEPENDENCIES,
+		private readonly dependencies = UNCONFIGURED_LIFECYCLE_DEPENDENCIES,
 	) {}
 
 	invalidate(): void {
@@ -140,66 +153,55 @@ export class DeviceLifecycle {
 		const live = { ios, android };
 		const states: DeviceState[] = [];
 
-		for (const path of listStateFiles()) {
+		for (const path of await this.dependencies.listStateFiles()) {
+			let state: DeviceState;
 			try {
-				const state = JSON.parse(readFileSync(path, "utf-8")) as DeviceState;
-				try {
-					process.kill(state.pid, 0);
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code !== "EPERM") {
-						debugMw("helper pid=%d gone, removing %s", state.pid, path);
-						try {
-							unlinkSync(path);
-						} catch (error) {
-							console.warn(
-								"[agentsims:server] recoverable operation failed",
-								error,
-							);
-						}
-						continue;
-					}
-				}
-
-				const action = classifyStaleDeviceState(state, live, process.pid);
-				if (action === "keep") {
-					states.push(state);
+				state = await this.dependencies.readDeviceState(path);
+			} catch {
+				await this.dependencies.removeStateFile(path);
+				continue;
+			}
+			try {
+				process.kill(state.pid, 0);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+					debugMw("helper pid=%d gone, removing %s", state.pid, path);
+					await this.dependencies.removeStateFile(path);
 					continue;
 				}
+			}
 
-				if (action === "recycle-self") {
-					const androidSerial = androidSerialFromStateId(state.device);
-					if (androidSerial) await closeAndroidSession(androidSerial);
-					else await closeDeviceSession(state.device);
-					debugMw(
-						"closing in-process session for unavailable device %s",
-						state.device,
-					);
-				} else {
-					debugMw(
-						"recycling stale helper pid=%d for unavailable device %s",
-						state.pid,
-						state.device,
-					);
-					try {
-						process.kill(state.pid, "SIGTERM");
-					} catch (error) {
-						console.warn(
-							"[agentsims:server] recoverable operation failed",
-							error,
-						);
-					}
-				}
+			const action = classifyStaleDeviceState(state, live, process.pid);
+			if (action === "keep") {
+				states.push(state);
+				continue;
+			}
+
+			if (action === "recycle-self") {
+				const androidSerial = androidSerialFromStateId(state.device);
+				if (androidSerial)
+					await this.dependencies.closeAndroidSession(androidSerial);
+				else await this.dependencies.closeIosSession(state.device);
+				debugMw(
+					"closing in-process session for unavailable device %s",
+					state.device,
+				);
+			} else {
+				debugMw(
+					"recycling stale helper pid=%d for unavailable device %s",
+					state.pid,
+					state.device,
+				);
 				try {
-					unlinkSync(path);
+					process.kill(state.pid, "SIGTERM");
 				} catch (error) {
 					console.warn(
 						"[agentsims:server] recoverable operation failed",
 						error,
 					);
 				}
-			} catch (error) {
-				console.warn("[agentsims:server] recoverable operation failed", error);
 			}
+			await this.dependencies.removeStateFile(path);
 		}
 		return states;
 	}
@@ -261,8 +263,8 @@ export class DeviceLifecycle {
 	private async performShutdown(device: string): Promise<string | null> {
 		const androidSerial = androidSerialFromStateId(device);
 		if (androidSerial) {
-			await closeAndroidSession(androidSerial);
-			removeDeviceState(device);
+			await this.dependencies.closeAndroidSession(androidSerial);
+			await this.dependencies.removeDeviceState(device);
 			this.invalidate();
 			if (!androidSerial.startsWith("emulator-")) return null;
 			const result = await this.execute(
@@ -274,8 +276,8 @@ export class DeviceLifecycle {
 		}
 
 		if (!isIosSimulatorId(device)) return "Invalid or missing device";
-		await closeDeviceSession(device);
-		removeDeviceState(device);
+		await this.dependencies.closeIosSession(device);
+		await this.dependencies.removeDeviceState(device);
 		this.invalidate();
 		const result = await this.execute(
 			"xcrun",
@@ -314,12 +316,14 @@ export class DeviceLifecycle {
 			if (!booted) return `Device ${udid} failed to reach booted state`;
 		}
 		try {
-			await getDeviceSession(udid).start();
-			writeDeviceState(inProcessDeviceState(udid, port, base));
+			await this.dependencies.getIosSession(udid).start();
+			await this.dependencies.writeDeviceState(
+				inProcessDeviceState(udid, port, base),
+			);
 			this.invalidate();
 			return null;
 		} catch (error) {
-			await closeDeviceSession(udid);
+			await this.dependencies.closeIosSession(udid);
 			return error instanceof Error ? error.message : String(error);
 		}
 	}
@@ -334,7 +338,7 @@ export class DeviceLifecycle {
 		try {
 			const session = await this.dependencies.getAndroidSession(serial);
 			await session.startTransport();
-			this.dependencies.writeDeviceState(
+			await this.dependencies.writeDeviceState(
 				inProcessDeviceState(androidStateId(serial), port, base),
 			);
 			this.invalidate();
@@ -454,15 +458,49 @@ export class DeviceLifecycle {
 	}
 }
 
-export const deviceLifecycle = new DeviceLifecycle();
+export type DeviceLifecycleServiceValue = Pick<
+	DeviceLifecycle,
+	| "invalidate"
+	| "reconcileCatalogState"
+	| "isStartSuppressed"
+	| "states"
+	| "select"
+	| "start"
+	| "shutdown"
+>;
 
-export function readDeviceStates(): Promise<DeviceState[]> {
-	return deviceLifecycle.states();
-}
+export class DeviceLifecycleService extends Context.Tag(
+	"@agentsims/DeviceLifecycle",
+)<DeviceLifecycleService, DeviceLifecycleServiceValue>() {}
+
+export const DeviceLifecycleLive = Layer.effect(
+	DeviceLifecycleService,
+	Effect.gen(function* () {
+		const androidSessions = yield* AndroidSessions;
+		const iosSessions = yield* IosSessions;
+		const stateStore = yield* DeviceStateStore;
+		return new DeviceLifecycle(execFileResult, {
+			getAndroidSession: (serial) =>
+				Effect.runPromise(androidSessions.get(serial)),
+			closeAndroidSession: (serial) =>
+				Effect.runPromise(androidSessions.close(serial)),
+			getIosSession: (udid) => Effect.runSync(iosSessions.get(udid)),
+			closeIosSession: (udid) => Effect.runPromise(iosSessions.close(udid)),
+			writeDeviceState: (state) => Effect.runPromise(stateStore.write(state)),
+			removeDeviceState: (device) =>
+				Effect.runPromise(stateStore.remove(device)),
+			listStateFiles: () => Effect.runPromise(stateStore.listFiles()),
+			readDeviceState: (file) => Effect.runPromise(stateStore.read(file)),
+			removeStateFile: (file) => Effect.runPromise(stateStore.removeFile(file)),
+		});
+	}),
+);
 
 export function selectDeviceState(
 	states: DeviceState[],
 	device?: string | null,
 ): DeviceState | null {
-	return deviceLifecycle.select(states, device);
+	return device
+		? (states.find((state) => state.device === device) ?? null)
+		: (states[0] ?? null);
 }

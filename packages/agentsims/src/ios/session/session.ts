@@ -15,6 +15,7 @@
  * original byte-for-byte so the existing browser client is unchanged.
  */
 import type { IncomingMessage, ServerResponse } from "http";
+import { Context, Effect, Layer } from "effect";
 import { ScopedResourceRegistry } from "../../shared/scoped-resource-registry";
 import {
 	NativeCapture,
@@ -579,7 +580,7 @@ export class DeviceSession {
 
 // ── Registry ─────────────────────────────────────────────────────────────
 
-export class IosSessions {
+class IosSessionRegistry {
 	private readonly sessions = new ScopedResourceRegistry(
 		(udid: string) => new DeviceSession(udid),
 		(session) => session.close(),
@@ -598,12 +599,27 @@ export class IosSessions {
 	}
 }
 
-export const iosSessions = new IosSessions();
+export type IosSessionsService = {
+	get(udid: string): Effect.Effect<DeviceSession>;
+	close(udid: string): Effect.Effect<void>;
+};
 
-export function getDeviceSession(udid: string): DeviceSession {
-	return iosSessions.get(udid);
-}
+export class IosSessions extends Context.Tag("@agentsims/IosSessions")<
+	IosSessions,
+	IosSessionsService
+>() {}
 
-export function closeDeviceSession(udid: string): Promise<void> {
-	return iosSessions.close(udid);
-}
+export const IosSessionsLive = Layer.scoped(
+	IosSessions,
+	Effect.acquireRelease(
+		Effect.sync(() => new IosSessionRegistry()),
+		(registry) => Effect.promise(() => registry.closeAll()),
+	).pipe(
+		Effect.map((registry) =>
+			IosSessions.of({
+				get: (udid) => Effect.sync(() => registry.get(udid)),
+				close: (udid) => Effect.promise(() => registry.close(udid)),
+			}),
+		),
+	),
+);

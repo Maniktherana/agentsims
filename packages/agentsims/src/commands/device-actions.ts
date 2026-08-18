@@ -1,6 +1,3 @@
-import { androidSerialFromStateId } from "../android/device/device";
-import { getAndroidSession } from "../android/session/session";
-import { getDeviceSession } from "../ios/session/session";
 import {
 	textToKeyEvents,
 	UnsupportedCharacterError,
@@ -54,7 +51,7 @@ export type DeviceAction =
 	| { type: "button"; button: string }
 	| { type: "rotate"; orientation: string };
 
-type DeviceInputSession = {
+export type DeviceInputSession = {
 	dispatchInputFrame(data: Buffer): Promise<void>;
 };
 
@@ -63,7 +60,7 @@ type InputStep = {
 	delayAfterMs?: number;
 };
 
-type ResolveSession = (device: string) => Promise<DeviceInputSession>;
+export type ResolveSession = (device: string) => Promise<DeviceInputSession>;
 type Pause = (milliseconds: number) => Effect.Effect<void>;
 
 function normalized(value: unknown, name: string): number {
@@ -175,16 +172,6 @@ function stepsForAction(action: DeviceAction): InputStep[] {
 	}
 }
 
-async function defaultResolveSession(
-	device: string,
-): Promise<DeviceInputSession> {
-	const androidSerial = androidSerialFromStateId(device);
-	if (androidSerial) return getAndroidSession(androidSerial);
-	const session = getDeviceSession(device);
-	await session.start();
-	return session;
-}
-
 function defaultPause(milliseconds: number): Effect.Effect<void> {
 	return Effect.sleep(`${milliseconds} millis`);
 }
@@ -275,7 +262,7 @@ export function parseDeviceAction(value: string): DeviceAction {
 
 export class DeviceActionCommands {
 	constructor(
-		private readonly resolveSession: ResolveSession = defaultResolveSession,
+		private readonly resolveSession: ResolveSession,
 		private readonly pause: Pause = defaultPause,
 	) {}
 
@@ -317,5 +304,3 @@ export class DeviceActionCommands {
 		});
 	}
 }
-
-export const deviceActionCommands = new DeviceActionCommands();
