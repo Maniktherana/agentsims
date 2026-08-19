@@ -509,8 +509,8 @@ export function MediaRoutingSection({
 				/>
 				{state?.platform === "android" && state.audioOutput.volumeLevel ? (
 					<OutputVolumeRow
-						label="Simulator volume"
-						ariaLabel="Simulator volume"
+						label={physicalAndroid ? "Device volume" : "Simulator volume"}
+						ariaLabel={physicalAndroid ? "Device volume" : "Simulator volume"}
 						value={state.audioOutput.volumeLevel.current}
 						min={state.audioOutput.volumeLevel.min}
 						max={state.audioOutput.volumeLevel.max}

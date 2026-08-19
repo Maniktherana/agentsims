@@ -5,6 +5,7 @@ import {
 	AndroidAxServerClient,
 	AndroidAxServers,
 	androidAxRequestLine,
+	androidAxTouchLine,
 	androidAxServersLayer,
 	parseAndroidAxServerLine,
 	resolveAndroidAxServer,
@@ -55,6 +56,15 @@ describe("persistent Android AX server", () => {
 			id: 3,
 			op: "snapshot",
 			settled: true,
+		});
+	});
+
+	test("writes touch events to the persistent helper protocol", () => {
+		expect(JSON.parse(androidAxTouchLine("begin", 100.25, 200.5))).toEqual({
+			op: "touch",
+			phase: "begin",
+			x: 100.25,
+			y: 200.5,
 		});
 	});
 
@@ -144,6 +154,7 @@ describe("persistent Android AX server", () => {
 		const layer = androidAxServersLayer(() => ({
 			snapshot: async () => XML,
 			warm: async () => {},
+			touch: async () => {},
 			close: () => {
 				closes += 1;
 			},

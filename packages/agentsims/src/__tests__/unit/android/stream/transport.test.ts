@@ -1,11 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
-import { isAndroidEmulatorSerial } from "../../../../android/stream/transport";
+import {
+	androidTransportKindForSerial,
+	isAndroidEmulatorSerial,
+} from "../../../../android/stream/transport";
 import {
 	AndroidAvccFrameCoordinator,
 	encodeSimulatorFrameTiming,
 	parseImageMetadata,
 } from "../../../../android/stream/emulator-controller";
+import {
+	AnnexBStreamParser,
+	h264Description,
+	screenrecordArguments,
+	ScreenrecordAvccParser,
+} from "../../../../android/stream/device-screenrecord";
 
 describe("Android stream transport", () => {
 	test("decodes exact rotation from emulator screenshot metadata", () => {
@@ -28,6 +37,87 @@ describe("Android stream transport", () => {
 		expect(isAndroidEmulatorSerial("emulator-5554")).toBe(true);
 		expect(isAndroidEmulatorSerial("R5CW1234ABC")).toBe(false);
 		expect(isAndroidEmulatorSerial("192.168.1.8:5555")).toBe(false);
+	});
+
+	test("selects emulator MMAP and physical-device ADB transports", () => {
+		expect(androidTransportKindForSerial("emulator-5554")).toBe(
+			"emulator-controller",
+		);
+		expect(androidTransportKindForSerial("R5CW1234ABC")).toBe(
+			"adb-screenrecord",
+		);
+		expect(androidTransportKindForSerial("192.168.1.8:5555")).toBe(
+			"adb-screenrecord",
+		);
+	});
+
+	test("starts Android's built-in raw H.264 stream through ADB", () => {
+		expect(screenrecordArguments("R5CW1234ABC")).toEqual([
+			"-s",
+			"R5CW1234ABC",
+			"exec-out",
+			"screenrecord",
+			"--output-format=h264",
+			"--bit-rate",
+			"8000000",
+			"--time-limit",
+			"0",
+			"-",
+		]);
+	});
+
+	test("splits Annex-B start codes across arbitrary ADB chunks", () => {
+		const parser = new AnnexBStreamParser();
+		const first = Buffer.from([0x67, 0x64, 0x00, 0x28]);
+		const second = Buffer.from([0x68, 0xee, 0x3c, 0x80]);
+		expect(parser.push(Buffer.from([0, 0]))).toEqual([]);
+		expect(
+			parser.push(
+				Buffer.concat([
+					Buffer.from([0, 1]),
+					first,
+					Buffer.from([0, 0, 1]),
+					second,
+				]),
+			),
+		).toEqual([first]);
+		expect(parser.flush()).toEqual([second]);
+	});
+
+	test("converts screenrecord access units into browser AVCC envelopes", () => {
+		const sps = Buffer.from([0x67, 0x64, 0x00, 0x2a, 0xac]);
+		const pps = Buffer.from([0x68, 0xee, 0x3c, 0x80]);
+		const firstIdrSlice = Buffer.from([0x65, 0x80, 0x11]);
+		const secondIdrSlice = Buffer.from([0x65, 0x40, 0x22]);
+		const deltaSlice = Buffer.from([0x41, 0x80, 0x33]);
+		const start = Buffer.from([0, 0, 0, 1]);
+		const published: Buffer[] = [];
+		const parser = new ScreenrecordAvccParser((chunk) => published.push(chunk));
+
+		parser.push(
+			Buffer.concat([
+				start,
+				sps,
+				start,
+				pps,
+				start,
+				firstIdrSlice,
+				start,
+				secondIdrSlice,
+				start,
+				deltaSlice,
+			]),
+		);
+		parser.flush();
+
+		expect(published.map((chunk) => chunk[4])).toEqual([0x01, 0x02, 0x03]);
+		expect(published[0]!.subarray(5)).toEqual(h264Description(sps, pps)!);
+		const keyframe = published[1]!.subarray(5);
+		expect(keyframe.readUInt32BE(0)).toBe(firstIdrSlice.length);
+		const secondLengthOffset = 4 + firstIdrSlice.length;
+		expect(keyframe.readUInt32BE(secondLengthOffset)).toBe(
+			secondIdrSlice.length,
+		);
 	});
 
 	test("encodes only while an AVCC client is attached", () => {

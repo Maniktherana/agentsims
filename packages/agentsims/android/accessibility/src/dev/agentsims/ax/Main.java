@@ -7,6 +7,8 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.view.InputDevice;
+import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -63,6 +65,7 @@ public final class Main {
   private static int pendingEventTypes;
   private static boolean changeScheduled;
   private static volatile boolean snapshotInProgress;
+  private static long touchDownTimeMs;
 
   private static final Runnable emitPendingChange = new Runnable() {
     @Override
@@ -102,9 +105,14 @@ public final class Main {
         JSONObject response = new JSONObject();
         try {
           JSONObject request = new JSONObject(line);
+          String operation = request.optString("op");
+          if ("touch".equals(operation)) {
+            injectTouch(request);
+            continue;
+          }
           long id = request.getLong("id");
           response.put("id", id);
-          if (!"snapshot".equals(request.optString("op"))) {
+          if (!"snapshot".equals(operation)) {
             throw new IllegalArgumentException("Unsupported operation");
           }
           if (request.optBoolean("settled", false)) waitForIdle();
@@ -230,6 +238,40 @@ public final class Main {
       // A permanently animating app should still be observable. The settled
       // mode is a bounded best effort, never a ten-second UI blocker.
     }
+  }
+
+  private static void injectTouch(JSONObject request) throws Exception {
+    String phase = request.getString("phase");
+    int action;
+    if ("begin".equals(phase)) action = MotionEvent.ACTION_DOWN;
+    else if ("move".equals(phase)) action = MotionEvent.ACTION_MOVE;
+    else if ("end".equals(phase)) action = MotionEvent.ACTION_UP;
+    else if ("cancel".equals(phase)) action = MotionEvent.ACTION_CANCEL;
+    else throw new IllegalArgumentException("Unsupported touch phase");
+
+    long eventTimeMs = SystemClock.uptimeMillis();
+    if (action == MotionEvent.ACTION_DOWN || touchDownTimeMs == 0) {
+      touchDownTimeMs = eventTimeMs;
+    }
+    MotionEvent event = MotionEvent.obtain(
+      touchDownTimeMs,
+      eventTimeMs,
+      action,
+      (float) request.getDouble("x"),
+      (float) request.getDouble("y"),
+      0
+    );
+    event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+    boolean accepted;
+    try {
+      accepted = automation.injectInputEvent(event, false);
+    } finally {
+      event.recycle();
+    }
+    if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+      touchDownTimeMs = 0;
+    }
+    if (!accepted) throw new IllegalStateException("Android rejected the touch event");
   }
 
   private static String snapshotXml() {

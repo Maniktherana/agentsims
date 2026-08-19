@@ -94,6 +94,36 @@ describe("Android session orientation observation", () => {
 		session.close();
 	});
 
+	test("sends physical touch phases before mouse release", async () => {
+		const touches: Array<{ phase: string; x: number; y: number }> = [];
+		const session = new AndroidSession("R5CW1234ABC", {
+			readScreenConfig: async () => ({
+				width: 1080,
+				height: 2424,
+				orientation: "portrait",
+				rotation: 0,
+			}),
+			warmAx: async () => {},
+			touchDevice: async (_serial, phase, x, y) => {
+				touches.push({ phase, x, y });
+			},
+		});
+		await session.start();
+		const frame = (type: string, x: number, y: number) =>
+			Buffer.concat([
+				Buffer.from([0x03]),
+				Buffer.from(JSON.stringify({ type, x, y })),
+			]);
+
+		await session.dispatchInputFrame(frame("begin", 0.25, 0.5));
+		await session.dispatchInputFrame(frame("move", 0.5, 0.75));
+		expect(touches).toEqual([
+			{ phase: "begin", x: 270, y: 1212 },
+			{ phase: "move", x: 540, y: 1818 },
+		]);
+		session.close();
+	});
+
 	test("turns an Android wheel burst into one native touch gesture without ADB swipe queuing", async () => {
 		const scrollTouches: Array<{
 			phase: string;

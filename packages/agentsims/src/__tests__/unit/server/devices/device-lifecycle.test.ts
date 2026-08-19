@@ -168,6 +168,39 @@ describe("device lifecycle reconciliation", () => {
 		]);
 	});
 
+	test("starts a physical Android device through the same session path", async () => {
+		const calls: string[] = [];
+		const lifecycle = new DeviceLifecycle(
+			async (command, args) => {
+				calls.push(`exec:${command} ${args.join(" ")}`);
+				return { error: null, stdout: "", stderr: "" };
+			},
+			{
+				getAndroidSession: async (serial) => {
+					calls.push(`session:${serial}`);
+					return {
+						startTransport: async () => {
+							calls.push(`transport:${serial}`);
+						},
+					};
+				},
+				writeDeviceState: (state) => {
+					calls.push(`state:${state.device}`);
+				},
+			},
+		);
+
+		expect(await lifecycle.start("android:R5CW1234ABC", 3200, "/")).toEqual({
+			error: null,
+			device: "android:R5CW1234ABC",
+		});
+		expect(calls).toEqual([
+			"session:R5CW1234ABC",
+			"transport:R5CW1234ABC",
+			"state:android:R5CW1234ABC",
+		]);
+	});
+
 	test("recycles unavailable iOS and Android sessions owned by this process", () => {
 		const live = {
 			ios: new Set<string>(),

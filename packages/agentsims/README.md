@@ -125,14 +125,20 @@ The published package currently requires a macOS 14 or newer host and Node.js
 20 or newer. Install Xcode for iOS Simulator support. Install Android Studio or
 the Android SDK and put `adb` on `PATH` for Android support.
 
-| Target           | Live video and control                    |
-| ---------------- | ----------------------------------------- |
-| iOS Simulator    | Native simulator capture and HID control  |
-| Android emulator | Emulator capture, H.264, and native input |
+| Target                  | Live video and control                    |
+| ----------------------- | ----------------------------------------- |
+| iOS Simulator           | Native simulator capture and HID control  |
+| Android emulator        | Emulator capture, H.264, and native input |
+| Physical Android device | ADB screenrecord H.264 and ADB input      |
 
-Android live video requires browser WebCodecs support and has no MJPEG or ADB
-PNG fallback. iOS Simulator streams can use `--codec mjpeg` when the H.264 path
-is unavailable.
+Android live video requires browser WebCodecs support. Android has no MJPEG
+or ADB PNG stream fallback. iOS Simulator streams can use `--codec mjpeg` when
+the H.264 path is unavailable.
+
+Physical Android devices need only `adb` on the host. Agentsims reads Android's
+built-in `screenrecord` H.264 stream. Camera injection, virtual-scene images,
+host microphone routing, and location emulation remain available only for
+emulators.
 
 ## Agent CLI
 

@@ -56,7 +56,7 @@ export function ToolsPanel({
 	settingsPosition?: -1 | 0 | 1;
 }) {
 	const isAndroid = udid.startsWith("android:");
-	const isAndroidEmulator = /^android:emulator-\d+$/.test(udid);
+	const supportsLocation = !isAndroid || /^android:emulator-\d+$/.test(udid);
 	const [dockHost, setDockHost] = useState<HTMLElement | null>(null);
 	const contentRef = useRef<HTMLDivElement | null>(null);
 
@@ -84,7 +84,7 @@ export function ToolsPanel({
 					className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]"
 				>
 					<AppDetectionTool udid={udid} currentApp={currentApp} />
-					{isAndroidEmulator && <AndroidSimulatorSettingsTool udid={udid} />}
+					{isAndroid && <AndroidSimulatorSettingsTool udid={udid} />}
 					{!isAndroid && (
 						<SimulatorSettingsTool udid={udid} runtime={deviceRuntime} />
 					)}
@@ -92,23 +92,23 @@ export function ToolsPanel({
 						udid={udid}
 						bundleId={currentApp?.bundleId ?? null}
 					/>
-					<LocationEmulationTool udid={udid} exec={execOnHost} />
+					{supportsLocation && (
+						<LocationEmulationTool udid={udid} exec={execOnHost} />
+					)}
 					{!isAndroid && (
 						<AppPermissionsTool
 							udid={udid}
 							bundleId={currentApp?.bundleId ?? null}
 						/>
 					)}
-					{(!isAndroid || isAndroidEmulator) && (
-						<StreamSettingsTool
-							preference={codecPreference}
-							onPreferenceChange={onCodecPreferenceChange}
-							activeCodec={activeCodec}
-							avccSupported={avccSupported}
-							frameRate={frameRate}
-							showCodecControls={!isAndroid}
-						/>
-					)}
+					<StreamSettingsTool
+						preference={codecPreference}
+						onPreferenceChange={onCodecPreferenceChange}
+						activeCodec={activeCodec}
+						avccSupported={avccSupported}
+						frameRate={frameRate}
+						showCodecControls={!isAndroid}
+					/>
 				</div>
 			)}
 		</>

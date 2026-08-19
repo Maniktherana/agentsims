@@ -2,6 +2,33 @@
 
 What changed in agentsims, day by day, newest first.
 
+## 2026-08-19
+
+### Added
+
+- **Physical Android devices work again.** A connected phone appears in the
+  device list and starts a live session. Android's built-in `screenrecord`
+  command supplies H.264 video through ADB. A persistent device helper supplies
+  live touch input. ADB supplies scroll, key, and rotation input. No scrcpy
+  installation is necessary.
+- **Android device settings and media volume on physical devices.** Night mode,
+  font scale, animation scale, touch overlays, and volume now work on a phone,
+  not just an emulator.
+- **Rotation on a physical device.** The toolbar turns a phone by holding a
+  user-rotation lock, because a phone has no virtual accelerometer to keep it
+  turned. Closing the device session hands orientation back to the device.
+
+### Fixed
+
+- Booting or inspecting a physical Android device no longer fails with
+  "Agentsims supports Android emulators only". Device discovery, the CLI, and the
+  session registry no longer filter on the `emulator-` serial prefix.
+
+### Notes
+
+- Camera injection, virtual scene images, host microphone routing, and location
+  emulation remain emulator-only: they are emulator console features.
+
 ## 2026-08-14
 
 ### Added

@@ -222,6 +222,7 @@ export function buildDeviceMediaState(
 
 	const emulator = /^emulator-\d+$/.test(androidStatus.serial);
 	if (!emulator) {
+		const physicalMediaVolume = androidStatus.audio.mediaVolume;
 		return {
 			platform: "android",
 			deviceKind: "physical",
@@ -235,7 +236,19 @@ export function buildDeviceMediaState(
 				supportsLivePoster: false,
 			},
 			audioInput: { current: "device", choices: [] },
-			audioOutput: { current: "device", choices: [] },
+			audioOutput: {
+				current: "device",
+				choices: [],
+				...(physicalMediaVolume
+					? {
+							volume:
+								(physicalMediaVolume.current - physicalMediaVolume.min) /
+								Math.max(1, physicalMediaVolume.max - physicalMediaVolume.min),
+							volumeSettable: true,
+							volumeLevel: physicalMediaVolume,
+						}
+					: {}),
+			},
 		};
 	}
 
@@ -546,9 +559,9 @@ export class MediaRouter {
 				return { ok: true, apply: "live" };
 
 			case "android-output-volume":
-				if (!serial || !/^emulator-\d+$/.test(serial)) {
+				if (!serial) {
 					throw new Error(
-						"Android media volume is only available for Android emulators",
+						"Android media volume is only available for Android devices",
 					);
 				}
 				if (!Number.isInteger(body.level))
@@ -580,8 +593,7 @@ export class MediaRouter {
 				) {
 					throw new Error("Output volume must be between 0 and 1");
 				}
-				if (serial && /^emulator-\d+$/.test(serial))
-					await setAndroidMediaVolume(serial, body.volume);
+				if (serial) await setAndroidMediaVolume(serial, body.volume);
 				else if (typeof body.deviceId === "string" && body.deviceId.length > 0)
 					await setHostOutputVolume(body.deviceId, body.volume);
 				else throw new Error("Missing host output device");

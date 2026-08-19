@@ -96,15 +96,13 @@ export class DeviceCatalog {
 		paging: { limit: number | null; offset: number };
 		expose: (state: DeviceState) => DeviceState;
 	}): Promise<GridPage> {
-		const [states, simulators, discoveredAndroidDevices, androidAvds] =
-			await Promise.all([
+		const [states, simulators, androidDevices, androidAvds] = await Promise.all(
+			[
 				this.lifecycle.states(),
 				this.listIosSimulators(),
 				listAndroidDevices(),
 				listAndroidAvds(),
-			]);
-		const androidDevices = discoveredAndroidDevices.filter((device) =>
-			/^emulator-\d+$/.test(device.serial),
+			],
 		);
 		const helpers = new Map(
 			states.map((state) => [state.device, state] as const),

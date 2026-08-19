@@ -1,13 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import { Context, Effect, Layer } from "effect";
+import { CommandExecutor } from "@effect/platform/CommandExecutor";
 import type {
 	AndroidCornerRadii,
 	AndroidScreenConfig,
 	AndroidStatus,
 } from "../device/types";
 import {
+	androidTransportKindForSerial,
 	createAndroidTransport,
-	isAndroidEmulatorSerial,
 	type AndroidTransport,
 	type AndroidTransportConfig,
 } from "../stream/transport";
@@ -28,6 +29,8 @@ import {
 	getAndroidScreenConfig,
 	freeAndroidEmulatorRotation,
 	reloadAndroidReactNative,
+	restoreAndroidDeviceRotation,
+	rotateAndroidDevice,
 	rotateAndroidEmulatorNative,
 	rotateAndroidEmulatorAbsolute,
 	toggleAndroidDarkMode,
@@ -40,6 +43,7 @@ import {
 	AndroidAxServers,
 	type AndroidAxMode,
 	type AndroidAxServersService,
+	type AndroidAxTouchPhase,
 } from "../accessibility/ax-server";
 
 const CORS = {
@@ -132,9 +136,21 @@ export function androidRotationForOrientation(
 }
 
 export function androidTouchCoordinatesForTransport(
+	backend: AndroidTransport["backend"],
 	point: { x: number; y: number },
 	screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
 ): { x: number; y: number; width: number; height: number } {
+	// ADB input uses logical display coordinates. The emulator's gRPC input
+	// stream instead expects coordinates in its native physical axes.
+	if (backend === "adb-screenrecord") {
+		return {
+			x: point.x * screen.width,
+			y: point.y * screen.height,
+			width: screen.width,
+			height: screen.height,
+		};
+	}
+
 	const rotation = normalizedAndroidRotation(screen.rotation);
 	const native = nativeSizeForScreen(screen);
 	const physicalPoint =
@@ -216,6 +232,12 @@ export interface AndroidSessionDependencies {
 	warmAx(serial: string): Promise<void>;
 	readAx(serial: string, mode: AndroidAxMode): Promise<AxSnapshot>;
 	closeAx(serial: string): void;
+	touchDevice(
+		serial: string,
+		phase: AndroidAxTouchPhase,
+		x: number,
+		y: number,
+	): Promise<void>;
 	createTransport(
 		serial: string,
 		screen: { width: number; height: number; presentationGeneration?: number },
@@ -230,6 +252,8 @@ export interface AndroidSessionDependencies {
 		currentRotation: AndroidRotation,
 		targetRotation: AndroidRotation,
 	): Promise<void>;
+	rotateDevice(serial: string, targetRotation: AndroidRotation): Promise<void>;
+	restoreDeviceRotation(serial: string): Promise<void>;
 }
 
 const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
@@ -238,11 +262,16 @@ const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
 	warmAx: async () => {},
 	readAx: (serial, mode) => collectAndroidAxSnapshot(serial, { mode }),
 	closeAx: () => {},
+	touchDevice: async () => {
+		throw new Error("Android input helper is unavailable");
+	},
 	createTransport: createAndroidTransport,
 	rotate: androidRotate,
 	freeEmulatorRotation: freeAndroidEmulatorRotation,
 	rotateEmulator: rotateAndroidEmulatorNative,
 	rotateEmulatorAbsolute: rotateAndroidEmulatorAbsolute,
+	rotateDevice: rotateAndroidDevice,
+	restoreDeviceRotation: restoreAndroidDeviceRotation,
 };
 
 export class AndroidSession {
@@ -266,6 +295,7 @@ export class AndroidSession {
 	private emulatorViewportPoll: Promise<void> | null = null;
 	private lastEmulatorViewport: string | null = null;
 	private closed = false;
+	private deviceRotationLocked = false;
 	private pendingEmulatorRotation: AndroidRotation | null = null;
 	private readonly inputSemaphore = Effect.runSync(Effect.makeSemaphore(1));
 	private emulatorScrollGesture: {
@@ -297,11 +327,6 @@ export class AndroidSession {
 	}
 
 	private async initialize(): Promise<void> {
-		if (!isAndroidEmulatorSerial(this.serial)) {
-			throw new Error(
-				`Agentsims live Android sessions require an emulator: ${this.serial}`,
-			);
-		}
 		const config = await this.dependencies.readScreenConfig(this.serial);
 		this.applyScreenConfig(config);
 		// Pay the one-time framework traversal cost in the background while the
@@ -327,6 +352,11 @@ export class AndroidSession {
 		this.transport?.close();
 		this.transport = null;
 		this.dependencies.closeAx(this.serial);
+		if (this.deviceRotationLocked) {
+			// Never leave a physical device ignoring its own orientation.
+			this.deviceRotationLocked = false;
+			void this.dependencies.restoreDeviceRotation(this.serial).catch(() => {});
+		}
 	}
 
 	private screenConfig() {
@@ -377,6 +407,7 @@ export class AndroidSession {
 	}
 
 	private observeEmulatorFrameConfig(config: AndroidTransportConfig): void {
+		if (!("rotation" in config)) return;
 		const key = `${config.width}x${config.height}:${config.rotation}`;
 		if (key === this.lastEmulatorFrameConfig) return;
 		const firstObservation = this.lastEmulatorFrameConfig === null;
@@ -421,6 +452,7 @@ export class AndroidSession {
 	private emulatorViewportWatchActive(): boolean {
 		return (
 			!this.closed &&
+			androidTransportKindForSerial(this.serial) === "emulator-controller" &&
 			(this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0)
 		);
 	}
@@ -481,6 +513,7 @@ export class AndroidSession {
 
 	private transportSession(): AndroidTransport {
 		if (!this.transport || this.transport.closed) {
+			const backend = androidTransportKindForSerial(this.serial);
 			this.transport = this.dependencies.createTransport(
 				this.serial,
 				{
@@ -488,7 +521,10 @@ export class AndroidSession {
 					height: this.height,
 					presentationGeneration: this.presentationGeneration || 1,
 				},
-				(config) => this.observeEmulatorFrameConfig(config),
+				(config) => {
+					if (backend === "emulator-controller")
+						this.observeEmulatorFrameConfig(config);
+				},
 				() => this.updateTransportIdleTimer(),
 			);
 		}
@@ -757,6 +793,7 @@ export class AndroidSession {
 		y: number,
 	): boolean {
 		const point = androidTouchCoordinatesForTransport(
+			transport.backend,
 			{ x, y },
 			{ width: this.width, height: this.height, rotation: this.rotation },
 		);
@@ -835,9 +872,24 @@ export class AndroidSession {
 				m.type === "cancel"
 					? m.type
 					: null;
+			if (
+				phase &&
+				androidTransportKindForSerial(this.serial) === "adb-screenrecord"
+			) {
+				try {
+					await this.dependencies.touchDevice(this.serial, phase, x, y);
+					this.touchStart = null;
+					this.lastMove = null;
+					return;
+				} catch {
+					// The release-time ADB tap/swipe path below remains the fallback
+					// when the persistent UiAutomation helper is unavailable.
+				}
+			}
 			const transport = await this.activeTransport();
 			const transportPoint = transport
 				? androidTouchCoordinatesForTransport(
+						transport.backend,
 						{ x: m.x, y: m.y },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
@@ -931,12 +983,14 @@ export class AndroidSession {
 			const transport = await this.activeTransport();
 			const first = transport
 				? androidTouchCoordinatesForTransport(
+						transport.backend,
 						{ x: m.x1, y: m.y1 },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
 				: null;
 			const second = transport
 				? androidTouchCoordinatesForTransport(
+						transport.backend,
 						{ x: m.x2, y: m.y2 },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
@@ -973,11 +1027,33 @@ export class AndroidSession {
 			const m = json<{ orientation: string; nativeStep?: "clockwise" }>();
 			if (!m?.orientation) return;
 			await this.activeTransport();
-			// One toolbar action is one native emulator clockwise step. The viewport
-			// watcher owns the resulting canonical screen config and touch mapping.
-			await this.dependencies.rotateEmulator(this.serial, 1);
+			if (
+				androidTransportKindForSerial(this.serial) === "emulator-controller"
+			) {
+				// One toolbar action is one native emulator clockwise step. The
+				// viewport watcher owns the resulting canonical screen config and
+				// touch mapping.
+				await this.dependencies.rotateEmulator(this.serial, 1);
+				this.transport?.resetVideo();
+				this.updateEmulatorViewportWatch();
+				return;
+			}
+
+			const requestedRotation = androidRotationForOrientation(m.orientation, {
+				width: this.width,
+				height: this.height,
+				rotation: this.rotation,
+			});
+			try {
+				await this.dependencies.rotateDevice(this.serial, requestedRotation);
+				this.deviceRotationLocked = true;
+			} catch (error) {
+				console.warn("[agentsims:android] rotation failed", error);
+			}
 			this.transport?.resetVideo();
-			this.updateEmulatorViewportWatch();
+			const config = await this.dependencies.readScreenConfig(this.serial);
+			this.applyScreenConfig(config);
+			this.broadcastConfig();
 			return;
 		}
 
@@ -987,7 +1063,10 @@ export class AndroidSession {
 			const anchorX = m.x * this.width;
 			const anchorY = m.y * this.height;
 			const transport = await this.activeTransport();
-			if (transport && this.injectEmulatorScrollGesture(transport, m)) {
+			if (
+				transport?.backend === "emulator-controller" &&
+				this.injectEmulatorScrollGesture(transport, m)
+			) {
 				return;
 			}
 			if (
@@ -1028,11 +1107,18 @@ export class AndroidSession {
 }
 
 class AndroidSessionRegistry {
-	constructor(private readonly axServers: AndroidAxServersService) {}
+	constructor(
+		private readonly axServers: AndroidAxServersService,
+		private readonly commandExecutor: CommandExecutor,
+	) {}
 	private readonly sessions = new ScopedResourceRegistry(
 		(serial: string) =>
 			new AndroidSession(serial, {
 				...DEFAULT_SESSION_DEPENDENCIES,
+				createTransport: (...args) =>
+					createAndroidTransport(...args, this.commandExecutor),
+				touchDevice: (target, phase, x, y) =>
+					Effect.runPromise(this.axServers.touch(target, phase, x, y)),
 				warmAx: (target) => Effect.runPromise(this.axServers.warm(target)),
 				readAx: (target, mode) =>
 					collectAndroidAxSnapshot(target, {
@@ -1046,11 +1132,6 @@ class AndroidSessionRegistry {
 	);
 
 	async get(serial: string): Promise<AndroidSession> {
-		if (!isAndroidEmulatorSerial(serial)) {
-			throw new Error(
-				`Agentsims live Android sessions require an emulator: ${serial}`,
-			);
-		}
 		const session = this.sessions.get(serial);
 		await session.start();
 		return session;
@@ -1079,8 +1160,9 @@ export const AndroidSessionsLive = Layer.scoped(
 	AndroidSessions,
 	Effect.gen(function* () {
 		const axServers = yield* AndroidAxServers;
+		const commandExecutor = yield* CommandExecutor;
 		const registry = yield* Effect.acquireRelease(
-			Effect.sync(() => new AndroidSessionRegistry(axServers)),
+			Effect.sync(() => new AndroidSessionRegistry(axServers, commandExecutor)),
 			(value) => Effect.promise(() => value.closeAll()),
 		);
 		return AndroidSessions.of({

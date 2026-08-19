@@ -18,6 +18,7 @@ const RETRY_DELAY_MS = 1_000;
 const MAX_PROTOCOL_BUFFER_BYTES = 16 * 1024 * 1024;
 
 export type AndroidAxMode = "latest" | "fresh" | "settled";
+export type AndroidAxTouchPhase = "begin" | "move" | "end" | "cancel";
 
 type AndroidAxResponse = {
 	ready?: boolean;
@@ -151,6 +152,14 @@ export function androidAxRequestLine(id: number, mode: AndroidAxMode): string {
 	})}\n`;
 }
 
+export function androidAxTouchLine(
+	phase: AndroidAxTouchPhase,
+	x: number,
+	y: number,
+): string {
+	return `${JSON.stringify({ op: "touch", phase, x, y })}\n`;
+}
+
 export function parseAndroidAxServerLine(line: string): AndroidAxResponse {
 	const parsed = JSON.parse(line) as AndroidAxResponse;
 	if (!parsed || typeof parsed !== "object") {
@@ -198,6 +207,20 @@ export class AndroidAxServerClient {
 			// The caller has a stock UIAutomator fallback. Warming is deliberately
 			// best effort and must never delay display/control session startup.
 		}
+	}
+
+	async touch(phase: AndroidAxTouchPhase, x: number, y: number): Promise<void> {
+		await this.ensureStarted();
+		const child = this.child;
+		if (!child || child.killed || !child.stdin.writable) {
+			throw new Error("Android input helper is not writable");
+		}
+		await new Promise<void>((settle, reject) => {
+			child.stdin.write(androidAxTouchLine(phase, x, y), (error) => {
+				if (error) reject(error);
+				else settle();
+			});
+		});
 	}
 
 	close(): void {
@@ -416,7 +439,7 @@ export class AndroidAxServerClient {
 
 type AndroidAxClient = Pick<
 	AndroidAxServerClient,
-	"snapshot" | "warm" | "close"
+	"snapshot" | "warm" | "touch" | "close"
 >;
 
 class AndroidAxServerRegistry {
@@ -444,6 +467,15 @@ class AndroidAxServerRegistry {
 		return this.get(serial).warm();
 	}
 
+	touch(
+		serial: string,
+		phase: AndroidAxTouchPhase,
+		x: number,
+		y: number,
+	): Promise<void> {
+		return this.get(serial).touch(phase, x, y);
+	}
+
 	close(serial: string): void {
 		const client = this.clients.get(serial);
 		if (!client) return;
@@ -460,6 +492,12 @@ class AndroidAxServerRegistry {
 export type AndroidAxServersService = {
 	read(serial: string, mode?: AndroidAxMode): Effect.Effect<string, unknown>;
 	warm(serial: string): Effect.Effect<void, unknown>;
+	touch(
+		serial: string,
+		phase: AndroidAxTouchPhase,
+		x: number,
+		y: number,
+	): Effect.Effect<void, unknown>;
 	close(serial: string): Effect.Effect<void>;
 };
 export class AndroidAxServers extends Context.Tag(
@@ -480,6 +518,8 @@ export const androidAxServersLayer = (
 					read: (serial, mode) =>
 						Effect.tryPromise(() => registry.read(serial, mode)),
 					warm: (serial) => Effect.tryPromise(() => registry.warm(serial)),
+					touch: (serial, phase, x, y) =>
+						Effect.tryPromise(() => registry.touch(serial, phase, x, y)),
 					close: (serial) => Effect.sync(() => registry.close(serial)),
 				}),
 			),
