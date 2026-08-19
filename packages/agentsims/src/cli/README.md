@@ -46,7 +46,10 @@ agentsims devices boot android-avd:Pixel_10
 agentsims devices shutdown android:emulator-5554
 ```
 
-Use the exact device ID from `devices list` in all other commands.
+Use the exact device ID from `devices list` in all other commands. Connected
+physical Android devices use the same `android:<serial>` IDs as emulators. ADB
+provides their live video and input. Camera, virtual-scene, and location
+commands remain available only for emulators.
 
 ## Inspect one device
 

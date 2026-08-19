@@ -333,8 +333,6 @@ export class DeviceLifecycle {
 		port: number,
 		base: string,
 	): Promise<string | null> {
-		if (!/^emulator-\d+$/.test(serial))
-			return "Agentsims supports Android emulators only";
 		try {
 			const session = await this.dependencies.getAndroidSession(serial);
 			await session.startTransport();
