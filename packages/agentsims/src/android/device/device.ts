@@ -816,8 +816,8 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
 		serial,
 		screen,
 		stream: {
-			backend: emulator ? "emulator-controller" : "scrcpy",
-			transport: emulator ? "mmap-ffmpeg-h264" : "scrcpy-h264",
+			backend: emulator ? "emulator-controller" : "adb-screenrecord",
+			transport: emulator ? "mmap-ffmpeg-h264" : "adb-screenrecord-h264",
 			source: "display",
 			canChangeSource: false,
 		},

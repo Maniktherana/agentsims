@@ -6,12 +6,11 @@ What changed in agentsims, day by day, newest first.
 
 ### Added
 
-- **Physical Android devices work again.** A connected phone appears in the device
-  list, boots a live session, and streams H.264 through the host's scrcpy, with
-  touch, multi-touch, scroll, keys, and rotation. Install scrcpy 3.0 or newer on
-  the host (`brew install scrcpy`) or set `AGENTSIMS_SCRCPY_SERVER_PATH`.
-  Capture limits are tunable with `AGENTSIMS_SCRCPY_MAX_SIZE`,
-  `AGENTSIMS_SCRCPY_BIT_RATE`, and `AGENTSIMS_SCRCPY_MAX_FPS`.
+- **Physical Android devices work again.** A connected phone appears in the
+  device list and starts a live session. Android's built-in `screenrecord`
+  command supplies H.264 video through ADB. A persistent device helper supplies
+  live touch input. ADB supplies scroll, key, and rotation input. No scrcpy
+  installation is necessary.
 - **Android device settings and media volume on physical devices.** Night mode,
   font scale, animation scale, touch overlays, and volume now work on a phone,
   not just an emulator.

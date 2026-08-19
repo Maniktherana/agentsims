@@ -129,21 +129,16 @@ the Android SDK and put `adb` on `PATH` for Android support.
 | ----------------------- | ----------------------------------------- |
 | iOS Simulator           | Native simulator capture and HID control  |
 | Android emulator        | Emulator capture, H.264, and native input |
-| Physical Android device | scrcpy capture, H.264, and scrcpy control |
+| Physical Android device | ADB screenrecord H.264 and ADB input      |
 
-Android live video requires browser WebCodecs support and has no MJPEG or ADB
-PNG fallback. iOS Simulator streams can use `--codec mjpeg` when the H.264 path
-is unavailable.
+Android live video requires browser WebCodecs support. Android has no MJPEG
+or ADB PNG stream fallback. iOS Simulator streams can use `--codec mjpeg` when
+the H.264 path is unavailable.
 
-A physical Android device needs scrcpy 3.0 or newer on the host (`brew install
-scrcpy`); agentsims runs the installed `scrcpy-server` on the device over adb. Set
-`AGENTSIMS_SCRCPY_SERVER_PATH` when that file lives outside the usual install
-locations. Capture is capped at 1920 px on the longer edge, 8 Mbps, and 60 fps;
-override with
-`AGENTSIMS_SCRCPY_MAX_SIZE`, `AGENTSIMS_SCRCPY_BIT_RATE`, and
-`AGENTSIMS_SCRCPY_MAX_FPS`. Camera injection, virtual scene images, host
-microphone routing, and location emulation remain emulator-only because they
-use the emulator console.
+Physical Android devices need only `adb` on the host. Agentsims reads Android's
+built-in `screenrecord` H.264 stream. Camera injection, virtual-scene images,
+host microphone routing, and location emulation remain available only for
+emulators.
 
 ## Agent CLI
 

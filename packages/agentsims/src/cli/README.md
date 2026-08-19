@@ -47,10 +47,9 @@ agentsims devices shutdown android:emulator-5554
 ```
 
 Use the exact device ID from `devices list` in all other commands. Connected
-physical Android devices are listed alongside emulators and AVDs, and use the
-same `android:<serial>` IDs. Their live stream and input go through the host's
-scrcpy install; camera, virtual scene, and location commands stay
-emulator-only.
+physical Android devices use the same `android:<serial>` IDs as emulators. ADB
+provides their live video and input. Camera, virtual-scene, and location
+commands remain available only for emulators.
 
 ## Inspect one device
 

@@ -1,20 +1,24 @@
+import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import type { ServerResponse } from "http";
 import {
 	AndroidEmulatorSession,
 	type AndroidEmulatorConfig,
 	type AvccSubscriberSink,
 } from "./emulator-controller";
-import { AndroidScrcpySession, type AndroidScrcpyConfig } from "./scrcpy";
+import {
+	AndroidDeviceScreenrecordSession,
+	type AndroidDeviceStreamConfig,
+} from "./device-screenrecord";
 
 export type AndroidTransportConfig =
 	| AndroidEmulatorConfig
-	| AndroidScrcpyConfig;
+	| AndroidDeviceStreamConfig;
 export type AndroidTouchPhase = "begin" | "move" | "end" | "cancel";
 export type AndroidButtonPhase = "down" | "up" | "press";
 
 export interface AndroidTransport {
-	readonly backend: "emulator-controller" | "scrcpy";
-	readonly wireTransport: "mmap-ffmpeg-h264" | "scrcpy-h264";
+	readonly backend: "emulator-controller" | "adb-screenrecord";
+	readonly wireTransport: "mmap-ffmpeg-h264" | "adb-screenrecord-h264";
 	readonly closed: boolean;
 	readonly running: boolean;
 	readonly subscriberCount: number;
@@ -59,13 +63,15 @@ export function isAndroidEmulatorSerial(serial: string): boolean {
 }
 
 /**
- * Emulators expose a gRPC controller with an MMAP framebuffer; physical devices
- * expose neither, so they stream and take input through the host's scrcpy.
+ * Emulators expose a host gRPC/MMAP framebuffer. Physical devices instead
+ * publish Android's built-in screenrecord H.264 stream over ADB.
  */
 export function androidTransportKindForSerial(
 	serial: string,
 ): AndroidTransport["backend"] {
-	return isAndroidEmulatorSerial(serial) ? "emulator-controller" : "scrcpy";
+	return isAndroidEmulatorSerial(serial)
+		? "emulator-controller"
+		: "adb-screenrecord";
 }
 
 export function createAndroidTransport(
@@ -77,13 +83,19 @@ export function createAndroidTransport(
 	},
 	onConfig: (config: AndroidTransportConfig) => void,
 	onSubscriberCountChange: (count: number) => void,
+	commandExecutor?: CommandExecutor,
 ): AndroidTransport {
-	if (androidTransportKindForSerial(serial) === "scrcpy") {
-		return new AndroidScrcpySession(
+	if (androidTransportKindForSerial(serial) === "adb-screenrecord") {
+		return new AndroidDeviceScreenrecordSession(
 			serial,
+			physicalScreen,
 			onConfig,
 			onSubscriberCountChange,
 			physicalScreen.presentationGeneration ?? 1,
+			commandExecutor ??
+				(() => {
+					throw new Error("ADB screenrecord command executor is unavailable");
+				})(),
 		);
 	}
 	return new AndroidEmulatorSession(

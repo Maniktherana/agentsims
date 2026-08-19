@@ -10,14 +10,11 @@ import {
 	parseImageMetadata,
 } from "../../../../android/stream/emulator-controller";
 import {
-	androidStreamOrientation,
-	checkedScrcpyVersion,
-	h264ConfigToAvcC,
-	packetToAvcc,
-	scrcpyServerCandidates,
-	scrcpyVideoOptions,
-	scrcpyVideoPoint,
-} from "../../../../android/stream/scrcpy";
+	AnnexBStreamParser,
+	h264Description,
+	screenrecordArguments,
+	ScreenrecordAvccParser,
+} from "../../../../android/stream/device-screenrecord";
 
 describe("Android stream transport", () => {
 	test("decodes exact rotation from emulator screenshot metadata", () => {
@@ -42,120 +39,84 @@ describe("Android stream transport", () => {
 		expect(isAndroidEmulatorSerial("192.168.1.8:5555")).toBe(false);
 	});
 
-	test("selects native emulator transport and scrcpy physical-device transport", () => {
+	test("selects emulator MMAP and physical-device ADB transports", () => {
 		expect(androidTransportKindForSerial("emulator-5554")).toBe(
 			"emulator-controller",
 		);
-		expect(androidTransportKindForSerial("R5CW1234ABC")).toBe("scrcpy");
-		expect(androidTransportKindForSerial("192.168.1.8:5555")).toBe("scrcpy");
-	});
-
-	test("publishes toolbar-compatible stream orientations", () => {
-		expect(androidStreamOrientation(1080, 2424)).toBe("portrait");
-		expect(androidStreamOrientation(2424, 1080)).toBe("landscape_left");
-	});
-
-	test("treats host scrcpy as an optional physical-device dependency", () => {
-		expect(
-			scrcpyServerCandidates(
-				{ AGENTSIMS_SCRCPY_SERVER_PATH: "/custom/scrcpy-server" },
-				"/host-prefix",
-			).slice(0, 2),
-		).toEqual([
-			"/custom/scrcpy-server",
-			"/host-prefix/share/scrcpy/scrcpy-server",
-		]);
-	});
-
-	test("rejects a host scrcpy older than the framing this transport parses", () => {
-		expect(checkedScrcpyVersion("3.1")).toBe("3.1");
-		expect(checkedScrcpyVersion("10.0.1")).toBe("10.0.1");
-		expect(() => checkedScrcpyVersion("2.7")).toThrow(
-			"requires scrcpy 3.0 or newer",
+		expect(androidTransportKindForSerial("R5CW1234ABC")).toBe(
+			"adb-screenrecord",
+		);
+		expect(androidTransportKindForSerial("192.168.1.8:5555")).toBe(
+			"adb-screenrecord",
 		);
 	});
 
-	test("caps physical-device capture unless the host overrides it", () => {
-		expect(scrcpyVideoOptions({})).toEqual({
-			maxSize: 1920,
-			bitRate: 8_000_000,
-			maxFps: 60,
-		});
-		expect(
-			scrcpyVideoOptions({
-				AGENTSIMS_SCRCPY_MAX_SIZE: "1600",
-				AGENTSIMS_SCRCPY_BIT_RATE: "8000000",
-				AGENTSIMS_SCRCPY_MAX_FPS: "30",
-			}),
-		).toEqual({ maxSize: 1600, bitRate: 8_000_000, maxFps: 30 });
-		// A malformed override must not disable the cap.
-		expect(
-			scrcpyVideoOptions({ AGENTSIMS_SCRCPY_MAX_SIZE: "huge" }).maxSize,
-		).toBe(1920);
+	test("starts Android's built-in raw H.264 stream through ADB", () => {
+		expect(screenrecordArguments("R5CW1234ABC")).toEqual([
+			"-s",
+			"R5CW1234ABC",
+			"exec-out",
+			"screenrecord",
+			"--output-format=h264",
+			"--bit-rate",
+			"8000000",
+			"--time-limit",
+			"0",
+			"-",
+		]);
 	});
 
-	test("rescales input into the encoded video's coordinate space", () => {
-		const video = { width: 858, height: 1920 };
-		expect(scrcpyVideoPoint(video, 540, 1206, 1080, 2412)).toEqual({
-			x: 429,
-			y: 960,
-			width: 858,
-			height: 1920,
-		});
-		// Corners stay pinned so a tap at the edge cannot land off-screen.
-		expect(scrcpyVideoPoint(video, 1080, 2412, 1080, 2412)).toEqual({
-			x: 858,
-			y: 1920,
-			width: 858,
-			height: 1920,
-		});
-		// Without a caller-supplied space the point is already video-relative.
-		expect(scrcpyVideoPoint(video, 100, 200)).toEqual({
-			x: 100,
-			y: 200,
-			width: 858,
-			height: 1920,
-		});
-		// Nothing can be mapped before the first session packet names the size.
-		expect(scrcpyVideoPoint(null, 10, 10, 100, 100)).toBeNull();
+	test("splits Annex-B start codes across arbitrary ADB chunks", () => {
+		const parser = new AnnexBStreamParser();
+		const first = Buffer.from([0x67, 0x64, 0x00, 0x28]);
+		const second = Buffer.from([0x68, 0xee, 0x3c, 0x80]);
+		expect(parser.push(Buffer.from([0, 0]))).toEqual([]);
+		expect(
+			parser.push(
+				Buffer.concat([
+					Buffer.from([0, 1]),
+					first,
+					Buffer.from([0, 0, 1]),
+					second,
+				]),
+			),
+		).toEqual([first]);
+		expect(parser.flush()).toEqual([second]);
 	});
 
-	test("rewrites scrcpy Annex-B packets as the browser's AVCC samples", () => {
-		const sps = Buffer.from([0x67, 0x64, 0x00, 0x28, 0xac]);
+	test("converts screenrecord access units into browser AVCC envelopes", () => {
+		const sps = Buffer.from([0x67, 0x64, 0x00, 0x2a, 0xac]);
 		const pps = Buffer.from([0x68, 0xee, 0x3c, 0x80]);
-		const config = Buffer.concat([
-			Buffer.from([0, 0, 0, 1]),
-			sps,
-			Buffer.from([0, 0, 0, 1]),
-			pps,
-		]);
+		const firstIdrSlice = Buffer.from([0x65, 0x80, 0x11]);
+		const secondIdrSlice = Buffer.from([0x65, 0x40, 0x22]);
+		const deltaSlice = Buffer.from([0x41, 0x80, 0x33]);
+		const start = Buffer.from([0, 0, 0, 1]);
+		const published: Buffer[] = [];
+		const parser = new ScreenrecordAvccParser((chunk) => published.push(chunk));
 
-		const description = h264ConfigToAvcC(config)!;
-		// avcC: version, profile/constraints/level from the SPS, then the
-		// parameter sets the WebCodecs decoder is configured with.
-		expect(description.subarray(0, 6)).toEqual(
-			Buffer.from([0x01, 0x64, 0x00, 0x28, 0xff, 0xe1]),
-		);
-		expect(description.readUInt16BE(6)).toBe(sps.length);
-		expect(description.subarray(8, 8 + sps.length)).toEqual(sps);
-		// An already-formed avcC record passes through untouched.
-		expect(h264ConfigToAvcC(description)).toEqual(description);
-
-		const frame = Buffer.from([0x65, 0x88, 0x84]);
-		const sample = packetToAvcc(
+		parser.push(
 			Buffer.concat([
-				Buffer.from([0, 0, 0, 1]),
+				start,
 				sps,
-				Buffer.from([0, 0, 0, 1]),
+				start,
 				pps,
-				Buffer.from([0, 0, 0, 1]),
-				frame,
+				start,
+				firstIdrSlice,
+				start,
+				secondIdrSlice,
+				start,
+				deltaSlice,
 			]),
 		);
-		// Parameter sets travel in the description, so the sample carries only the
-		// picture NAL, length-prefixed.
-		expect(sample).toEqual(
-			Buffer.concat([Buffer.from([0, 0, 0, frame.length]), frame]),
+		parser.flush();
+
+		expect(published.map((chunk) => chunk[4])).toEqual([0x01, 0x02, 0x03]);
+		expect(published[0]!.subarray(5)).toEqual(h264Description(sps, pps)!);
+		const keyframe = published[1]!.subarray(5);
+		expect(keyframe.readUInt32BE(0)).toBe(firstIdrSlice.length);
+		const secondLengthOffset = 4 + firstIdrSlice.length;
+		expect(keyframe.readUInt32BE(secondLengthOffset)).toBe(
+			secondIdrSlice.length,
 		);
 	});
 

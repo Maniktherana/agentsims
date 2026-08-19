@@ -26,7 +26,7 @@ export function formatAndroidStream(status: AndroidStatus | null): string {
 	if (status.stream.transport === "mmap-ffmpeg-h264") {
 		return "H.264 · emulator framebuffer";
 	}
-	if (status.stream.transport === "scrcpy-h264") return "H.264 · scrcpy";
+	if (status.stream.transport === "adb-screenrecord-h264") return "H.264 · ADB";
 	return "Live stream unavailable";
 }
 

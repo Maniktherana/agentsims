@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import { Context, Effect, Layer } from "effect";
+import { CommandExecutor } from "@effect/platform/CommandExecutor";
 import type {
 	AndroidCornerRadii,
 	AndroidScreenConfig,
@@ -42,6 +43,7 @@ import {
 	AndroidAxServers,
 	type AndroidAxMode,
 	type AndroidAxServersService,
+	type AndroidAxTouchPhase,
 } from "../accessibility/ax-server";
 
 const CORS = {
@@ -138,9 +140,9 @@ export function androidTouchCoordinatesForTransport(
 	point: { x: number; y: number },
 	screen: Pick<AndroidScreenConfig, "width" | "height" | "rotation">,
 ): { x: number; y: number; width: number; height: number } {
-	// scrcpy already reports the logical display, so its input coordinates need
-	// no physical-axis mapping. The emulator's gRPC input stream does.
-	if (backend === "scrcpy") {
+	// ADB input uses logical display coordinates. The emulator's gRPC input
+	// stream instead expects coordinates in its native physical axes.
+	if (backend === "adb-screenrecord") {
 		return {
 			x: point.x * screen.width,
 			y: point.y * screen.height,
@@ -230,6 +232,12 @@ export interface AndroidSessionDependencies {
 	warmAx(serial: string): Promise<void>;
 	readAx(serial: string, mode: AndroidAxMode): Promise<AxSnapshot>;
 	closeAx(serial: string): void;
+	touchDevice(
+		serial: string,
+		phase: AndroidAxTouchPhase,
+		x: number,
+		y: number,
+	): Promise<void>;
 	createTransport(
 		serial: string,
 		screen: { width: number; height: number; presentationGeneration?: number },
@@ -254,6 +262,9 @@ const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
 	warmAx: async () => {},
 	readAx: (serial, mode) => collectAndroidAxSnapshot(serial, { mode }),
 	closeAx: () => {},
+	touchDevice: async () => {
+		throw new Error("Android input helper is unavailable");
+	},
 	createTransport: createAndroidTransport,
 	rotate: androidRotate,
 	freeEmulatorRotation: freeAndroidEmulatorRotation,
@@ -280,7 +291,6 @@ export class AndroidSession {
 	private emulatorConfigRefresh: Promise<void> | null = null;
 	private emulatorConfigRefreshPending = false;
 	private lastEmulatorFrameConfig: string | null = null;
-	private lastScrcpyFrameConfig: string | null = null;
 	private emulatorViewportTimer: ReturnType<typeof setTimeout> | null = null;
 	private emulatorViewportPoll: Promise<void> | null = null;
 	private lastEmulatorViewport: string | null = null;
@@ -396,22 +406,6 @@ export class AndroidSession {
 		for (const ws of this.hidSockets) ws.send(frame);
 	}
 
-	/**
-	 * scrcpy encodes a scaled copy of the panel, so its dimensions describe the
-	 * video rather than the device. Treat a change as the rotation signal and let
-	 * adb stay the one source of screen geometry, exactly as the emulator does —
-	 * otherwise the session would report the encoder size while screenshots and
-	 * accessibility rects stayed in device pixels.
-	 */
-	private observeScrcpyFrameConfig(config: AndroidTransportConfig): void {
-		const key = `${config.width}x${config.height}`;
-		if (key === this.lastScrcpyFrameConfig) return;
-		const firstObservation = this.lastScrcpyFrameConfig === null;
-		this.lastScrcpyFrameConfig = key;
-		if (firstObservation) return;
-		this.scheduleEmulatorConfigRefresh();
-	}
-
 	private observeEmulatorFrameConfig(config: AndroidTransportConfig): void {
 		if (!("rotation" in config)) return;
 		const key = `${config.width}x${config.height}:${config.rotation}`;
@@ -458,8 +452,6 @@ export class AndroidSession {
 	private emulatorViewportWatchActive(): boolean {
 		return (
 			!this.closed &&
-			// scrcpy reports its own viewport with every session packet, so polling
-			// adb would only race the transport's geometry.
 			androidTransportKindForSerial(this.serial) === "emulator-controller" &&
 			(this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0)
 		);
@@ -530,8 +522,8 @@ export class AndroidSession {
 					presentationGeneration: this.presentationGeneration || 1,
 				},
 				(config) => {
-					if (backend === "scrcpy") this.observeScrcpyFrameConfig(config);
-					else this.observeEmulatorFrameConfig(config);
+					if (backend === "emulator-controller")
+						this.observeEmulatorFrameConfig(config);
 				},
 				() => this.updateTransportIdleTimer(),
 			);
@@ -880,6 +872,20 @@ export class AndroidSession {
 				m.type === "cancel"
 					? m.type
 					: null;
+			if (
+				phase &&
+				androidTransportKindForSerial(this.serial) === "adb-screenrecord"
+			) {
+				try {
+					await this.dependencies.touchDevice(this.serial, phase, x, y);
+					this.touchStart = null;
+					this.lastMove = null;
+					return;
+				} catch {
+					// The release-time ADB tap/swipe path below remains the fallback
+					// when the persistent UiAutomation helper is unavailable.
+				}
+			}
 			const transport = await this.activeTransport();
 			const transportPoint = transport
 				? androidTouchCoordinatesForTransport(
@@ -1101,11 +1107,18 @@ export class AndroidSession {
 }
 
 class AndroidSessionRegistry {
-	constructor(private readonly axServers: AndroidAxServersService) {}
+	constructor(
+		private readonly axServers: AndroidAxServersService,
+		private readonly commandExecutor: CommandExecutor,
+	) {}
 	private readonly sessions = new ScopedResourceRegistry(
 		(serial: string) =>
 			new AndroidSession(serial, {
 				...DEFAULT_SESSION_DEPENDENCIES,
+				createTransport: (...args) =>
+					createAndroidTransport(...args, this.commandExecutor),
+				touchDevice: (target, phase, x, y) =>
+					Effect.runPromise(this.axServers.touch(target, phase, x, y)),
 				warmAx: (target) => Effect.runPromise(this.axServers.warm(target)),
 				readAx: (target, mode) =>
 					collectAndroidAxSnapshot(target, {
@@ -1147,8 +1160,9 @@ export const AndroidSessionsLive = Layer.scoped(
 	AndroidSessions,
 	Effect.gen(function* () {
 		const axServers = yield* AndroidAxServers;
+		const commandExecutor = yield* CommandExecutor;
 		const registry = yield* Effect.acquireRelease(
-			Effect.sync(() => new AndroidSessionRegistry(axServers)),
+			Effect.sync(() => new AndroidSessionRegistry(axServers, commandExecutor)),
 			(value) => Effect.promise(() => value.closeAll()),
 		);
 		return AndroidSessions.of({

@@ -468,12 +468,12 @@ describe("Android rotated emulator input", () => {
 		}
 	});
 
-	test("leaves scrcpy in logical display coordinates", () => {
-		// A physical device streams through scrcpy, which already reports the
-		// rotated logical display, so agentsims must not re-map the axes.
+	test("leaves ADB input in logical display coordinates", () => {
+		// Physical-device input uses Android's logical display coordinates, so
+		// agentsims must not map the point into emulator framebuffer axes.
 		expect(
 			androidTouchCoordinatesForTransport(
-				"scrcpy",
+				"adb-screenrecord",
 				{ x: 0.25, y: 0.75 },
 				{ width: 1600, height: 2560, rotation: 1 },
 			),
