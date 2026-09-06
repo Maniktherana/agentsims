@@ -1,15 +1,7 @@
 # Agentsims CLI
 
-The CLI and browser send device operations to the same HTTP API.
-Most device commands print JSON. Logs and setup commands also print plain text.
-
-## Runtime
-
-Node.js 20 or newer runs the npm launcher. It selects a compiled executable
-for macOS arm64, macOS x64, or Linux x64. The executable includes Bun, so users
-do not need a separate Bun installation. WSL uses the Linux executable.
-
-Source builds use Bun 1.3.14. Linux and WSL support Android only.
+Run these commands with `npx agentsims` or an installed `agentsims` command.
+Start the workspace before you send device commands. Most device commands print JSON.
 
 ## Start and stop
 
@@ -23,8 +15,7 @@ agentsims stop
 agentsims stop <device>
 ```
 
-Use `--url <url>` on a command when Agentsims does not use
-`http://127.0.0.1:3200`.
+If the workspace uses another address, add `--url <url>` to the device command.
 
 ## Configure Metro
 
@@ -63,8 +54,8 @@ agentsims device <device> ax tree
 ```
 
 `screenshot` writes one PNG and prints its path. `observe` writes a PNG and
-prints the screen configuration and accessibility tree. Use `--no-ax` when an
-agent does not need accessibility data.
+prints the screen configuration and accessibility tree.
+If an agent does not need accessibility data, use `--no-ax`.
 
 ## Send input
 
@@ -165,8 +156,3 @@ agentsims android emulator-5554 talkback on
 Network speed and delay, saved snapshots, location, calls, and SMS require an
 emulator. App locale requires Android 13 or later. An empty locale resets the app
 to the system language. TalkBack must be installed.
-
-The web workspace puts app management, Logs, and device controls in the device
-Settings panel. Logcat uses one scoped process per device. The last subscriber
-closes that process. Each log view keeps a bounded buffer and renders only visible
-rows. Pause stops display updates; Clear view does not erase Android's log buffer.
