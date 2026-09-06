@@ -1,5 +1,6 @@
 import { HttpRouter } from "@effect/platform";
 import { commandRoutes } from "./routes/commands";
+import { androidRoutes } from "./routes/android";
 import { hostRoutes } from "./routes/host";
 import { accessibilityRoutes } from "./routes/accessibility";
 import { controlRoutes } from "./routes/control";
@@ -10,6 +11,7 @@ import { previewRoutes } from "./routes/preview";
 
 const routes = HttpRouter.concatAll(
 	commandRoutes,
+	androidRoutes,
 	hostRoutes,
 	accessibilityRoutes,
 	deviceAssetRoutes,

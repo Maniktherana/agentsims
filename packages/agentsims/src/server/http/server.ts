@@ -32,6 +32,8 @@ import {
 	type ServerConfigInput,
 } from "../runtime/server-config";
 import { routesForBasePath } from "./router";
+import { AndroidToolsLive } from "../../android/device/tools";
+import { AndroidLogsLive } from "../../android/device/logs";
 
 export interface PreviewServer {
 	stop(force?: boolean): Promise<void>;
@@ -54,6 +56,7 @@ export function serverServicesLive(options: HttpServerOptions) {
 	);
 	const devicesLive = DevicesLive.pipe(Layer.provideMerge(coreLive));
 	const configuredDevicesLive = Layer.merge(configLive, devicesLive);
+	const androidToolsLive = AndroidToolsLive.pipe(Layer.provide(devicesLive));
 	const mediaLive = MediaRoutingLive.pipe(
 		Layer.provideMerge(configuredDevicesLive),
 	);
@@ -81,6 +84,8 @@ export function serverServicesLive(options: HttpServerOptions) {
 		screenshotsLive,
 		devToolsLive,
 		ShellExecLive,
+		androidToolsLive,
+		AndroidLogsLive,
 	);
 }
 

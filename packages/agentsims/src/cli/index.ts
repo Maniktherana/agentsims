@@ -10,6 +10,7 @@ import {
 	stopExistingHelper,
 	detectMediaKind,
 } from "../ios/device/camera-helper";
+import { registerAndroidCommands } from "./android-commands";
 import { Command, InvalidArgumentError } from "commander";
 import { Effect } from "effect";
 import { spawn as nodeSpawn, type ChildProcess } from "child_process";
@@ -1289,6 +1290,7 @@ Examples:
 		}
 	});
 
+registerAndroidCommands(program);
 addCompatibilityCommands(program);
 addSetupCommand(program);
 addWorkspaceCommands(program, {

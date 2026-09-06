@@ -64,6 +64,17 @@ export class ApplicationCommandClient {
 			body: JSON.stringify({ actions }),
 		});
 	}
+	async android(
+		device: string,
+		endpoint: string,
+		init?: RequestInit,
+	): Promise<unknown> {
+		return this.request(
+			`/android/${endpoint}?device=${encodeURIComponent(device)}`,
+			init,
+		);
+	}
+
 	private async request(path: string, init?: RequestInit): Promise<unknown> {
 		let response: Response;
 		try {
