@@ -1,7 +1,10 @@
+import { encode as encodePng } from "fast-png";
 import { existsSync } from "fs";
 import { describe, expect, test } from "bun:test";
 import {
 	bareChromeIdentifier,
+	alphaBounds,
+	serveDeviceFrameAssetWeb,
 	logicalScreenSizeFromProfile,
 	parsePdfPageSize,
 	resolveDevicePlaceholderAsset,
@@ -34,9 +37,84 @@ describe("Device frame asset helpers", () => {
 					mainScreenScale: 3,
 				},
 				"phone11",
+				{ width: 999, height: 999 },
 			),
 		).toEqual({ width: 402, height: 874 });
 	});
+
+	test.each([
+		["phone11", 3],
+		["tablet4", 2],
+		["watch2", 2],
+		["other", 1],
+	] as const)("keeps the %s mask fallback scale", (identifier, scale) => {
+		expect(
+			logicalScreenSizeFromProfile({}, identifier, { width: 600, height: 900 }),
+		).toEqual({ width: 600 / scale, height: 900 / scale });
+		expect(logicalScreenSizeFromProfile({}, identifier)).toBeNull();
+	});
+
+	test.skipIf(
+		!existsSync(
+			"/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17.simdevicetype/Contents/Resources/profile.plist",
+		),
+	)(
+		"shares profile and mask reads across frame and placeholder requests",
+		() => {
+			// A child process keeps the cold module cache and host spies local to this test.
+			const modulePath = new URL(
+				"../../../../server/devices/device-frame-assets.ts",
+				import.meta.url,
+			).pathname;
+			const hostPath = new URL(
+				"../runtime/host-tools.ts",
+				`file://${modulePath}`,
+			).pathname;
+			const child = Bun.spawnSync({
+				cmd: [
+					process.execPath,
+					"-e",
+					`
+import { spyOn } from "bun:test";
+import * as host from ${JSON.stringify(hostPath)};
+import * as fs from "node:fs";
+import { resolveDeviceFrame, resolveDevicePlaceholderAsset } from ${JSON.stringify(modulePath)};
+let profileReads = 0;
+let maskReads = 0;
+const command = host.hostCommandText;
+spyOn(host, "hostCommandText").mockImplementation((name, ...args) => {
+  if (name === "plutil" && args.at(-1)?.endsWith("iPhone 17.simdevicetype/Contents/Resources/profile.plist")) profileReads++;
+  return command(name, ...args);
+});
+const read = fs.readFileSync;
+spyOn(fs, "readFileSync").mockImplementation((path, ...args) => {
+  if (String(path).includes("iPhone 17.simdevicetype/") && String(path).endsWith(".pdf")) maskReads++;
+  return read(path, ...args);
+});
+const device = { name: "iPhone 17" };
+const [frame, placeholder, sameFrame, samePlaceholder] = await Promise.all([
+  resolveDeviceFrame(device), resolveDevicePlaceholderAsset(device),
+  resolveDeviceFrame(device), resolveDevicePlaceholderAsset(device),
+]);
+console.log(JSON.stringify({
+  profileReads, maskReads,
+  frame: !!frame, placeholder: !!placeholder,
+  sameFrame: frame === sameFrame, samePlaceholder: placeholder === samePlaceholder,
+}));
+`,
+				],
+			});
+			expect(child.exitCode).toBe(0);
+			expect(JSON.parse(child.stdout.toString())).toEqual({
+				profileReads: 1,
+				maskReads: 1,
+				frame: true,
+				placeholder: true,
+				sameFrame: true,
+				samePlaceholder: true,
+			});
+		},
+	);
 
 	test("resolves stock watch chrome from installed DeviceKit assets when available", async () => {
 		if (!existsSync("/Library/Developer/DeviceKit/Chrome/watch2.devicechrome"))
@@ -107,6 +185,76 @@ describe("Device frame asset helpers", () => {
 					"com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M4",
 			},
 			"ipad-air-11-inch-m4",
+		);
+	});
+});
+
+// Synthetic images keep pixel geometry regressions independent of installed SDKs.
+describe("PNG alpha bounds", () => {
+	test("measures RGBA content without transparent padding", () => {
+		const data = new Uint8Array(6 * 5 * 4);
+		for (let y = 1; y < 4; y++)
+			for (let x = 2; x < 5; x++) data[(y * 6 + x) * 4 + 3] = 255;
+		expect(
+			alphaBounds(Buffer.from(encodePng({ width: 6, height: 5, data }))),
+		).toEqual({ x: 2, y: 1, width: 3, height: 3 });
+	});
+	test("handles grayscale-alpha and keeps empty images at their full size", () => {
+		const data = new Uint8Array(4 * 3 * 2);
+		data[(1 * 4 + 2) * 2] = 90;
+		data[(1 * 4 + 2) * 2 + 1] = 1;
+		expect(
+			alphaBounds(
+				Buffer.from(encodePng({ width: 4, height: 3, channels: 2, data })),
+			),
+		).toEqual({ x: 2, y: 1, width: 1, height: 1 });
+		data.fill(0);
+		expect(
+			alphaBounds(
+				Buffer.from(encodePng({ width: 4, height: 3, channels: 2, data })),
+			),
+		).toEqual({ x: 0, y: 0, width: 4, height: 3 });
+	});
+	test("rejects a truncated PNG", () => {
+		expect(() => alphaBounds(Buffer.from([137, 80, 78, 71]))).toThrow();
+	});
+});
+
+describe("device frame file responses", () => {
+	test("keeps validation and missing-asset responses", async () => {
+		expect(
+			(
+				await serveDeviceFrameAssetWeb(
+					new URL("http://localhost/?frame=../bad&image=foo"),
+				)
+			).status,
+		).toBe(400);
+		expect(
+			(
+				await serveDeviceFrameAssetWeb(
+					new URL("http://localhost/?frame=missing-frame&image=foo"),
+				)
+			).status,
+		).toBe(404);
+	});
+	test("serves a cached installed frame with the same PNG and cache headers", async () => {
+		if (!existsSync("/Library/Developer/DeviceKit/Chrome/phone11.devicechrome"))
+			return;
+		const frame = await resolveDeviceFrame({ name: "iPhone 17" });
+		const image = frame?.compositeImage ?? frame?.slice?.topLeft;
+		if (!frame || !image) return;
+		const response = await serveDeviceFrameAssetWeb(
+			new URL(`http://localhost/?frame=${frame.identifier}&image=${image}`),
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("image/png");
+		expect(response.headers.get("cache-control")).toBe(
+			"public, max-age=604800, immutable",
+		);
+		const body = new Uint8Array(await response.arrayBuffer());
+		expect(Number(response.headers.get("content-length"))).toBe(body.length);
+		expect(body.slice(0, 8)).toEqual(
+			new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
 		);
 	});
 });

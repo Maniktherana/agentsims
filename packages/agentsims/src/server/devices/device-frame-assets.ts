@@ -10,7 +10,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
-import { inflateSync } from "zlib";
+import { decode as decodePng } from "fast-png";
 import { hostCommandText } from "../runtime/host-tools";
 
 const DEVICE_TYPES_ROOT =
@@ -29,7 +29,6 @@ const LEGACY_CORE_TYPES_RESOURCES_ROOT =
 
 type JsonRecord = Record<string, unknown>;
 type PlaceholderAssetInfo = {
-	sourcePath: string;
 	pngPath: string;
 	width: number;
 	height: number;
@@ -59,8 +58,6 @@ const FALLBACK_PLACEHOLDER_ASSETS = {
 type FallbackPlaceholderAssetName = keyof typeof FALLBACK_PLACEHOLDER_ASSETS;
 
 type CoreTypesIconEntry = {
-	description: string;
-	iconFile: string;
 	iconName: string;
 	modelCodes: string[];
 };
@@ -155,6 +152,7 @@ type ParsedButton = {
 
 let deviceTypeNameByIdentifier: Promise<Map<string, string>> | null = null;
 const chromeCache = new Map<string, ParsedChrome | null>();
+const profileCache = new Map<string, Promise<DeviceProfileMetadata | null>>();
 const descriptorCache = new Map<
 	string,
 	Promise<DeviceFrameDescriptor | null>
@@ -197,25 +195,13 @@ export function parsePdfPageSize(pdf: Buffer | string): Size | null {
 export function logicalScreenSizeFromProfile(
 	profile: JsonRecord,
 	chromeIdentifier: string,
+	maskSize: Size | null = null,
 ): Size | null {
 	const explicit = explicitScreenSize(profile);
 	if (explicit) return explicit;
-
-	const mask =
-		typeof profile.framebufferMask === "string"
-			? profile.framebufferMask
-			: null;
-	if (!mask) return null;
-	const profileDir =
-		typeof profile.__profileDir === "string" ? profile.__profileDir : null;
-	if (!profileDir) return null;
-	const maskPath = join(profileDir, `${mask}.pdf`);
-	if (!existsSync(maskPath)) return null;
-	const size = parsePdfPageSize(readFileSync(maskPath));
-	if (!size) return null;
-
+	if (!maskSize) return null;
 	const scale = fallbackScaleForChrome(chromeIdentifier);
-	return { width: size.width / scale, height: size.height / scale };
+	return { width: maskSize.width / scale, height: maskSize.height / scale };
 }
 
 export async function resolveDeviceFrame(device: {
@@ -237,20 +223,22 @@ export async function resolveDevicePlaceholderAsset(device: {
 	const cacheKey = await profileNameForDevice(device);
 	const existing = placeholderDescriptorCache.get(cacheKey);
 	if (existing) return existing;
-	const resolving = resolveDevicePlaceholderAssetUncached(device);
+	const resolving = resolveDevicePlaceholderAssetUncached(
+		cacheKey,
+		device.name,
+	);
 	placeholderDescriptorCache.set(cacheKey, resolving);
 	return resolving;
 }
 
-async function resolveDevicePlaceholderAssetUncached(device: {
-	name: string;
-	deviceTypeIdentifier?: string;
-}): Promise<DevicePlaceholderAssetDescriptor | null> {
-	const profilePath = await profilePathForDevice(device);
-	const profile = profilePath ? await readProfileMetadata(profilePath) : null;
+async function resolveDevicePlaceholderAssetUncached(
+	profileName: string,
+	deviceName: string,
+): Promise<DevicePlaceholderAssetDescriptor | null> {
+	const profile = await readProfileMetadata(profileName);
 	const iconName =
 		(await iconNameForProfile(profile)) ??
-		fallbackIconNameForDeviceName(device.name);
+		fallbackIconNameForDeviceName(deviceName);
 	if (!iconName) return null;
 
 	const info = await placeholderAssetInfo(iconName);
@@ -259,14 +247,13 @@ async function resolveDevicePlaceholderAssetUncached(device: {
 		: null;
 }
 
-function webPng(bytes: Uint8Array): Response {
-	const body = new Uint8Array(bytes.byteLength);
-	body.set(bytes);
+function webPng(path: string): Response {
+	const body = Bun.file(path);
 	return new Response(body, {
 		headers: {
 			"Content-Type": "image/png",
 			"Cache-Control": "public, max-age=604800, immutable",
-			"Content-Length": String(bytes.byteLength),
+			"Content-Length": String(body.size),
 		},
 	});
 }
@@ -299,9 +286,7 @@ export async function serveDeviceFrameAssetWeb(url: URL): Promise<Response> {
 		);
 	}
 	try {
-		return webPng(
-			readFileSync(await cachedPngPath(identifier, imageName, pdfPath)),
-		);
+		return webPng(await cachedPngPath(identifier, imageName, pdfPath));
 	} catch (error) {
 		return Response.json(
 			{
@@ -324,7 +309,7 @@ export async function serveDevicePlaceholderAssetWeb(
 			url.searchParams.get("name") ?? "",
 		);
 		return asset
-			? webPng(readFileSync(asset.pngPath))
+			? webPng(asset.pngPath)
 			: Response.json(
 					{ ok: false, error: "Placeholder asset not found" },
 					{ status: 404 },
@@ -351,7 +336,9 @@ async function placeholderAssetInfo(
 	if (existing) return existing;
 	const resolving = (async () => {
 		const sourcePath = await placeholderAssetSourcePath(name);
-		return sourcePath ? cachedPlaceholderAssetPngPath(name, sourcePath) : null;
+		if (!sourcePath) return null;
+		const pngPath = await cachedPngPath(name, sourcePath, sourcePath, true);
+		return { pngPath, ...pngSize(readFileSync(pngPath)) };
 	})();
 	placeholderAssetInfoCache.set(name, resolving);
 	return resolving;
@@ -381,10 +368,7 @@ function fallbackPlaceholderAsset(
 async function resolveDeviceFrameUncached(
 	profileName: string,
 ): Promise<DeviceFrameDescriptor | null> {
-	const profilePath = profilePathForName(profileName);
-	if (!existsSync(profilePath)) return null;
-
-	const profile = await readProfileMetadata(profilePath);
+	const profile = await readProfileMetadata(profileName);
 	if (!profile?.chromeIdentifier) return null;
 	const chrome = readChrome(profile.chromeIdentifier);
 	if (!chrome) return null;
@@ -509,43 +493,41 @@ async function resolveDeviceFrameUncached(
 	};
 }
 
-async function readProfileMetadata(
-	profilePath: string,
+function readProfileMetadata(
+	profileName: string,
 ): Promise<DeviceProfileMetadata | null> {
-	const raw = await readPlist(profilePath);
-	if (!raw) return null;
-	const fullIdentifier =
-		typeof raw.chromeIdentifier === "string" ? raw.chromeIdentifier : null;
-	const chromeIdentifier = fullIdentifier
-		? bareChromeIdentifier(fullIdentifier)
-		: null;
-	return {
-		chromeIdentifier,
-		modelIdentifier:
-			typeof raw.modelIdentifier === "string" ? raw.modelIdentifier : null,
-		productClass:
-			typeof raw.productClass === "string" ? raw.productClass : null,
-		screenSize: chromeIdentifier
-			? logicalScreenSizeFromProfile(
-					{ ...raw, __profileDir: dirname(profilePath) },
-					chromeIdentifier,
-				)
-			: null,
-		framebufferMaskSize: framebufferMaskSize({
-			...raw,
-			__profileDir: dirname(profilePath),
-		}),
-	};
+	const existing = profileCache.get(profileName);
+	if (existing) return existing;
+	const resolving = (async () => {
+		const profilePath = profilePathForName(profileName);
+		if (!existsSync(profilePath)) return null;
+		const raw = await readPlist(profilePath);
+		if (!raw) return null;
+		const fullIdentifier = stringValue(raw.chromeIdentifier);
+		const chromeIdentifier = fullIdentifier
+			? bareChromeIdentifier(fullIdentifier)
+			: null;
+		const maskSize = framebufferMaskSize(raw, dirname(profilePath));
+		return {
+			chromeIdentifier,
+			modelIdentifier: stringValue(raw.modelIdentifier),
+			productClass: stringValue(raw.productClass),
+			screenSize: chromeIdentifier
+				? logicalScreenSizeFromProfile(raw, chromeIdentifier, maskSize)
+				: null,
+			framebufferMaskSize: maskSize,
+		};
+	})();
+	profileCache.set(profileName, resolving);
+	return resolving;
 }
 
-function framebufferMaskSize(profile: JsonRecord): Size | null {
-	const mask =
-		typeof profile.framebufferMask === "string"
-			? profile.framebufferMask
-			: null;
-	const profileDir =
-		typeof profile.__profileDir === "string" ? profile.__profileDir : null;
-	if (!mask || !profileDir) return null;
+function framebufferMaskSize(
+	profile: JsonRecord,
+	profileDir: string,
+): Size | null {
+	const mask = stringValue(profile.framebufferMask);
+	if (!mask) return null;
 	const maskPath = join(profileDir, `${mask}.pdf`);
 	if (!existsSync(maskPath)) return null;
 	return parsePdfPageSize(readFileSync(maskPath));
@@ -559,14 +541,6 @@ async function profileNameForDevice(device: {
 		(await deviceTypeNameForIdentifier(device.deviceTypeIdentifier)) ??
 		device.name
 	);
-}
-
-async function profilePathForDevice(device: {
-	name: string;
-	deviceTypeIdentifier?: string;
-}): Promise<string | null> {
-	const path = profilePathForName(await profileNameForDevice(device));
-	return existsSync(path) ? path : null;
 }
 
 function profilePathForName(profileName: string): string {
@@ -639,8 +613,6 @@ async function coreTypesIconEntries(): Promise<CoreTypesIconEntry[]> {
 				: [];
 			if (modelCodes.length === 0) continue;
 			entries.push({
-				description: stringValue(recordValue.UTTypeDescription) ?? "",
-				iconFile,
 				iconName: basename(iconFile, ".icns"),
 				modelCodes,
 			});
@@ -914,10 +886,12 @@ function chromeAssetPath(identifier: string, imageName: string): string {
 async function cachedPngPath(
 	identifier: string,
 	imageName: string,
-	pdfPath: string,
+	sourcePath: string,
+	cropToAlpha = false,
 ): Promise<string> {
-	mkdirSync(PNG_CACHE_ROOT, { recursive: true });
-	const stat = statSync(pdfPath);
+	const root = cropToAlpha ? PLACEHOLDER_ASSET_CACHE_ROOT : PNG_CACHE_ROOT;
+	mkdirSync(root, { recursive: true });
+	const stat = statSync(sourcePath);
 	const key = createHash("sha1")
 		.update(identifier)
 		.update("\0")
@@ -927,49 +901,8 @@ async function cachedPngPath(
 		.update("\0")
 		.update(String(stat.size))
 		.digest("hex");
-	const outPath = join(PNG_CACHE_ROOT, `${identifier}-${key}.png`);
+	const outPath = join(root, `${identifier}-${key}.png`);
 	if (existsSync(outPath)) return outPath;
-
-	const tmpPath = `${outPath}.${process.pid}.tmp`;
-	await hostCommandText(
-		"sips",
-		"-s",
-		"format",
-		"png",
-		pdfPath,
-		"--out",
-		tmpPath,
-	);
-	renameSync(tmpPath, outPath);
-	return outPath;
-}
-
-async function cachedPlaceholderAssetPngPath(
-	name: string,
-	sourcePath: string,
-): Promise<PlaceholderAssetInfo> {
-	mkdirSync(PLACEHOLDER_ASSET_CACHE_ROOT, { recursive: true });
-	const stat = statSync(sourcePath);
-	const key = createHash("sha1")
-		.update(name)
-		.update("\0")
-		.update(sourcePath)
-		.update("\0")
-		.update(String(stat.mtimeMs))
-		.update("\0")
-		.update(String(stat.size))
-		.digest("hex");
-	const outPath = join(PLACEHOLDER_ASSET_CACHE_ROOT, `${name}-${key}.png`);
-	if (existsSync(outPath)) {
-		const size = pngSize(readFileSync(outPath));
-		return {
-			sourcePath,
-			pngPath: outPath,
-			width: size.width,
-			height: size.height,
-		};
-	}
-
 	const tmpPath = `${outPath}.${process.pid}.tmp`;
 	const rawPath = `${outPath}.${process.pid}.raw.png`;
 	try {
@@ -980,42 +913,36 @@ async function cachedPlaceholderAssetPngPath(
 			"png",
 			sourcePath,
 			"--out",
-			rawPath,
+			cropToAlpha ? rawPath : tmpPath,
 		);
-		const rawPng = readFileSync(rawPath);
-		const crop = alphaBounds(rawPng) ?? { x: 0, y: 0, ...pngSize(rawPng) };
-		await hostCommandText(
-			"sips",
-			"-c",
-			String(crop.height),
-			String(crop.width),
-			"--cropOffset",
-			String(crop.y),
-			String(crop.x),
-			"-s",
-			"format",
-			"png",
-			sourcePath,
-			"--out",
-			tmpPath,
-		);
-		renameSync(tmpPath, outPath);
-		return {
-			sourcePath,
-			pngPath: outPath,
-			width: crop.width,
-			height: crop.height,
-		};
-	} finally {
-		try {
-			if (existsSync(rawPath)) unlinkSync(rawPath);
-		} catch (error) {
-			console.warn("[agentsims:server] recoverable operation failed", error);
+		if (cropToAlpha) {
+			const rawPng = readFileSync(rawPath);
+			const crop = alphaBounds(rawPng) ?? { x: 0, y: 0, ...pngSize(rawPng) };
+			await hostCommandText(
+				"sips",
+				"-c",
+				String(crop.height),
+				String(crop.width),
+				"--cropOffset",
+				String(crop.y),
+				String(crop.x),
+				"-s",
+				"format",
+				"png",
+				sourcePath,
+				"--out",
+				tmpPath,
+			);
 		}
-		try {
-			if (existsSync(tmpPath)) unlinkSync(tmpPath);
-		} catch (error) {
-			console.warn("[agentsims:server] recoverable operation failed", error);
+		renameSync(tmpPath, outPath);
+		return outPath;
+	} finally {
+		for (const path of [rawPath, tmpPath]) {
+			try {
+				if (existsSync(path)) unlinkSync(path);
+			} catch (error) {
+				console.warn("[agentsims:server] recoverable operation failed", error);
+			}
 		}
 	}
 }
@@ -1039,59 +966,21 @@ type PixelMask = { width: number; height: number; mask: Uint8Array };
 
 /** Decode an 8-bit RGBA/GA PNG into a per-pixel boolean mask of `predicate`. */
 function decodeMask(png: Buffer, predicate: PixelPredicate): PixelMask | null {
-	const { width, height } = pngSize(png);
-	let offset = 8;
-	let bitDepth = 0;
-	let colorType = 0;
-	const idats: Buffer[] = [];
-	while (offset < png.byteLength) {
-		const length = png.readUInt32BE(offset);
-		offset += 4;
-		const type = png.toString("ascii", offset, offset + 4);
-		offset += 4;
-		const data = png.subarray(offset, offset + length);
-		offset += length + 4;
-		if (type === "IHDR") {
-			bitDepth = data[8] ?? 0;
-			colorType = data[9] ?? 0;
-		} else if (type === "IDAT") {
-			idats.push(data);
-		} else if (type === "IEND") {
-			break;
-		}
-	}
-
-	const bytesPerPixel = colorType === 6 ? 4 : colorType === 4 ? 2 : 0;
-	if (bitDepth !== 8 || bytesPerPixel === 0 || idats.length === 0) {
-		return null;
-	}
-	const rgba = colorType === 6;
-
-	const raw = inflateSync(Buffer.concat(idats));
-	const stride = width * bytesPerPixel;
+	const { width, height, depth, channels, data } = decodePng(png);
+	if (depth !== 8 || (channels !== 2 && channels !== 4)) return null;
 	const mask = new Uint8Array(width * height);
-	let previous = Buffer.alloc(stride);
-	let inputOffset = 0;
-	for (let y = 0; y < height; y++) {
-		const filter = raw[inputOffset++] ?? 0;
-		const row = Buffer.from(raw.subarray(inputOffset, inputOffset + stride));
-		inputOffset += stride;
-		unfilterPngRow(row, previous, bytesPerPixel, filter);
-
-		for (let x = 0; x < width; x++) {
-			const base = x * bytesPerPixel;
-			const r = row[base] ?? 0;
-			const g = rgba ? (row[base + 1] ?? 0) : r;
-			const b = rgba ? (row[base + 2] ?? 0) : r;
-			const a = row[base + bytesPerPixel - 1] ?? 0;
-			if (predicate(r, g, b, a)) mask[y * width + x] = 1;
-		}
-		previous = row;
+	for (let pixel = 0; pixel < mask.length; pixel++) {
+		const offset = pixel * channels;
+		const r = data[offset]!;
+		const g = channels === 4 ? data[offset + 1]! : r;
+		const b = channels === 4 ? data[offset + 2]! : r;
+		const a = data[offset + channels - 1]!;
+		if (predicate(r, g, b, a)) mask[pixel] = 1;
 	}
 	return { width, height, mask };
 }
 
-function alphaBounds(png: Buffer): Rect | null {
+export function alphaBounds(png: Buffer): Rect | null {
 	const { width, height } = pngSize(png);
 	const decoded = decodeMask(png, (_r, _g, _b, a) => a > 0);
 	if (!decoded) return { x: 0, y: 0, width, height };
@@ -1184,46 +1073,6 @@ async function readCompositePng(
 	} catch {
 		return null;
 	}
-}
-
-function unfilterPngRow(
-	row: Buffer,
-	previous: Buffer,
-	bytesPerPixel: number,
-	filter: number,
-): void {
-	for (let i = 0; i < row.byteLength; i++) {
-		const left = i >= bytesPerPixel ? row[i - bytesPerPixel]! : 0;
-		const up = previous[i] ?? 0;
-		const upLeft = i >= bytesPerPixel ? previous[i - bytesPerPixel]! : 0;
-		switch (filter) {
-			case 0:
-				break;
-			case 1:
-				row[i] = (row[i]! + left) & 0xff;
-				break;
-			case 2:
-				row[i] = (row[i]! + up) & 0xff;
-				break;
-			case 3:
-				row[i] = (row[i]! + Math.floor((left + up) / 2)) & 0xff;
-				break;
-			case 4:
-				row[i] = (row[i]! + paeth(left, up, upLeft)) & 0xff;
-				break;
-			default:
-				throw new Error(`Unsupported PNG filter ${filter}`);
-		}
-	}
-}
-
-function paeth(left: number, up: number, upLeft: number): number {
-	const p = left + up - upLeft;
-	const pa = Math.abs(p - left);
-	const pb = Math.abs(p - up);
-	const pc = Math.abs(p - upLeft);
-	if (pa <= pb && pa <= pc) return left;
-	return pb <= pc ? up : upLeft;
 }
 
 function numberValue(value: unknown): number {
