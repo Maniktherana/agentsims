@@ -554,112 +554,46 @@ const CONFIG_WRAPPERS = new Set([
 	"@sentry/react-native/metro#withSentryConfig",
 ]);
 
-function isSynchronousMergeArgument(
-	node: any,
-	moduleBindings: ModuleBindings,
-	initializers: Map<string, any>,
-	seen: Set<string>,
-): boolean {
-	const expression = unwrapExpression(node);
-	if (!expression || expression.type === "SpreadElement") return false;
-	if (expression.type === "ObjectExpression") return true;
-	if (expression.type === "Identifier") {
-		if (seen.has(expression.name)) return false;
-		const initializer = initializers.get(expression.name);
-		if (!initializer) return false;
-		const nextSeen = new Set(seen);
-		nextSeen.add(expression.name);
-		return isSynchronousMergeArgument(
-			initializer,
-			moduleBindings,
-			initializers,
-			nextSeen,
-		);
-	}
-	if (expression.type !== "CallExpression") return false;
-	if (
-		expression.callee?.type === "ArrowFunctionExpression" ||
-		expression.callee?.type === "FunctionExpression"
-	) {
-		return false;
-	}
-	const source = calleeModuleExport(expression.callee, moduleBindings);
-	if (source && RESOLVED_CONFIG_FACTORIES.has(source)) return true;
-	if (source && (CONFIG_COMBINERS.has(source) || CONFIG_WRAPPERS.has(source))) {
-		return resolvesMetroConfig(
-			expression,
-			moduleBindings,
-			initializers,
-			new Set(seen),
-		);
-	}
-	return false;
-}
+type MetroConfigKind = "resolved" | "override" | "unresolved";
 
-function resolvesMetroConfig(
+function classifyMetroConfig(
 	node: any,
 	moduleBindings: ModuleBindings,
 	initializers: Map<string, any>,
 	seen = new Set<string>(),
-): boolean {
-	const expression = unwrapExpression(node);
-	if (!expression) return false;
-	if (expression.type === "AwaitExpression") return false;
-	if (expression.type === "Identifier") {
-		if (seen.has(expression.name)) return false;
-		const initializer = initializers.get(expression.name);
-		if (!initializer) return false;
-		const nextSeen = new Set(seen);
-		nextSeen.add(expression.name);
-		return resolvesMetroConfig(
-			initializer,
-			moduleBindings,
-			initializers,
-			nextSeen,
-		);
-	}
-	if (hasExplicitTransformer(expression)) return true;
-	if (expression.type !== "CallExpression") return false;
-	if (
-		expression.callee?.type === "ArrowFunctionExpression" ||
-		expression.callee?.type === "FunctionExpression"
-	) {
-		return false;
-	}
+): MetroConfigKind {
+	const expression = resolveTopLevelInitializer(node, initializers, seen);
+	if (!expression) return "unresolved";
+	if (expression.type === "ObjectExpression")
+		return hasExplicitTransformer(expression) ? "resolved" : "override";
+	if (expression.type !== "CallExpression") return "unresolved";
 
 	const source = calleeModuleExport(expression.callee, moduleBindings);
-	if (!source) return false;
-	if (RESOLVED_CONFIG_FACTORIES.has(source)) return true;
+	if (!source) return "unresolved";
+	if (RESOLVED_CONFIG_FACTORIES.has(source)) return "resolved";
 	if (CONFIG_COMBINERS.has(source)) {
-		return (
-			expression.arguments.length > 0 &&
-			expression.arguments.every((argument: any) =>
-				isSynchronousMergeArgument(
-					argument,
-					moduleBindings,
-					initializers,
-					new Set(seen),
-				),
-			) &&
-			expression.arguments.some((argument: any) =>
-				resolvesMetroConfig(
-					argument,
-					moduleBindings,
-					initializers,
-					new Set(seen),
-				),
-			)
+		const kinds: MetroConfigKind[] = expression.arguments.map((argument: any) =>
+			classifyMetroConfig(
+				argument,
+				moduleBindings,
+				initializers,
+				new Set(seen),
+			),
 		);
+		return !kinds.includes("unresolved") && kinds.includes("resolved")
+			? "resolved"
+			: "unresolved";
 	}
 	if (CONFIG_WRAPPERS.has(source)) {
-		return resolvesMetroConfig(
+		const wrapped = classifyMetroConfig(
 			expression.arguments[0],
 			moduleBindings,
 			initializers,
 			new Set(seen),
 		);
+		return wrapped === "resolved" ? "resolved" : "unresolved";
 	}
-	return false;
+	return "unresolved";
 }
 
 function lineEnd(source: string, offset: number): number {
@@ -823,7 +757,9 @@ export function transformMetroConfig(
 		);
 	}
 
-	if (!resolvesMetroConfig(expression, moduleBindings, initializers)) {
+	if (
+		classifyMetroConfig(expression, moduleBindings, initializers) !== "resolved"
+	) {
 		throw new MetroSetupError(
 			`The exported value in ${path} is not a supported resolved Metro config. ` +
 				"Automatic setup supports getDefaultConfig, mergeConfig, getSentryExpoConfig, " +

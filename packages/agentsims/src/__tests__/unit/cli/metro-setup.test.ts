@@ -147,6 +147,75 @@ describe("transformMetroConfig", () => {
 		).toContain("module.exports = withAgentsims(config);");
 	});
 
+	test.each([
+		["aliased defaults", "alias", true],
+		["reused sibling aliases", "merge(alias, alias, override)", true],
+		["nested resolved merges", "merge(merge(alias, override), override)", true],
+		[
+			"namespace and aliased wrappers",
+			"wind(sentry.withSentryConfig(alias))",
+			true,
+		],
+		[
+			"explicit transformer",
+			'{ transformer: { babelTransformerPath: "custom" } }',
+			true,
+		],
+		[
+			"transformer in a merge",
+			'merge(override, { transformer: { babelTransformerPath: require.resolve("custom") } })',
+			true,
+		],
+		["only overrides", "merge(override, override)", false],
+		[
+			"nested unresolved merge",
+			"merge(base, merge(override, override))",
+			false,
+		],
+		["wrapper around an override", "merge(base, wind(override))", false],
+		["unknown factory", "merge(base, unknown())", false],
+		["async override", "merge(base, async () => ({}))", false],
+		["immediately invoked factory", "merge(base, (() => ({}))())", false],
+		["awaited override", "merge(base, await Promise.resolve(override))", false],
+		["spread override", "merge(base, ...[override])", false],
+		["cyclic alias", "merge(base, cycleA)", false],
+		["missing alias", "merge(base, missing)", false],
+		["mutable alias", "merge(base, mutable)", false],
+		["empty merge", "merge()", false],
+		["empty wrapper", "wind()", false],
+	] as const)(
+		"preserves config classification for %s",
+		(_name, expression, supported) => {
+			const source = [
+				'import { getDefaultConfig as defaults, mergeConfig as merge } from "@react-native/metro-config";',
+				'import { withNativeWind as wind } from "nativewind/metro";',
+				'import * as sentry from "@sentry/react-native/metro";',
+				"const base = defaults(import.meta.dirname);",
+				"const alias = base;",
+				"const override = { resolver: { sourceExts: ['sql'] } };",
+				"const cycleA = cycleB; const cycleB = cycleA;",
+				"let mutable = base;",
+				`export default ${expression};`,
+			].join("\n");
+			if (supported) {
+				const result = transformMetroConfig(source, "/app/metro.config.mjs");
+				expect(result.source).toContain(
+					`export default withAgentsims(${expression});`,
+				);
+				expect(
+					transformMetroConfig(result.source, "/app/metro.config.mjs"),
+				).toEqual({
+					status: "already-configured",
+					source: result.source,
+				});
+			} else {
+				expect(() =>
+					transformMetroConfig(source, "/app/metro.config.mjs"),
+				).toThrow("not a supported resolved Metro config");
+			}
+		},
+	);
+
 	test("supports static ESM TypeScript without regenerating its source", () => {
 		const source = [
 			'import type { MetroConfig } from "metro-config";',
