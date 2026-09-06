@@ -65,7 +65,7 @@ describe("DevicePlaceholder", () => {
 		expect(loading.aspectRatioValue).toBe(live.aspectRatioValue);
 		expect(loadingWidth).toBe(liveWidth);
 		expect(html).toContain('data-device-placeholder-frame="android"');
-		expect(html).toContain("width:min(100%, 320px)");
+		expect(html).toContain(`width:min(100%, ${(664 * 1080) / 2424}px)`);
 		expect(html).toContain("aspect-ratio:1080 / 2424");
 	});
 

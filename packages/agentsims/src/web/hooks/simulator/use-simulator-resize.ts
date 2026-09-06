@@ -13,7 +13,7 @@ import {
 	SIMULATOR_RESIZE_MIN_WIDTH,
 	SIMULATOR_RESIZE_MOMENTUM_S,
 	SIMULATOR_RESIZE_PERSIST_DEBOUNCE_MS,
-	SIMULATOR_RESIZE_SCALE_STORAGE_KEY,
+	simulatorResizeStorageKey,
 	SIMULATOR_RESIZE_SPRING_DAMPING,
 	SIMULATOR_RESIZE_SPRING_STIFFNESS,
 	SIMULATOR_RESIZE_VELOCITY_HISTORY_MS,
@@ -39,12 +39,14 @@ type DragStart = {
 type Sample = { t: number; x: number };
 
 export function useSimulatorResize({
+	deviceId,
 	defaultWidth,
 	viewportWidth,
 	viewportHeight,
 	aspectRatio,
 	onStart,
 }: {
+	deviceId?: string;
 	defaultWidth: number;
 	viewportWidth: number;
 	viewportHeight: number;
@@ -64,9 +66,9 @@ export function useSimulatorResize({
 
 	const readRestoredWidth = useCallback(() => {
 		if (typeof window === "undefined") return defaultWidth;
-		// A non-finite scale (storage threw / empty / NaN) falls back to defaultWidth
+		// A non-finite scale (storage threw / empty / NaN) falls back to Fit
 		// inside restoredSimulatorFrameWidth, so both paths share one call.
-		const scale = readSimulatorResizeScale(window.localStorage);
+		const scale = readSimulatorResizeScale(window.localStorage, deviceId);
 		return restoredSimulatorFrameWidth(
 			defaultWidth,
 			viewportWidth,
@@ -74,7 +76,7 @@ export function useSimulatorResize({
 			aspectRatio,
 			scale,
 		);
-	}, [aspectRatio, defaultWidth, viewportHeight, viewportWidth]);
+	}, [aspectRatio, defaultWidth, deviceId, viewportHeight, viewportWidth]);
 	const initialWidth = useMemo(() => readRestoredWidth(), [readRestoredWidth]);
 	const [frameGeometry, setFrameGeometry] = useState({
 		defaultWidth,
@@ -88,13 +90,18 @@ export function useSimulatorResize({
 		readRestoredWidth(),
 	);
 
-	const maxWidth = getSimulatorFrameMaxWidth(
+	const fitWidth = getSimulatorFrameMaxWidth(
 		defaultWidth,
 		viewportWidth,
 		viewportHeight,
 		aspectRatio,
 	);
-	const minWidth = Math.min(SIMULATOR_RESIZE_MIN_WIDTH, maxWidth);
+	const maxWidth = Number.POSITIVE_INFINITY;
+	const minWidth = Math.min(SIMULATOR_RESIZE_MIN_WIDTH, fitWidth);
+	const fitModeRef = useRef(
+		typeof window === "undefined" ||
+			!Number.isFinite(readSimulatorResizeScale(window.localStorage, deviceId)),
+	);
 
 	// `width` is the displayed width (may include rubber-band overshoot during drag/inertia).
 	// `committedWidth` is the bound-clamped value used for aria, keyboard math, and persistence.
@@ -118,7 +125,8 @@ export function useSimulatorResize({
 
 	const persistNow = useCallback(
 		(value: number) => {
-			if (typeof window === "undefined" || defaultWidth <= 0) return;
+			if (typeof window === "undefined" || defaultWidth <= 0 || fitModeRef.current)
+				return;
 			const clamped = clampSimulatorFrameWidth(
 				value,
 				defaultWidth,
@@ -128,14 +136,14 @@ export function useSimulatorResize({
 			);
 			try {
 				window.localStorage.setItem(
-					SIMULATOR_RESIZE_SCALE_STORAGE_KEY,
+					simulatorResizeStorageKey(deviceId),
 					String(clamped / defaultWidth),
 				);
 			} catch (error) {
 				console.warn("[agentsims:web] recoverable operation failed", error);
 			}
 		},
-		[aspectRatio, defaultWidth, viewportHeight, viewportWidth],
+		[aspectRatio, defaultWidth, deviceId, viewportHeight, viewportWidth],
 	);
 
 	const schedulePersist = useCallback(
@@ -156,7 +164,7 @@ export function useSimulatorResize({
 		if (isResizing || isInertia) return;
 		const current = lastWidthRef.current;
 		if (current == null) return;
-		const next = clampSimulatorFrameWidth(
+		const next = fitModeRef.current ? fitWidth : clampSimulatorFrameWidth(
 			current,
 			defaultWidth,
 			viewportWidth,
@@ -167,6 +175,7 @@ export function useSimulatorResize({
 	}, [
 		aspectRatio,
 		defaultWidth,
+		fitWidth,
 		isInertia,
 		isResizing,
 		viewportHeight,
@@ -225,10 +234,10 @@ export function useSimulatorResize({
 			if (raw > maxWidth)
 				return maxWidth + rubberBandResistance(raw - maxWidth, maxWidth);
 			if (raw < minWidth)
-				return minWidth - rubberBandResistance(minWidth - raw, maxWidth);
+				return minWidth - rubberBandResistance(minWidth - raw, fitWidth);
 			return raw;
 		},
-		[maxWidth, minWidth],
+		[fitWidth, maxWidth, minWidth],
 	);
 
 	const cancelTween = useCallback(() => {
@@ -266,6 +275,7 @@ export function useSimulatorResize({
 	const beginDrag = useCallback(
 		(pointerId: number, clientX: number, clientY: number) => {
 			cancelTween();
+			fitModeRef.current = false;
 			const startWidth = lastWidthRef.current ?? defaultWidth;
 			dragStartRef.current = {
 				pointerId,
@@ -421,8 +431,24 @@ export function useSimulatorResize({
 		[aspectRatio, scheduleMove],
 	);
 
+	const fit = useCallback(() => {
+		cancelTween();
+		fitModeRef.current = true;
+		writeWidth(fitWidth);
+		try {
+			window.localStorage.removeItem(simulatorResizeStorageKey(deviceId));
+		} catch {
+			/* Storage can be unavailable in private browsing. */
+		}
+	}, [cancelTween, deviceId, fitWidth, writeWidth]);
+
 	const onKeyDown = useCallback(
 		(event: ReactKeyboardEvent<HTMLDivElement>) => {
+			if (event.key === "Home") {
+				event.preventDefault();
+				fit();
+				return;
+			}
 			const direction =
 				event.key === "ArrowRight" || event.key === "ArrowDown"
 					? 1
@@ -432,6 +458,7 @@ export function useSimulatorResize({
 			if (direction === 0) return;
 			event.preventDefault();
 			cancelTween();
+			fitModeRef.current = false;
 			const step = event.shiftKey ? 80 : 24;
 			const next = roundToDevicePixel(
 				clampSimulatorFrameWidth(
@@ -449,6 +476,7 @@ export function useSimulatorResize({
 			aspectRatio,
 			cancelTween,
 			committedWidth,
+			fit,
 			defaultWidth,
 			schedulePersist,
 			viewportHeight,
@@ -458,6 +486,7 @@ export function useSimulatorResize({
 	);
 
 	return {
+		fit,
 		handleRef,
 		width,
 		committedWidth,

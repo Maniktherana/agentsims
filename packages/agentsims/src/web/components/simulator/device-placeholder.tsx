@@ -1,15 +1,13 @@
 import { screenBorderRadius } from "../../simulator/index";
-import { useEffect, useState } from "react";
+import { useRef } from "react";
+import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
 import type {
 	DeviceFrameDescriptor,
 	DevicePlaceholderAssetDescriptor,
 } from "../../workspace/grid";
 import { runtimeLabel } from "../../workspace/grid";
 import { DeviceFrame } from "./device-frame";
-import {
-	EMBEDDED_WORKSPACE_VERTICAL_RESERVE,
-	resolveSimulatorDeviceLayout,
-} from "../../workspace/simulator-device-layout";
+import { resolveSimulatorDeviceLayout } from "../../workspace/simulator-device-layout";
 import {
 	restoredSimulatorFrameWidth,
 	readSimulatorResizeScale,
@@ -28,7 +26,8 @@ export function DevicePlaceholder({
 	actionLabel = "Start",
 	error,
 	onStart,
-	embedded = false,
+	embedded: _embedded = false,
+	deviceId,
 }: {
 	name: string;
 	runtime: string;
@@ -40,18 +39,33 @@ export function DevicePlaceholder({
 	error: string | null;
 	onStart: () => void;
 	embedded?: boolean;
+	deviceId?: string;
 }) {
 	const layout = resolveSimulatorDeviceLayout({ deviceName: name, chrome });
-	const displayWidth = usePlaceholderDisplayWidth(
+	const stackRef = useRef<HTMLDivElement | null>(null);
+	const frameRef = useRef<HTMLDivElement | null>(null);
+	const bounds = useSimulatorBounds(stackRef, frameRef);
+	const storedScale =
+		typeof window === "undefined"
+			? NaN
+			: readSimulatorResizeScale(window.localStorage, deviceId);
+	const displayWidth = restoredSimulatorFrameWidth(
 		layout.defaultWidth,
+		bounds.width,
+		bounds.height,
 		layout.aspectRatioValue,
-		embedded,
+		storedScale,
 	);
 	const activeFrame = layout.useDeviceFrame ? chrome : null;
 
 	return (
-		<div className="flex flex-col items-center gap-5 min-w-0 w-full">
+		<div
+			ref={stackRef}
+			className="flex flex-col items-center gap-5 min-w-0"
+			style={{ width: displayWidth }}
+		>
 			<div
+				ref={frameRef}
 				className="relative w-full"
 				data-device-placeholder-frame={layout.deviceType}
 				data-placeholder-asset={placeholderAsset?.name}
@@ -120,35 +134,5 @@ export function DevicePlaceholder({
 function PlaceholderScreen() {
 	return (
 		<div className="absolute inset-0 bg-[linear-gradient(145deg,#6fa8e6_0%,#5b93d6_55%,#5188cf_100%)]" />
-	);
-}
-
-function usePlaceholderDisplayWidth(
-	defaultWidth: number,
-	aspectRatio: number,
-	embedded: boolean,
-): number {
-	const readViewport = () => ({
-		width: typeof window === "undefined" ? 0 : window.innerWidth,
-		height: typeof window === "undefined" ? 0 : window.innerHeight,
-	});
-	const [viewport, setViewport] = useState(readViewport);
-	useEffect(() => {
-		const update = () => setViewport(readViewport());
-		window.addEventListener("resize", update);
-		return () => window.removeEventListener("resize", update);
-	}, []);
-	const storedScale =
-		typeof window === "undefined"
-			? NaN
-			: readSimulatorResizeScale(window.localStorage);
-	return restoredSimulatorFrameWidth(
-		defaultWidth,
-		viewport.width,
-		embedded
-			? Math.max(320, viewport.height - EMBEDDED_WORKSPACE_VERTICAL_RESERVE)
-			: viewport.height,
-		aspectRatio,
-		storedScale,
 	);
 }

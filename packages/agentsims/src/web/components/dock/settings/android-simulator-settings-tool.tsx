@@ -1,3 +1,4 @@
+import { Smartphone } from "lucide-react";
 import {
 	CircleDot,
 	Gauge,
@@ -12,11 +13,9 @@ import {
 	useRef,
 	useState,
 } from "react";
-import {
-	execOnHost,
-	shellEscape,
-	type ExecResult,
-} from "../../../simulator/input/exec";
+import type { AndroidToolAction } from "../../../../android/contracts";
+import { runAndroidTool } from "../../../android/tools-client";
+import { simEndpoint } from "../../../preview/sim-endpoint";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import {
 	SettingRow,
@@ -84,24 +83,28 @@ export function parseAndroidSimulatorSettings(input: {
 	};
 }
 
-function commandValue(result: ExecResult, fallback: string): string {
-	if (result.exitCode !== 0) {
-		throw new Error(
-			result.stderr.trim() || `adb exited with ${result.exitCode}`,
-		);
-	}
-	return result.stdout.trim() || fallback;
-}
-
 function Icon({ children }: { children: ReactNode }) {
 	return <span className="text-white/82">{children}</span>;
 }
 
-export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
-	const serial = udid.startsWith("android:")
-		? udid.slice("android:".length)
-		: udid;
-	const escapedSerial = shellEscape(serial);
+type AndroidSettingsProps = {
+	udid: string;
+	children?: ReactNode;
+};
+export function AndroidSimulatorSettingsTool(props: AndroidSettingsProps) {
+	return <AndroidDeviceSettings key={props.udid} {...props} />;
+}
+
+function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
+	const lifetime = useRef<AbortController | null>(null);
+	if (lifetime.current === null) lifetime.current = new AbortController();
+	useEffect(() => {
+		if (lifetime.current!.signal.aborted)
+			lifetime.current = new AbortController();
+		const controller = lifetime.current!;
+		return () => controller.abort();
+	}, []);
+	const basePath = simEndpoint("");
 	const [open, setOpen] = useState(true);
 	const [settings, setSettings] = useState<AndroidSimulatorSettings | null>(
 		null,
@@ -109,45 +112,31 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 	const [pending, setPending] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
-	const adb = useCallback(
-		(args: string, signal?: AbortSignal) =>
-			execOnHost(`adb -s ${escapedSerial} ${args}`, { signal }),
-		[escapedSerial],
-	);
-
 	const refresh = useCallback(
-		async (signal?: AbortSignal) => {
+		async (signal = lifetime.current!.signal) => {
 			setError(null);
 			try {
-				const [
-					nightMode,
-					fontScale,
-					animationScale,
-					showTouches,
-					pointerLocation,
-				] = await Promise.all([
-					adb("shell cmd uimode night", signal),
-					adb("shell settings get system font_scale", signal),
-					adb("shell settings get global animator_duration_scale", signal),
-					adb("shell settings get system show_touches", signal),
-					adb("shell settings get system pointer_location", signal),
-				]);
+				const value = await runAndroidTool<{
+					theme: string;
+					fontScale: string;
+					animationScale: string;
+					showTouches: string;
+					pointerLocation: string;
+				}>(basePath, udid, { type: "settings" }, signal);
+				if (signal.aborted) return;
 				setSettings(
-					parseAndroidSimulatorSettings({
-						nightMode: commandValue(nightMode, "Night mode: no"),
-						fontScale: commandValue(fontScale, "1"),
-						animationScale: commandValue(animationScale, "1"),
-						showTouches: commandValue(showTouches, "0"),
-						pointerLocation: commandValue(pointerLocation, "0"),
-					}),
+					parseAndroidSimulatorSettings({ ...value, nightMode: value.theme }),
 				);
 			} catch (reason) {
-				if (reason instanceof DOMException && reason.name === "AbortError")
+				if (
+					signal.aborted ||
+					(reason instanceof DOMException && reason.name === "AbortError")
+				)
 					return;
 				setError(reason instanceof Error ? reason.message : String(reason));
 			}
 		},
-		[adb],
+		[basePath, udid],
 	);
 
 	useEffect(() => {
@@ -158,25 +147,37 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 	}, [refresh]);
 
 	const run = useCallback(
-		async (key: string, next: AndroidSimulatorSettings, commands: string[]) => {
+		async (
+			key: string,
+			next: AndroidSimulatorSettings,
+			action: Extract<AndroidToolAction, { type: "settings" }>,
+		) => {
 			setPending(key);
 			setError(null);
 			setSettings(next);
 			try {
-				const results = await Promise.all(
-					commands.map((command) => adb(command)),
-				);
-				for (const result of results) commandValue(result, "");
+				const value = await runAndroidTool<{
+					theme: string;
+					fontScale: string;
+					animationScale: string;
+					showTouches: string;
+					pointerLocation: string;
+				}>(basePath, udid, action, lifetime.current!.signal);
+				if (!lifetime.current!.signal.aborted)
+					setSettings(
+						parseAndroidSimulatorSettings({ ...value, nightMode: value.theme }),
+					);
 			} catch (reason) {
+				if (lifetime.current!.signal.aborted) return;
 				setError(
 					reason instanceof Error ? reason.message : `Could not update ${key}`,
 				);
 				void refresh();
 			} finally {
-				setPending(null);
+				if (!lifetime.current!.signal.aborted) setPending(null);
 			}
 		},
-		[adb, refresh],
+		[basePath, udid, refresh],
 	);
 
 	const shown = settings ?? DEFAULT_SETTINGS;
@@ -198,15 +199,13 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 		if (queue.running) return;
 		queue.running = true;
 		void (async () => {
-			while (queue.next !== null) {
+			while (queue.next !== null && !lifetime.current!.signal.aborted) {
 				const nextIndex = queue.next;
 				queue.next = null;
 				await runRef.current(
 					"text-size",
 					{ ...settingsRef.current, textSizeIndex: nextIndex },
-					[
-						`shell settings put system font_scale ${ANDROID_FONT_SCALES[nextIndex]!}`,
-					],
+					{ type: "settings", fontScale: ANDROID_FONT_SCALES[nextIndex]! },
 				);
 			}
 			queue.running = false;
@@ -219,9 +218,12 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 			onOpenChange={setOpen}
 			data-android-simulator-settings=""
 			summary={
-				<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50">
-					Simulator
-				</span>
+				<div className="flex min-w-0 items-center gap-2">
+						<Smartphone size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+							Simulator
+						</span>
+					</div>
 			}
 			bodyClassName="flex flex-col gap-1.5"
 		>
@@ -256,9 +258,11 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 					disabled={!ready || pending === "appearance"}
 					onChange={(value) => {
 						const appearance = value === "dark" ? "dark" : "light";
-						void run("appearance", { ...shown, appearance }, [
-							`shell cmd uimode night ${appearance === "dark" ? "yes" : "no"}`,
-						]);
+						void run(
+							"appearance",
+							{ ...shown, appearance },
+							{ type: "settings", theme: appearance },
+						);
 					}}
 				/>
 			</SettingRow>
@@ -291,12 +295,11 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 					checked={shown.reduceMotion}
 					disabled={!ready || pending === "reduce-motion"}
 					onChange={(reduceMotion) => {
-						const scale = reduceMotion ? 0 : 1;
-						void run("reduce-motion", { ...shown, reduceMotion }, [
-							`shell settings put global window_animation_scale ${scale}`,
-							`shell settings put global transition_animation_scale ${scale}`,
-							`shell settings put global animator_duration_scale ${scale}`,
-						]);
+						void run(
+							"reduce-motion",
+							{ ...shown, reduceMotion },
+							{ type: "settings", reducedMotion: reduceMotion },
+						);
 					}}
 				/>
 			</SettingRow>
@@ -314,9 +317,11 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 					checked={shown.showTouches}
 					disabled={!ready || pending === "show-touches"}
 					onChange={(showTouches) =>
-						void run("show-touches", { ...shown, showTouches }, [
-							`shell settings put system show_touches ${showTouches ? 1 : 0}`,
-						])
+						void run(
+							"show-touches",
+							{ ...shown, showTouches },
+							{ type: "settings", showTouches },
+						)
 					}
 				/>
 			</SettingRow>
@@ -334,12 +339,15 @@ export function AndroidSimulatorSettingsTool({ udid }: { udid: string }) {
 					checked={shown.pointerLocation}
 					disabled={!ready || pending === "pointer-location"}
 					onChange={(pointerLocation) =>
-						void run("pointer-location", { ...shown, pointerLocation }, [
-							`shell settings put system pointer_location ${pointerLocation ? 1 : 0}`,
-						])
+						void run(
+							"pointer-location",
+							{ ...shown, pointerLocation },
+							{ type: "settings", pointerLocation },
+						)
 					}
 				/>
 			</SettingRow>
+			{children}
 		</CollapsibleSection>
 	);
 }

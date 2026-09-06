@@ -10,8 +10,6 @@ import {
 } from "../simulator/index";
 import type { DeviceFrameDescriptor } from "./grid";
 
-export const EMBEDDED_WORKSPACE_VERTICAL_RESERVE = 200;
-
 export interface SimulatorDeviceLayout {
 	deviceType: DeviceType;
 	streamConfig: StreamConfig;

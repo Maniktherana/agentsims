@@ -29,6 +29,7 @@ import {
 	Upload,
 } from "lucide-react";
 import { ReloadIcon } from "../icons/index";
+import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
 import { AccessibilityInspectorController } from "../accessibility/controller";
 import { AxDomOverlay } from "../accessibility/overlay";
 import { AccessibilityStateProvider } from "../accessibility/provider";
@@ -84,15 +85,7 @@ import type { RenderedScreenshot } from "../../simulator/screenshot/rendered-scr
 import { startScreenshotCapture } from "../../simulator/screenshot/screenshot-capture-flow";
 import { saveScreenshotToHost } from "../../simulator/screenshot/screenshot-save";
 import { SimulatorFrameRateStore } from "../../simulator/stream/simulator-frame-rate";
-import {
-	SIMULATOR_RESIZE_DRAG_TRANSITION,
-	SIMULATOR_RESIZE_LAYOUT_TRANSITION,
-	SIMULATOR_RESIZE_PAGE_TRANSITION,
-} from "../../simulator/resize/simulator-resize";
-import {
-	EMBEDDED_WORKSPACE_VERTICAL_RESERVE,
-	resolveSimulatorDeviceLayout,
-} from "../../workspace/simulator-device-layout";
+import { resolveSimulatorDeviceLayout } from "../../workspace/simulator-device-layout";
 import { WORKSPACE_DEVICE_GEOMETRY_EVENT } from "../../workspace/layout-events";
 import {
 	flushWsMessageQueue,
@@ -586,20 +579,7 @@ export function SimulatorDeviceView({
 
 	const { width: toolsPanelWidth, onPointerDown: onToolsResize } =
 		useResizableWidth("agentsims:tools-panel-width", PANEL_WIDTH, 240, 720);
-	const [viewportWidth, setViewportWidth] = useState(() =>
-		typeof window !== "undefined" ? window.innerWidth : 0,
-	);
-	const [viewportHeight, setViewportHeight] = useState(() =>
-		typeof window !== "undefined" ? window.innerHeight : 0,
-	);
-	useEffect(() => {
-		const onResize = () => {
-			setViewportWidth(window.innerWidth);
-			setViewportHeight(window.innerHeight);
-		};
-		window.addEventListener("resize", onResize);
-		return () => window.removeEventListener("resize", onResize);
-	}, []);
+
 	useEffect(() => {
 		const es = openHostEventStream(
 			config.appStateEndpoint ?? simEndpoint("appstate"),
@@ -882,19 +862,12 @@ export function SimulatorDeviceView({
 			frame = requestAnimationFrame(() => {
 				frame = null;
 				const screenRect = screen.getBoundingClientRect();
-				const stackRect = stack.getBoundingClientRect();
 				const placement = resolveScreenshotPreviewSidecar({
 					screen: screenRect,
 					capture: preview,
 					viewport: { width: window.innerWidth, height: window.innerHeight },
 				});
-				const next = placement
-					? {
-							...placement,
-							left: placement.left - stackRect.left,
-							top: placement.top - stackRect.top,
-						}
-					: null;
+				const next = placement;
 				setScreenshotPreviewLayout((current) => {
 					if (
 						current?.side === next?.side &&
@@ -966,12 +939,12 @@ export function SimulatorDeviceView({
 		onHostPathDrop: screenshotPreview.dismissPreview,
 	});
 
+	const simulatorBounds = useSimulatorBounds(deviceStackRef, simContainerRef);
 	const simulatorResize = useSimulatorResize({
+		deviceId: config.device,
 		defaultWidth: containerDefaultWidth,
-		viewportWidth,
-		viewportHeight: embedded
-			? Math.max(320, viewportHeight - EMBEDDED_WORKSPACE_VERTICAL_RESERVE)
-			: viewportHeight,
+		viewportWidth: simulatorBounds.width,
+		viewportHeight: simulatorBounds.height,
 		aspectRatio: containerAspectRatioValue,
 		onStart: () => setSimFocused(false),
 	});
@@ -996,29 +969,23 @@ export function SimulatorDeviceView({
 			>
 				<div
 					className={`flex flex-col items-center justify-center gap-3 font-system box-border ${
-						embedded
-							? "relative max-h-full min-h-0 bg-transparent py-3"
-							: "h-screen bg-page py-6"
+						embedded ? "relative bg-transparent" : "h-screen bg-page py-6"
 					}`}
 					style={{
-						paddingLeft: 24,
-						paddingRight: 24,
-						transition:
-							simulatorResize.isResizing || simulatorResize.isInertia
-								? "none"
-								: SIMULATOR_RESIZE_PAGE_TRANSITION,
+						paddingInline: embedded ? 0 : 24,
 					}}
-					onPointerDownCapture={onFocus}
+					onPointerDownCapture={(event) => {
+						if (event.currentTarget.contains(event.target as Node)) onFocus?.();
+					}}
 				>
 					<div
 						ref={deviceStackRef}
-						className="relative flex flex-col items-center gap-3 min-w-0"
+						className="relative flex flex-col items-center gap-3 min-w-0 [&:fullscreen]:justify-center [&:fullscreen]:bg-page [&:fullscreen]:p-4"
 						style={{
-							width: simulatorResize.width,
-							transition:
-								simulatorResize.isResizing || simulatorResize.isInertia
-									? SIMULATOR_RESIZE_DRAG_TRANSITION
-									: SIMULATOR_RESIZE_LAYOUT_TRANSITION,
+							width: Math.max(
+								simulatorResize.width,
+								isAndroidDevice ? 240 : 160,
+							),
 						}}
 					>
 						<SimulatorToolbar
@@ -1079,14 +1046,6 @@ export function SimulatorDeviceView({
 							style={{
 								width: simulatorResize.width,
 								aspectRatio: containerAspectRatio,
-								transition:
-									simulatorResize.isResizing || simulatorResize.isInertia
-										? SIMULATOR_RESIZE_DRAG_TRANSITION
-										: SIMULATOR_RESIZE_LAYOUT_TRANSITION,
-								willChange:
-									simulatorResize.isResizing || simulatorResize.isInertia
-										? "width"
-										: undefined,
 							}}
 							{...mediaDrop.dropZoneProps}
 						>

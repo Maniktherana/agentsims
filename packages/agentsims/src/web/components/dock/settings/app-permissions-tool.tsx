@@ -5,7 +5,7 @@ import {
 	useState,
 	type ReactNode,
 } from "react";
-import { Check, X } from "lucide-react";
+import { Check, ShieldCheck, X } from "lucide-react";
 import { ReloadIcon } from "../../icons/index";
 import { execOnHost, shellEscape } from "../../../simulator/input/exec";
 import { CollapsibleSection } from "../../ui/collapsible-section";
@@ -107,9 +107,12 @@ export function AppPermissionsTool({
 			summaryClassName="grid [grid-template-columns:auto_1fr_auto] items-center gap-2 text-left"
 			summary={
 				<>
-					<span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">
-						Permissions
-					</span>
+					<div className="flex min-w-0 items-center gap-2">
+						<ShieldCheck size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+							Permissions
+						</span>
+					</div>
 					<span />
 				</>
 			}
@@ -121,7 +124,10 @@ export function AppPermissionsTool({
 			)}
 
 			<div className="relative">
-				<div className="max-h-[260px] overflow-y-auto flex flex-col gap-1 py-2 [scrollbar-width:thin]">
+				<div
+					className="max-h-[260px] overflow-y-auto flex flex-col gap-1 py-2 [scrollbar-width:thin]"
+					style={{ maskImage: "linear-gradient(to bottom, transparent, black 14px, black calc(100% - 14px), transparent)" }}
+				>
 					{PERMISSION_SERVICES.map(({ key, label }) => {
 						const current = state[key];
 						return (
@@ -169,8 +175,6 @@ export function AppPermissionsTool({
 						);
 					})}
 				</div>
-				<div className="absolute top-0 left-0 right-0 h-[14px] pointer-events-none rounded-t-[10px] bg-[linear-gradient(to_bottom,#1c1c1e_0%,rgba(28,28,30,0)_100%)]" />
-				<div className="absolute bottom-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_top,#1c1c1e_0%,rgba(28,28,30,0)_100%)]" />
 			</div>
 
 			<div className="flex justify-end">
@@ -196,9 +200,12 @@ export function AppPermissionsLoading() {
 			aria-busy="true"
 		>
 			<div className="select-none text-white/55 min-h-[36px] leading-none py-2.5 px-1 -my-2 -mx-1 w-[calc(100%+8px)] grid [grid-template-columns:auto_1fr_auto] items-center gap-2 text-left cursor-default">
-				<span className="text-[11px] font-semibold uppercase tracking-[0.08em] leading-none inline-flex items-center">
-					Permissions
-				</span>
+				<div className="flex min-w-0 items-center gap-2">
+						<ShieldCheck size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+							Permissions
+						</span>
+					</div>
 				<span />
 				<span
 					data-testid="permissions-loading-indicator"

@@ -1,7 +1,7 @@
 export const SIMULATOR_RESIZE_MIN_WIDTH = 280;
 export const SIMULATOR_RESIZE_ABSOLUTE_MIN_WIDTH = 180;
-export const SIMULATOR_RESIZE_MAX_SCALE = 3;
-export const SIMULATOR_RESIZE_VIEWPORT_HEIGHT_RESERVED_FOR_CHROME = 136;
+export const SIMULATOR_RESIZE_MAX_SCALE = Number.POSITIVE_INFINITY;
+export const SIMULATOR_RESIZE_VIEWPORT_HEIGHT_RESERVED_FOR_CHROME = 0;
 export const SIMULATOR_RESIZE_DRAG_TRANSITION = "width 70ms linear";
 export const SIMULATOR_RESIZE_LAYOUT_TRANSITION =
 	"width 0.24s cubic-bezier(0.22, 1, 0.36, 1)";
@@ -82,40 +82,36 @@ export const SIMULATOR_RESIZE_SCALE_STORAGE_KEY =
 
 export function readSimulatorResizeScale(
 	storage?: Pick<Storage, "getItem"> | null,
+	deviceId?: string,
 ): number {
 	if (!storage) return NaN;
 	try {
-		const raw = storage.getItem(SIMULATOR_RESIZE_SCALE_STORAGE_KEY);
+		const raw = storage.getItem(simulatorResizeStorageKey(deviceId));
 		return raw != null ? Number(raw) : NaN;
 	} catch {
 		return NaN;
 	}
 }
 
+export function simulatorResizeStorageKey(deviceId?: string) {
+	return deviceId
+		? `${SIMULATOR_RESIZE_SCALE_STORAGE_KEY}:${deviceId}`
+		: SIMULATOR_RESIZE_SCALE_STORAGE_KEY;
+}
+
+/** Fit uses the measured frame area. Callers subtract their visible chrome once. */
 export function getSimulatorFrameMaxWidth(
 	defaultWidth: number,
 	viewportWidth: number,
 	viewportHeight: number,
 	aspectRatio: number,
 ) {
-	const scaledMaxWidth = defaultWidth * SIMULATOR_RESIZE_MAX_SCALE;
-	const viewportMaxWidth =
-		viewportWidth > 0
-			? Math.max(SIMULATOR_RESIZE_ABSOLUTE_MIN_WIDTH, viewportWidth - 48)
-			: scaledMaxWidth;
-	const viewportMaxHeight =
+	const width = viewportWidth > 0 ? viewportWidth : defaultWidth;
+	const heightWidth =
 		viewportHeight > 0 && Number.isFinite(aspectRatio) && aspectRatio > 0
-			? Math.max(
-					SIMULATOR_RESIZE_ABSOLUTE_MIN_WIDTH,
-					(viewportHeight -
-						SIMULATOR_RESIZE_VIEWPORT_HEIGHT_RESERVED_FOR_CHROME) *
-						aspectRatio,
-				)
-			: scaledMaxWidth;
-	return Math.max(
-		SIMULATOR_RESIZE_ABSOLUTE_MIN_WIDTH,
-		Math.min(scaledMaxWidth, viewportMaxWidth, viewportMaxHeight),
-	);
+			? viewportHeight * aspectRatio
+			: defaultWidth;
+	return Math.max(1, Math.min(width, heightWidth));
 }
 
 export function clampSimulatorFrameWidth(
@@ -125,14 +121,10 @@ export function clampSimulatorFrameWidth(
 	viewportHeight: number,
 	aspectRatio: number,
 ) {
-	const maxWidth = getSimulatorFrameMaxWidth(
-		defaultWidth,
-		viewportWidth,
-		viewportHeight,
-		aspectRatio,
+	const fitWidth = getSimulatorFrameMaxWidth(
+		defaultWidth, viewportWidth, viewportHeight, aspectRatio,
 	);
-	const minWidth = Math.min(SIMULATOR_RESIZE_MIN_WIDTH, maxWidth);
-	return Math.min(maxWidth, Math.max(minWidth, value));
+	return Math.max(Math.min(SIMULATOR_RESIZE_MIN_WIDTH, fitWidth), value);
 }
 
 export function restoredSimulatorFrameWidth(
@@ -142,16 +134,14 @@ export function restoredSimulatorFrameWidth(
 	aspectRatio: number,
 	storedScale: number | null | undefined,
 ) {
-	const restored = Number.isFinite(storedScale)
-		? defaultWidth * storedScale!
-		: defaultWidth;
-	return clampSimulatorFrameWidth(
-		restored,
-		defaultWidth,
-		viewportWidth,
-		viewportHeight,
-		aspectRatio,
-	);
+	return Number.isFinite(storedScale) && storedScale! > 0
+		? Math.max(SIMULATOR_RESIZE_ABSOLUTE_MIN_WIDTH, defaultWidth * storedScale!)
+		: getSimulatorFrameMaxWidth(
+				defaultWidth,
+				viewportWidth,
+				viewportHeight,
+				aspectRatio,
+			);
 }
 
 export type SimulatorResizeGeometryState = {

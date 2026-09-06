@@ -33,10 +33,10 @@ describe("LocationEmulationTool", () => {
 		);
 	});
 
-	test("uses each simulator platform's native location command", () => {
+	test("keeps native iOS location command construction scoped to iOS", () => {
 		const point = { lat: 12.9715987, lng: 77.5945627 };
-		expect(locationSetCommand("android:emulator-5554", point)).toBe(
-			"adb -s 'emulator-5554' emu geo fix 77.5945627 12.9715987",
+		expect(() => locationSetCommand("android:emulator-5554", point)).toThrow(
+			"shared command API",
 		);
 		expect(locationSetCommand("IOS-UDID", point)).toBe(
 			"xcrun simctl location 'IOS-UDID' set 12.9715987,77.5945627",

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	getSimulatorFrameMaxWidth,
+	readSimulatorResizeScale,
+	simulatorResizeStorageKey,
 	RESIZE_MAIN_STROKE_W,
 	restoredSimulatorFrameWidth,
-	resolveSimulatorResizeGeometryState,
 	SIMULATOR_RESIZE_ABSOLUTE_MIN_WIDTH,
 	SIMULATOR_RESIZE_HANDLE_DUR_HOT,
 	SIMULATOR_RESIZE_HANDLE_DUR_IDLE,
@@ -26,7 +27,7 @@ describe("simulator resize visual tuning", () => {
 		);
 	});
 
-	test("clamps restored scale to the current viewport on open", () => {
+	test("preserves deliberate custom zoom beyond Fit on reopen", () => {
 		const restored = restoredSimulatorFrameWidth(
 			320,
 			1280,
@@ -36,24 +37,30 @@ describe("simulator resize visual tuning", () => {
 		);
 		const maxWidth = getSimulatorFrameMaxWidth(320, 1280, 576, 1179 / 2556);
 
-		expect(restored).toBe(maxWidth);
+		expect(restored).toBe(960);
+		expect(restored).toBeGreaterThan(maxWidth);
 	});
 
-	test("falls back to the default frame width for invalid persisted scale", () => {
+	test("fits the measured area for invalid persisted scale", () => {
 		expect(
 			restoredSimulatorFrameWidth(320, 1280, 900, 1179 / 2556, Number.NaN),
-		).toBe(320);
+		).toBeCloseTo((900 * 1179) / 2556);
 	});
 
-	test("resolves portrait and landscape default changes in the same render", () => {
-		const landscape = resolveSimulatorResizeGeometryState(
-			{ defaultWidth: 320, width: 320 },
-			620,
-			620,
-		);
-		expect(landscape).toEqual({ defaultWidth: 620, width: 620 });
-
-		const portrait = resolveSimulatorResizeGeometryState(landscape, 320, 320);
-		expect(portrait).toEqual({ defaultWidth: 320, width: 320 });
+	test("keeps a custom scale when device geometry rotates", () => {
+		expect(restoredSimulatorFrameWidth(620, 1280, 800, 2, 1.2)).toBe(744);
+		expect(restoredSimulatorFrameWidth(320, 1280, 800, 0.5, 1.2)).toBe(384);
 	});
+});
+
+test("device zoom keys remain isolated and Fit has no legacy three-times limit", () => {
+	const saved = new Map([
+		[simulatorResizeStorageKey("ios"), "1.5"],
+		[simulatorResizeStorageKey("android"), "2"],
+	]);
+	const storage = { getItem: (key: string) => saved.get(key) ?? null };
+	expect(readSimulatorResizeScale(storage, "ios")).toBe(1.5);
+	expect(readSimulatorResizeScale(storage, "android")).toBe(2);
+	expect(Number.isNaN(readSimulatorResizeScale(storage, "new"))).toBe(true);
+	expect(getSimulatorFrameMaxWidth(320, 2400, 2400, 0.5)).toBe(1200);
 });

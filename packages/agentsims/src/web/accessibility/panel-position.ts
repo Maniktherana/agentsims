@@ -14,8 +14,6 @@ const PANEL_DEFAULT_WIDTH = 540;
 const PANEL_DEFAULT_HEIGHT = 520;
 const PANEL_MIN_WIDTH = 460;
 const PANEL_MIN_HEIGHT = 320;
-const PANEL_MAX_WIDTH = 960;
-const PANEL_MAX_HEIGHT = 760;
 const PANEL_GAP = 16;
 const PANEL_MARGIN = 12;
 
@@ -45,15 +43,15 @@ export function clampAccessibilityPanelGeometry(
 ): AccessibilityPanelGeometry {
 	const rightBoundary = viewportWidth - PANEL_MARGIN;
 	const bottomBoundary = viewportHeight - PANEL_MARGIN;
-	const availableWidth = Math.max(240, rightBoundary - PANEL_MARGIN);
-	const availableHeight = Math.max(240, bottomBoundary - PANEL_MARGIN);
+	const availableWidth = Math.max(0, rightBoundary - PANEL_MARGIN);
+	const availableHeight = Math.max(0, bottomBoundary - PANEL_MARGIN);
 	const width = Math.min(
 		Math.max(Math.min(PANEL_MIN_WIDTH, availableWidth), geometry.width),
-		Math.min(PANEL_MAX_WIDTH, availableWidth),
+		availableWidth,
 	);
 	const height = Math.min(
 		Math.max(Math.min(PANEL_MIN_HEIGHT, availableHeight), geometry.height),
-		Math.min(PANEL_MAX_HEIGHT, availableHeight),
+		availableHeight,
 	);
 	return {
 		left: Math.min(
@@ -214,8 +212,8 @@ export function defaultAccessibilityPanelGeometryForRect(
 		{
 			left: rect ? rect.right + PANEL_GAP : PANEL_MARGIN,
 			top: rect?.top ?? PANEL_MARGIN,
-			width: PANEL_DEFAULT_WIDTH,
-			height: PANEL_DEFAULT_HEIGHT,
+			width: Math.max(PANEL_MIN_WIDTH, viewportWidth * 0.36),
+			height: Math.max(PANEL_MIN_HEIGHT, viewportHeight * 0.65),
 		},
 		viewportWidth,
 		viewportHeight,

@@ -19,7 +19,10 @@ import {
 	AccessibilityPanel,
 	shouldStartAccessibilityHeaderDrag,
 } from "./panel";
-import { accessibilityTreeRowLabel, buildAccessibilityTree } from "./tree";
+import {
+	accessibilityTreeRowLabel,
+	buildAccessibilityTree,
+} from "./tree";
 
 const element: AxElement = {
 	id: "checkout-submit",
@@ -81,6 +84,13 @@ describe("accessibility panel", () => {
 		const device = { left: 80, right: 400, top: 72, bottom: 712 };
 		const initial = defaultAccessibilityPanelGeometryForRect(device, 1400, 900);
 		expect(initial.left).toBe(416);
+		const wide = defaultAccessibilityPanelGeometryForRect(device, 2200, 1200);
+		expect(wide.width).toBeGreaterThan(initial.width);
+		expect(wide.height).toBeGreaterThan(initial.height);
+		const narrow = defaultAccessibilityPanelGeometryForRect(device, 390, 600);
+		expect(narrow.left).toBeGreaterThanOrEqual(12);
+		expect(narrow.left + narrow.width).toBeLessThanOrEqual(378);
+		expect(narrow.top + narrow.height).toBeLessThanOrEqual(588);
 		expect(
 			moveAccessibilityPanelGeometry(initial, 40, 20, 1400, 900).left,
 		).toBe(456);
@@ -88,8 +98,8 @@ describe("accessibility panel", () => {
 			resizeAccessibilityPanelGeometry(initial, 80, 40, 1400, 900),
 		).toEqual({
 			...initial,
-			width: 620,
-			height: 560,
+			width: initial.width + 80,
+			height: initial.height + 40,
 		});
 		expect(
 			clampAccessibilityPanelGeometry(
@@ -97,7 +107,7 @@ describe("accessibility panel", () => {
 				1200,
 				800,
 			),
-		).toEqual({ left: 12, top: 12, width: 960, height: 760 });
+		).toEqual({ left: 12, top: 12, width: 1176, height: 776 });
 		expect(parseAccessibilityPanelGeometry(JSON.stringify(initial))).toEqual(
 			initial,
 		);

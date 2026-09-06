@@ -1,3 +1,7 @@
+import { Hand, Focus } from "lucide-react";
+import { IconButton } from "../ui/icon-button";
+import { useCanvasPan } from "../../hooks/workspace/use-canvas-pan";
+import { canvasViewOffset } from "../../workspace/canvas-view";
 import {
 	useCallback,
 	useEffect,
@@ -12,6 +16,10 @@ import {
 	RESET_WORKSPACE_LAYOUT_EVENT,
 	WORKSPACE_DEVICE_GEOMETRY_EVENT,
 } from "../../workspace/layout-events";
+import {
+	reserveWorkspaceDevicePosition,
+	type WorkspaceDevicePosition,
+} from "../../workspace/device-position";
 import type { GridDevice } from "../../workspace/grid";
 import type { PreviewConfig } from "../../workspace/workspace-state";
 
@@ -95,13 +103,18 @@ function clampOffset(
 	current: WorkspaceOffset,
 	next: WorkspaceOffset,
 ): WorkspaceOffset {
-	return clampWorkspaceDeviceOffset(
-		element.getBoundingClientRect(),
-		current,
-		next,
-		window.innerWidth,
-		window.innerHeight,
+	const rect = element.getBoundingClientRect();
+	const scroll = element.closest<HTMLElement>(
+		"[data-agentsims-workspace-scroll]",
 	);
+	const parent = scroll?.getBoundingClientRect();
+	const view = canvasViewOffset(scroll);
+	const left = (parent?.left ?? 0) - (scroll?.scrollLeft ?? 0) + view.x + 12;
+	const top = (parent?.top ?? 0) - (scroll?.scrollTop ?? 0) + view.y + 12;
+	return {
+		x: Math.max(left - (rect.left - current.x), next.x),
+		y: Math.max(top - (rect.top - current.y), next.y),
+	};
 }
 
 function DraggableDevice({
@@ -111,7 +124,11 @@ function DraggableDevice({
 	onOffsetCommit,
 	onFocus,
 	children,
-	singleDevice,
+	singleDevice: _singleDevice,
+	layoutRevision,
+	added,
+	positions,
+	visibleDeviceIds,
 }: {
 	deviceId: string;
 	offset: WorkspaceOffset;
@@ -120,15 +137,93 @@ function DraggableDevice({
 	onFocus: (deviceId: string) => void;
 	children: ReactNode;
 	singleDevice: boolean;
+	layoutRevision: string;
+	added: boolean;
+	positions: Map<string, WorkspaceDevicePosition>;
+	visibleDeviceIds: readonly string[];
 }) {
 	const ref = useRef<HTMLDivElement | null>(null);
 	const [dragging, setDragging] = useState(false);
+	const [layoutCorrecting, setLayoutCorrecting] = useState(false);
 	const dragRef = useRef<{
 		pointerId: number;
 		startX: number;
 		startY: number;
 		offset: WorkspaceOffset;
 	} | null>(null);
+
+	const correctingRef = useRef(false);
+	const worldRect = () => {
+		const element = ref.current;
+		const scroll = element?.closest<HTMLElement>(
+			"[data-agentsims-workspace-scroll]",
+		);
+		if (!element || !scroll) return null;
+		const rect = element.getBoundingClientRect();
+		const parent = scroll.getBoundingClientRect();
+		const view = canvasViewOffset(scroll);
+		return {
+			left: rect.left - parent.left + scroll.scrollLeft - view.x,
+			top: rect.top - parent.top + scroll.scrollTop - view.y,
+			right: rect.right - parent.left + scroll.scrollLeft - view.x,
+		};
+	};
+	useLayoutEffect(() => {
+		const current = worldRect();
+		if (!current) return;
+		const desired = reserveWorkspaceDevicePosition(
+			positions,
+			visibleDeviceIds,
+			deviceId,
+			current,
+			added,
+		);
+		const next = {
+			x: offset.x + desired.left - current.left,
+			y: offset.y + desired.top - current.top,
+		};
+		if (
+			Math.abs(next.x - offset.x) > 0.5 ||
+			Math.abs(next.y - offset.y) > 0.5
+		) {
+			correctingRef.current = true;
+			setLayoutCorrecting(true);
+			onOffsetChange(deviceId, next);
+		}
+	}, [layoutRevision]);
+	useLayoutEffect(() => {
+		if (correctingRef.current) {
+			correctingRef.current = false;
+			return;
+		}
+		const rect = worldRect();
+		if (rect) positions.set(deviceId, rect);
+		if (layoutCorrecting) onOffsetCommit();
+	}, [deviceId, offset.x, offset.y, layoutRevision, positions]);
+	useLayoutEffect(() => {
+		const element = ref.current;
+		if (!element) return;
+		const record = () => {
+			if (correctingRef.current || layoutCorrecting) return;
+			const rect = worldRect();
+			if (rect) positions.set(deviceId, rect);
+		};
+		const observer = new ResizeObserver(record);
+		observer.observe(element);
+		const row = element.parentElement;
+		if (row) {
+			observer.observe(row);
+			// A sibling can move this phone without changing this phone or row size.
+			for (const sibling of row.children) observer.observe(sibling);
+		}
+		return () => observer.disconnect();
+	}, [deviceId, layoutRevision, positions, layoutCorrecting]);
+
+	useEffect(() => {
+		if (!layoutCorrecting) return;
+		const frame = requestAnimationFrame(() => setLayoutCorrecting(false));
+		return () => cancelAnimationFrame(frame);
+	}, [layoutCorrecting]);
 
 	useLayoutEffect(() => {
 		window.dispatchEvent(
@@ -140,6 +235,7 @@ function DraggableDevice({
 
 	const onPointerDown = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
+			if (!event.currentTarget.contains(event.target as Node)) return;
 			onFocus(deviceId);
 			const target = event.target as HTMLElement;
 			if (!target.closest("[data-agentsims-device-drag-handle]")) return;
@@ -194,14 +290,12 @@ function DraggableDevice({
 			data-workspace-device={deviceId}
 			className="relative shrink-0"
 			style={{
-				width: singleDevice
-					? "min(520px, calc(100vw - 96px))"
-					: "min(420px, 42vw)",
-				minWidth: singleDevice ? 360 : 320,
+				width: "max-content",
 				transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
-				transition: dragging
-					? "none"
-					: "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
+				transition:
+					dragging || layoutCorrecting
+						? "none"
+						: "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
 			}}
 			onPointerDownCapture={onPointerDown}
 			onPointerMove={onPointerMove}
@@ -240,6 +334,13 @@ export function WorkspaceCanvas({
 	onStart: (deviceId: string) => void;
 	renderDevice: (context: WorkspaceDeviceRenderContext) => ReactNode;
 }) {
+	const canvasRef = useRef<HTMLDivElement | null>(null);
+	const canvasPan = useCanvasPan(canvasRef, visibleDeviceIds.join("|"));
+	const positionsRef = useRef(new Map<string, WorkspaceDevicePosition>());
+	const knownDevicesRef = useRef(new Set(visibleDeviceIds));
+	useLayoutEffect(() => {
+		for (const id of visibleDeviceIds) knownDevicesRef.current.add(id);
+	}, [visibleDeviceIds.join("|")]);
 	const [offsets, setOffsets] =
 		useState<WorkspaceOffsets>(readWorkspaceOffsets);
 	const offsetsRef = useRef(offsets);
@@ -247,6 +348,7 @@ export function WorkspaceCanvas({
 
 	useEffect(() => {
 		const reset = () => {
+			positionsRef.current.clear();
 			setOffsets({});
 			writeWorkspaceOffsets({});
 		};
@@ -277,6 +379,7 @@ export function WorkspaceCanvas({
 			>
 				{selectedDevice && !selectedDevice.helper ? (
 					<DevicePlaceholder
+						deviceId={selectedDevice.device}
 						name={selectedDevice.name}
 						runtime={selectedDevice.runtime}
 						chrome={selectedDevice.chrome ?? null}
@@ -306,58 +409,121 @@ export function WorkspaceCanvas({
 
 	const singleDevice = visibleDeviceIds.length === 1;
 	return (
-		<div
-			data-agentsims-workspace-scroll
-			className="relative h-screen overflow-x-auto overflow-y-hidden bg-page font-system box-border [scrollbar-width:thin]"
-			style={WORKSPACE_PADDING}
-		>
-			<div className="h-full min-h-0 overflow-hidden">
+		<>
+			<div
+				ref={canvasRef}
+				{...canvasPan.handlers}
+				data-pan-mode={canvasPan.panMode}
+				data-panning={canvasPan.panning}
+				data-agentsims-workspace-scroll
+				className="relative h-dvh overflow-hidden bg-page font-system box-border [&_[data-workspace-device]]:cursor-auto data-[pan-mode=true]:[&_[data-workspace-device]]:cursor-grab data-[panning=true]:[&_*]:!cursor-grabbing"
+				style={{
+					...WORKSPACE_PADDING,
+					cursor: canvasPan.panning ? "grabbing" : "grab",
+					touchAction: canvasPan.panMode ? "none" : undefined,
+					userSelect: canvasPan.panning ? "none" : undefined,
+					backgroundImage:
+						"radial-gradient(circle, rgba(255,255,255,0.12) 1px, transparent 1px)",
+					backgroundSize: "24px 24px",
+					backgroundAttachment: "local",
+					backgroundPosition: "0px 0px",
+				}}
+			>
 				<div
-					data-agentsims-centered-device-row
-					className="flex h-full min-w-full items-center justify-center gap-5 px-2"
+					data-agentsims-canvas-content
+					className="min-h-full w-max min-w-full"
+					style={{
+						transform: "translate(0px, 0px)",
+					}}
 				>
-					{visibleDeviceIds.map((deviceId) => {
-						const device =
-							devices?.find((candidate) => candidate.device === deviceId) ??
-							null;
-						const config =
-							configsByDevice[deviceId] ??
-							(fallbackConfig?.device === deviceId ? fallbackConfig : null);
-						const focused = focusedDeviceId === deviceId;
-						return (
-							<DraggableDevice
-								key={deviceId}
-								deviceId={deviceId}
-								offset={offsets[deviceId] ?? { x: 0, y: 0 }}
-								onOffsetChange={updateOffset}
-								onOffsetCommit={persistOffsets}
-								onFocus={onFocus}
-								singleDevice={singleDevice}
-							>
-								{config ? (
-									renderDevice({ deviceId, device, config, focused })
-								) : (
-									<DevicePlaceholder
-										name={device?.name ?? "Connecting device"}
-										runtime={device?.runtime ?? ""}
-										chrome={device?.chrome ?? null}
-										placeholderAsset={device?.placeholderAsset ?? null}
-										busy
-										busyLabel="Connecting…"
-										actionLabel="Connect"
-										error={
-											device ? (actionErrors[device.device] ?? null) : null
-										}
-										onStart={() => device && onStart(device.device)}
-										embedded
-									/>
-								)}
-							</DraggableDevice>
-						);
-					})}
+					<div
+						data-agentsims-centered-device-row
+						className="flex min-h-[calc(100dvh-48px)] w-max min-w-full items-center justify-center gap-5 px-2"
+					>
+						{visibleDeviceIds.map((deviceId) => {
+							const device =
+								devices?.find((candidate) => candidate.device === deviceId) ??
+								null;
+							const config =
+								configsByDevice[deviceId] ??
+								(fallbackConfig?.device === deviceId ? fallbackConfig : null);
+							const focused = focusedDeviceId === deviceId;
+							return (
+								<DraggableDevice
+									key={deviceId}
+									deviceId={deviceId}
+									offset={offsets[deviceId] ?? { x: 0, y: 0 }}
+									onOffsetChange={updateOffset}
+									onOffsetCommit={persistOffsets}
+									onFocus={onFocus}
+									singleDevice={singleDevice}
+									layoutRevision={visibleDeviceIds.join("|")}
+									added={!knownDevicesRef.current.has(deviceId)}
+									positions={positionsRef.current}
+									visibleDeviceIds={visibleDeviceIds}
+								>
+									{config ? (
+										renderDevice({ deviceId, device, config, focused })
+									) : (
+										<DevicePlaceholder
+											deviceId={deviceId}
+											name={device?.name ?? "Connecting device"}
+											runtime={device?.runtime ?? ""}
+											chrome={device?.chrome ?? null}
+											placeholderAsset={device?.placeholderAsset ?? null}
+											busy
+											busyLabel="Connecting…"
+											actionLabel="Connect"
+											error={
+												device ? (actionErrors[device.device] ?? null) : null
+											}
+											onStart={() => device && onStart(device.device)}
+											embedded
+										/>
+									)}
+								</DraggableDevice>
+							);
+						})}
+					</div>
 				</div>
 			</div>
-		</div>
+			<div
+				role="toolbar"
+				aria-label="Canvas view"
+				className="fixed bottom-3 left-3 z-40 flex gap-1 rounded-[10px] border border-white/[0.1] bg-[#181818] p-1 shadow-[0_4px_14px_rgba(0,0,0,0.2)]"
+			>
+				<IconButton
+					label="Pan canvas"
+					tooltip={
+						canvasPan.panMode
+							? "Pan mode on · Drag to move · Escape to exit"
+							: "Pan canvas · Move the view instead of the phone"
+					}
+					selected={canvasPan.panMode}
+					onClick={canvasPan.togglePan}
+					size="toolbar"
+					surface="toolbar"
+				>
+					<Hand size={17} />
+				</IconButton>
+				<IconButton
+					label="Recenter canvas"
+					onClick={canvasPan.recenter}
+					size="toolbar"
+					surface="toolbar"
+				>
+					<Focus size={17} />
+				</IconButton>
+				{canvasPan.panMode && (
+					<span
+						role="status"
+						className="self-center whitespace-nowrap px-2 text-[11px] text-white/65"
+					>
+						Drag to pan · Esc to exit
+					</span>
+				)}
+			</div>
+		</>
 	);
 }
 

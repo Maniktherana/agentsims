@@ -1,3 +1,4 @@
+import { MapPin } from "lucide-react";
 // Location emulation panel + lightweight 3D trail viz.
 //
 // Drives `xcrun simctl location <udid> set <lat>,<lng>` on a fixed cadence
@@ -40,6 +41,10 @@ import {
 } from "../../icons/index";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { Select } from "../../ui/select";
+import { setDeviceLocation, type LocationPoint } from "../../../dock/settings/location-actions";
+export { locationSetCommand } from "../../../dock/settings/location-actions";
+import { runAndroidTool } from "../../../android/tools-client";
+import { simEndpoint } from "../../../preview/sim-endpoint";
 import { shellEscape } from "../../../simulator/input/exec";
 
 const TRAIL_MORPH_MS = 650;
@@ -71,18 +76,6 @@ const INITIAL_PLAYBACK: PlaybackState = {
 	elapsedMs: 0,
 };
 
-export function locationSetCommand(
-	udid: string,
-	point: Pick<RoutePoint, "lat" | "lng">,
-): string {
-	if (udid.startsWith("android:")) {
-		const serial = udid.slice("android:".length);
-		// The Android emulator console intentionally uses longitude before latitude.
-		return `adb -s ${shellEscape(serial)} emu geo fix ${point.lng.toFixed(7)} ${point.lat.toFixed(7)}`;
-	}
-	return `xcrun simctl location ${shellEscape(udid)} set ${point.lat.toFixed(7)},${point.lng.toFixed(7)}`;
-}
-
 // ─── Tool component ────────────────────────────────────────────────────────
 
 export function LocationEmulationTool({
@@ -92,7 +85,17 @@ export function LocationEmulationTool({
 	udid: string;
 	exec: ExecFn;
 }) {
+	const setLocation = useCallback(
+		(point: LocationPoint) =>
+			setDeviceLocation(udid, point, {
+				exec,
+				android: (device, action) =>
+					runAndroidTool(simEndpoint(""), device, action),
+			}),
+		[udid, exec],
+	);
 	const [open, setOpen] = useState(false);
+	const [settingLocation, setSettingLocation] = useState(false);
 	const [trailId, setTrailId] = useState<string>(DEFAULT_TRAILS[0]!.id);
 	const [mode, setMode] = useState<TrailMode>(DEFAULT_TRAILS[0]!.mode);
 	const [multiplier, setMultiplier] = useState<SpeedMultiplier>(1);
@@ -253,8 +256,7 @@ export function LocationEmulationTool({
 			if (now - lastPushed < LOCATION_PUSH_INTERVAL_MS) return;
 			lastPushed = now;
 			const pt = pointAtDistance(trailRef.current, arcRef.current);
-			const cmd = locationSetCommand(udid, pt);
-			inflight = exec(cmd)
+			inflight = setLocation(pt)
 				.then((res) => {
 					if (cancelled) return;
 					if (res.exitCode !== 0) {
@@ -277,7 +279,7 @@ export function LocationEmulationTool({
 			cancelled = true;
 			clearInterval(id);
 		};
-	}, [playback.status, udid, exec]);
+	}, [playback.status, udid, exec, setLocation]);
 
 	// ── Controls ─────────────────────────────────────────────────────────────
 	const onPlayPause = useCallback(() => {
@@ -314,17 +316,17 @@ export function LocationEmulationTool({
 		setPlayback(INITIAL_PLAYBACK);
 		const origin = sessionOriginRef.current;
 		sessionOriginRef.current = null;
-		const cmd = origin
-			? locationSetCommand(udid, origin)
+		const operation = origin
+			? setLocation(origin)
 			: udid.startsWith("android:")
 				? null
-				: `xcrun simctl location ${shellEscape(udid)} clear`;
-		if (!cmd) return;
-		void exec(cmd).then((res) => {
+				: exec(`xcrun simctl location ${shellEscape(udid)} clear`);
+		if (!operation) return;
+		void operation.then((res) => {
 			if (res.exitCode !== 0) setError(parseSimctlError(res.stderr) || null);
 			else setError(null);
 		});
-	}, [exec, udid]);
+	}, [exec, udid, setLocation]);
 
 	const onTrailChange = useCallback((id: string) => {
 		setTrailId(id);
@@ -339,14 +341,14 @@ export function LocationEmulationTool({
 		() => () => {
 			if (statusRef.current === "idle") return;
 			const origin = sessionOriginRef.current;
-			const cmd = origin
-				? locationSetCommand(udid, origin)
+			const operation = origin
+				? setLocation(origin)
 				: udid.startsWith("android:")
 					? null
-					: `xcrun simctl location ${shellEscape(udid)} clear`;
-			if (cmd) void exec(cmd).catch(() => {});
+					: exec(`xcrun simctl location ${shellEscape(udid)} clear`);
+			if (operation) void operation.catch(() => {});
 		},
-		[exec, udid],
+		[exec, udid, setLocation],
 	);
 
 	// ── Render ───────────────────────────────────────────────────────────────
@@ -362,9 +364,12 @@ export function LocationEmulationTool({
 			summaryClassName="grid [grid-template-columns:auto_minmax(0,1fr)_auto] [container-type:inline-size] items-center gap-2 text-left"
 			summary={
 				<>
-					<span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">
-						Location
-					</span>
+					<div className="flex min-w-0 items-center gap-2">
+						<MapPin size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+							Location
+						</span>
+					</div>
 					{open ? (
 						<span
 							data-location-status
@@ -486,6 +491,53 @@ export function LocationEmulationTool({
 					)}
 				</button>
 			</div>
+
+			{udid.startsWith("android:") && (
+				<form
+					aria-label="Set device location"
+					className="flex flex-wrap items-end gap-1.5"
+					onSubmit={(event) => {
+						event.preventDefault();
+						if (settingLocation) return;
+						const data = new FormData(event.currentTarget);
+						statusRef.current = "paused";
+						setPlayback((current) => ({ ...current, status: "paused" }));
+						setSettingLocation(true);
+						void setLocation({
+							lat: Number(data.get("latitude")),
+							lng: Number(data.get("longitude")),
+							altitude: Number(data.get("altitude")),
+						}).then((result) => {
+							setError(result.exitCode ? result.stderr : null);
+						}).catch((cause) => {
+							setError(cause instanceof Error ? cause.message : String(cause));
+						}).finally(() => setSettingLocation(false));
+					}}
+				>
+					{([
+						["latitude", "Latitude", -90, 90, 37.7749],
+						["longitude", "Longitude", -180, 180, -122.4194],
+						["altitude", "Altitude (m)", -500, 100000, 0],
+					] as const).map(([name, label, min, max, value]) => (
+						<label key={name} className="flex min-w-24 flex-1 flex-col gap-1 text-[10px] text-white/45">
+							{label}
+							<input
+								name={name}
+								type="number"
+								min={min}
+								max={max}
+								step="any"
+								defaultValue={value}
+								required
+								className="min-w-0 rounded-[8px] border border-white/8 bg-white/[0.04] px-2 py-1.5 text-[12px] text-white/90"
+							/>
+						</label>
+					))}
+					<button type="submit" disabled={settingLocation} className="cursor-pointer rounded-[8px] border border-white/12 bg-transparent px-3 py-1.5 text-[12px] text-white/85 enabled:hover:bg-white/[0.06] disabled:opacity-40">
+						Set location
+					</button>
+				</form>
+			)}
 
 			{error && (
 				<div className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">

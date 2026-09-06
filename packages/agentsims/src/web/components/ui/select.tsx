@@ -37,12 +37,18 @@ export function Select({
 		top: number;
 		left: number;
 		width: number;
+		maxHeight: number;
 	} | null>(null);
 
 	const place = () => {
 		const rect = triggerRef.current?.getBoundingClientRect();
 		if (!rect) return;
-		setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+		setPos({
+			top: rect.bottom + 4,
+			left: rect.left,
+			width: rect.width,
+			maxHeight: 360,
+		});
 	};
 
 	useLayoutEffect(() => {
@@ -55,10 +61,22 @@ export function Select({
 	useLayoutEffect(() => {
 		if (!open || !pos) return;
 		const popup = popupRef.current;
-		if (!popup) return;
+		const trigger = triggerRef.current?.getBoundingClientRect();
+		if (!popup || !trigger) return;
 		const margin = 8;
 		const maxLeft = window.innerWidth - popup.offsetWidth - margin;
-		if (pos.left > maxLeft) setPos({ ...pos, left: Math.max(margin, maxLeft) });
+		const below = window.innerHeight - trigger.bottom - margin - 4;
+		const above = trigger.top - margin - 4;
+		const opensAbove = popup.scrollHeight > below && above > below;
+		const maxHeight = Math.max(1, Math.min(360, opensAbove ? above : below));
+		const height = Math.min(popup.offsetHeight, maxHeight);
+		const top = Math.max(
+			margin,
+			opensAbove ? trigger.top - height - 4 : trigger.bottom + 4,
+		);
+		const left = Math.max(margin, Math.min(trigger.left, maxLeft));
+		if (pos.top !== top || pos.left !== left || pos.maxHeight !== maxHeight)
+			setPos({ ...pos, top, left, maxHeight });
 	}, [open, pos]);
 
 	useEffect(() => {
@@ -164,6 +182,8 @@ export function Select({
 						style={{
 							top: pos.top,
 							left: pos.left,
+							maxHeight: pos.maxHeight,
+							maxWidth: "calc(100vw - 16px)",
 							...(matchTriggerWidth
 								? { width: pos.width }
 								: { minWidth: pos.width }),

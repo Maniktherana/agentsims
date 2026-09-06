@@ -54,6 +54,8 @@ export function streamConfigFrom(
 }
 
 export function simEndpoint(path: string): string {
+	// Server rendering does not have an injected browser mount path.
+	if (typeof window === "undefined") return `/${path}`;
 	// The injected value contains the canonical base path. During the empty
 	// state, derive the mount path from the current URL. This keeps API requests
 	// on the correct mount path before a helper starts.

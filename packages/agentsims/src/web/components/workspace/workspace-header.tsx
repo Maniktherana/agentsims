@@ -31,6 +31,7 @@ import {
 	type DeviceLifecyclePhase,
 } from "../dock/devices/device-row";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
+import { useWorkspaceViewport } from "../../hooks/workspace/use-workspace-layout";
 
 const DEVICE_SKELETON_ROWS = 8;
 
@@ -142,6 +143,7 @@ export function WorkspaceHeader({
 	hasActiveDevice: boolean;
 	onResetLayout: () => void;
 }) {
+	const viewport = useWorkspaceViewport();
 	const [query, setQuery] = useState("");
 	const [commandHeld, setCommandHeld] = useState(false);
 	const commandHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -200,15 +202,12 @@ export function WorkspaceHeader({
 		? settingsUdid
 		: (settingsDevices[0]?.device ?? null);
 	const compactDockWidth = 96;
-	const dockWidth = pickerOpen ? 400 : toolsOpen ? 400 : compactDockWidth;
+	const availableWidth = Math.max(0, viewport.width - 24);
+	const dockWidth = expanded
+		? Math.min(availableWidth, Math.max(toolsOpen ? 560 : 400, availableWidth * 0.4))
+		: compactDockWidth;
 	const dockHeight = expanded
-		? Math.max(
-				320,
-				Math.min(
-					620,
-					(typeof window === "undefined" ? 800 : window.innerHeight) - 24,
-				),
-			)
+		? Math.min(Math.max(0, viewport.height - 24), Math.max(320, viewport.height * 0.76))
 		: 50;
 
 	useLayoutEffect(() => {
@@ -327,10 +326,21 @@ export function WorkspaceHeader({
 		>
 			<footer className="pointer-events-none fixed inset-x-3 bottom-3 z-50 flex justify-center font-system">
 				<motion.div
+					data-agentsims-floating-panel
 					id="agentsims-workspace-dock"
 					ref={pickerRef}
 					role="toolbar"
 					aria-label="Workspace"
+					onKeyDown={(event) => {
+						if (!expanded || event.key !== "Escape" || event.defaultPrevented) return;
+						event.preventDefault();
+						event.stopPropagation();
+						const label = pickerOpen ? devicesLabel : "Device settings";
+						Array.from(pickerRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+							.find((button) => button.getAttribute("aria-label") === label)?.focus();
+						if (pickerOpen) onPickerOpenChange(false);
+						else onToggleTools();
+					}}
 					data-expanded={expanded ? "true" : "false"}
 					initial={false}
 					animate={{
@@ -437,13 +447,14 @@ export function WorkspaceHeader({
 												variant="ghost"
 												aria-label="Settings device"
 												className="mx-auto max-w-full overflow-x-auto [scrollbar-width:none]"
+												style={{ justifyContent: "flex-start" }}
 											>
 												{settingsDevices.map((device) => {
 													return (
 														<TabsTrigger
 															key={device.device}
 															value={device.device}
-															className="max-w-32 truncate"
+															className="min-w-20 max-w-32 truncate"
 															title={device.name}
 														>
 															{device.name}
@@ -452,6 +463,7 @@ export function WorkspaceHeader({
 												})}
 											</TabsList>
 										</Tabs>
+
 										<PanelIconButton
 											label="Reset canvas positions"
 											onClick={onResetLayout}
@@ -531,7 +543,7 @@ function PanelIconButton({
 		<button
 			type="button"
 			aria-label={label}
-			title={`${label} (Cmd+0)`}
+			title={label === "Reset canvas positions" ? `${label} (Cmd+0)` : label}
 			onClick={onClick}
 			className="grid size-8 shrink-0 place-items-center rounded-md text-white/42 outline-none [transition-property:background-color,color,transform] duration-[110ms] hover:bg-white/[0.07] hover:text-white/78 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-white/35 motion-reduce:transition-none"
 		>

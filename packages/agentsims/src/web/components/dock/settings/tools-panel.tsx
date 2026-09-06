@@ -9,6 +9,9 @@ import {
 	PanelTitle,
 } from "../../ui/panel";
 import { execOnHost } from "../../../simulator/input/exec";
+import { AndroidToolsPanel } from "../../android/android-tools-panel";
+import { simEndpoint } from "../../../preview/sim-endpoint";
+import { AndroidDeviceControlsTool } from "./android-device-controls-tool";
 import { AndroidSimulatorSettingsTool } from "./android-simulator-settings-tool";
 import { AppDetectionTool } from "./app-detection-tool";
 import { AppPermissionsTool } from "./app-permissions-tool";
@@ -68,6 +71,18 @@ export function ToolsPanel({
 		if (open && contentRef.current) contentRef.current.scrollTop = 0;
 	}, [open]);
 
+	const mediaAndLocation = (
+		<>
+			<MediaRoutingTool
+				udid={udid}
+				bundleId={currentApp?.bundleId ?? null}
+			/>
+			{supportsLocation && (
+				<LocationEmulationTool key={udid} udid={udid} exec={execOnHost} />
+			)}
+		</>
+	);
+
 	const content = (
 		<>
 			{!dockHost && (
@@ -84,22 +99,32 @@ export function ToolsPanel({
 					className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]"
 				>
 					<AppDetectionTool udid={udid} currentApp={currentApp} />
-					{isAndroid && <AndroidSimulatorSettingsTool udid={udid} />}
-					{!isAndroid && (
-						<SimulatorSettingsTool udid={udid} runtime={deviceRuntime} />
-					)}
-					<MediaRoutingTool
-						udid={udid}
-						bundleId={currentApp?.bundleId ?? null}
-					/>
-					{supportsLocation && (
-						<LocationEmulationTool udid={udid} exec={execOnHost} />
-					)}
-					{!isAndroid && (
-						<AppPermissionsTool
-							udid={udid}
-							bundleId={currentApp?.bundleId ?? null}
-						/>
+					{isAndroid ? (
+						<AndroidDeviceControlsTool udid={udid} active={open}>
+							{({ simulatorRows, deviceSections }) => (
+								<>
+									<AndroidSimulatorSettingsTool udid={udid}>
+										{simulatorRows}
+									</AndroidSimulatorSettingsTool>
+									{mediaAndLocation}
+									{deviceSections}
+									<AndroidToolsPanel
+										deviceId={udid}
+										basePath={simEndpoint("")}
+										active={open}
+									/>
+								</>
+							)}
+						</AndroidDeviceControlsTool>
+					) : (
+						<>
+							<SimulatorSettingsTool udid={udid} runtime={deviceRuntime} />
+							{mediaAndLocation}
+							<AppPermissionsTool
+								udid={udid}
+								bundleId={currentApp?.bundleId ?? null}
+							/>
+						</>
 					)}
 					<StreamSettingsTool
 						preference={codecPreference}

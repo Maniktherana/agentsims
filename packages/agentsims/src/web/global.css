@@ -58,6 +58,13 @@ html {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+html,
+body,
+#root {
+	height: 100%;
+	overflow: hidden;
+}
+
 /* Compact under-device controls. The status toolbar deliberately keeps its
    existing density; only the action toolbar opts into this smaller footprint. */
 .agentsims-simulator-actions > div {
@@ -391,4 +398,25 @@ details.lem-section > summary:hover .lem-chevron {
 }
 .grid-tile:hover {
 	border-color: #555 !important;
+}
+
+/* Hand mode must override the simulator's inline finger cursor. */
+[data-agentsims-workspace-scroll][data-pan-mode="true"] [data-workspace-device],
+[data-agentsims-workspace-scroll][data-pan-mode="true"]
+	[data-workspace-device]
+	* {
+	cursor: grab !important;
+}
+[data-agentsims-workspace-scroll][data-pan-mode="true"]
+	[data-workspace-device]
+	button,
+[data-agentsims-workspace-scroll][data-pan-mode="true"]
+	[data-workspace-device]
+	button
+	* {
+	cursor: pointer !important;
+}
+[data-agentsims-workspace-scroll][data-panning="true"],
+[data-agentsims-workspace-scroll][data-panning="true"] * {
+	cursor: grabbing !important;
 }

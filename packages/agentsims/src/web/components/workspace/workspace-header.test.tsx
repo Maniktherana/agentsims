@@ -211,15 +211,32 @@ describe("WorkspaceHeader", () => {
 		expect(html).not.toContain('aria-label="Browser DevTools"');
 	});
 
-	test("mounts Settings inside the same expanded dock", () => {
-		const html = renderHeader({ pickerOpen: false, toolsOpen: true });
+	test("keeps four device tabs inside the same expanded Settings dock", () => {
+		const shownDevices = Array.from({ length: 4 }, (_, index) => ({
+			...devices[0]!,
+			device: `ios-${index}`,
+			name: `iPhone 16 ${index + 1}`,
+		}));
+		const html = renderHeader({
+			pickerOpen: false,
+			toolsOpen: true,
+			devices: shownDevices,
+			visibleUdids: new Set(shownDevices.map((device) => device.device)),
+			settingsUdid: shownDevices[3]!.device,
+		});
+		expect(html.match(/role="tab"/g)).toHaveLength(4);
 		expect(html).toContain('id="agentsims-tools-dock-slot"');
 		expect(html).toContain('data-expanded="true"');
 		expect(html).toContain('role="tablist"');
 		expect(html).toContain('aria-label="Settings device"');
+		expect(html).not.toContain('aria-haspopup="listbox"');
 		expect(html).toContain('data-variant="ghost"');
 		expect(html).toContain('data-slot="tabs-indicator"');
 		expect(html).toContain('aria-selected="true"');
+		expect(html).toContain("overflow-x-auto");
+		expect(html).toContain("justify-content:flex-start");
+		expect(html).not.toContain("Pin settings");
+		expect(html).not.toContain("Android tools for");
 		expect(html).toContain("iPhone 16");
 	});
 

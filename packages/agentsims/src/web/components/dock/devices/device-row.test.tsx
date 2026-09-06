@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DeviceRow, resolveDeviceLifecyclePhase } from "./device-row";
+import {
+	DeviceRow,
+	resolveDeviceLifecyclePhase,
+} from "./device-row";
 import type { GridDevice } from "../../../workspace/grid";
 
 const noop = () => {};

@@ -1,3 +1,4 @@
+import { Activity } from "lucide-react";
 import { Liveline } from "liveline";
 import { useState, useSyncExternalStore } from "react";
 import { CollapsibleSection } from "../../ui/collapsible-section";
@@ -156,9 +157,12 @@ export function StreamSettingsTool({
 			summaryClassName="grid [grid-template-columns:auto_1fr_auto] items-center gap-2 text-left"
 			summary={
 				<>
-					<span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">
-						Stream
-					</span>
+					<div className="flex min-w-0 items-center gap-2">
+						<Activity size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+							Stream
+						</span>
+					</div>
 					<span />
 				</>
 			}

@@ -221,11 +221,16 @@ export function SimulatorResizeCornerHandle({
 			aria-label="Resize simulator width. Drag the corner or use Left and Right Arrow keys; hold Shift for larger steps."
 			aria-orientation="vertical"
 			aria-valuemin={Math.round(simulatorResize.minWidth)}
-			aria-valuemax={Math.round(simulatorResize.maxWidth)}
+			aria-valuemax={
+				Number.isFinite(simulatorResize.maxWidth)
+					? Math.round(simulatorResize.maxWidth)
+					: undefined
+			}
 			aria-valuenow={Math.round(simulatorResize.committedWidth)}
 			tabIndex={0}
 			ref={simulatorResize.handleRef}
 			onKeyDown={simulatorResize.onKeyDown}
+			onDoubleClick={simulatorResize.fit}
 			onPointerDown={simulatorResize.onPointerDown}
 			onPointerMove={simulatorResize.onPointerMove}
 			onPointerUp={simulatorResize.onPointerEnd}

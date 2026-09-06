@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { streamConfigFrom } from "../../../../web/preview/sim-endpoint";
+import {
+	simEndpoint,
+	streamConfigFrom,
+} from "../../../../web/preview/sim-endpoint";
 
 // The middleware injects a minimal `{basePath, execToken}` __SIM_PREVIEW__
 // when no helper is attached (the empty state needs the exec token before a
@@ -40,4 +43,9 @@ describe("streamConfigFrom", () => {
 			streamConfigFrom({ ...fullConfig, url: undefined } as never),
 		).toBeNull();
 	});
+});
+
+test("server-rendered controls resolve a root endpoint without browser globals", () => {
+	expect(simEndpoint("android")).toBe("/android");
+	expect(simEndpoint("")).toBe("/");
 });
