@@ -5,7 +5,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PKG="$(cd "$HERE/../.." && pwd)"
 OUT="${1:-$PKG/dist/android/agentsims-ax-server.jar}"
 
-SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
+if [ "$(uname -s)" = "Darwin" ]; then
+  DEFAULT_SDK="$HOME/Library/Android/sdk"
+else
+  DEFAULT_SDK="$HOME/Android/Sdk"
+fi
+SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$DEFAULT_SDK}}"
 for tool in javac jar; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "$tool is required; install a JDK and ensure its bin directory is on PATH" >&2

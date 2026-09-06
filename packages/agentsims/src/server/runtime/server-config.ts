@@ -1,5 +1,4 @@
 import { Context, Layer } from "effect";
-import type { PreviewAssetMap } from "../preview/preview-assets";
 
 export type ServerConfigValue = {
 	basePath: "" | `/${string}`;
@@ -11,7 +10,6 @@ export type ServerConfigValue = {
 	previewRoot: string;
 	execToken: string;
 	agentsimsBin: string;
-	previewAssets?: PreviewAssetMap;
 };
 
 export type ServerConfigInput = Omit<ServerConfigValue, "basePath"> & {

@@ -3,33 +3,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-	assertPreviewDynamicImportsEmbedded,
-	assertPreviewManifestAssetsEmbedded,
+	assertPreviewDynamicImportsPresent,
+	assertPreviewManifestAssetsPresent,
 	enumeratePreviewDynamicImports,
-	type PreviewAssetMap,
 } from "../../../../server/preview/preview-assets";
 import { startTestServer } from "../../../helpers/server";
 
-async function getPreviewAsset(previewAssets: PreviewAssetMap, url: string) {
-	const { origin, server } = await startTestServer({
-		previewAssets,
-		readDeviceStates: async () => [],
-	});
-	try {
-		const response = await fetch(`${origin}${url}`);
-		return {
-			status: response.status,
-			headers: Object.fromEntries(response.headers),
-			body: Buffer.from(await response.arrayBuffer()),
-		};
-	} finally {
-		server.stop();
-	}
-}
-
 describe("preview assets", () => {
 	test("serves the entry and every emitted dynamic import with browser MIME types", async () => {
-		const javascript = {
+		const javascript: Record<string, string> = {
 			"assets/client-a0.js":
 				'const theme = () => import("./pierre-light-a1.js");',
 			"assets/pierre-light-a1.js":
@@ -37,23 +19,10 @@ describe("preview assets", () => {
 			"assets/tsx-b2.js":
 				'import { token } from "./client-a0.js"; export default token;',
 		};
-		const previewAssets: PreviewAssetMap = {
-			"assets/client-a0.js": Buffer.from(
-				javascript["assets/client-a0.js"],
-			).toString("base64"),
-			"assets/pierre-light-a1.js": Buffer.from(
-				javascript["assets/pierre-light-a1.js"],
-			).toString("base64"),
-			"assets/tsx-b2.js": Buffer.from(javascript["assets/tsx-b2.js"]).toString(
-				"base64",
-			),
-		};
-		const imports = assertPreviewDynamicImportsEmbedded(
-			javascript,
-			previewAssets,
-		);
+		const assetFiles = new Set(Object.keys(javascript));
+		const imports = assertPreviewDynamicImportsPresent(javascript, assetFiles);
 		expect(enumeratePreviewDynamicImports(javascript)).toEqual(imports);
-		const manifestImports = assertPreviewManifestAssetsEmbedded(
+		const manifestImports = assertPreviewManifestAssetsPresent(
 			{
 				"src/client.tsx": {
 					file: "assets/client-a0.js",
@@ -66,7 +35,7 @@ describe("preview assets", () => {
 				},
 				"_tsx.js": { file: "assets/tsx-b2.js" },
 			},
-			previewAssets,
+			assetFiles,
 		);
 		expect(manifestImports).toEqual([
 			"assets/client-a0.js",
@@ -74,23 +43,52 @@ describe("preview assets", () => {
 			"assets/tsx-b2.js",
 		]);
 
-		for (const assetKey of manifestImports) {
-			const response = await getPreviewAsset(previewAssets, `/${assetKey}`);
-			expect(response.status).toBe(200);
-			expect(response.headers["content-type"]).toBe(
-				"text/javascript; charset=utf-8",
-			);
-			expect(response.body.toString().trim().length).toBeGreaterThan(0);
+		const previewRoot = mkdtempSync(
+			join(tmpdir(), "agentsims-preview-imports-"),
+		);
+		let stopServer = () => {};
+		try {
+			mkdirSync(join(previewRoot, "assets"));
+			for (const [assetKey, source] of Object.entries(javascript))
+				writeFileSync(join(previewRoot, assetKey), source);
+			const { origin, server } = await startTestServer({
+				previewRoot,
+				readDeviceStates: async () => [],
+			});
+			stopServer = () => server.stop();
+			for (const assetKey of manifestImports) {
+				const response = await fetch(`${origin}/${assetKey}`);
+				expect(response.status).toBe(200);
+				expect(response.headers.get("content-type")).toBe(
+					"text/javascript; charset=utf-8",
+				);
+				expect(response.headers.get("cache-control")).toBe(
+					"public, max-age=31536000, immutable",
+				);
+				expect(await response.text()).toBe(javascript[assetKey]);
+			}
+		} finally {
+			await stopServer();
+			rmSync(previewRoot, { recursive: true, force: true });
 		}
 	});
 
 	test("fails the build contract when a local dynamic import is omitted", () => {
 		expect(() =>
-			assertPreviewDynamicImportsEmbedded(
+			assertPreviewDynamicImportsPresent(
 				{ "client.js": 'import("./assets/missing.js")' },
-				{},
+				new Set(),
 			),
 		).toThrow("assets/missing.js");
+	});
+
+	test("fails the build contract when an entry stylesheet is omitted", () => {
+		expect(() =>
+			assertPreviewManifestAssetsPresent(
+				{ client: { file: "assets/client.js", css: ["assets/client.css"] } },
+				new Set(["assets/client.js"]),
+			),
+		).toThrow("assets/client.css");
 	});
 
 	test("serves production assets from disk and scopes generated URLs to the mount", async () => {

@@ -1,13 +1,5 @@
 import { posix } from "path";
 
-export type PreviewAssetMap = Readonly<Record<string, string>>;
-
-export interface ResolvedPreviewAsset {
-	key: string;
-	contentBase64: string;
-	contentType: string;
-}
-
 export function previewAssetContentType(path: string): string {
 	if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
 	if (path.endsWith(".css")) return "text/css; charset=utf-8";
@@ -54,21 +46,6 @@ export function previewAssetKeyForRequest(
 	return `assets/${suffix}`;
 }
 
-export function resolvePreviewAsset(
-	rawUrl: string,
-	basePath: string,
-	assets: PreviewAssetMap,
-): ResolvedPreviewAsset | null | false {
-	const key = previewAssetKeyForRequest(rawUrl, basePath);
-	if (key === null) return null;
-	if (!key || assets[key] === undefined) return false;
-	return {
-		key,
-		contentBase64: assets[key],
-		contentType: previewAssetContentType(key),
-	};
-}
-
 export interface PreviewDynamicImport {
 	importer: string;
 	specifier: string;
@@ -86,25 +63,9 @@ export type PreviewViteManifest = Readonly<
 	Record<string, PreviewViteManifestChunk>
 >;
 
-export function enumeratePreviewManifestDynamicImports(
+export function assertPreviewManifestAssetsPresent(
 	manifest: PreviewViteManifest,
-): string[] {
-	const files = new Set<string>();
-	for (const chunk of Object.values(manifest)) {
-		for (const importKey of chunk.dynamicImports ?? []) {
-			const imported = manifest[importKey];
-			if (!imported) {
-				throw new Error(`Preview manifest omitted dynamic import ${importKey}`);
-			}
-			files.add(posix.normalize(imported.file));
-		}
-	}
-	return [...files];
-}
-
-export function assertPreviewManifestAssetsEmbedded(
-	manifest: PreviewViteManifest,
-	assets: PreviewAssetMap,
+	assets: ReadonlySet<string>,
 ): string[] {
 	const manifestAssets = [
 		...new Set(
@@ -114,7 +75,7 @@ export function assertPreviewManifestAssetsEmbedded(
 			]),
 		),
 	];
-	const missing = manifestAssets.filter((file) => assets[file] === undefined);
+	const missing = manifestAssets.filter((file) => !assets.has(file));
 	if (missing.length > 0) {
 		throw new Error(
 			`Preview build omitted browser assets:\n${missing.map((file) => `  ${file}`).join("\n")}`,
@@ -141,14 +102,12 @@ export function enumeratePreviewDynamicImports(
 	return imports;
 }
 
-export function assertPreviewDynamicImportsEmbedded(
+export function assertPreviewDynamicImportsPresent(
 	javascript: Readonly<Record<string, string>>,
-	assets: PreviewAssetMap,
+	assets: ReadonlySet<string>,
 ): PreviewDynamicImport[] {
 	const imports = enumeratePreviewDynamicImports(javascript);
-	const missing = imports.filter(
-		({ assetKey }) => assets[assetKey] === undefined,
-	);
+	const missing = imports.filter(({ assetKey }) => !assets.has(assetKey));
 	if (missing.length > 0) {
 		throw new Error(
 			`Preview build omitted dynamic assets:\n${missing

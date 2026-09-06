@@ -1,6 +1,7 @@
 {
 	"name": "agentsims",
 	"version": "0.1.0",
+	"private": true,
 	"description": "Local multi-device simulator workspace for React Native and Expo development",
 	"keywords": [
 		"accessibility",
@@ -42,7 +43,8 @@
 		"dist/native/agentsims-android-video.node"
 	],
 	"os": [
-		"darwin"
+		"darwin",
+		"linux"
 	],
 	"cpu": [
 		"arm64",
@@ -75,15 +77,12 @@
 		"build:android:ax": "bash android/accessibility/build.sh",
 		"build:android:video": "bash android/video/build.sh",
 		"start": "bun dist/agentsims.js",
-		"prepack": "bun run build && bun run verify:package",
-		"verify:package": "bun scripts/verify-package.mjs",
-		"pack:dry-run": "npm pack --dry-run --json",
+		"prepack": "bun run build",
 		"test": "bun test",
 		"lint": "oxlint src -D no-empty --deny-warnings",
 		"typecheck": "bun run typecheck:server && bun run typecheck:web",
 		"typecheck:server": "tsc -p tsconfig.server.json",
-		"typecheck:web": "tsc -p tsconfig.web.json",
-		"smoke:android": "bun run scripts/android-live-smoke.ts"
+		"typecheck:web": "tsc -p tsconfig.web.json"
 	},
 	"dependencies": {
 		"@babel/parser": "^7.29.7",

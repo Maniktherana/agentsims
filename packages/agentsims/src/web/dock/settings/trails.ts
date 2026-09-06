@@ -281,7 +281,7 @@ export function modeLabel(mode: TrailMode): string {
 // even arc-length spacing. Elevations come from USGS NED 10m (via
 // OpenTopoData) so altitudes reflect real terrain — except the Golden Gate
 // deck, which the DEM reads as water and we synthesize as the actual arch
-// profile. To regenerate, see `scripts/build-trails.py`.
+// profile.
 
 /** Apple Park perimeter ring road — OSM way 518104809. */
 const APPLE_PARK_LOOP: Waypoint[] = [

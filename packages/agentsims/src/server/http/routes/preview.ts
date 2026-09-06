@@ -14,7 +14,6 @@ import {
 import {
 	previewAssetContentType,
 	previewAssetKeyForRequest,
-	resolvePreviewAsset,
 } from "../../preview/preview-assets";
 import { json, previewConfig, requestSource, selectedState } from "./shared";
 
@@ -48,18 +47,8 @@ function staticResponse(
 		const url = new URL(request.url);
 		const rawUrl = `${url.pathname}${url.search}`;
 		const assetKey = previewAssetKeyForRequest(rawUrl, config.basePath);
-		const embedded = config.previewAssets
-			? resolvePreviewAsset(rawUrl, config.basePath, config.previewAssets)
-			: null;
-		if (embedded === false || assetKey === "")
+		if (assetKey === "")
 			return new Response("Preview asset not found", { status: 404 });
-		if (embedded) {
-			return previewAssetResponse(
-				assetKey!,
-				Buffer.from(embedded.contentBase64, "base64"),
-				config.basePath,
-			);
-		}
 		if (assetKey) {
 			const path = `${config.previewRoot}/${assetKey}`;
 			if (!(yield* fileSystem.exists(path))) {
