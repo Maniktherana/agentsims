@@ -1,5 +1,6 @@
 import { Copy, X } from "lucide-react";
 import type { CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { IconButton } from "../ui/icon-button";
 
 export type ScreenshotPreviewSide = "right" | "left";
@@ -45,7 +46,6 @@ export type ScreenshotSize = {
 
 const SCREENSHOT_PREVIEW_GAP = 14;
 const SCREENSHOT_PREVIEW_VIEWPORT_MARGIN = 24;
-const SCREENSHOT_PREVIEW_CONTROL_RAIL = 46;
 const SCREENSHOT_PREVIEW_CONTROL_HEIGHT = 83;
 
 export function readScreenshotImageSize(src: string): Promise<ScreenshotSize> {
@@ -92,25 +92,20 @@ export function resolveScreenshotPreviewSidecar({
 	const desiredHeight = screen.height / 3;
 	const desiredWidth = desiredHeight * (capture.width / capture.height);
 	const screenRight = screen.left + screen.width;
-	const screenBottom = screen.top + screen.height;
+	const anchorBottom = Math.min(
+		screen.top + screen.height,
+		viewport.height - margin,
+	);
 	const rightWidth =
-		viewport.width -
-		margin -
-		screenRight -
-		gap -
-		SCREENSHOT_PREVIEW_CONTROL_RAIL;
-	const leftWidth =
-		screen.left - margin - gap - SCREENSHOT_PREVIEW_CONTROL_RAIL;
+		viewport.width - margin - screenRight - gap;
+	const leftWidth = screen.left - margin - gap;
 	const side: ScreenshotPreviewSide =
 		rightWidth >= desiredWidth || rightWidth >= leftWidth ? "right" : "left";
 	const availableWidth = Math.max(0, side === "right" ? rightWidth : leftWidth);
-	if (
-		screenBottom > viewport.height - margin ||
-		screenBottom < margin + SCREENSHOT_PREVIEW_CONTROL_HEIGHT
-	) {
+	if (anchorBottom < margin + SCREENSHOT_PREVIEW_CONTROL_HEIGHT) {
 		return null;
 	}
-	const availableHeight = screenBottom - margin;
+	const availableHeight = anchorBottom - margin;
 	const scale = Math.min(
 		1,
 		availableHeight / desiredHeight,
@@ -125,7 +120,7 @@ export function resolveScreenshotPreviewSidecar({
 	return {
 		side,
 		left,
-		top: screenBottom - height,
+		top: anchorBottom - height,
 		width,
 		height,
 		sourceLeft: screen.left,
@@ -209,12 +204,12 @@ export function ScreenshotPreviewOverlay({
 	onDismiss: () => void;
 }) {
 	if (!preview || !layout) return null;
-	return (
+	const content = (
 		<div
 			data-agentsims-screenshot-preview={deviceId}
 			data-side={layout.side}
 			data-phase={preview.phase}
-			className="agentsims-screenshot-preview pointer-events-none absolute z-40"
+			className="agentsims-screenshot-preview fixed z-[2147483646]"
 			style={
 				{
 					left: layout.left,
@@ -243,24 +238,27 @@ export function ScreenshotPreviewOverlay({
 				/>
 			</div>
 			<div
-				className="agentsims-screenshot-preview-controls pointer-events-auto absolute bottom-0 flex flex-col items-center"
-				data-side={layout.side}
+				className="agentsims-screenshot-preview-controls absolute right-1.5 top-1.5 flex items-center"
 			>
 				<IconButton
 					label="Copy image"
 					tooltip="Copy image"
 					size="panel"
 					surface="toolbar"
+					style={{ borderRadius: 9999 }}
+					className="bg-[#f2f2f2]! text-[#181818]! hover:bg-white!"
 					disabled={preview.copying}
 					onClick={onCopy}
 				>
 					<Copy aria-hidden="true" size={14} strokeWidth={2} />
 				</IconButton>
 				<IconButton
-					label="Discard screenshot"
-					tooltip="Discard"
+					label="Close screenshot"
+					tooltip="Close"
 					size="panel"
 					surface="toolbar"
+					style={{ borderRadius: 9999 }}
+					className="bg-[#f2f2f2]! text-[#181818]! hover:bg-white!"
 					onClick={onDismiss}
 				>
 					<X aria-hidden="true" size={14} strokeWidth={2} />
@@ -276,4 +274,7 @@ export function ScreenshotPreviewOverlay({
 			) : null}
 		</div>
 	);
+	return typeof document === "undefined"
+		? content
+		: createPortal(content, document.body);
 }

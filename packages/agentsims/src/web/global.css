@@ -297,16 +297,26 @@ details.lem-section > summary:hover .lem-chevron {
 		0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-.agentsims-screenshot-preview-controls[data-side="right"] {
-	left: calc(100% + 6px);
-}
-
-.agentsims-screenshot-preview-controls[data-side="left"] {
-	right: calc(100% + 6px);
+.agentsims-screenshot-preview-image img {
+	transition: filter 120ms var(--agentsims-ease-standard);
 }
 
 .agentsims-screenshot-preview-controls {
 	gap: 4px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms var(--agentsims-ease-standard);
+}
+
+.agentsims-screenshot-preview:is(:hover, :focus-within)
+	.agentsims-screenshot-preview-controls {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.agentsims-screenshot-preview:is(:hover, :focus-within)
+	.agentsims-screenshot-preview-image img {
+	filter: blur(2px) brightness(0.65);
 }
 
 .agentsims-screenshot-preview-controls button:disabled {
@@ -349,7 +359,9 @@ details.lem-section > summary:hover .lem-chevron {
 	}
 
 	.agentsims-screenshot-flash,
-	.agentsims-screenshot-preview {
+	.agentsims-screenshot-preview,
+	.agentsims-screenshot-preview-image img,
+	.agentsims-screenshot-preview-controls {
 		transition: none;
 	}
 

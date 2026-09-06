@@ -27,21 +27,33 @@ describe("global CSS panel variables", () => {
 		expect(globalCss).not.toContain("--agentsims-accent: #0a84ff;");
 	});
 
-	test("limits screenshot feedback motion to opacity and transform with a reduced-motion fallback", () => {
+	test("keeps screenshot travel on transform and opacity with a reduced-motion fallback", () => {
 		expect(globalCss).toContain(".agentsims-screenshot-flash");
 		expect(globalCss).toContain(".agentsims-screenshot-preview");
 		expect(globalCss).toContain("transition: opacity");
 		expect(globalCss).toContain("transform:");
 		expect(globalCss).not.toMatch(
-			/\.agentsims-screenshot-(?:flash|preview)[^{]*\{[^}]*(?:filter|backdrop-filter)/s,
+			/\.agentsims-screenshot-(?:flash|preview)(?:\[.*?\])?\s*\{[^}]*(?:filter|backdrop-filter)/s,
 		);
 		expect(globalCss).toMatch(
 			/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.agentsims-screenshot-flash[\s\S]*transition: none/,
 		);
 	});
 
-	test("keeps screenshot actions external and image-only elevation", () => {
+	test("reveals screenshot actions on hover or focus while only the image blurs", () => {
 		expect(globalCss).toContain(".agentsims-screenshot-preview-controls");
+		expect(globalCss).toMatch(
+			/\.agentsims-screenshot-preview-controls\s*\{[^}]*opacity: 0;[^}]*pointer-events: none;/s,
+		);
+		expect(globalCss).toMatch(
+			/\.agentsims-screenshot-preview:is\(:hover, :focus-within\)\s+\.agentsims-screenshot-preview-controls\s*\{[^}]*opacity: 1;[^}]*pointer-events: auto;/s,
+		);
+		expect(globalCss).toMatch(
+			/\.agentsims-screenshot-preview:is\(:hover, :focus-within\)\s+\.agentsims-screenshot-preview-image img\s*\{[^}]*filter: blur\(2px\) brightness\(0\.65\);/s,
+		);
+		expect(globalCss).toMatch(
+			/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.agentsims-screenshot-preview-image img,[\s\S]*\.agentsims-screenshot-preview-controls\s*\{\s*transition: none;/,
+		);
 		expect(globalCss).toMatch(
 			/\.agentsims-screenshot-preview-image\s*\{[^}]*border:\s*2px solid #fff[^}]*box-shadow:/s,
 		);

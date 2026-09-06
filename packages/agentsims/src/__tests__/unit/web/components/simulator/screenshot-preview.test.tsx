@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement, ReactPortal } from "react";
 import {
 	ScreenshotPreviewOverlay,
 	ScreenshotFlash,
@@ -59,7 +60,39 @@ describe("device screenshot feedback", () => {
 		expect(placement!.left + placement!.width).toBeLessThanOrEqual(586);
 	});
 
-	test("never moves the preview above or below the screen when neither side is safe", () => {
+	test("keeps a tall phone's preview inside the viewport without changing its source geometry", () => {
+		const placement = resolveScreenshotPreviewSidecar({
+			screen: { left: 200, top: 60, width: 528, height: 1056 },
+			capture: { width: 528, height: 1056 },
+			viewport: { width: 1000, height: 720 },
+		});
+		expect(placement).toMatchObject({
+			side: "right",
+			left: 742,
+			top: 344,
+			width: 176,
+			height: 352,
+			sourceLeft: 200,
+			sourceTop: 60,
+			sourceWidth: 528,
+			sourceHeight: 1056,
+		});
+		expect(placement!.top + placement!.height).toBe(696);
+		expect(placement!.width / placement!.height).toBe(0.5);
+	});
+
+	test("uses space beside the image now that controls fit inside it", () => {
+		const placement = resolveScreenshotPreviewSidecar({
+			screen: { left: 24, top: 24, width: 300, height: 600 },
+			capture: { width: 300, height: 600 },
+			viewport: { width: 450, height: 720 },
+		});
+		expect(placement?.side).toBe("right");
+		expect(placement?.width).toBe(88);
+		expect(placement?.height).toBe(176);
+	});
+
+	test("does not show a preview when neither side has space", () => {
 		expect(
 			resolveScreenshotPreviewSidecar({
 				screen: { left: 0, top: 0, width: 320, height: 640 },
@@ -69,7 +102,7 @@ describe("device screenshot feedback", () => {
 		).toBeNull();
 	});
 
-	test("renders external accessible controls and image-only border geometry", () => {
+	test("renders top-right accessible controls and image-only border geometry", () => {
 		const html = renderToStaticMarkup(
 			<ScreenshotPreviewOverlay
 				deviceId="android:emulator-5554"
@@ -104,11 +137,56 @@ describe("device screenshot feedback", () => {
 		expect(html).toContain('data-side="right"');
 		expect(html).toContain('data-phase="visible"');
 		expect(html).toContain('aria-label="Copy image"');
-		expect(html).toContain('aria-label="Discard screenshot"');
+		expect(html).toContain('aria-label="Close screenshot"');
+		expect(html).toContain("right-1.5 top-1.5 flex items-center");
+		expect(html).toContain("border-radius:9999px");
 		expect(html).toContain("width:120px");
 		expect(html).toContain("height:269px");
 		expect(html).toContain("agentsims-screenshot-preview-image");
 		expect(html).toContain('src="blob:shot-2"');
+	});
+
+	test("portals above phone stacking contexts using viewport coordinates", () => {
+		const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+		const body = { nodeType: 1 };
+		Object.defineProperty(globalThis, "document", {
+			configurable: true,
+			value: { body },
+		});
+		try {
+			const portal = ScreenshotPreviewOverlay({
+				deviceId: "phone",
+				preview: {
+					id: "shot",
+					src: "blob:shot",
+					width: 300,
+					height: 600,
+					phase: "enter",
+					copying: false,
+					error: null,
+				},
+				layout: resolveScreenshotPreviewSidecar({
+					screen: { left: 200, top: 60, width: 300, height: 600 },
+					capture: { width: 300, height: 600 },
+					viewport: { width: 1000, height: 1000 },
+				}),
+				onCopy: () => {},
+				onDismiss: () => {},
+			}) as ReactPortal & { containerInfo: unknown };
+			expect(portal.containerInfo).toBe(body);
+			const child = portal.children as ReactElement<{
+				className: string;
+				style: Record<string, number | string>;
+			}>;
+			expect(child.props.className).toContain("fixed z-[2147483646]");
+			expect(child.props.style.left).toBe(514);
+			expect(child.props.style.top).toBe(460);
+			expect(child.props.style["--screenshot-enter-x"]).toBe("-314px");
+			expect(child.props.style["--screenshot-enter-y"]).toBe("-400px");
+		} finally {
+			if (previous) Object.defineProperty(globalThis, "document", previous);
+			else Reflect.deleteProperty(globalThis, "document");
+		}
 	});
 
 	test("shows clipboard failures without turning them into a download", () => {

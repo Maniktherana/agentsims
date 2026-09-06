@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { toast } from "sonner";
+import { notify } from "../../components/ui/toast";
 import type { DropKind } from "../../media/drop";
 
 export type UploadToast = {
@@ -17,7 +17,7 @@ export function useUploadToasts() {
 	const add = useCallback((name: string, kind: DropKind): string => {
 		const id = crypto.randomUUID();
 		uploads.current.set(id, { name, kind });
-		toast.loading(`Uploading ${name}…`, { id });
+		notify("loading", `Uploading ${name}…`, { id });
 		return id;
 	}, []);
 
@@ -25,7 +25,8 @@ export function useUploadToasts() {
 		const upload = uploads.current.get(id);
 		if (!upload) return;
 		if (patch.status === "success") {
-			toast.success(
+			notify(
+				"success",
 				upload.kind === "ipa"
 					? `Installed ${upload.name}`
 					: `Added ${upload.name} to Photos`,
@@ -35,14 +36,15 @@ export function useUploadToasts() {
 			return;
 		}
 		if (patch.status === "error") {
-			toast.error(`${upload.name}: ${patch.message ?? "Upload failed"}`, {
+			notify("error", `${upload.name}: ${patch.message ?? "Upload failed"}`, {
 				id,
 				duration: 3000,
 			});
 			uploads.current.delete(id);
 			return;
 		}
-		toast.loading(
+		notify(
+			"loading",
 			upload.kind === "ipa"
 				? `Installing ${upload.name}…`
 				: `Adding ${upload.name}…`,
@@ -59,7 +61,7 @@ export function useUploadToasts() {
 					? `Installing ${upload.name}…`
 					: `Adding ${upload.name}…`
 				: `Uploading ${upload.name}… ${Math.round(progress * 100)}%`;
-		toast.loading(message, { id });
+		notify("loading", message, { id });
 	}, []);
 
 	return { add, update, setProgress };

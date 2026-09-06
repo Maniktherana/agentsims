@@ -8,7 +8,6 @@ import { SimulatorDeviceView } from "./components/workspace/simulator-device-vie
 import { useDeviceWorkspace } from "./hooks/workspace/use-device-workspace";
 import { resetWorkspaceLayout } from "./workspace/layout-events";
 import { WorkspaceCanvas } from "./components/workspace/workspace-canvas";
-import { BadgeCheckIcon } from "./components/icons/badge-check";
 
 export function App() {
 	const workspace = useDeviceWorkspace();
@@ -89,12 +88,11 @@ export function App() {
 			/>
 			<Toaster
 				theme="dark"
-				position="bottom-center"
+				position="top-center"
 				visibleToasts={4}
 				gap={8}
-				offset={{ bottom: 24 }}
-				style={{ zIndex: 2147483647 }}
-				icons={{ success: <BadgeCheckIcon size={18} /> }}
+				offset={{ top: 24 }}
+				style={{ zIndex: 2147483647, width: "min(400px,calc(100vw - 32px))" }}
 				containerAriaLabel="agentsims notifications"
 			/>
 			<WorkspaceHeader
