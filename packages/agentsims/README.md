@@ -18,6 +18,20 @@ npm install --save-dev agentsims
 
 The equivalent pnpm, Yarn, and Bun development-dependency commands also work.
 
+Check the tools for your target before starting:
+
+```bash
+npx agentsims doctor --platform android
+npx agentsims doctor --platform ios
+```
+
+Doctor prints each dependency check and a repair command or setup step when a
+check fails. Android checks the SDK, connected devices, and local emulator tools.
+iOS checks Xcode and an installed Simulator runtime. Omit `--platform` to check
+all supported targets on this host. Use `--json` for automation. Failed required
+checks return exit code 1. When no Android device is connected, Doctor shows a warning.
+Doctor does not install tools or change device settings.
+
 ## Quick start
 
 1. Start the app normally on at least one iOS simulator or Android emulator.
@@ -121,14 +135,22 @@ interactive workflow.
 
 ## Supported platforms
 
-The published package currently requires a macOS 14 or newer host and Node.js
-20 or newer. Install Xcode for iOS Simulator support. Install Android Studio or
-the Android SDK and put `adb` on `PATH` for Android support.
+Release targets are macOS 14 or newer (arm64 and x64) and Linux x64 glibc.
+WSL uses the Linux target. Linux exposes Android only. Node.js 20 or newer runs
+the small npm launcher, which selects an exact-version compiled executable.
+No separate Bun, Rust, Swift, or JDK installation is needed by users. Android
+emulator video requires FFmpeg shared libraries that match the packaged addon.
+The release process currently uses Homebrew `ffmpeg@8` on macOS and Ubuntu
+22.04 FFmpeg 4.4 on Linux. ABI compatibility on other hosts is not yet verified.
+Install Xcode for iOS Simulator support. Install Android Studio or the Android
+SDK for Android support. If tools are outside standard SDK locations and `PATH`,
+set `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `AGENTSIMS_ADB`. Run `npx agentsims doctor`
+to inspect host capabilities and tool discovery.
 
 | Target                  | Live video and control                    |
 | ----------------------- | ----------------------------------------- |
 | iOS Simulator           | Native simulator capture and HID control  |
-| Android emulator        | Emulator capture, H.264, and native input |
+| Android emulator | Shared-memory capture, in-process Rust/FFmpeg encoding, and native input |
 | Physical Android device | ADB screenrecord H.264 and ADB input      |
 
 Android live video requires browser WebCodecs support. Android has no MJPEG
@@ -191,10 +213,10 @@ bun run --filter agentsims build
 bun run --filter agentsims start
 ```
 
-The full source build also requires Xcode Command Line Tools, a JDK, Android
-SDK platform/build-tools, Rust, and FFmpeg 8 development libraries. It builds the
-browser/server bundles, first-party Android AX JAR, iOS/macOS native helpers,
-and Rust Android video addon.
+The source build requires Bun 1.3.14, a JDK, and Android SDK platform/build-tools.
+All host builds need Rust and FFmpeg development libraries for the Android addon.
+macOS builds also need Xcode for the iOS Swift addon and Apple helpers. Linux builds
+omit Apple artifacts. The existing Android Rust/FFmpeg video pipeline is unchanged.
 
 `start` executes the built Bun entrypoint and serves the printed local URL,
 normally [http://localhost:3200](http://localhost:3200). Pass CLI options after `--`.

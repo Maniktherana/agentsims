@@ -11,17 +11,21 @@ runtime dependency to the mobile bundle.
 
 ## Requirements
 
-- macOS 14 or newer
-- Bun 1.3.11 or newer runs the Agentsims CLI and server.
+- macOS 14 or newer for iOS and Android, or Linux x64 for Android. WSL uses the Linux build.
 - Node.js 20 or newer supplies npm, npx, and the React Native host exports.
 - A modern browser. Android live video requires H.264 decoding through
   WebCodecs; iOS Simulator streams can use MJPEG with `--codec mjpeg`.
 - For iOS: Xcode with an installed Simulator runtime
-- For Android: Android Studio or the Android SDK, with `adb` on `PATH`
-- For Android emulator video in the current native build: FFmpeg 8
+- For Android: Android Studio or the Android SDK. Agentsims finds tools through
+  `ANDROID_HOME`, `ANDROID_SDK_ROOT`, standard SDK locations, or `PATH`.
 - Your app's normal Metro or Expo development process
 
-Node.js 24 is required only when developing Agentsims itself.
+Release packages contain a compiled executable and its runtime artifacts.
+Users do not need to install Bun, Rust, Swift, or a JDK. Android emulator video
+requires host FFmpeg shared libraries compatible with the packaged native addon.
+Release builds use Homebrew `ffmpeg@8` on macOS and Ubuntu 22.04 FFmpeg 4.4 on Linux.
+Local Android emulators still need host hardware acceleration. A connected
+Android device can also supply the screen. Native Windows is not a release target.
 
 ## Install
 
@@ -38,17 +42,17 @@ The equivalent `pnpm add --save-dev agentsims`, `yarn add --dev agentsims`, or
 
 1. Start the app normally on at least one iOS simulator or Android emulator.
 
-   ```bash
-   # Examples for Expo projects
-   npx expo start --ios
-   npx expo start --android
-   ```
+    ```bash
+    # Examples for Expo projects
+    npx expo start --ios
+    npx expo start --android
+    ```
 
 2. From the app project, start Agentsims in another terminal.
 
-   ```bash
-   npx agentsims
-   ```
+    ```bash
+    npx agentsims
+    ```
 
 3. Open the URL printed by the CLI, normally
    [http://localhost:3200](http://localhost:3200).
@@ -70,8 +74,13 @@ The device picker combines available iOS simulators, Android Virtual Devices,
 and their running sessions.
 
 - Check a running device to add it to the canvas; uncheck it to hide it.
-- Select a phone or its title to focus it. The focused device has a blue
-  outline and owns contextual tools.
+- Select a phone or its title to focus its tools.
+- Drag a phone by its title. Drag its lower-right handle to resize it.
+- Drag the dotted background to pan the canvas. The bottom-left controls enable
+  pan mode and recenter the view.
+- Device order and positions stay stable when devices are added or removed.
+- Open device Settings from the bottom dock. Accessibility and developer tools open in
+  floating panels that fit the available browser space.
 - Use the controls around each phone for supported Home, Back, Recents,
   rotation, screenshot, and React Native reload actions.
 - Interact directly with the simulated app using pointer, touch, scroll, and
@@ -79,18 +88,23 @@ and their running sessions.
 
 Platform transport details stay behind the same workspace and CLI contracts:
 
-| Target           | Live video and control                                               |
-| ---------------- | -------------------------------------------------------------------- |
-| iOS Simulator    | Native simulator capture and HID control                             |
-| Android emulator | Emulator gRPC capture, shared-memory frames, H.264, and native input |
+| Target                  | Live video and control                                                            |
+| ----------------------- | --------------------------------------------------------------------------------- |
+| iOS Simulator on macOS  | In-process Swift capture, VideoToolbox H.264, and HID input                       |
+| Android emulator        | Emulator gRPC/shared-memory capture, in-process Rust/FFmpeg encoding, and native input |
+| Physical Android device | ADB screenrecord H.264 and ADB input                                              |
 
-ADB remains responsible for Android discovery, lifecycle operations, explicit
-screenshots, status probes, and discrete fallbacks. There is no ADB PNG live
-video fallback. Android live video is H.264-only and requires WebCodecs; its
+There is no ADB PNG live video fallback. Android live video is H.264-only and requires WebCodecs. Its
 `/stream.mjpeg` endpoint is unavailable. For iOS Simulator streams, use
 `--codec mjpeg` when the H.264 path is unavailable.
 
 ## Browser workflow
+
+Android device Settings contains app management, Logs, and device control rows.
+Logs support severity, package, PID, and text filters, pause, and export. App
+controls support APK install, launch, force stop, clear data, uninstall, and deep
+links. Emulator controls include network conditions, battery, snapshots, calls,
+and SMS. Device support determines which controls are available.
 
 Use the browser workspace for two related tasks:
 
@@ -211,9 +225,10 @@ bun run --filter agentsims build
 bun run --filter agentsims start
 ```
 
-The full source build requires Xcode Command Line Tools, a JDK, Android SDK
-platform/build-tools, Rust, and FFmpeg development libraries. It builds every
-shipped browser/server/native artifact from source.
+Source builds use Bun 1.3.14, Node.js 24, a JDK, and Android SDK platform/build-tools.
+All host builds require Rust and FFmpeg development libraries for the separate
+Android video addon. macOS builds also require Xcode for the iOS Swift addon.
+Linux builds omit Apple artifacts. FFmpeg shared libraries remain a runtime dependency.
 
 `start` executes the built Bun entrypoint and prints the local URL, normally
 [http://localhost:3200](http://localhost:3200). Pass CLI options after `--`.

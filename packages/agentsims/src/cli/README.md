@@ -1,13 +1,15 @@
 # Agentsims CLI
 
-The CLI and browser use the same application commands. The CLI does not create
-a second device-control path. Commands print JSON unless they write a binary
-file.
+The CLI and browser send device operations to the same HTTP API.
+Most device commands print JSON. Logs and setup commands also print plain text.
 
 ## Runtime
 
-Install Bun 1.3.11 or newer before you start Agentsims. The `agentsims`
-executable uses Bun for the CLI and server.
+Node.js 20 or newer runs the npm launcher. It selects a compiled executable
+for macOS arm64, macOS x64, or Linux x64. The executable includes Bun, so users
+do not need a separate Bun installation. WSL uses the Linux executable.
+
+Source builds use Bun 1.3.14. Linux and WSL support Android only.
 
 ## Start and stop
 
@@ -127,3 +129,44 @@ agentsims act '{"type":"button","button":"back"}' --device <device>
 Other existing iOS commands, such as `permissions`, `ui`, `ca-debug`, and
 `memory-warning`, also remain available. Run `agentsims --help` for the full
 list.
+
+## Android tools
+
+Start the Agentsims server before you run these commands. Use `--url` to select a
+server at another address or mount path. Device IDs can use either the ADB serial
+or `android:<serial>`.
+
+```sh
+agentsims android emulator-5554 capabilities
+agentsims android emulator-5554 apps
+agentsims android emulator-5554 install ./app.apk
+agentsims android emulator-5554 launch com.example.app
+agentsims android emulator-5554 link myapp://settings --package com.example.app
+agentsims android emulator-5554 logs --package com.example.app --level W
+```
+
+APK install sends the local file to the server. The server stores it in a
+temporary directory, installs it, and removes the temporary file. `clear` removes
+app data. `uninstall` removes the app.
+
+```sh
+agentsims android emulator-5554 network '{"speed":"edge","delay":"edge"}'
+agentsims android emulator-5554 network '{"speed":"full","delay":"none"}'
+agentsims android emulator-5554 battery '{"level":10,"charging":false}'
+agentsims android emulator-5554 battery '{"reset":true}'
+agentsims android emulator-5554 snapshot save signed-in
+agentsims android emulator-5554 snapshot load signed-in
+agentsims android emulator-5554 density 480
+agentsims android emulator-5554 density reset
+agentsims android emulator-5554 locale fr-FR --package com.example.app
+agentsims android emulator-5554 talkback on
+```
+
+Network speed and delay, saved snapshots, location, calls, and SMS require an
+emulator. App locale requires Android 13 or later. An empty locale resets the app
+to the system language. TalkBack must be installed.
+
+The web workspace puts app management, Logs, and device controls in the device
+Settings panel. Logcat uses one scoped process per device. The last subscriber
+closes that process. Each log view keeps a bounded buffer and renders only visible
+rows. Pause stops display updates; Clear view does not erase Android's log buffer.
