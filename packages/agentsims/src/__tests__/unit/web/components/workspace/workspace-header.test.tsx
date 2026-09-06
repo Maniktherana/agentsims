@@ -4,12 +4,12 @@ import {
 	partitionDevicePickerDevices,
 	reconcileDevicePhaseAnnouncements,
 	WorkspaceHeader,
-} from "./workspace-header";
+} from "../../../../../web/components/workspace/workspace-header";
 import {
 	AGENTSIMS_REPO_URL,
 	AgentsimsBrandLink,
-} from "../ui/agentsims-brand-link";
-import type { GridDevice } from "../../workspace/grid";
+} from "../../../../../web/components/ui/agentsims-brand-link";
+import type { GridDevice } from "../../../../../web/workspace/grid";
 
 const devices: GridDevice[] = [
 	{

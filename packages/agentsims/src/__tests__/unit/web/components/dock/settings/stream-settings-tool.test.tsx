@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AndroidSimulatorSettingsTool } from "./android-simulator-settings-tool";
+import { AndroidSimulatorSettingsTool } from "../../../../../../web/components/dock/settings/android-simulator-settings-tool";
 import {
 	StreamFrameRateHistory,
 	StreamSettingsTool,
-} from "./stream-settings-tool";
-import { SimulatorFrameRateStore } from "../../../simulator/stream/simulator-frame-rate";
+} from "../../../../../../web/components/dock/settings/stream-settings-tool";
+import { SimulatorFrameRateStore } from "../../../../../../web/simulator/stream/simulator-frame-rate";
 
 const noop = () => {};
 

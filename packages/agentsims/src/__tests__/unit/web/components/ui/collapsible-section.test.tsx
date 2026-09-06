@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CollapsibleSection } from "./collapsible-section";
+import { CollapsibleSection } from "../../../../../web/components/ui/collapsible-section";
 
 const noop = () => {};
 

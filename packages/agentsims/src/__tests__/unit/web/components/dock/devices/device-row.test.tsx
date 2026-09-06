@@ -4,8 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
 	DeviceRow,
 	resolveDeviceLifecyclePhase,
-} from "./device-row";
-import type { GridDevice } from "../../../workspace/grid";
+} from "../../../../../../web/components/dock/devices/device-row";
+import type { GridDevice } from "../../../../../../web/workspace/grid";
 
 const noop = () => {};
 
@@ -302,7 +302,7 @@ describe("DeviceRow", () => {
 
 	test("removes continuous status motion under reduced motion", () => {
 		const css = readFileSync(
-			new URL("../../../global.css", import.meta.url),
+			new URL("../../../../../../web/global.css", import.meta.url),
 			"utf8",
 		);
 		expect(css).toContain("@media (prefers-reduced-motion: reduce)");

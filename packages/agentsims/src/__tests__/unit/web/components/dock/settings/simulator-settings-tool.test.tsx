@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
 	isIosRuntime,
 	SettingRow,
-} from "./simulator-settings-tool";
+} from "../../../../../../web/components/dock/settings/simulator-settings-tool";
 
 // The in-sim settings helper is an iOS-simulator Mach-O; spawning it inside a
 // watchOS / tvOS / visionOS runtime aborts in dyld. The panel gates on the

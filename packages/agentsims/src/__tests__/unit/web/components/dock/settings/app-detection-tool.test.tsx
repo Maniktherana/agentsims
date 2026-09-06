@@ -6,7 +6,7 @@ import {
 	AppIconFallback,
 	AppSummaryLabel,
 	isSystemBundleId,
-} from "./app-detection-tool";
+} from "../../../../../../web/components/dock/settings/app-detection-tool";
 
 describe("AppDetectionTool app icon fallback", () => {
 	test("recognizes Apple system bundle ids", () => {

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { AndroidStatus } from "../../../../android/device/types";
-import type { DeviceMediaState } from "../../../../shared/media";
+import type { AndroidStatus } from "../../../../../../android/device/types";
+import type { DeviceMediaState } from "../../../../../../shared/media";
 import {
 	AndroidControlsStatus,
 	formatAndroidDisplay,
 	formatAndroidStream,
-} from "./android-controls-tool";
-import { MediaRoutingSection } from "./media-routing-tool";
-import { ToolsPanel } from "./tools-panel";
+} from "../../../../../../web/components/dock/settings/android-controls-tool";
+import { MediaRoutingSection } from "../../../../../../web/components/dock/settings/media-routing-tool";
+import { ToolsPanel } from "../../../../../../web/components/dock/settings/tools-panel";
 
 const noop = () => {};
 

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { AxElement } from "../../../accessibility/model";
+import type { AxElement } from "../../../../../accessibility/model";
 import {
 	accessibilityInspectorReducer,
 	createAccessibilityInspectorState,
-} from "../../accessibility/state";
+} from "../../../../../web/accessibility/state";
 import {
 	accessibilityPanelResizeDeltaForKey,
 	accessibilityPanelStorageKey,
@@ -13,16 +13,16 @@ import {
 	moveAccessibilityPanelGeometry,
 	parseAccessibilityPanelGeometry,
 	resizeAccessibilityPanelGeometry,
-} from "../../accessibility/panel-position";
+} from "../../../../../web/accessibility/panel-position";
 import {
 	accessibilityResizeVisualPhase,
 	AccessibilityPanel,
 	shouldStartAccessibilityHeaderDrag,
-} from "./panel";
+} from "../../../../../web/components/accessibility/panel";
 import {
 	accessibilityTreeRowLabel,
 	buildAccessibilityTree,
-} from "./tree";
+} from "../../../../../web/components/accessibility/tree";
 
 const element: AxElement = {
 	id: "checkout-submit",

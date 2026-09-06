@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { StreamStatusPill } from "./stream-status-pill";
-import { SimulatorFrameRateStore } from "../../simulator/stream/simulator-frame-rate";
+import { StreamStatusPill } from "../../../../../web/components/simulator/stream-status-pill";
+import { SimulatorFrameRateStore } from "../../../../../web/simulator/stream/simulator-frame-rate";
 
 function measuredRate(fps: number) {
 	const rate = new SimulatorFrameRateStore();

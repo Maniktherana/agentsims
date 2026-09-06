@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
 	LocationEmulationTool,
 	locationSetCommand,
-} from "./location-emulation-tool";
+} from "../../../../../../web/components/dock/settings/location-emulation-tool";
 
 const exec = async () => ({ stdout: "", stderr: "", exitCode: 0 });
 
@@ -23,7 +23,7 @@ describe("LocationEmulationTool", () => {
 
 	test("keeps location summary chevron anchored at compact widths", () => {
 		const css = readFileSync(
-			new URL("../../../global.css", import.meta.url),
+			new URL("../../../../../../web/global.css", import.meta.url),
 			"utf8",
 		);
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SimulatorResizeSizeBadge } from "./simulator-resize-size-badge";
+import { SimulatorResizeSizeBadge } from "../../../../../web/components/simulator/simulator-resize-size-badge";
 
 describe("SimulatorResizeSizeBadge", () => {
 	test("uses a translucent panel backdrop so backdrop-blur shows through", () => {

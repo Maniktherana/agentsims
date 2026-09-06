@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DevicePlaceholder } from "./device-placeholder";
-import { resolveSimulatorDeviceLayout } from "../../workspace/simulator-device-layout";
-import { restoredSimulatorFrameWidth } from "../../simulator/resize/simulator-resize";
+import { DevicePlaceholder } from "../../../../../web/components/simulator/device-placeholder";
+import { resolveSimulatorDeviceLayout } from "../../../../../web/workspace/simulator-device-layout";
+import { restoredSimulatorFrameWidth } from "../../../../../web/simulator/resize/simulator-resize";
 import type {
 	DeviceFrameDescriptor,
 	DevicePlaceholderAssetDescriptor,
-} from "../../workspace/grid";
+} from "../../../../../web/workspace/grid";
 
 function renderPlaceholder({
 	name = "Apple Vision Pro",

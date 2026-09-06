@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
 	AppPermissionsLoading,
 	AppPermissionsTool,
-} from "./app-permissions-tool";
+} from "../../../../../../web/components/dock/settings/app-permissions-tool";
 
 describe("AppPermissionsLoading", () => {
 	test("uses the collapsed permissions row footprint with a loading indicator", () => {

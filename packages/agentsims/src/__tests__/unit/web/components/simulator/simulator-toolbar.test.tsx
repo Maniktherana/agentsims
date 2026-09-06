@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
 	SimulatorToolbar,
 	homeButtonCommand,
-} from "./simulator-toolbar";
+} from "../../../../../web/components/simulator/simulator-toolbar";
 
 const exec = async () => ({ stdout: "", stderr: "", exitCode: 0 });
 

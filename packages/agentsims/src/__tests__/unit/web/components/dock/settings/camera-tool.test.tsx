@@ -15,7 +15,7 @@ import {
 	nextCameraPillState,
 	parseWebcamListOutput,
 	selectCameraPrimaryKind,
-} from "./camera-tool";
+} from "../../../../../../web/components/dock/settings/camera-tool";
 
 describe("nextCameraPillState", () => {
 	test("ready stays ready on dead poll", () => {
