@@ -58,7 +58,10 @@ export interface AndroidStatus {
 	screen: AndroidScreenConfig;
 	stream: {
 		backend: "emulator-controller" | "adb-screenrecord";
-		transport: "mmap-ffmpeg-h264" | "adb-screenrecord-h264";
+		transport:
+			| "mmap-videotoolbox-h264"
+			| "mmap-ffmpeg-h264"
+			| "adb-screenrecord-h264";
 		source: "display";
 		canChangeSource: false;
 	};

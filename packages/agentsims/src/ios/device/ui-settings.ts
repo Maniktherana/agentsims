@@ -2,8 +2,10 @@ import { execFile } from "child_process";
 import { existsSync } from "fs";
 import { join, resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
-import { dirnameOf } from "../../server/runtime/runtime";
-import { configuredDistDirectory } from "../../server/runtime/runtime-paths";
+import {
+	configuredDistDirectory,
+	dirnameOf,
+} from "../../server/runtime/runtime-paths";
 import { CliError } from "../../cli/error";
 
 // Bun's bundler inlines a bare `__dirname` as the build machine's source

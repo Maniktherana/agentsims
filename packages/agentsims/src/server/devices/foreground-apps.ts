@@ -31,6 +31,8 @@ export const ForegroundAppsLive = Layer.effect(
 							Effect.promise(() => session.readForeground()).pipe(
 								Effect.map(decodeForegroundApp),
 							),
+						).pipe(
+							Effect.catchTag("IosHostUnavailable", () => Effect.succeed(null)),
 						);
 			},
 		});

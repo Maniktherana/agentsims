@@ -1,7 +1,7 @@
 import { CliError } from "../../cli/error";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { Effect } from "effect";
-import { hostCommandText } from "../../server/runtime/host-tools-runtime";
+import { hostCommandText } from "../../server/runtime/host-tools";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { findBootedDevice, resolveDevice } from "./device";

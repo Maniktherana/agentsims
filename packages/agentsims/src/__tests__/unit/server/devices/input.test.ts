@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
 	decodeDeviceAction,
-	DeviceActionCommands,
+	makeDeviceActions,
 	parseDeviceAction,
-} from "../../../commands/device-actions";
+} from "../../../../server/devices/input";
 
 function decodedFrame(data: Buffer): {
 	tag: number;
@@ -16,16 +16,17 @@ function decodedFrame(data: Buffer): {
 	};
 }
 
-describe("DeviceActionCommands", () => {
+describe("makeDeviceActions", () => {
 	test("paces a swipe on the server and dispatches ordered input", async () => {
 		const frames: Buffer[] = [];
 		const delays: number[] = [];
-		const commands = new DeviceActionCommands(
-			async () => ({
-				dispatchInputFrame: async (data) => {
-					frames.push(data);
-				},
-			}),
+		const act = makeDeviceActions(
+			() =>
+				Effect.succeed({
+					dispatchInputFrame: async (data) => {
+						frames.push(data);
+					},
+				}),
 			(milliseconds) =>
 				Effect.sync(() => {
 					delays.push(milliseconds);
@@ -33,7 +34,7 @@ describe("DeviceActionCommands", () => {
 		);
 
 		await Effect.runPromise(
-			commands.act("android:emulator-5554", [
+			act("android:emulator-5554", [
 				{
 					type: "swipe",
 					x1: 0.5,
@@ -55,15 +56,17 @@ describe("DeviceActionCommands", () => {
 
 	test("rejects the whole batch before it dispatches an invalid action", async () => {
 		const frames: Buffer[] = [];
-		const commands = new DeviceActionCommands(async () => ({
-			dispatchInputFrame: async (data) => {
-				frames.push(data);
-			},
-		}));
+		const act = makeDeviceActions(() =>
+			Effect.succeed({
+				dispatchInputFrame: async (data) => {
+					frames.push(data);
+				},
+			}),
+		);
 
 		await expect(
 			Effect.runPromise(
-				commands.act("ios-device", [
+				act("ios-device", [
 					{ type: "tap", x: 0.5, y: 0.5 },
 					{ type: "tap", x: 2, y: 0.5 },
 				]),
@@ -90,4 +93,26 @@ describe("DeviceActionCommands", () => {
 			}),
 		).toMatchObject({ durationMs: 5_000 });
 	});
+});
+
+test("interrupting an action cancels pending session acquisition", async () => {
+	let entered!: () => void;
+	const started = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	let cancelled = false;
+	const act = makeDeviceActions(() =>
+		Effect.async(() => {
+			entered();
+			return Effect.sync(() => {
+				cancelled = true;
+			});
+		}),
+	);
+	const fiber = Effect.runFork(
+		act("android:emulator-5554", [{ type: "tap", x: 0.5, y: 0.5 }]),
+	);
+	await started;
+	await Effect.runPromise(Fiber.interrupt(fiber));
+	expect(cancelled).toBe(true);
 });

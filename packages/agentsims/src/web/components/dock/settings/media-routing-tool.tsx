@@ -12,7 +12,7 @@ import type {
 	DeviceMediaState,
 	MediaRouteAction,
 	MediaSourceChoice,
-} from "../../../../server/media/model";
+} from "../../../../shared/media";
 import { uploadFileToTmp } from "../../../media/drop";
 import { execOnHost } from "../../../simulator/input/exec";
 import { simEndpoint } from "../../../preview/sim-endpoint";

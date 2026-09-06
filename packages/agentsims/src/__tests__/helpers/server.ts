@@ -6,14 +6,11 @@ import {
 	AxStreamers,
 	type AxStreamerCache,
 } from "../../accessibility/snapshot";
+import { Devices, type DeviceService } from "../../server/devices/service";
 import {
-	ApplicationCommands,
-	type ApplicationCommandsService,
-} from "../../commands/device-commands";
-import {
-	MediaCommands,
+	makeMediaRouting,
 	type MediaOperations,
-} from "../../commands/media-commands";
+} from "../../server/media/service";
 import type { ForegroundApp } from "../../shared/foreground-app";
 import type { DeviceState } from "../../shared/state";
 import { ForegroundApps } from "../../server/devices/foreground-apps";
@@ -21,15 +18,15 @@ import { DeviceLifecycleService } from "../../server/devices/device-lifecycle";
 import { AndroidDevTools } from "../../server/devtools/android";
 import { DevToolsLive } from "../../server/devtools/service";
 import { webKitDevToolsLayer } from "../../server/devtools/webkit";
-import { httpApplicationLive } from "../../server/http/application";
-import type { WebKitBridge } from "../../server/http/devtools-bridge";
+import type { WebKitBridge } from "../../server/devtools/webkit-bridge";
 import {
+	httpApplicationLive,
 	serverServicesLive,
 	type HttpServerOptions,
 } from "../../server/http/server";
 import { MediaRouting } from "../../server/media/service";
 import { ScreenshotOperationsLive } from "../../server/screenshot/operations";
-import type { PreviewServer } from "../../server/runtime/runtime";
+import type { PreviewServer } from "../../server/http/server";
 import { ScreenshotStore } from "../../server/screenshot/store";
 import type { ScreenshotStoreService } from "../../server/screenshot/store";
 
@@ -37,7 +34,7 @@ export type TestServerOverrides = Partial<HttpServerOptions> & {
 	axStreamers?: AxStreamerCache;
 	readDeviceStates?: () => Promise<DeviceState[]>;
 	readForegroundApp?: (device: string) => Promise<ForegroundApp | null>;
-	deviceCommands?: ApplicationCommandsService;
+	deviceCommands?: DeviceService;
 	mediaOperations?: MediaOperations;
 	getBridge?: () => Promise<WebKitBridge>;
 	saveScreenshot?: ScreenshotStoreService["save"];
@@ -74,7 +71,6 @@ export async function startTestServer(
 		port,
 		device: test.device,
 		codec: test.codec,
-		previewAssets: test.previewAssets,
 	};
 	const LifecycleTest = test.readDeviceStates
 		? Layer.succeed(DeviceLifecycleService, {
@@ -91,7 +87,7 @@ export async function startTestServer(
 			})
 		: Layer.empty;
 	const CommandsTest = test.deviceCommands
-		? Layer.succeed(ApplicationCommands, test.deviceCommands)
+		? Layer.succeed(Devices, test.deviceCommands)
 		: Layer.empty;
 	const ForegroundTest = test.readForegroundApp
 		? Layer.mock(ForegroundApps, {
@@ -102,7 +98,7 @@ export async function startTestServer(
 		? Layer.succeed(AxStreamers, test.axStreamers)
 		: Layer.empty;
 	const MediaTest = test.mediaOperations
-		? Layer.succeed(MediaRouting, new MediaCommands(test.mediaOperations))
+		? Layer.succeed(MediaRouting, makeMediaRouting(test.mediaOperations))
 		: Layer.empty;
 	const DevToolsTest = test.getBridge
 		? Layer.fresh(DevToolsLive).pipe(

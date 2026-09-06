@@ -1,3 +1,4 @@
+import { androidTool } from "../device/sdk-tools";
 import { Command } from "@effect/platform";
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { Cause, Effect, Fiber, Stream } from "effect";
@@ -452,7 +453,7 @@ export class AndroidDeviceScreenrecordSession {
 			this.parser = parser;
 
 			const command = Command.make(
-				"adb",
+				androidTool("adb"),
 				...screenrecordArguments(this.serial),
 			);
 			const capture = Effect.scoped(

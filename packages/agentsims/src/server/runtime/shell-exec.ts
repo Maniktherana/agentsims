@@ -1,8 +1,9 @@
 import { Command } from "@effect/platform";
 import { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { Context, Effect, Layer } from "effect";
+import { captureHostCommand, type HostCommandResult } from "./host-tools";
 
-export type ShellResult = { stdout: string; stderr: string; exitCode: number };
+export type ShellResult = HostCommandResult;
 export type ShellExecService = {
 	run(command: string): Effect.Effect<ShellResult, unknown>;
 };
@@ -19,8 +20,7 @@ export const ShellExecLive = Layer.effect(
 		return ShellExec.of({
 			run(command) {
 				const shell = Command.make("/bin/sh", "-c", command);
-				return executor.string(shell).pipe(
-					Effect.map((stdout) => ({ stdout, stderr: "", exitCode: 0 })),
+				return captureHostCommand(executor, shell).pipe(
 					Effect.catchAll((error) =>
 						Effect.succeed({
 							stdout: "",

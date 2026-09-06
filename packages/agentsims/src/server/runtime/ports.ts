@@ -1,5 +1,9 @@
+import { createServer } from "node:net";
+import { Command, CommandExecutor } from "@effect/platform";
+import { BunContext } from "@effect/platform-bun";
+import { Effect } from "effect";
 /** TCP port ownership helpers for helper lifecycle management. */
-import { hostCommandText, hostSleep } from "./host-tools-runtime";
+import { captureHostCommand, hostCommandText, hostSleep } from "./host-tools";
 
 /**
  * Return PIDs currently listening on a TCP port, excluding this process.
@@ -7,9 +11,24 @@ import { hostCommandText, hostSleep } from "./host-tools-runtime";
  */
 export async function getPortHolders(port: number): Promise<number[]> {
 	try {
-		const output = (
-			await hostCommandText("lsof", "-ti", `tcp:${port}`, "-sTCP:LISTEN")
-		).trim();
+		const result = await Effect.runPromise(
+			Effect.flatMap(CommandExecutor.CommandExecutor, (executor) =>
+				captureHostCommand(
+					executor,
+					Command.make("lsof", "-ti", `tcp:${port}`, "-sTCP:LISTEN"),
+				),
+			).pipe(Effect.provide(BunContext.layer)),
+		);
+		const output = result.stdout.trim();
+		// lsof exits 1 without output when no process matches the listener filter.
+		if (result.exitCode === 1 && !output && !result.stderr.trim()) return [];
+		if (result.exitCode !== 0) {
+			throw new Error(
+				result.stderr.trim() ||
+					output ||
+					`lsof exited with status ${result.exitCode}`,
+			);
+		}
 		if (!output) return [];
 		return output
 			.split("\n")
@@ -39,4 +58,14 @@ export async function killPortHolder(port: number): Promise<void> {
 		),
 	);
 	await hostSleep(100);
+}
+
+/** Briefly bind to a port to determine whether it is available. */
+export function isPortFree(port: number): Promise<boolean> {
+	const { promise, resolve } = Promise.withResolvers<boolean>();
+	const server = createServer();
+	server.once("error", () => resolve(false));
+	server.once("listening", () => server.close(() => resolve(true)));
+	server.listen(port);
+	return promise;
 }

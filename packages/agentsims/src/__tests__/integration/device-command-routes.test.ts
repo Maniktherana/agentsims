@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { InvalidCommandInput } from "../../commands/errors";
-import type { PreviewServer } from "../../server/runtime/runtime";
+import { InvalidCommandInput } from "../../shared/application-errors";
+import type { PreviewServer } from "../../server/http/server";
 import { startTestServer, type TestServerOverrides } from "../helpers/server";
 
 const servers: PreviewServer[] = [];
@@ -12,10 +12,11 @@ afterEach(() => {
 
 async function startServer(
 	commands: NonNullable<TestServerOverrides["deviceCommands"]>,
+	basePath = "/",
 ) {
 	const result = await startTestServer({
 		deviceCommands: commands,
-		previewAssets: {},
+		basePath,
 	});
 	servers.push(result.server);
 	return result.origin;
@@ -52,6 +53,84 @@ function commandStubs(
 }
 
 describe("device command routes", () => {
+	test("mounts command and feature routes under the same configured base path", async () => {
+		const origin = await startServer(commandStubs(), "/workspace/phone");
+		const responses = await Promise.all([
+			fetch(`${origin}/workspace/phone/status`),
+			fetch(`${origin}/status`),
+			fetch(`${origin}/workspace/phone/capabilities`),
+			fetch(`${origin}/workspace/phone/grid/api/device-frame-assets`),
+		]);
+
+		expect(responses.map((response) => response.status)).toEqual([
+			200, 200, 200, 400,
+		]);
+		expect(await responses[0]!.json()).toEqual({ workspaces: [] });
+		expect(await responses[1]!.json()).toEqual({ workspaces: [] });
+		expect(await responses[2]!.json()).toMatchObject({
+			platforms: expect.arrayContaining(["android"]),
+		});
+	});
+
+	test("rejects malformed and oversized JSON before calling a command", async () => {
+		let calls = 0;
+		const origin = await startServer(
+			commandStubs({
+				act: () =>
+					Effect.sync(() => {
+						calls += 1;
+					}),
+			}),
+		);
+
+		for (const body of [
+			"{",
+			"{}",
+			JSON.stringify({ actions: "tap" }),
+			JSON.stringify({ actions: [], extra: "x".repeat(1024 * 1024) }),
+		]) {
+			const response = await fetch(
+				`${origin}/device/android:emulator-5554/act`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body,
+				},
+			);
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({
+				type: "InvalidCommandInput",
+			});
+		}
+		expect(calls).toBe(0);
+	});
+
+	test("interrupts command work when the HTTP client disconnects", async () => {
+		const started = Promise.withResolvers<void>();
+		const interrupted = Promise.withResolvers<void>();
+		const origin = await startServer(
+			commandStubs({
+				act: () =>
+					Effect.sync(started.resolve).pipe(
+						Effect.andThen(Effect.never),
+						Effect.onInterrupt(() => Effect.sync(interrupted.resolve)),
+					),
+			}),
+		);
+		const controller = new AbortController();
+		const request = fetch(`${origin}/device/android:emulator-5554/act`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ actions: [] }),
+			signal: controller.signal,
+		}).catch(() => undefined);
+
+		await started.promise;
+		controller.abort();
+		await request;
+		await interrupted.promise;
+	}, 3_000);
+
 	test("serves workspace status through HTTP", async () => {
 		const workspaces = [{ device: "android:emulator-5554" }];
 		const origin = await startServer(

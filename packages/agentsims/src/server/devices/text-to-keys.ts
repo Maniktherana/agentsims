@@ -63,47 +63,6 @@ export class UnsupportedCharacterError extends Error {
 	}
 }
 
-/** Send a sequence of key events to a agentsims WS endpoint using the 0x06
- *  (WS_MSG_KEY) opcode. Each event is sent as one binary frame. */
-export async function sendKeyEventsToWs(
-	wsUrl: string,
-	events: ReadonlyArray<KeyEvent>,
-	// iOS coalesces events that arrive in the same tick, so a small gap keeps
-	// long strings reliable without making the command noticeably slow.
-	perEventDelayMs = 4,
-): Promise<void> {
-	return new Promise<void>((resolve, reject) => {
-		const ws = new WebSocket(wsUrl);
-		ws.binaryType = "arraybuffer";
-
-		ws.onopen = async () => {
-			try {
-				for (const ev of events) {
-					const json = new TextEncoder().encode(JSON.stringify(ev));
-					const msg = new Uint8Array(1 + json.length);
-					msg[0] = 0x06; // WS_MSG_KEY
-					msg.set(json, 1);
-					ws.send(msg);
-					if (perEventDelayMs > 0) {
-						await new Promise((r) => setTimeout(r, perEventDelayMs));
-					}
-				}
-				setTimeout(() => {
-					ws.close();
-					resolve();
-				}, 50);
-			} catch (err) {
-				ws.close();
-				reject(err);
-			}
-		};
-
-		ws.onerror = () => {
-			reject(new Error(`WebSocket connection failed: ${wsUrl}`));
-		};
-	});
-}
-
 /** Returns the events needed to type `text`, or throws on unsupported chars.
  *  Each character emits (optional shift down) → key down → key up → (optional shift up). */
 export function textToKeyEvents(text: string): KeyEvent[] {

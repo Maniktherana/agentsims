@@ -15,11 +15,15 @@ describe("device lifecycle reconciliation", () => {
 			finishShutdown = resolve;
 		});
 		const calls: string[] = [];
-		const lifecycle = new DeviceLifecycle(async (_command, args) => {
-			calls.push(args.join(" "));
-			if (args[1] === "shutdown") await shutdownFinished;
-			return { error: null, stdout: "", stderr: "" };
-		});
+		const lifecycle = new DeviceLifecycle(
+			async (_command, args) => {
+				calls.push(args.join(" "));
+				if (args[1] === "shutdown") await shutdownFinished;
+				return { error: null, stdout: "", stderr: "" };
+			},
+			undefined,
+			"darwin",
+		);
 
 		const shutdown = lifecycle.shutdown(IOS);
 		await Promise.resolve();
@@ -34,24 +38,28 @@ describe("device lifecycle reconciliation", () => {
 
 	test("rejects a stale cross-tab start until the live catalog confirms shutdown", async () => {
 		const calls: string[] = [];
-		const lifecycle = new DeviceLifecycle(async (_command, args) => {
-			calls.push(args.join(" "));
-			if (args[1] === "bootstatus") {
-				return {
-					error: new Error("not booted"),
-					stdout: "",
-					stderr: "not booted",
-				};
-			}
-			if (args[1] === "list") {
-				return {
-					error: null,
-					stdout: JSON.stringify({ devices: {} }),
-					stderr: "",
-				};
-			}
-			return { error: null, stdout: "", stderr: "" };
-		});
+		const lifecycle = new DeviceLifecycle(
+			async (_command, args) => {
+				calls.push(args.join(" "));
+				if (args[1] === "bootstatus") {
+					return {
+						error: new Error("not booted"),
+						stdout: "",
+						stderr: "not booted",
+					};
+				}
+				if (args[1] === "list") {
+					return {
+						error: null,
+						stdout: JSON.stringify({ devices: {} }),
+						stderr: "",
+					};
+				}
+				return { error: null, stdout: "", stderr: "" };
+			},
+			undefined,
+			"darwin",
+		);
 
 		expect(await lifecycle.shutdown(IOS)).toBeNull();
 		expect(await lifecycle.start(IOS, 3200, "/.sim")).toEqual({
@@ -83,11 +91,15 @@ describe("device lifecycle reconciliation", () => {
 			finishShutdown = resolve;
 		});
 		let calls = 0;
-		const lifecycle = new DeviceLifecycle(async () => {
-			calls += 1;
-			await shutdownFinished;
-			return { error: null, stdout: "", stderr: "" };
-		});
+		const lifecycle = new DeviceLifecycle(
+			async () => {
+				calls += 1;
+				await shutdownFinished;
+				return { error: null, stdout: "", stderr: "" };
+			},
+			undefined,
+			"darwin",
+		);
 
 		const first = lifecycle.shutdown(IOS);
 		const second = lifecycle.shutdown(IOS);
@@ -99,12 +111,16 @@ describe("device lifecycle reconciliation", () => {
 
 	test("releases the operation guard after a failed shutdown", async () => {
 		let calls = 0;
-		const lifecycle = new DeviceLifecycle(async () => {
-			calls += 1;
-			return calls === 1
-				? { error: new Error("simctl failed"), stdout: "", stderr: "busy" }
-				: { error: null, stdout: "", stderr: "" };
-		});
+		const lifecycle = new DeviceLifecycle(
+			async () => {
+				calls += 1;
+				return calls === 1
+					? { error: new Error("simctl failed"), stdout: "", stderr: "busy" }
+					: { error: null, stdout: "", stderr: "" };
+			},
+			undefined,
+			"darwin",
+		);
 
 		expect(await lifecycle.shutdown(IOS)).toBe("busy");
 		expect(await lifecycle.shutdown(IOS)).toBeNull();
@@ -244,4 +260,20 @@ describe("device lifecycle reconciliation", () => {
 			),
 		).toBe("keep");
 	});
+});
+
+test("Linux rejects iOS start and shutdown before invoking Apple tools or retaining a shutdown guard", async () => {
+	const calls: string[] = [];
+	const lifecycle = new DeviceLifecycle(
+		async (command) => {
+			calls.push(command);
+			return { error: null, stdout: "", stderr: "" };
+		},
+		undefined,
+		"linux",
+	);
+	expect((await lifecycle.start(IOS, 3200, "/")).error).toContain("macOS");
+	expect(await lifecycle.shutdown(IOS)).toContain("macOS");
+	expect(lifecycle.isStartSuppressed(IOS)).toBe(false);
+	expect(calls).toEqual([]);
 });

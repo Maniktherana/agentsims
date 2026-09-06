@@ -32,7 +32,7 @@ async function getFromMiddleware(
 	url: string,
 	requestHeaders: Record<string, string> = {},
 ) {
-	const started = await startTestServer({ previewAssets: {} });
+	const started = await startTestServer();
 	try {
 		const response = await fetch(`${started.origin}${url}`, {
 			headers: requestHeaders,

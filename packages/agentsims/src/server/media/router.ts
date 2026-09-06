@@ -1,3 +1,4 @@
+import { CommandUnavailable } from "../../shared/application-errors";
 import {
 	androidAvdStateId,
 	androidSerialFromStateId,
@@ -19,7 +20,7 @@ import type {
 	MediaRouteAction,
 	MediaRouteResult,
 	MediaSourceChoice,
-} from "./model";
+} from "../../shared/media";
 import {
 	emptyHostAudioSnapshot,
 	hostAudioLabel,
@@ -352,24 +353,6 @@ export function buildDeviceMediaState(
 	};
 }
 
-export function isMediaRouteAction(value: unknown): value is MediaRouteAction {
-	if (!value || typeof value !== "object" || !("action" in value)) return false;
-	const action = value.action;
-	return (
-		action === "android-host-microphone" ||
-		action === "android-camera-source" ||
-		action === "android-camera-sources" ||
-		action === "ios-camera-source" ||
-		action === "host-audio-input" ||
-		action === "host-audio-output" ||
-		action === "android-output-volume" ||
-		action === "audio-output-volume" ||
-		action === "host-audio-output-volume" ||
-		action === "android-virtual-scene-image" ||
-		action === "restart-device"
-	);
-}
-
 async function waitForAndroidDisconnect(serial: string): Promise<void> {
 	const deadline = Date.now() + 15_000;
 	while (Date.now() < deadline) {
@@ -393,6 +376,10 @@ export class MediaRouter {
 
 	async read(device: string): Promise<DeviceMediaState> {
 		const serial = androidSerialFromStateId(device);
+		if (!serial && process.platform !== "darwin")
+			throw new CommandUnavailable({
+				message: "iOS media controls require a macOS server with Xcode.",
+			});
 		const hostAudio = await listHostAudioDevices().catch(() =>
 			emptyHostAudioSnapshot(),
 		);
@@ -451,6 +438,13 @@ export class MediaRouter {
 		publicPort: number,
 	): Promise<MediaRouteResult> {
 		const serial = androidSerialFromStateId(device);
+		if (
+			process.platform !== "darwin" &&
+			(!serial || body.action.startsWith("ios-"))
+		)
+			throw new CommandUnavailable({
+				message: "iOS media controls require a macOS server with Xcode.",
+			});
 		switch (body.action) {
 			case "android-host-microphone":
 				if (!serial)

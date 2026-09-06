@@ -1,3 +1,4 @@
+import { androidTool } from "../device/sdk-tools";
 import { Context, Effect, Layer } from "effect";
 import {
 	execFile,
@@ -86,7 +87,7 @@ type PendingSnapshot = {
 function adb(args: string[], timeout = 15_000): Promise<string> {
 	return new Promise((resolvePromise, reject) => {
 		execFile(
-			"adb",
+			androidTool("adb"),
 			args,
 			{ encoding: "utf8", timeout, maxBuffer: 8 * 1024 * 1024 },
 			(error, stdout, stderr) => {
@@ -295,7 +296,7 @@ export class AndroidAxServerClient {
 			throw new Error("Android AX server client closed during startup");
 
 		const child = spawn(
-			"adb",
+			androidTool("adb"),
 			[
 				"-s",
 				this.serial,

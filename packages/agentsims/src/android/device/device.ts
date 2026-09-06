@@ -12,6 +12,7 @@ import type {
 	AndroidStatus,
 } from "./types";
 import type { AndroidAxMode } from "../accessibility/ax-server";
+import { androidTool } from "./sdk-tools";
 
 export const ANDROID_DEVICE_PREFIX = "android:";
 export const ANDROID_AVD_PREFIX = "android-avd:";
@@ -39,8 +40,10 @@ export interface AndroidAvdInfo {
 	skin?: string;
 }
 
-const androidReactNativePackages = new Set<string>();
-const androidNonReactNativeProcesses = new Set<string>();
+const androidReactNativePackages = new Map<string, Set<string>>();
+const androidNonReactNativeProcesses = new Map<string, Set<string>>();
+const androidDeviceGenerations = new Map<string, number>();
+let androidDiscoveryGeneration = 0;
 const ANDROID_RN_LOG_MARKERS =
 	/\b(?:ReactNativeJS|ReactNative|Hermes|ExpoModules|expo\.modules)\b/i;
 const ANDROID_RN_FILE_MARKERS =
@@ -83,6 +86,21 @@ const androidMetadataInFlight = new Map<
 	Promise<AndroidDeviceMetadata>
 >();
 
+/** Invalidate cached identity and app detection after install, reset or snapshot load. */
+export function clearAndroidDeviceCaches(serial: string): void {
+	androidDeviceGenerations.set(
+		serial,
+		(androidDeviceGenerations.get(serial) ?? 0) + 1,
+	);
+	androidDiscoveryGeneration++;
+	androidDiscoverySnapshot = { at: 0, devices: [] };
+	androidDiscoveryInFlight = null;
+	androidMetadata.delete(serial);
+	androidMetadataInFlight.delete(serial);
+	androidReactNativePackages.delete(serial);
+	androidNonReactNativeProcesses.delete(serial);
+}
+
 function adb(
 	args: string[],
 	options?: {
@@ -93,7 +111,7 @@ function adb(
 ): Promise<string | Buffer> {
 	return new Promise((resolve, reject) => {
 		execFile(
-			"adb",
+			androidTool("adb"),
 			args,
 			{
 				encoding:
@@ -147,14 +165,7 @@ export function androidAvdNameFromStateId(device: string): string | null {
 }
 
 function androidEmulatorCommand(): string {
-	const roots = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT].filter(
-		(value): value is string => !!value,
-	);
-	for (const root of roots) {
-		const candidate = join(root, "emulator", "emulator");
-		if (existsSync(candidate)) return candidate;
-	}
-	return "emulator";
+	return androidTool("emulator");
 }
 
 function emulatorText(args: string[], timeout?: number): Promise<string> {
@@ -811,13 +822,21 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
 		emulator ? getAndroidEmulatorCapabilities() : Promise.resolve(undefined),
 	]);
 	const camera = readAndroidAvdConfig(avdName);
+	const nativeCapture =
+		emulator &&
+		process.platform === "darwin" &&
+		process.env.AGENTSIMS_ANDROID_CAPTURE !== "adb";
 	const status: AndroidStatus = {
 		platform: "android",
 		serial,
 		screen,
 		stream: {
-			backend: emulator ? "emulator-controller" : "adb-screenrecord",
-			transport: emulator ? "mmap-ffmpeg-h264" : "adb-screenrecord-h264",
+			backend: nativeCapture ? "emulator-controller" : "adb-screenrecord",
+			transport: nativeCapture
+				? process.env.AGENTSIMS_ANDROID_ENCODER === "ffmpeg"
+					? "mmap-ffmpeg-h264"
+					: "mmap-videotoolbox-h264"
+				: "adb-screenrecord-h264",
 			source: "display",
 			canChangeSource: false,
 		},
@@ -936,6 +955,7 @@ async function enrichAndroidDevice(
 
 	let pending = androidMetadataInFlight.get(device.serial);
 	if (!pending) {
+		const generation = androidDeviceGenerations.get(device.serial) ?? 0;
 		pending = (async () => {
 			const [propertiesOutput, avdName] = await Promise.all([
 				adbText(["-s", device.serial, "shell", "getprop"], 4_000).catch(
@@ -953,9 +973,13 @@ async function enrichAndroidDevice(
 			if (release) metadata.release = release;
 			if (sdk) metadata.sdk = sdk;
 			if (avdName) metadata.avdName = avdName;
-			androidMetadata.set(device.serial, metadata);
+			if ((androidDeviceGenerations.get(device.serial) ?? 0) === generation)
+				androidMetadata.set(device.serial, metadata);
 			return metadata;
-		})().finally(() => androidMetadataInFlight.delete(device.serial));
+		})().finally(() => {
+			if (androidMetadataInFlight.get(device.serial) === pending)
+				androidMetadataInFlight.delete(device.serial);
+		});
 		androidMetadataInFlight.set(device.serial, pending);
 	}
 	const metadata = await pending;
@@ -971,6 +995,7 @@ export async function listAndroidDevices(): Promise<AndroidDeviceInfo[]> {
 		return androidDiscoverySnapshot.devices;
 	}
 	if (androidDiscoveryInFlight) return androidDiscoveryInFlight;
+	const generation = androidDiscoveryGeneration;
 
 	androidDiscoveryInFlight = (async () => {
 		let output: string;
@@ -984,10 +1009,12 @@ export async function listAndroidDevices(): Promise<AndroidDeviceInfo[]> {
 			.map(parseDeviceLine)
 			.filter((device): device is AndroidDeviceInfo => !!device);
 		const devices = await Promise.all(discovered.map(enrichAndroidDevice));
-		androidDiscoverySnapshot = { at: Date.now(), devices };
+		if (generation === androidDiscoveryGeneration)
+			androidDiscoverySnapshot = { at: Date.now(), devices };
 		return devices;
 	})().finally(() => {
-		androidDiscoveryInFlight = null;
+		if (generation === androidDiscoveryGeneration)
+			androidDiscoveryInFlight = null;
 	});
 	return androidDiscoveryInFlight;
 }
@@ -1579,15 +1606,31 @@ async function androidPidForPackage(
 	}
 }
 
+function rememberAndroidDetection(
+	cache: Map<string, Set<string>>,
+	serial: string,
+	key: string,
+): void {
+	let entries = cache.get(serial);
+	if (!entries) {
+		entries = new Set();
+		cache.set(serial, entries);
+	}
+	entries.add(key);
+}
+
 async function detectAndroidReactNative(
 	serial: string,
 	bundleId: string,
 	pid: number | undefined,
 	execute: (args: string[], timeout?: number) => Promise<string>,
+	generation: number,
 ): Promise<boolean> {
-	if (androidReactNativePackages.has(bundleId)) return true;
-	const processKey = `${serial}:${bundleId}:${pid ?? "unknown"}`;
-	if (androidNonReactNativeProcesses.has(processKey)) return false;
+	const current = () =>
+		(androidDeviceGenerations.get(serial) ?? 0) === generation;
+	if (androidReactNativePackages.get(serial)?.has(bundleId)) return true;
+	const processKey = `${bundleId}:${pid ?? "unknown"}`;
+	if (androidNonReactNativeProcesses.get(serial)?.has(processKey)) return false;
 
 	if (pid) {
 		const logs = await execute(
@@ -1605,7 +1648,8 @@ async function detectAndroidReactNative(
 			4_000,
 		).catch(() => "");
 		if (ANDROID_RN_LOG_MARKERS.test(logs)) {
-			androidReactNativePackages.add(bundleId);
+			if (current())
+				rememberAndroidDetection(androidReactNativePackages, serial, bundleId);
 			return true;
 		}
 	}
@@ -1630,11 +1674,17 @@ async function detectAndroidReactNative(
 		4_000,
 	).catch(() => "");
 	if (ANDROID_RN_FILE_MARKERS.test(files)) {
-		androidReactNativePackages.add(bundleId);
+		if (current())
+			rememberAndroidDetection(androidReactNativePackages, serial, bundleId);
 		return true;
 	}
 
-	androidNonReactNativeProcesses.add(processKey);
+	if (current())
+		rememberAndroidDetection(
+			androidNonReactNativeProcesses,
+			serial,
+			processKey,
+		);
 	return false;
 }
 
@@ -1642,6 +1692,7 @@ export async function getAndroidForegroundApp(
 	serial: string,
 	execute: (args: string[], timeout?: number) => Promise<string> = adbText,
 ): Promise<AndroidForegroundApp | null> {
+	const generation = androidDeviceGenerations.get(serial) ?? 0;
 	const activities = await execute(
 		["-s", serial, "shell", "dumpsys", "activity", "activities"],
 		5_000,
@@ -1655,7 +1706,9 @@ export async function getAndroidForegroundApp(
 		bundleId,
 		pid,
 		execute,
+		generation,
 	);
+	if ((androidDeviceGenerations.get(serial) ?? 0) !== generation) return null;
 	return pid === undefined
 		? { bundleId, isReactNative }
 		: { bundleId, pid, isReactNative };

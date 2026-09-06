@@ -1,35 +1,55 @@
 import { CliError } from "../../cli/error";
-import { hostCommandText } from "../../server/runtime/host-tools-runtime";
+import { BunContext } from "@effect/platform-bun";
+import { Effect } from "effect";
+import { commandText } from "../../server/runtime/host-tools";
 
 export const SIMCTL_LIST_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
-type SimctlDevices = {
-	devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
+export type IosSimulatorDevice = {
+	udid: string;
+	name: string;
+	state: string;
+	isAvailable?: boolean;
+	deviceTypeIdentifier?: string;
 };
 
-async function listDevices(...args: string[]): Promise<SimctlDevices | null> {
-	if (process.platform !== "darwin") return null;
+/** Keep the runtime groups and unavailable devices so callers retain their own selection policy. */
+export async function listIosDevices(
+	options: {
+		booted?: boolean;
+		platform?: NodeJS.Platform;
+		timeoutMs?: number;
+	} = {},
+): Promise<Record<string, IosSimulatorDevice[]> | null> {
+	if ((options.platform ?? process.platform) !== "darwin") return null;
 	try {
-		return JSON.parse(
-			await hostCommandText(
-				"xcrun",
-				"simctl",
-				"list",
-				"devices",
-				...args,
-				"-j",
-			),
-		) as SimctlDevices;
+		const command = commandText(
+			"xcrun",
+			"simctl",
+			"list",
+			"devices",
+			...(options.booted ? ["booted"] : []),
+			"-j",
+		);
+		const output = await Effect.runPromise(
+			(options.timeoutMs === undefined
+				? command
+				: command.pipe(Effect.timeout(options.timeoutMs))
+			).pipe(Effect.provide(BunContext.layer)),
+		);
+		return (
+			JSON.parse(output) as { devices: Record<string, IosSimulatorDevice[]> }
+		).devices;
 	} catch {
 		return null;
 	}
 }
 
 export async function findBootedDevice(): Promise<string | null> {
-	const data = await listDevices("booted");
-	if (!data) return null;
+	const devicesByRuntime = await listIosDevices({ booted: true });
+	if (!devicesByRuntime) return null;
 	let fallback: string | null = null;
-	for (const [runtime, devices] of Object.entries(data.devices)) {
+	for (const [runtime, devices] of Object.entries(devicesByRuntime)) {
 		for (const device of devices) {
 			if (device.state !== "Booted") continue;
 			if (/iOS/i.test(runtime)) return device.udid;
@@ -47,9 +67,9 @@ export async function resolveDevice(nameOrUDID: string): Promise<string> {
 	) {
 		return nameOrUDID;
 	}
-	const data = await listDevices();
-	if (data) {
-		for (const runtime of Object.values(data.devices)) {
+	const devicesByRuntime = await listIosDevices();
+	if (devicesByRuntime) {
+		for (const runtime of Object.values(devicesByRuntime)) {
 			for (const device of runtime) {
 				if (device.name.toLowerCase() === nameOrUDID.toLowerCase())
 					return device.udid;

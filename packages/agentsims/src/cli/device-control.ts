@@ -1,10 +1,9 @@
+import type { Command } from "commander";
+import { cliAction } from "./error";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import {
-	parseDeviceAction,
-	type DeviceAction,
-} from "../commands/device-actions";
-import type { DeviceObservation } from "../commands/device-observation";
+import { parseDeviceAction, type DeviceAction } from "../server/devices/input";
+import type { DeviceObservation } from "../server/devices/service";
 import { STATE_DIR } from "../shared/state";
 import { ApplicationCommandClient } from "./application-command-client";
 
@@ -196,4 +195,108 @@ export async function button(
 	origin?: string,
 ): Promise<void> {
 	await actOnDevice({ type: "button", button: name }, device, origin);
+}
+
+type DeviceCliOptions = {
+	device?: string;
+	url?: string;
+	output?: string;
+	ax?: boolean;
+	stdin?: boolean;
+	file?: string;
+};
+
+export const DEVICE_OPTION = [
+	"-d, --device <id>",
+	"Target a running device id from `agentsims --list`",
+] as const;
+
+/** Legacy top-level commands use the same device operations as the workspace CLI. */
+export function addCompatibilityCommands(program: Command): void {
+	const command = (name: string, description: string) =>
+		program
+			.command(name)
+			.description(description)
+			.option(...DEVICE_OPTION)
+			.option("--url <url>", "Agentsims server URL");
+
+	command(
+		"observe",
+		"Capture one screenshot plus screen and accessibility metadata as JSON",
+	)
+		.option("-o, --output <path>", "Write the screenshot to this path")
+		.option("--no-ax", "Skip accessibility metadata")
+		.action(
+			cliAction(async (options: DeviceCliOptions) => {
+				const observation = await observeDevice({
+					device: options.device,
+					output: options.output,
+					includeAccessibility: options.ax,
+					origin: options.url,
+				});
+				process.stdout.write(`${JSON.stringify(observation, null, 2)}\n`);
+			}),
+		);
+
+	command(
+		"act",
+		"Execute one JSON action: tap, gesture, swipe, type, button, or rotate",
+	)
+		.argument("<json>", "Structured action JSON")
+		.action(
+			cliAction((json: string, options: DeviceCliOptions) =>
+				actOnDevice(parseAgentAction(json), options.device, options.url),
+			),
+		);
+
+	command("gesture", "Send one raw touch phase")
+		.argument("<json>", `Gesture JSON, e.g. '{"type":"begin","x":0.5,"y":0.5}'`)
+		.action(
+			cliAction((json: string, options: DeviceCliOptions) =>
+				gesture(json, options.device, options.url),
+			),
+		);
+
+	command("tap", "Tap at normalized 0..1 coordinates")
+		.argument("<x>", "X coordinate, normalized 0..1")
+		.argument("<y>", "Y coordinate, normalized 0..1")
+		.action(
+			cliAction((x: string, y: string, options: DeviceCliOptions) =>
+				tap(x, y, options.device, options.url),
+			),
+		);
+
+	command("button", "Send a hardware button press")
+		.argument("[name]", "Button name", "home")
+		.action(
+			cliAction((name: string, options: DeviceCliOptions) =>
+				button(name, options.device, options.url),
+			),
+		);
+
+	command("type", "Type text using the US keyboard layout")
+		.argument("[text...]", "Text to type")
+		.option("--stdin", "Read text from stdin")
+		.option("--file <path>", "Read text from a file")
+		.action(
+			cliAction((text: string[], options: DeviceCliOptions) =>
+				typeText(text, {
+					device: options.device,
+					stdin: options.stdin,
+					file: options.file,
+					origin: options.url,
+				}),
+			),
+		);
+
+	command(
+		"rotate",
+		"Set orientation: portrait, portrait_upside_down, landscape_left, or landscape_right",
+	)
+		.argument("<orientation>")
+		.action(
+			cliAction((orientation: string, options: DeviceCliOptions) =>
+				rotate(orientation, options.device, options.url),
+			),
+		);
 }

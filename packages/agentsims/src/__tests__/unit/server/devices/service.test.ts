@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { DeviceCommands } from "../../../commands/device-commands";
+import { makeDeviceService } from "../../../../server/devices/service";
 
 const row = {
 	device: "android:emulator-5554",
@@ -12,11 +12,12 @@ const row = {
 	helper: null,
 };
 
-describe("DeviceCommands", () => {
+describe("makeDeviceService", () => {
 	test("uses the catalog and lifecycle services", async () => {
 		const calls: string[] = [];
-		const commands = new DeviceCommands(
+		const commands = makeDeviceService(
 			{
+				memoryReport: async () => ({ ok: false }),
 				page: async () => ({
 					devices: [row],
 					total: 1,
@@ -35,9 +36,10 @@ describe("DeviceCommands", () => {
 				},
 				states: async () => [],
 			},
+			() => Effect.die("A session is not used by this test"),
 		);
 
-		expect(await Effect.runPromise(commands.status(row.device))).toEqual(row);
+		expect((await Effect.runPromise(commands.list())).devices).toEqual([row]);
 		expect(
 			await Effect.runPromise(commands.start(row.device, { port: 3200 })),
 		).toEqual({
@@ -48,13 +50,17 @@ describe("DeviceCommands", () => {
 	});
 
 	test("converts lifecycle errors to command errors", async () => {
-		const commands = new DeviceCommands(
-			{ page: async () => ({ devices: [], total: 0, offset: 0, limit: 0 }) },
+		const commands = makeDeviceService(
+			{
+				memoryReport: async () => ({ ok: false }),
+				page: async () => ({ devices: [], total: 0, offset: 0, limit: 0 }),
+			},
 			{
 				start: async () => ({ error: "Cannot start" }),
 				shutdown: async () => "Cannot stop",
 				states: async () => [],
 			},
+			() => Effect.die("A session is not used by this test"),
 		);
 		await expect(
 			Effect.runPromise(commands.start("bad", { port: 3200 })),
@@ -64,7 +70,7 @@ describe("DeviceCommands", () => {
 		);
 	});
 
-	test("delegates workspace, observation, and action operations", async () => {
+	test("uses the target session for both observation and input", async () => {
 		const actions: unknown[] = [];
 		const observations: string[] = [];
 		const workspaces = [
@@ -77,38 +83,34 @@ describe("DeviceCommands", () => {
 				wsUrl: "ws://127.0.0.1:3200/ws",
 			},
 		];
-		const commands = new DeviceCommands(
-			{ page: async () => ({ devices: [], total: 0, offset: 0, limit: 0 }) },
+		const commands = makeDeviceService(
+			{
+				memoryReport: async () => ({ ok: false }),
+				page: async () => ({ devices: [], total: 0, offset: 0, limit: 0 }),
+			},
 			{
 				start: async (device) => ({ error: null, device }),
 				shutdown: async () => null,
 				states: async () => workspaces,
 			},
-			{
-				act: (device, batch) =>
-					Effect.sync(() => {
-						actions.push({ device, batch });
-					}),
-			},
-			{
-				observe: (device) =>
-					Effect.sync(() => {
-						observations.push(device);
-						return {
+			(device) =>
+				Effect.succeed({
+					platform: "android" as const,
+					mimeType: "image/png",
+					dispatchInputFrame: async (data: Buffer) => {
+						actions.push({
 							device,
-							platform: "android" as const,
-							capturedAt: 1,
-							screenshot: {
-								mimeType: "image/png",
-								contentBase64: "",
-								bytes: 0,
-							},
-							config: {},
-							accessibility: null,
-							warnings: [],
-						};
-					}),
-			},
+							tag: data[0],
+							input: JSON.parse(data.subarray(1).toString()),
+						});
+					},
+					captureScreenshot: async () => Buffer.from("png"),
+					readConfig: async () => ({}),
+					readAccessibility: async () => {
+						observations.push(device);
+						return null;
+					},
+				}),
 		);
 
 		expect(await Effect.runPromise(commands.workspaces())).toEqual(workspaces);
@@ -122,7 +124,8 @@ describe("DeviceCommands", () => {
 		expect(actions).toEqual([
 			{
 				device: row.device,
-				batch: [{ type: "button", button: "home" }],
+				tag: 4,
+				input: { button: "home" },
 			},
 		]);
 	});

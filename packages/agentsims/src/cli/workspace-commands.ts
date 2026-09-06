@@ -1,4 +1,12 @@
+import { cliAction } from "./error";
 import type { Command } from "commander";
+import { BunContext } from "@effect/platform-bun";
+import { Effect } from "effect";
+import {
+	hostDiagnosticsFor,
+	formatHostDiagnostics,
+	type DoctorPlatform,
+} from "./doctor";
 import {
 	button,
 	observeDevice,
@@ -15,7 +23,7 @@ type ServeOptions = {
 	codec?: string;
 };
 
-type RegisterApplicationCommandsOptions = {
+type RegisterDevicesOptions = {
 	defaultHost: string;
 	serve(devices: string[], options: ServeOptions): Promise<void>;
 	stop(device?: string): void;
@@ -23,17 +31,6 @@ type RegisterApplicationCommandsOptions = {
 
 function printJson(value: unknown): void {
 	process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
-}
-
-async function run(action: () => Promise<void>): Promise<void> {
-	try {
-		await action();
-	} catch (error) {
-		console.error(
-			`agentsims: ${error instanceof Error ? error.message : String(error)}`,
-		);
-		process.exitCode = 1;
-	}
 }
 
 function client(origin: string | undefined): ApplicationCommandClient {
@@ -208,26 +205,66 @@ async function runInputCommand(
 	}
 }
 
+type WorkspaceCommandOptions = {
+	url?: string;
+	output?: string;
+	ax?: boolean;
+	help?: boolean;
+};
+
 export function addWorkspaceCommands(
 	program: Command,
-	options: RegisterApplicationCommandsOptions,
+	options: RegisterDevicesOptions,
 ): void {
+	program
+		.command("doctor")
+		.description("Check installed tools and show how to fix setup problems")
+		.option(
+			"--platform <platform>",
+			"Check android or ios",
+			(value: string) => {
+				if (value !== "android" && value !== "ios")
+					throw new Error("Platform must be android or ios");
+				return value;
+			},
+		)
+		.option("--json", "Print the structured report")
+		.action(
+			cliAction(
+				async (options: { platform?: DoctorPlatform; json?: boolean }) => {
+					const report = await Effect.runPromise(
+						hostDiagnosticsFor(process.platform, options.platform).pipe(
+							Effect.provide(BunContext.layer),
+						),
+					);
+					if (options.json) printJson(report);
+					else process.stdout.write(`${formatHostDiagnostics(report)}\n`);
+					if (!report.ok) process.exitCode = 1;
+				},
+			),
+		);
+
 	program
 		.command("serve [devices...]")
 		.description("Start the complete Agentsims workspace")
 		.option("-p, --port <port>", "Web server port", (value) => Number(value))
 		.option("--host <address>", "Web server address", options.defaultHost)
 		.option("--codec <codec>", "Video codec: auto, h264, or mjpeg", "auto")
-		.action((devices: string[], commandOptions: ServeOptions) =>
-			run(() => options.serve(devices, commandOptions)),
+		.action(
+			cliAction(
+				(devices: string[], _commandOptions: ServeOptions, command: Command) =>
+					options.serve(devices, command.optsWithGlobals<ServeOptions>()),
+			),
 		);
 
 	program
 		.command("status")
 		.description("Show running Agentsims workspaces")
 		.option("--url <url>", "Agentsims server URL")
-		.action((commandOptions) =>
-			run(async () => printJson(await client(commandOptions.url).status())),
+		.action(
+			cliAction(async (commandOptions: WorkspaceCommandOptions) =>
+				printJson(await client(commandOptions.url).status()),
+			),
 		);
 
 	program
@@ -242,8 +279,8 @@ export function addWorkspaceCommands(
 		.command("list")
 		.description("List all devices")
 		.option("--url <url>", "Agentsims server URL")
-		.action((commandOptions) =>
-			run(async () =>
+		.action(
+			cliAction(async (commandOptions: WorkspaceCommandOptions) =>
 				printJson(await client(commandOptions.url).listDevices()),
 			),
 		);
@@ -252,18 +289,20 @@ export function addWorkspaceCommands(
 		.alias("start")
 		.description("Boot a device and attach its stream")
 		.option("--url <url>", "Agentsims server URL")
-		.action((device: string, commandOptions) =>
-			run(async () =>
-				printJson(await client(commandOptions.url).startDevice(device)),
+		.action(
+			cliAction(
+				async (device: string, commandOptions: WorkspaceCommandOptions) =>
+					printJson(await client(commandOptions.url).startDevice(device)),
 			),
 		);
 	devices
 		.command("shutdown <device>")
 		.description("Shut down a device")
 		.option("--url <url>", "Agentsims server URL")
-		.action((device: string, commandOptions) =>
-			run(async () =>
-				printJson(await client(commandOptions.url).shutdownDevice(device)),
+		.action(
+			cliAction(
+				async (device: string, commandOptions: WorkspaceCommandOptions) =>
+					printJson(await client(commandOptions.url).shutdownDevice(device)),
 			),
 		);
 
@@ -275,67 +314,70 @@ export function addWorkspaceCommands(
 		.option("--url <url>", "Agentsims server URL")
 		.option("-o, --output <path>", "Screenshot output path")
 		.option("--no-ax", "Do not capture accessibility data")
-		.action((deviceId: string | undefined, args: string[], commandOptions) =>
-			run(async () => {
-				if (commandOptions.help) {
-					process.stdout.write(deviceHelp(deviceId, args));
-					return;
-				}
-				deviceId = requiredArgument(deviceId, "device");
-				const appClient = client(commandOptions.url);
-				const [group, action, ...values] = args;
-				switch (group) {
-					case "status": {
-						const page = (await appClient.listDevices()) as {
-							devices?: Array<{ device?: string }>;
-						};
-						const record = page.devices?.find(
-							(item) => item.device === deviceId,
-						);
-						if (!record) throw new Error(`Device ${deviceId} was not found`);
-						printJson(record);
+		.action(
+			cliAction(
+				async (
+					deviceId: string | undefined,
+					args: string[],
+					commandOptions: WorkspaceCommandOptions,
+				) => {
+					if (commandOptions.help) {
+						process.stdout.write(deviceHelp(deviceId, args));
 						return;
 					}
-					case "observe":
-						printJson(
-							await observeDevice({
-								device: deviceId,
-								output: commandOptions.output,
-								includeAccessibility: commandOptions.ax,
-								origin: commandOptions.url,
-							}),
-						);
-						return;
-					case "screenshot":
-						printJson(
-							await observeDevice({
-								device: deviceId,
-								output: commandOptions.output,
-								includeAccessibility: false,
-								origin: commandOptions.url,
-							}),
-						);
-						return;
-					case "ax":
-						if (action !== "tree") throw new Error("Use ax tree");
-						printJson(
-							await readAccessibilityTree(deviceId, commandOptions.url),
-						);
-						return;
-					case "camera":
-						await runCameraCommand(appClient, deviceId, action, values);
-						return;
-					case "audio":
-						await runAudioCommand(appClient, deviceId, action, values);
-						return;
-					case "input":
-						await runInputCommand(deviceId, commandOptions.url, action, values);
-						return;
-					default:
-						throw new Error(
-							"Unknown device command. Use `agentsims device --help` for help",
-						);
-				}
-			}),
+					deviceId = requiredArgument(deviceId, "device");
+					const appClient = client(commandOptions.url);
+					const [group, action, ...values] = args;
+					switch (group) {
+						case "status": {
+							const page = (await appClient.listDevices()) as {
+								devices?: Array<{ device?: string }>;
+							};
+							const record = page.devices?.find(
+								(item) => item.device === deviceId,
+							);
+							if (!record) throw new Error(`Device ${deviceId} was not found`);
+							printJson(record);
+							return;
+						}
+						case "observe":
+						case "screenshot":
+							printJson(
+								await observeDevice({
+									device: deviceId,
+									output: commandOptions.output,
+									includeAccessibility:
+										group === "screenshot" ? false : commandOptions.ax,
+									origin: commandOptions.url,
+								}),
+							);
+							return;
+						case "ax":
+							if (action !== "tree") throw new Error("Use ax tree");
+							printJson(
+								await readAccessibilityTree(deviceId, commandOptions.url),
+							);
+							return;
+						case "camera":
+							await runCameraCommand(appClient, deviceId, action, values);
+							return;
+						case "audio":
+							await runAudioCommand(appClient, deviceId, action, values);
+							return;
+						case "input":
+							await runInputCommand(
+								deviceId,
+								commandOptions.url,
+								action,
+								values,
+							);
+							return;
+						default:
+							throw new Error(
+								"Unknown device command. Use `agentsims device --help` for help",
+							);
+					}
+				},
+			),
 		);
 }

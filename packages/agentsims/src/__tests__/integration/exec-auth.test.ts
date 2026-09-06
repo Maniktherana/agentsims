@@ -13,6 +13,27 @@ async function withServer<T>(fn: (origin: string) => Promise<T>): Promise<T> {
 }
 
 describe("/exec auth", () => {
+	test("returns a command failure with its actual stderr and exit status", async () => {
+		await withServer(async (origin) => {
+			const response = await fetch(`${origin}/exec`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${TOKEN}`,
+				},
+				body: JSON.stringify({
+					command: "printf partial; printf failed >&2; exit 7",
+				}),
+			});
+			expect(response.status).toBe(200);
+			expect(await response.json()).toMatchObject({
+				stdout: "partial",
+				stderr: "failed",
+				exitCode: 7,
+			});
+		});
+	});
+
 	test("rejects unauthenticated POST", async () => {
 		await withServer(async (origin) => {
 			const r = await fetch(`${origin}/exec`, {

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { spawn, type ChildProcess } from "child_process";
 import { getPortHolders } from "../../../../server/runtime/ports";
 
@@ -47,6 +47,27 @@ afterAll(() => {
 });
 
 describe("getPortHolders", () => {
+	test("an empty listener match does not produce a diagnostic error", async () => {
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			// Servers requested on port 0 receive a nonzero ephemeral port.
+			expect(await getPortHolders(0)).toEqual([]);
+			expect(warn).not.toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	test("a genuine lsof failure still produces a diagnostic error", async () => {
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect(await getPortHolders(-1)).toEqual([]);
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(warn.mock.calls[0]?.[1]).toBeInstanceOf(Error);
+		} finally {
+			warn.mockRestore();
+		}
+	});
 	test("returns the listener pid", async () => {
 		expect(await getPortHolders(PORT)).toContain(listener.pid!);
 	});

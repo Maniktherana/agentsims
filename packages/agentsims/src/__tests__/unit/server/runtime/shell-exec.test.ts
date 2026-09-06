@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { ShellExec } from "../../../../server/runtime/shell-exec";
+import { BunContext } from "@effect/platform-bun";
+import {
+	ShellExec,
+	ShellExecLive,
+} from "../../../../server/runtime/shell-exec";
 
 describe("ShellExec", () => {
 	test("accepts a stub layer without module mocking", async () => {
@@ -16,4 +20,15 @@ describe("ShellExec", () => {
 
 		expect(result).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 	});
+});
+
+test("ShellExec returns the actual stdout, stderr, and failed exit status", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			return yield* (yield* ShellExec).run(
+				"printf partial; printf failed >&2; exit 7",
+			);
+		}).pipe(Effect.provide(ShellExecLive), Effect.provide(BunContext.layer)),
+	);
+	expect(result).toEqual({ stdout: "partial", stderr: "failed", exitCode: 7 });
 });

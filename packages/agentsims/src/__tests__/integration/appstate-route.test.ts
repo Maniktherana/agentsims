@@ -15,7 +15,6 @@ const state: DeviceState = {
 test("appstate streams the Android foreground-app contract", async () => {
 	const calls: string[] = [];
 	const started = await startTestServer({
-		previewAssets: {},
 		readDeviceStates: async () => [state],
 		readForegroundApp: async (device) => {
 			calls.push(device);

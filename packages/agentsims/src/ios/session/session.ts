@@ -15,7 +15,7 @@
  * original byte-for-byte so the existing browser client is unchanged.
  */
 import type { IncomingMessage, ServerResponse } from "http";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { ScopedResourceRegistry } from "../../shared/scoped-resource-registry";
 import {
 	NativeCapture,
@@ -599,8 +599,12 @@ class IosSessionRegistry {
 	}
 }
 
+export class IosHostUnavailable extends Data.TaggedError("IosHostUnavailable")<{
+	readonly message: string;
+}> {}
+
 export type IosSessionsService = {
-	get(udid: string): Effect.Effect<DeviceSession>;
+	get(udid: string): Effect.Effect<DeviceSession, IosHostUnavailable>;
 	close(udid: string): Effect.Effect<void>;
 };
 
@@ -608,6 +612,16 @@ export class IosSessions extends Context.Tag("@agentsims/IosSessions")<
 	IosSessions,
 	IosSessionsService
 >() {}
+
+export const IosSessionsUnavailable = Layer.succeed(IosSessions, {
+	get: () =>
+		Effect.fail(
+			new IosHostUnavailable({
+				message: "iOS Simulator requires a macOS server with Xcode.",
+			}),
+		),
+	close: () => Effect.void,
+});
 
 export const IosSessionsLive = Layer.scoped(
 	IosSessions,

@@ -1,13 +1,13 @@
 import {
 	textToKeyEvents,
 	UnsupportedCharacterError,
-} from "../shared/text-to-keys";
+} from "./text-to-keys";
 import { Effect } from "effect";
 import {
 	commandFailure,
 	InvalidCommandInput,
 	type ApplicationCommandError,
-} from "./errors";
+} from "../../shared/application-errors";
 
 const INPUT_TOUCH = 0x03;
 const INPUT_BUTTON = 0x04;
@@ -60,7 +60,9 @@ type InputStep = {
 	delayAfterMs?: number;
 };
 
-export type ResolveSession = (device: string) => Promise<DeviceInputSession>;
+export type ResolveSession = (
+	device: string,
+) => Effect.Effect<DeviceInputSession, ApplicationCommandError>;
 type Pause = (milliseconds: number) => Effect.Effect<void>;
 
 function normalized(value: unknown, name: string): number {
@@ -260,17 +262,15 @@ export function parseDeviceAction(value: string): DeviceAction {
 	}
 }
 
-export class DeviceActionCommands {
-	constructor(
-		private readonly resolveSession: ResolveSession,
-		private readonly pause: Pause = defaultPause,
-	) {}
-
-	act(
+export function makeDeviceActions(
+	resolveSession: ResolveSession,
+	pause: Pause = defaultPause,
+) {
+	return (
 		device: string,
 		values: ReadonlyArray<unknown>,
-	): Effect.Effect<void, ApplicationCommandError> {
-		return Effect.gen(this, function* () {
+	): Effect.Effect<void, ApplicationCommandError> => {
+		return Effect.gen(function* () {
 			if (!device)
 				return yield* Effect.fail(
 					new InvalidCommandInput({ message: "Invalid or missing device" }),
@@ -286,10 +286,7 @@ export class DeviceActionCommands {
 				try: () => values.map(decodeDeviceAction),
 				catch: commandFailure,
 			});
-			const session = yield* Effect.tryPromise({
-				try: () => this.resolveSession(device),
-				catch: commandFailure,
-			});
+			const session = yield* resolveSession(device);
 			for (const action of actions) {
 				for (const step of stepsForAction(action)) {
 					yield* Effect.tryPromise({
@@ -297,10 +294,10 @@ export class DeviceActionCommands {
 						catch: commandFailure,
 					});
 					if (step.delayAfterMs) {
-						yield* this.pause(step.delayAfterMs);
+						yield* pause(step.delayAfterMs);
 					}
 				}
 			}
 		});
-	}
+	};
 }

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { MediaCommands } from "../../../commands/media-commands";
+import { makeMediaRouting } from "../../../../server/media/service";
 
-describe("MediaCommands", () => {
+describe("makeMediaRouting", () => {
 	test("delegates reads and writes without HTTP concerns", async () => {
 		const calls: unknown[] = [];
 		const state = { device: "ios-device", sections: [] } as never;
-		const commands = new MediaCommands({
+		const commands = makeMediaRouting({
 			async read(device) {
 				calls.push({ read: device });
 				return state;

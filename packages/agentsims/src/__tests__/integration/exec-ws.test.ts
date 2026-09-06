@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { PreviewServer } from "../../server/runtime/runtime";
+import type { PreviewServer } from "../../server/http/server";
 import { startTestServer } from "../helpers/server";
 
 const TOKEN = "exec-ws-test-token";
@@ -34,6 +34,7 @@ interface Reply {
 	ready?: boolean;
 	id?: number;
 	stdout?: string;
+	stderr?: string;
 	exitCode?: number;
 	error?: string;
 	sub?: number;
@@ -92,6 +93,25 @@ function connect(token: string): Promise<{
 }
 
 describe("exec-ws control channel", () => {
+	test("returns failed command output and its exit status", async () => {
+		const channel = await connect(TOKEN);
+		try {
+			await channel.next();
+			channel.send({
+				id: 9,
+				command: "printf partial; printf failed >&2; exit 7",
+			});
+			expect(await channel.next()).toMatchObject({
+				id: 9,
+				stdout: "partial",
+				stderr: "failed",
+				exitCode: 7,
+			});
+		} finally {
+			channel.close();
+		}
+	});
+
 	test("authenticates and runs a shell exec", async () => {
 		const channel = await connect(TOKEN);
 		expect((await channel.next()).ready).toBe(true);

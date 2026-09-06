@@ -17,6 +17,7 @@ import { debugMw } from "../../shared/debug";
 import { inProcessDeviceState, type DeviceState } from "../../shared/state";
 import { DeviceStateStore } from "./device-state-store";
 import { getStoredMediaRoute } from "../media/route-store";
+import { androidTool } from "../../android/device/sdk-tools";
 
 type SimctlBootedList = {
 	devices: Record<string, Array<{ udid: string; state: string }>>;
@@ -125,6 +126,7 @@ export class DeviceLifecycle {
 	constructor(
 		private readonly execute = execFileResult,
 		private readonly dependencies = UNCONFIGURED_LIFECYCLE_DEPENDENCIES,
+		private readonly platform: NodeJS.Platform = process.platform,
 	) {}
 
 	invalidate(): void {
@@ -232,6 +234,8 @@ export class DeviceLifecycle {
 
 		if (!isIosSimulatorId(device))
 			return { error: "Invalid or missing device" };
+		if (this.platform !== "darwin")
+			return { error: "iOS Simulator requires a macOS server with Xcode." };
 		return { error: await this.startIosDevice(device, port, base), device };
 	}
 
@@ -268,7 +272,7 @@ export class DeviceLifecycle {
 			this.invalidate();
 			if (!androidSerial.startsWith("emulator-")) return null;
 			const result = await this.execute(
-				"adb",
+				androidTool("adb"),
 				["-s", androidSerial, "emu", "kill"],
 				10_000,
 			);
@@ -276,6 +280,8 @@ export class DeviceLifecycle {
 		}
 
 		if (!isIosSimulatorId(device)) return "Invalid or missing device";
+		if (this.platform !== "darwin")
+			return "iOS Simulator requires a macOS server with Xcode.";
 		await this.dependencies.closeIosSession(device);
 		await this.dependencies.removeDeviceState(device);
 		this.invalidate();
@@ -412,7 +418,7 @@ export class DeviceLifecycle {
 	}
 
 	private async bootedIosDevices(): Promise<Set<string> | null> {
-		if (process.platform !== "darwin") return new Set();
+		if (this.platform !== "darwin") return new Set();
 		const now = Date.now();
 		if (this.iosSnapshot.devices && now - this.iosSnapshot.at < 1_500) {
 			return this.iosSnapshot.devices;

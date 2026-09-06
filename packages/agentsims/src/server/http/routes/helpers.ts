@@ -152,6 +152,14 @@ export const helperRoutes = HttpRouter.empty.pipe(
 			const match = target(new URL(request.url).pathname, config.basePath);
 			if (!match)
 				return HttpServerResponse.text("No agentsims device", { status: 404 });
+			if (
+				!androidSerialFromStateId(match.device) &&
+				process.platform !== "darwin"
+			)
+				return HttpServerResponse.unsafeJson(
+					{ error: "iOS Simulator requires a macOS server with Xcode." },
+					{ status: 503 },
+				);
 			if (match.endpoint === "ws")
 				return yield* upgrade(serverRequest, match.device);
 			return HttpServerResponse.raw(

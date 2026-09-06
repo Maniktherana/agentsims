@@ -9,6 +9,7 @@ import {
 	openSync,
 	readFileSync,
 	readdirSync,
+	statSync,
 	unlinkSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -227,10 +228,35 @@ function parseIni(path: string): Map<string, string> {
 	);
 }
 
+// Match the emulator's ConfigDirs discovery rules on Linux and WSL.
+export function linuxControllerDirectory(
+	env: Record<string, string | undefined> = process.env,
+	isDirectory: (path: string) => boolean = (path) =>
+		statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false,
+): string {
+	let root = env.XDG_RUNTIME_DIR;
+	if (!root) {
+		const runtime = `/run/user/${process.getuid?.()}`;
+		if (process.getuid && isDirectory(runtime)) root = runtime;
+		else if (env.ANDROID_EMULATOR_HOME) root = env.ANDROID_EMULATOR_HOME;
+		else {
+			const configured = env.ANDROID_PREFS_ROOT || env.ANDROID_SDK_HOME;
+			if (configured) {
+				const nested = join(configured, ".android");
+				root = isDirectory(nested) ? nested : configured;
+			} else root = join(env.HOME || homedir(), ".android");
+		}
+	}
+	return join(root, "avd/running");
+}
+
 function controllerMetadata(serial: string): ControllerMetadata {
 	const serialPort = serial.match(/^emulator-(\d+)$/)?.[1];
 	if (!serialPort) throw new Error(`${serial} is not an Android emulator`);
-	const running = join(homedir(), "Library/Caches/TemporaryItems/avd/running");
+	const running =
+		process.platform === "linux"
+			? linuxControllerDirectory()
+			: join(homedir(), "Library/Caches/TemporaryItems/avd/running");
 	for (const name of readdirSync(running)) {
 		const match = name.match(/^pid_(\d+)\.ini$/);
 		if (!match) continue;

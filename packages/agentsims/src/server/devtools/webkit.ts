@@ -4,7 +4,7 @@ import { Context, Effect, Layer } from "effect";
 import {
 	startInspectWebKitBridge,
 	type WebKitBridge,
-} from "../http/devtools-bridge";
+} from "./webkit-bridge";
 import type { DevToolsProvider } from "./model";
 
 export class WebKitDevTools extends Context.Tag("@agentsims/WebKitDevTools")<
@@ -104,3 +104,8 @@ export const webKitDevToolsLayer = (
 	);
 
 export const WebKitDevToolsLive = webKitDevToolsLayer();
+
+export const WebKitDevToolsUnavailable = Layer.succeed(WebKitDevTools, {
+	list: () => Effect.succeed([]),
+	releaseHighlights: () => Effect.void,
+});

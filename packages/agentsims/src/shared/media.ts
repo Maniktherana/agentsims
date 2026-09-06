@@ -1,3 +1,5 @@
+import { Schema } from "effect";
+
 export type MediaApplyMode =
 	| "live"
 	| "app-relaunch"
@@ -55,27 +57,58 @@ export interface DeviceMediaState {
 	};
 }
 
-export type MediaRouteAction =
-	| { action: "android-host-microphone"; enabled: boolean }
-	| { action: "android-camera-source"; face: "front" | "back"; source: string }
-	| { action: "android-camera-sources"; front: string; back: string }
-	| {
-			action: "ios-camera-source";
-			source: "placeholder" | "webcam" | "image" | "video";
-			deviceId?: string;
-			path?: string;
-	  }
-	| { action: "host-audio-input"; deviceId: string }
-	| { action: "host-audio-output"; deviceId: string }
-	| { action: "android-output-volume"; level: number }
-	| { action: "audio-output-volume"; deviceId?: string; volume: number }
-	| { action: "host-audio-output-volume"; deviceId: string; volume: number }
-	| {
-			action: "android-virtual-scene-image";
-			surface: "wall" | "table";
-			path?: string;
-	  }
-	| { action: "restart-device" };
+export const MediaRouteActionSchema = Schema.Union(
+	Schema.Struct({
+		action: Schema.Literal("android-host-microphone"),
+		enabled: Schema.Boolean,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("android-camera-source"),
+		face: Schema.Literal("front", "back"),
+		source: Schema.String,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("android-camera-sources"),
+		front: Schema.String,
+		back: Schema.String,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("ios-camera-source"),
+		source: Schema.Literal("placeholder", "webcam", "image", "video"),
+		deviceId: Schema.optional(Schema.String),
+		path: Schema.optional(Schema.String),
+	}),
+	Schema.Struct({
+		action: Schema.Literal("host-audio-input"),
+		deviceId: Schema.String,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("host-audio-output"),
+		deviceId: Schema.String,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("android-output-volume"),
+		level: Schema.Number,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("audio-output-volume"),
+		deviceId: Schema.optional(Schema.String),
+		volume: Schema.Number,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("host-audio-output-volume"),
+		deviceId: Schema.String,
+		volume: Schema.Number,
+	}),
+	Schema.Struct({
+		action: Schema.Literal("android-virtual-scene-image"),
+		surface: Schema.Literal("wall", "table"),
+		path: Schema.optional(Schema.String),
+	}),
+	Schema.Struct({ action: Schema.Literal("restart-device") }),
+);
+
+export type MediaRouteAction = typeof MediaRouteActionSchema.Type;
 
 export interface MediaRouteResult {
 	ok: true;

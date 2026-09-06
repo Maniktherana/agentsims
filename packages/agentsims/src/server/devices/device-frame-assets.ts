@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { inflateSync } from "zlib";
-import { hostCommandText } from "../runtime/host-tools-runtime";
+import { hostCommandText } from "../runtime/host-tools";
 
 const DEVICE_TYPES_ROOT =
 	"/Library/Developer/CoreSimulator/Profiles/DeviceTypes";

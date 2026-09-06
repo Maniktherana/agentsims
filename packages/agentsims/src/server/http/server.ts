@@ -1,10 +1,14 @@
-import { BunContext } from "@effect/platform-bun";
+import { BunContext, BunHttpServer } from "@effect/platform-bun";
+import { HttpServer } from "@effect/platform";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { AxStreamersLive } from "../../accessibility/snapshot";
 import { AndroidAxServersLive } from "../../android/accessibility/ax-server";
 import { AndroidSessionsLive } from "../../android/session/session";
-import { ApplicationCommandsLive } from "../../commands/device-commands";
-import { IosSessionsLive } from "../../ios/session/session";
+import { DevicesLive } from "../devices/service";
+import {
+	IosSessionsLive,
+	IosSessionsUnavailable,
+} from "../../ios/session/session";
 import { STATE_DIR } from "../../shared/state";
 import { deviceStateStoreLayer } from "../devices/device-state-store";
 import { DeviceLifecycleLive } from "../devices/device-lifecycle";
@@ -14,18 +18,24 @@ import {
 	AndroidDevToolsLive,
 } from "../devtools/android";
 import { DevToolsLive } from "../devtools/service";
-import { WebKitDevToolsLive } from "../devtools/webkit";
+import {
+	WebKitDevToolsLive,
+	WebKitDevToolsUnavailable,
+} from "../devtools/webkit";
 import { MediaRoutingLive } from "../media/service";
 import { ScreenshotOperationsLive } from "../screenshot/operations";
 import { ScreenshotStoreLive } from "../screenshot/store";
 import { ShellExecLive } from "../runtime/shell-exec";
 import {
+	ServerConfig,
 	serverConfigLayer,
 	type ServerConfigInput,
 } from "../runtime/server-config";
-import type { PreviewServer } from "../runtime/runtime";
-import { httpApplicationLive } from "./application";
-import { JsonOnlyLive } from "./json-only";
+import { routesForBasePath } from "./router";
+
+export interface PreviewServer {
+	stop(force?: boolean): Promise<void>;
+}
 
 export type HttpServerOptions = ServerConfigInput;
 
@@ -35,19 +45,17 @@ export function serverServicesLive(options: HttpServerOptions) {
 	const sessionsLive = Layer.mergeAll(
 		axServersLive,
 		AndroidSessionsLive.pipe(Layer.provide(axServersLive)),
-		IosSessionsLive,
+		process.platform === "darwin" ? IosSessionsLive : IosSessionsUnavailable,
 	);
 	const stateStoreLive = deviceStateStoreLayer(STATE_DIR, process.pid);
 	const lifecycleDependenciesLive = Layer.merge(sessionsLive, stateStoreLive);
 	const coreLive = DeviceLifecycleLive.pipe(
 		Layer.provideMerge(lifecycleDependenciesLive),
 	);
-	const commandsLive = ApplicationCommandsLive.pipe(
-		Layer.provideMerge(coreLive),
-	);
-	const configuredCommandsLive = Layer.merge(configLive, commandsLive);
+	const devicesLive = DevicesLive.pipe(Layer.provideMerge(coreLive));
+	const configuredDevicesLive = Layer.merge(configLive, devicesLive);
 	const mediaLive = MediaRoutingLive.pipe(
-		Layer.provideMerge(configuredCommandsLive),
+		Layer.provideMerge(configuredDevicesLive),
 	);
 	const foregroundLive = ForegroundAppsLive.pipe(Layer.provide(coreLive));
 	const streamersLive = AxStreamersLive.pipe(Layer.provide(coreLive));
@@ -58,7 +66,9 @@ export function serverServicesLive(options: HttpServerOptions) {
 		Layer.provide(AndroidCdpAdapterLive),
 	);
 	const devToolsProvidersLive = Layer.merge(
-		WebKitDevToolsLive,
+		process.platform === "darwin"
+			? WebKitDevToolsLive
+			: WebKitDevToolsUnavailable,
 		androidDevToolsLive,
 	);
 	const devToolsLive = DevToolsLive.pipe(
@@ -71,7 +81,18 @@ export function serverServicesLive(options: HttpServerOptions) {
 		screenshotsLive,
 		devToolsLive,
 		ShellExecLive,
-		JsonOnlyLive,
+	);
+}
+
+export function httpApplicationLive(host: string, port: number) {
+	return Layer.unwrapEffect(
+		Effect.map(ServerConfig, (config) =>
+			HttpServer.serve(routesForBasePath(config.basePath)).pipe(
+				Layer.provide(
+					BunHttpServer.layer({ hostname: host, port, idleTimeout: 0 }),
+				),
+			),
+		),
 	);
 }
 

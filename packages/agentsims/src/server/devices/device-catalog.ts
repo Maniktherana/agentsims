@@ -1,4 +1,9 @@
-import { execFile } from "child_process";
+import {
+	listIosDevices,
+	type IosSimulatorDevice,
+} from "../../ios/device/device";
+import { readFile } from "node:fs/promises";
+import { parseLinuxMemory } from "../runtime/linux-memory";
 import {
 	androidAvdStateId,
 	androidStateId,
@@ -13,20 +18,9 @@ import {
 } from "./device-frame-assets";
 import type { DeviceLifecycleServiceValue } from "./device-lifecycle";
 import type { DeviceState } from "../../shared/state";
-import { hostCommandText } from "../runtime/host-tools-runtime";
+import { hostCommandText } from "../runtime/host-tools";
 
-type SimctlDevice = {
-	udid: string;
-	name: string;
-	state: string;
-	isAvailable?: boolean;
-	deviceTypeIdentifier?: string;
-	runtime: string;
-};
-
-type SimctlAllList = {
-	devices: Record<string, Array<Omit<SimctlDevice, "runtime">>>;
-};
+type SimctlDevice = IosSimulatorDevice & { runtime: string };
 
 export type GridDevice = {
 	device: string;
@@ -46,12 +40,12 @@ export type GridPage = {
 };
 
 export type MemoryReport = {
-	totalBytes: number;
-	availableBytes: number;
+	totalBytes: number | null;
+	availableBytes: number | null;
 	runningSimulators: number;
 	perSimAvgBytes: number;
 	perSimSource: "measured" | "estimated";
-	estimatedAdditional: number;
+	estimatedAdditional: number | null;
 };
 
 type PendingGridDevice = Omit<GridDevice, "chrome" | "placeholderAsset"> & {
@@ -89,7 +83,10 @@ export class DeviceCatalog {
 		udid: null,
 	};
 
-	constructor(private readonly lifecycle: DeviceLifecycleServiceValue) {}
+	constructor(
+		private readonly lifecycle: DeviceLifecycleServiceValue,
+		private readonly platform: NodeJS.Platform = process.platform,
+	) {}
 
 	async page(options: {
 		selectedDevice: string | null;
@@ -224,6 +221,26 @@ export class DeviceCatalog {
 	}
 
 	async memoryReport(): Promise<MemoryReport> {
+		if (this.platform !== "darwin") {
+			const text =
+				this.platform === "linux"
+					? await readFile("/proc/meminfo", "utf8").catch(() => "")
+					: "";
+			const memory = parseLinuxMemory(text);
+			const states = await this.lifecycle.states();
+			return {
+				...memory,
+				runningSimulators: states.filter((state) =>
+					state.device.startsWith("android:emulator-"),
+				).length,
+				perSimAvgBytes: DEFAULT_PER_SIM_BYTES,
+				perSimSource: "estimated",
+				estimatedAdditional:
+					memory.availableBytes === null
+						? null
+						: Math.floor(memory.availableBytes / DEFAULT_PER_SIM_BYTES),
+			};
+		}
 		const [totalRaw, pageRaw, vmStat, processList] = await Promise.all([
 			hostCommandText("sysctl", "-n", "hw.memsize").catch(() => "0"),
 			hostCommandText("sysctl", "-n", "hw.pagesize").catch(() => "4096"),
@@ -232,11 +249,12 @@ export class DeviceCatalog {
 		]);
 		const pageSize = Number(pageRaw.trim()) || 4_096;
 		const pages = (pattern: RegExp) => Number(vmStat.match(pattern)?.[1] ?? 0);
-		const availableBytes =
-			(pages(/Pages free:\s+(\d+)/) +
-				pages(/Pages inactive:\s+(\d+)/) +
-				pages(/Pages speculative:\s+(\d+)/)) *
-			pageSize;
+		const availableBytes = vmStat.trim()
+			? (pages(/Pages free:\s+(\d+)/) +
+					pages(/Pages inactive:\s+(\d+)/) +
+					pages(/Pages speculative:\s+(\d+)/)) *
+				pageSize
+			: null;
 		const perUdid: Record<string, number> = {};
 		let simulatorBytes = 0;
 		for (const line of processList.split("\n")) {
@@ -255,50 +273,37 @@ export class DeviceCatalog {
 		const perSimAvgBytes =
 			perSimSource === "measured" ? measuredAverage : DEFAULT_PER_SIM_BYTES;
 		return {
-			totalBytes: Number(totalRaw.trim()) || 0,
+			totalBytes: Number(totalRaw.trim()) || null,
 			availableBytes,
 			runningSimulators,
 			perSimAvgBytes,
 			perSimSource,
 			estimatedAdditional:
-				perSimAvgBytes > 0
+				availableBytes !== null && perSimAvgBytes > 0
 					? Math.max(0, Math.floor(availableBytes / perSimAvgBytes))
-					: 0,
+					: null,
 		};
 	}
 
-	private listIosSimulators(): Promise<SimctlDevice[]> {
-		return new Promise((resolve) => {
-			execFile(
-				"xcrun",
-				["simctl", "list", "devices", "-j"],
-				{ encoding: "utf-8", timeout: 3_000, maxBuffer: 8 * 1024 * 1024 },
-				(error, stdout) => {
-					if (error) return resolve([]);
-					try {
-						const data = JSON.parse(stdout) as SimctlAllList;
-						const devices: SimctlDevice[] = [];
-						for (const [runtime, entries] of Object.entries(data.devices)) {
-							if (!/SimRuntime\.(iOS|watchOS|visionOS|xrOS)-/i.test(runtime))
-								continue;
-							for (const entry of entries) {
-								if (entry.isAvailable === false) continue;
-								devices.push({
-									...entry,
-									runtime: runtime.replace(/^.*SimRuntime\./, ""),
-								});
-							}
-						}
-						resolve(devices);
-					} catch {
-						resolve([]);
-					}
-				},
-			);
+	private async listIosSimulators(): Promise<SimctlDevice[]> {
+		const inventory = await listIosDevices({
+			platform: this.platform,
+			timeoutMs: 3000,
 		});
+		return Object.entries(inventory ?? {}).flatMap(([runtime, entries]) =>
+			/SimRuntime\.(iOS|watchOS|visionOS|xrOS)-/i.test(runtime)
+				? entries
+						.filter((entry) => entry.isAvailable !== false)
+						.map((entry) => ({
+							...entry,
+							runtime: runtime.replace(/^.*SimRuntime\./, ""),
+						}))
+				: [],
+		);
 	}
 
 	private async preferredIosDevice(): Promise<string | null> {
+		if (this.platform !== "darwin") return null;
 		const now = Date.now();
 		if (now - this.preferredSnapshot.at < 1_500)
 			return this.preferredSnapshot.udid;

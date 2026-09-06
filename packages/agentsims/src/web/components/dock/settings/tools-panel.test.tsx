@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AndroidStatus } from "../../../../android/device/types";
-import type { DeviceMediaState } from "../../../../server/media/model";
+import type { DeviceMediaState } from "../../../../shared/media";
 import {
 	AndroidControlsStatus,
 	formatAndroidDisplay,

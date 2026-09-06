@@ -1,4 +1,4 @@
-import { Command } from "@effect/platform";
+import { makeAndroidToolRunner } from "../../android/device/tool-command";
 import { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { Context, Effect, Layer } from "effect";
 import { androidSerialFromStateId } from "../../android/device/device";
@@ -21,8 +21,7 @@ export const AndroidCdpAdapterLive = Layer.effect(
 	Effect.gen(function* () {
 		const executor = yield* CommandExecutor;
 		return {
-			command: (serial, args) =>
-				executor.string(Command.make("adb", "-s", serial, ...args)),
+			command: makeAndroidToolRunner(executor),
 			targets: (port) =>
 				Effect.tryPromise(async () => {
 					const response = await fetch(`http://127.0.0.1:${port}/json`);

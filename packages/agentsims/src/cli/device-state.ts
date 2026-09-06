@@ -17,6 +17,7 @@ let bootedSnapshot: { at: number; booted: Set<string> | null } = {
 };
 
 function getBootedUdids(): Set<string> | null {
+	if (process.platform !== "darwin") return null;
 	const now = Date.now();
 	if (bootedSnapshot.booted && now - bootedSnapshot.at < 1000) {
 		return bootedSnapshot.booted;
@@ -64,12 +65,10 @@ function readStateFile(file: string): ServerState | null {
 			return null;
 		}
 
-		const booted = getBootedUdids();
-		if (
-			!androidSerialFromStateId(state.device) &&
-			booted &&
-			!booted.has(state.device)
-		) {
+		const booted = androidSerialFromStateId(state.device)
+			? null
+			: getBootedUdids();
+		if (booted && !booted.has(state.device)) {
 			if (state.pid === process.pid) {
 				debugState(
 					"dropping own stale state for non-booted device %s",
