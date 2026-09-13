@@ -146,12 +146,9 @@ export async function runLocalServer(
 		process.stdout.write(
 			options.json
 				? `${JSON.stringify({ type: "ready", ...record })}\n`
-				: `Agentsims is running at ${record.url}\n`,
+				: `\nAgentsims is running at ${record.url}\n\n`,
 		);
-		logRuntime(
-			"server",
-			`Ready at ${record.url} (PID ${process.pid}, codec ${options.codec}).`,
-		);
+		logRuntime("server", `Ready (PID ${process.pid}, codec ${options.codec}).`);
 		if (!options.managed && !options.json)
 			logRuntime(
 				"server",
@@ -165,8 +162,10 @@ export async function runLocalServer(
 			logRuntime("server", "Stopping. Closing device sessions and streams.");
 			void server!.stop().then(stopped.resolve, stopped.reject);
 		};
-		process.once("SIGINT", stop);
-		process.once("SIGTERM", stop);
+		// A terminal and its package runner can both signal this process.
+		// Keep handling duplicate signals until scoped cleanup has finished.
+		process.on("SIGINT", stop);
+		process.on("SIGTERM", stop);
 		if (options.managed) {
 			process.stdin.once("end", stop);
 			process.stdin.once("close", stop);

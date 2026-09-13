@@ -1,5 +1,6 @@
 import { tmpdir } from "os";
 import { join } from "path";
+import { randomUUID } from "node:crypto";
 import { readdirSync, mkdirSync, writeFileSync, renameSync, rmSync } from "fs";
 import { FileSystem, Path } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
@@ -57,7 +58,7 @@ export function inProcessDeviceState(
 export function writeDeviceState(state: DeviceState): void {
 	mkdirSync(STATE_DIR, { recursive: true });
 	const file = stateFileForDevice(state.device);
-	const tmp = `${file}.${process.pid}.tmp`;
+	const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
 	writeFileSync(tmp, JSON.stringify(state, null, 2));
 	renameSync(tmp, file);
 }
@@ -102,7 +103,7 @@ export const deviceStateStoreLayer = (directory: string, pid: number) =>
 					Effect.gen(function* () {
 						yield* fs.makeDirectory(directory, { recursive: true });
 						const file = fileFor(state.device);
-						const temporary = `${file}.${pid}.tmp`;
+						const temporary = `${file}.${pid}.${randomUUID()}.tmp`;
 						yield* fs.writeFileString(
 							temporary,
 							JSON.stringify(state, null, 2),

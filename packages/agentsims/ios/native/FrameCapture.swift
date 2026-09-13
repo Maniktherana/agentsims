@@ -70,7 +70,6 @@ actor FrameCapture {
 
         try wireUpFramebuffer()
         startIdleTimer()
-        print("[capture] Frame callbacks registered (event-driven) + 5fps idle floor")
     }
 
     /// Find all framebuffer display descriptors, register callbacks on each,
@@ -114,7 +113,6 @@ actor FrameCapture {
                 let surf = unsafeBitCast(surfObj, to: IOSurface.self)
                 capturedWidth = IOSurfaceGetWidth(surf)
                 capturedHeight = IOSurfaceGetHeight(surf)
-                print("[capture] Framebuffer: \(capturedWidth)x\(capturedHeight) (direct IOSurface, zero-copy)")
             }
         }
 

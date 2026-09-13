@@ -2,7 +2,7 @@ import createDebug from "debug";
 
 /** Lifecycle events go to stderr; stdout remains usable for CLI JSON. */
 export function logRuntime(scope: string, message: string): void {
-	console.error(`${new Date().toISOString()} [${scope}] ${message}`);
+	process.stderr.write(`${new Date().toISOString()} [${scope}] ${message}\n`);
 }
 
 const cli = createDebug("agentsims:cli");
