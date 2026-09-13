@@ -13,6 +13,7 @@ import {
 	type AvccSubscriberSink,
 } from "../stream/transport";
 import { ScopedResourceRegistry } from "../../resources";
+import { logRuntime } from "../../logging";
 import {
 	androidButton,
 	androidKeyEvent,
@@ -338,6 +339,7 @@ export class AndroidSession {
 		this.transport?.close();
 		this.transport = null;
 		this.dependencies.closeAx(this.serial);
+		logRuntime(`android:${this.serial}`, "Session closed.");
 		if (this.deviceRotationLocked) {
 			// Never leave a physical device ignoring its own orientation.
 			this.deviceRotationLocked = false;
@@ -513,6 +515,10 @@ export class AndroidSession {
 				},
 				() => this.updateTransportIdleTimer(),
 			);
+			logRuntime(
+				`android:${this.serial}`,
+				`Opening ${backend} stream (${this.width}×${this.height}).`,
+			);
 		}
 		this.updateTransportIdleTimer();
 		return this.transport;
@@ -539,6 +545,10 @@ export class AndroidSession {
 			)
 				return;
 			session.close();
+			logRuntime(
+				`android:${this.serial}`,
+				"Stream closed after 15 seconds without clients.",
+			);
 			if (this.transport === session) this.transport = null;
 		}, TRANSPORT_IDLE_CLOSE_MS);
 	}

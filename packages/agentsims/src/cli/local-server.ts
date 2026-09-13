@@ -12,6 +12,7 @@ import {
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { configuredDistDirectory, dirnameOf } from "../core/native-paths";
+import { logRuntime } from "../core/logging";
 import { STATE_DIR } from "../core/tools/devices/state";
 import { servePreview, type PreviewServer } from "../server/http/server";
 
@@ -147,11 +148,21 @@ export async function runLocalServer(
 				? `${JSON.stringify({ type: "ready", ...record })}\n`
 				: `Agentsims is running at ${record.url}\n`,
 		);
+		logRuntime(
+			"server",
+			`Ready at ${record.url} (PID ${process.pid}, codec ${options.codec}).`,
+		);
+		if (!options.managed && !options.json)
+			logRuntime(
+				"server",
+				"Press Ctrl+C to stop Agentsims. Simulators will stay running.",
+			);
 		const stopped = Promise.withResolvers<void>();
 		let stopping = false;
 		const stop = () => {
 			if (stopping) return;
 			stopping = true;
+			logRuntime("server", "Stopping. Closing device sessions and streams.");
 			void server!.stop().then(stopped.resolve, stopped.reject);
 		};
 		process.once("SIGINT", stop);
@@ -164,6 +175,7 @@ export async function runLocalServer(
 		}
 		try {
 			await stopped.promise;
+			logRuntime("server", "Stopped.");
 		} finally {
 			process.off("SIGINT", stop);
 			process.off("SIGTERM", stop);

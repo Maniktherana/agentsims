@@ -16,6 +16,7 @@
  */
 import { Context, Data, Effect, Layer } from "effect";
 import { ScopedResourceRegistry } from "../resources";
+import { logRuntime } from "../logging";
 import {
 	NativeCapture,
 	NativeHid,
@@ -106,8 +107,13 @@ export class DeviceSession {
 			}
 			this.unsubscribeMjpeg = unsubscribe;
 			this.phase = "running";
+			logRuntime(`ios:${this.udid}`, "Capture ready.");
 		})().catch(async (error) => {
 			this.phase = "stopped";
+			logRuntime(
+				`ios:${this.udid}`,
+				`Capture failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			try {
 				await this.capture.stop();
 			} catch (error) {
@@ -125,6 +131,7 @@ export class DeviceSession {
 		this.unsubscribeMjpeg?.();
 		this.hidSockets.clear();
 		await Promise.allSettled([this.capture.stop(), this.hid.stop()]);
+		logRuntime(`ios:${this.udid}`, "Session closed.");
 	}
 
 	// ── Frame handling ───────────────────────────────────────────────────────

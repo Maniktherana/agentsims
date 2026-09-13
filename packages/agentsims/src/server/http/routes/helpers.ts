@@ -285,7 +285,7 @@ export const helperRoutes = HttpRouter.empty.pipe(
 				);
 			if (match.endpoint === "ws")
 				return yield* upgrade(serverRequest, match.device);
-			return HttpServerResponse.raw(
+			return HttpServerResponse.fromWeb(
 				yield* Effect.promise(() =>
 					response(
 						request,
