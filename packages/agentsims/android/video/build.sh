@@ -10,20 +10,6 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ -z "${FFMPEG_DIR:-}" ]; then
-  if command -v brew >/dev/null 2>&1 && brew --prefix ffmpeg >/dev/null 2>&1; then
-    FFMPEG_DIR="$(brew --prefix ffmpeg)"
-  else
-    FFMPEG_DIR="/usr"
-  fi
-fi
-export FFMPEG_DIR
-if [ ! -d "$FFMPEG_DIR/include/libavcodec" ] || [ ! -d "$FFMPEG_DIR/lib" ]; then
-  echo "FFmpeg development headers and libraries were not found under $FFMPEG_DIR" >&2
-  echo "Install FFmpeg or set FFMPEG_DIR to its prefix" >&2
-  exit 1
-fi
-
 if [ "$(uname -s)" = "Darwin" ]; then
   SDKROOT="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
   export SDKROOT

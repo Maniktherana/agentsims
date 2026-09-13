@@ -5,11 +5,6 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
-use ffmpeg::{
-    Dictionary, Packet, Rational, codec, encoder, format, frame, picture, software::scaling,
-    software::scaling::flag::Flags as ScalingFlags,
-};
-use ffmpeg_next as ffmpeg;
 use memmap2::Mmap;
 use napi::{
     Error, Result, Status,
@@ -18,8 +13,10 @@ use napi::{
 };
 use napi_derive::napi;
 
-const FPS: u32 = 60;
-const BIT_RATE: usize = 16_000_000;
+mod cli_encoder;
+
+pub(crate) const FPS: u32 = 60;
+pub(crate) const BIT_RATE: usize = 16_000_000;
 const FLAG_DESCRIPTION: u32 = 1 << 0;
 const FLAG_KEYFRAME: u32 = 1 << 1;
 const AVCC_TAG_DESCRIPTION: u8 = 0x01;
@@ -89,170 +86,34 @@ impl Mailbox {
     }
 }
 
-struct EncodedOutput {
-    data: Vec<u8>,
-    width: u32,
-    height: u32,
-    flags: u32,
+pub(crate) struct EncodedOutput {
+    pub(crate) data: Vec<u8>,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) flags: u32,
+}
+
+/// Backend that turns an RGBA frame into AVCC output. The native backend links
+/// libavcodec directly; the CLI backend pipes frames through the `ffmpeg`
+/// binary. See `cli_encoder` for why both exist.
+pub(crate) trait VideoEncoder {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn encode(
+        &mut self,
+        rgba: &[u8],
+        force_keyframe: bool,
+    ) -> std::result::Result<Vec<EncodedOutput>, String>;
 }
 
 type FrameCallback =
     ThreadsafeFunction<EncodedOutput, (), (Buffer, u32, u32, u32), Status, false, false, 4>;
 
-struct EncoderState {
-    width: u32,
-    height: u32,
-    scaler: scaling::Context,
-    encoder: encoder::Video,
-    source: frame::Video,
-    converted: frame::Video,
-    frame_index: i64,
+pub(crate) struct NormalizedPacket {
+    pub(crate) nals: Vec<Vec<u8>>,
 }
 
-impl EncoderState {
-    fn new(width: u32, height: u32) -> std::result::Result<Self, String> {
-        ffmpeg::init().map_err(|error| format!("initialize FFmpeg: {error}"))?;
-
-        let encoder_name = platform_encoder_name();
-        let selected = encoder::find_by_name(encoder_name)
-            .ok_or_else(|| format!("FFmpeg encoder {encoder_name} is unavailable"))?;
-        let mut video = codec::context::Context::new_with_codec(selected)
-            .encoder()
-            .video()
-            .map_err(|error| format!("create {encoder_name}: {error}"))?;
-        video.set_width(width);
-        video.set_height(height);
-        video.set_format(format::Pixel::NV12);
-        video.set_time_base(Rational(1, FPS as i32));
-        video.set_frame_rate(Some(Rational(FPS as i32, 1)));
-        video.set_bit_rate(BIT_RATE);
-        video.set_gop(FPS * 5);
-        video.set_max_b_frames(0);
-        // FFmpeg's VideoToolbox backend only enables Apple's one-in/one-out
-        // low-latency rate-control mode when AV_CODEC_FLAG_LOW_DELAY is set.
-        // RealTime + zero B-frames alone still permits a decoder-sized DPB,
-        // which makes visual feedback fall hundreds of milliseconds behind
-        // input as the machine gets busy.
-        video.set_flags(codec::Flags::LOW_DELAY);
-
-        let mut options = Dictionary::new();
-        configure_platform_encoder(&mut options);
-        let encoder = video
-            .open_as_with(selected, options)
-            .map_err(|error| format!("open {encoder_name}: {error}"))?;
-        let scaler = scaling::Context::get(
-            format::Pixel::RGBA,
-            width,
-            height,
-            format::Pixel::NV12,
-            width,
-            height,
-            ScalingFlags::FAST_BILINEAR,
-        )
-        .map_err(|error| format!("create RGBA to NV12 converter: {error}"))?;
-
-        Ok(Self {
-            width,
-            height,
-            scaler,
-            encoder,
-            source: frame::Video::new(format::Pixel::RGBA, width, height),
-            converted: frame::Video::new(format::Pixel::NV12, width, height),
-            frame_index: 0,
-        })
-    }
-
-    fn encode(
-        &mut self,
-        rgba: &[u8],
-        force_keyframe: bool,
-    ) -> std::result::Result<Vec<EncodedOutput>, String> {
-        let row_bytes = self.width as usize * 4;
-        let required = row_bytes * self.height as usize;
-        if rgba.len() < required {
-            return Err(format!(
-                "RGBA mmap is too small: need {required} bytes, found {}",
-                rgba.len()
-            ));
-        }
-
-        let source_stride = self.source.stride(0);
-        let destination = self.source.data_mut(0);
-        for row in 0..self.height as usize {
-            let source_start = row * row_bytes;
-            let destination_start = row * source_stride;
-            destination[destination_start..destination_start + row_bytes]
-                .copy_from_slice(&rgba[source_start..source_start + row_bytes]);
-        }
-        self.scaler
-            .run(&self.source, &mut self.converted)
-            .map_err(|error| format!("convert RGBA frame: {error}"))?;
-
-        self.frame_index += 1;
-        self.converted.set_pts(Some(self.frame_index));
-        self.converted.set_kind(if force_keyframe {
-            picture::Type::I
-        } else {
-            picture::Type::None
-        });
-        self.encoder
-            .send_frame(&self.converted)
-            .map_err(|error| format!("submit frame to encoder: {error}"))?;
-
-        let mut outputs = Vec::new();
-        let mut packet = Packet::empty();
-        while self.encoder.receive_packet(&mut packet).is_ok() {
-            let packet_data = packet
-                .data()
-                .ok_or_else(|| "FFmpeg returned an empty H.264 packet".to_string())?;
-            let normalized = normalize_h264_packet(packet_data)?;
-            outputs.extend(encoded_packet_outputs(
-                &normalized,
-                packet.is_key(),
-                self.width,
-                self.height,
-            ));
-            packet = Packet::empty();
-        }
-        Ok(outputs)
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn platform_encoder_name() -> &'static str {
-    "h264_videotoolbox"
-}
-
-#[cfg(target_os = "linux")]
-fn platform_encoder_name() -> &'static str {
-    "libx264"
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn platform_encoder_name() -> &'static str {
-    "libx264"
-}
-
-#[cfg(target_os = "macos")]
-fn configure_platform_encoder(options: &mut Dictionary<'_>) {
-    options.set("realtime", "1");
-    options.set("prio_speed", "1");
-    options.set("profile", "high");
-    options.set("allow_sw", "0");
-}
-
-#[cfg(not(target_os = "macos"))]
-fn configure_platform_encoder(options: &mut Dictionary<'_>) {
-    options.set("preset", "ultrafast");
-    options.set("tune", "zerolatency");
-    options.set("profile", "high");
-}
-
-struct NormalizedPacket {
-    nals: Vec<Vec<u8>>,
-}
-
-fn normalize_h264_packet(data: &[u8]) -> std::result::Result<NormalizedPacket, String> {
+pub(crate) fn normalize_h264_packet(data: &[u8]) -> std::result::Result<NormalizedPacket, String> {
     let nals = if has_annex_b_start_code(data) {
         split_annex_b(data)
     } else {
@@ -318,7 +179,7 @@ fn split_avcc(data: &[u8]) -> std::result::Result<Vec<Vec<u8>>, String> {
     Ok(nals)
 }
 
-fn nal_type(nal: &[u8]) -> u8 {
+pub(crate) fn nal_type(nal: &[u8]) -> u8 {
     nal.first().copied().unwrap_or(0) & 0x1f
 }
 
@@ -350,7 +211,7 @@ fn avcc_description(nals: &[Vec<u8>]) -> Option<Vec<u8>> {
     Some(description)
 }
 
-fn encoded_packet_outputs(
+pub(crate) fn encoded_packet_outputs(
     packet: &NormalizedPacket,
     keyframe: bool,
     width: u32,
@@ -390,6 +251,10 @@ fn envelope(tag: u8, payload: &[u8]) -> Vec<u8> {
     encoded
 }
 
+fn new_encoder(width: u32, height: u32) -> std::result::Result<Box<dyn VideoEncoder>, String> {
+    Ok(Box::new(cli_encoder::CliEncoder::new(width, height)?))
+}
+
 fn worker(
     path: String,
     mailbox: Arc<Mailbox>,
@@ -410,15 +275,15 @@ fn worker(
             return;
         }
     };
-    let mut encoder: Option<EncoderState> = None;
+    let mut encoder: Option<Box<dyn VideoEncoder>> = None;
     while let Some(request) = mailbox.receive() {
         if request.width == 0 || request.height == 0 {
             continue;
         }
         if encoder.as_ref().is_none_or(|current| {
-            current.width != request.width || current.height != request.height
+            current.width() != request.width || current.height() != request.height
         }) {
-            match EncoderState::new(request.width, request.height) {
+            match new_encoder(request.width, request.height) {
                 Ok(next) => encoder = Some(next),
                 Err(error) => {
                     eprintln!("[android-video] {error}");
@@ -525,15 +390,7 @@ impl Drop for AndroidVideoCapture {
 mod tests {
     use super::*;
 
-    #[test]
-    fn encoder_low_delay_flag_maps_to_ffmpeg_codec_contract() {
-        assert_eq!(
-            codec::Flags::LOW_DELAY.bits(),
-            ffmpeg::ffi::AV_CODEC_FLAG_LOW_DELAY as u32,
-        );
-    }
-
-    #[test]
+        #[test]
     fn mailbox_keeps_only_latest_frame_and_preserves_keyframe_request() {
         let mailbox = Mailbox::new();
         mailbox.submit(FrameRequest {
@@ -599,5 +456,164 @@ mod tests {
         let packet = [0, 0, 0, 3, 0x41, 0xaa, 0xbb];
         let normalized = normalize_h264_packet(&packet).unwrap();
         assert_eq!(avcc_payload(&normalized.nals), packet);
+    }
+}
+
+/// Measures the linked-libavcodec backend against the `ffmpeg` CLI backend on
+/// synthetic frames, so the cost of the subprocess and pipe copy can be seen
+/// without a running emulator. Ignored by default because it spawns encoders
+/// and takes seconds.
+///
+///   cargo test --release --lib -- --ignored --nocapture encoder_backend_benchmark
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const SOURCE_FRAMES: usize = 4;
+
+    #[test]
+    #[ignore]
+    fn encoder_backend_benchmark() {
+        let width = env_number("BENCH_WIDTH", 1080);
+        let height = env_number("BENCH_HEIGHT", 2400);
+        let frames = env_number("BENCH_FRAMES", 300) as usize;
+        let pace = env_number("BENCH_FPS", FPS);
+
+        let cadence = if pace == 0 {
+            "unpaced".to_string()
+        } else {
+            format!("paced at {pace} fps")
+        };
+        println!("\n{width}x{height}, {frames} frames, {cadence}\n");
+        let sources = build_sources(width, height);
+
+        match run(width, height, frames, pace, &sources) {
+            Ok(report) => report.print("ffmpeg cli"),
+            Err(error) => println!("failed: {error}"),
+        }
+    }
+
+    fn env_number(name: &str, fallback: u32) -> u32 {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(fallback)
+    }
+
+    /// Moving content, so the encoder is not measured on a static image it can
+    /// compress away to nothing.
+    fn build_sources(width: u32, height: u32) -> Vec<Vec<u8>> {
+        (0..SOURCE_FRAMES)
+            .map(|index| {
+                let offset = index * 37;
+                let mut frame = vec![0u8; width as usize * height as usize * 4];
+                for y in 0..height as usize {
+                    for x in 0..width as usize {
+                        let pixel = (y * width as usize + x) * 4;
+                        frame[pixel] = ((x + offset) % 256) as u8;
+                        frame[pixel + 1] = ((y * 3 + offset * 2) % 256) as u8;
+                        frame[pixel + 2] = ((x ^ (y + offset)) % 256) as u8;
+                        frame[pixel + 3] = 255;
+                    }
+                }
+                frame
+            })
+            .collect()
+    }
+
+    struct Report {
+        calls: Vec<Duration>,
+        /// Frames submitted but not yet returned, sampled after every call.
+        /// The native backend encodes inline so this stays at zero; the CLI
+        /// backend encodes in another process, so this is its added latency.
+        lag: Vec<usize>,
+        wall: Duration,
+        outputs: usize,
+        bytes: usize,
+        first_output_after: Option<usize>,
+    }
+
+    impl Report {
+        fn print(&self, backend: &str) {
+            let mut sorted = self.calls.clone();
+            sorted.sort();
+            let total: Duration = sorted.iter().sum();
+            let mean = total / sorted.len().max(1) as u32;
+            let at = |quantile: f64| {
+                sorted[((sorted.len() as f64 * quantile) as usize).min(sorted.len() - 1)]
+            };
+            println!("{backend}");
+            println!("  encode() mean {:>8.2} ms", mean.as_secs_f64() * 1000.0);
+            println!("  encode() p50  {:>8.2} ms", at(0.50).as_secs_f64() * 1000.0);
+            println!("  encode() p95  {:>8.2} ms", at(0.95).as_secs_f64() * 1000.0);
+            println!("  encode() max  {:>8.2} ms", at(1.0).as_secs_f64() * 1000.0);
+            println!(
+                "  throughput    {:>8.1} fps",
+                self.calls.len() as f64 / self.wall.as_secs_f64()
+            );
+            let mut lag = self.lag.clone();
+            lag.sort();
+            let mean_lag = self.lag.iter().sum::<usize>() as f64 / self.lag.len().max(1) as f64;
+            let p95_lag = lag[((lag.len() as f64 * 0.95) as usize).min(lag.len() - 1)];
+            println!("  lag mean      {mean_lag:>8.1} frames");
+            println!("  lag p95       {p95_lag:>8} frames");
+            println!("  outputs       {:>8}", self.outputs);
+            println!("  encoded       {:>8.2} MB", self.bytes as f64 / 1_048_576.0);
+            match self.first_output_after {
+                Some(frames) => println!("  first output  {frames:>8} frames in"),
+                None => println!("  first output     never"),
+            }
+            println!();
+        }
+    }
+
+    fn run(
+        width: u32,
+        height: u32,
+        frames: usize,
+        pace: u32,
+        sources: &[Vec<u8>],
+    ) -> std::result::Result<Report, String> {
+        let interval = if pace == 0 {
+            Duration::ZERO
+        } else {
+            Duration::from_secs_f64(1.0 / pace as f64)
+        };
+        let mut encoder = new_encoder(width, height)?;
+        let mut calls = Vec::with_capacity(frames);
+        let mut lag = Vec::with_capacity(frames);
+        let mut outputs = 0usize;
+        let mut bytes = 0usize;
+        let mut first_output_after = None;
+
+        let wall_start = Instant::now();
+        for index in 0..frames {
+            let source = &sources[index % sources.len()];
+            let deadline = wall_start + interval * index as u32;
+            if let Some(wait) = deadline.checked_duration_since(Instant::now()) {
+                std::thread::sleep(wait);
+            }
+            let start = Instant::now();
+            let produced = encoder.encode(source, index == 0)?;
+            calls.push(start.elapsed());
+            for output in &produced {
+                if output.flags & FLAG_DESCRIPTION == 0 {
+                    outputs += 1;
+                    first_output_after.get_or_insert(index + 1);
+                }
+                bytes += output.data.len();
+            }
+            lag.push((index + 1).saturating_sub(outputs));
+        }
+
+        Ok(Report {
+            calls,
+            lag,
+            wall: wall_start.elapsed(),
+            outputs,
+            bytes,
+            first_output_after,
+        })
     }
 }
