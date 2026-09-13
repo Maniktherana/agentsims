@@ -3,7 +3,7 @@ import {
 	allPermissionNames,
 	parsePermissionsArgs,
 	resolvePermission,
-} from "../../../../ios/device/permissions";
+} from "../../../../core/ios/permissions";
 
 describe("resolvePermission", () => {
 	test("notifications resolves to the BulletinBoard writer", () => {

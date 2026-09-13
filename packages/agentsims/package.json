@@ -53,17 +53,17 @@
 	"type": "module",
 	"exports": {
 		"./state": {
-			"types": "./dist/types/shared/state.d.ts",
+			"types": "./dist/types/core/tools/devices/state.d.ts",
 			"import": "./dist/state.js",
 			"require": "./dist/state.cjs"
 		},
 		"./metro": {
-			"types": "./dist/types/rn/metro.d.ts",
+			"types": "./dist/types/core/react-native/node/metro.d.ts",
 			"import": "./dist/metro.js",
 			"require": "./dist/metro.cjs"
 		},
 		"./babel-plugin": {
-			"types": "./dist/types/rn/babel-plugin.d.ts",
+			"types": "./dist/types/core/react-native/node/babel-plugin.d.ts",
 			"require": "./dist/babel-plugin.cjs",
 			"default": "./dist/babel-plugin.cjs"
 		}

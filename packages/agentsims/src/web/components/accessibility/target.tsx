@@ -1,5 +1,5 @@
 import { memo, useRef } from "react";
-import type { AxElement } from "../../../accessibility/model";
+import type { AxElement } from "../../../core/tools/observe/accessibility-model";
 import {
 	axElementKey,
 	axElementsEqual,

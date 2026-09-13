@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Server } from "bun";
-import type { WebKitBridge } from "../../server/devtools/webkit-bridge";
+import type { WebKitBridge } from "../../core/ios/browser-devtools/bridge";
 import type { PreviewServer } from "../../server/http/server";
-import type { DeviceState } from "../../shared/state";
+import type { DeviceState } from "../../core/tools/devices/state";
 import { startTestServer } from "../helpers/server";
 let cdp: Server<undefined> | null = null;
 let preview: PreviewServer | null = null;

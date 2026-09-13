@@ -5,16 +5,16 @@ import {
 } from "@effect/platform";
 import { Effect } from "effect";
 import type { Scope } from "effect/Scope";
-import { androidSerialFromStateId } from "../../../android/device/device";
+import { androidSerialFromStateId } from "../../../core/android/device/device";
 import {
 	AndroidSessions,
 	type AndroidSessionsService,
-} from "../../../android/session/session";
+} from "../../../core/android/session/session";
 import {
 	IosSessions,
 	type IosSessionsService,
-} from "../../../ios/session/session";
-import { ServerConfig } from "../../runtime/server-config";
+} from "../../../core/ios/session";
+import { ServerConfig } from "../../runtime/config";
 import { HidSocketAdapter } from "../../websocket/hid-socket";
 import { bytes, json, requestSource } from "./shared";
 

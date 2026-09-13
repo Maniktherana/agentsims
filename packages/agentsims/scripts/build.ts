@@ -19,12 +19,12 @@ import {
 	runtimeCompileTarget,
 	runtimePackageName,
 	runtimeTarget,
-} from "../src/cli/npm-launcher";
+} from "../src/cli-launcher";
 import {
 	assertPreviewDynamicImportsPresent,
 	assertPreviewManifestAssetsPresent,
 	type PreviewViteManifest,
-} from "../src/server/preview/preview-assets";
+} from "../src/server/http/static-files";
 
 const root = resolve(import.meta.dir, "..");
 const dist = resolve(root, "dist");
@@ -103,12 +103,12 @@ console.log(`Built preview (${assets.size} files)`);
 
 // Public integrations and the npm launcher run in Node; the developer CLI runs in Bun.
 for (const [entry, naming, runtime, format] of [
-	["rn/metro", "metro.js", "node", "esm"],
-	["rn/metro", "metro.cjs", "node", "cjs"],
-	["rn/babel-plugin", "babel-plugin.cjs", "node", "cjs"],
-	["shared/state", "state.js", "node", "esm"],
-	["shared/state", "state.cjs", "node", "cjs"],
-	["cli/npm-launcher", "agentsims.cjs", "node", "cjs"],
+	["core/react-native/node/metro", "metro.js", "node", "esm"],
+	["core/react-native/node/metro", "metro.cjs", "node", "cjs"],
+	["core/react-native/node/babel-plugin", "babel-plugin.cjs", "node", "cjs"],
+	["core/tools/devices/state", "state.js", "node", "esm"],
+	["core/tools/devices/state", "state.cjs", "node", "cjs"],
+	["cli-launcher", "agentsims.cjs", "node", "cjs"],
 	["cli/main", "agentsims.js", "bun", "esm"],
 ] as const) {
 	const result = await Bun.build({

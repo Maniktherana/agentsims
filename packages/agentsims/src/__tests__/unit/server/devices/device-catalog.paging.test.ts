@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseGridPaging } from "../../../../server/devices/device-catalog";
+import { parseGridPaging } from "../../../../core/tools/devices/catalog";
 
 describe("parseGridPaging", () => {
 	test("no query → unpaginated (whole list)", () => {

@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { runtimePackageName, runtimeTarget } from "../../cli/npm-launcher";
+import { runtimePackageName, runtimeTarget } from "../../cli-launcher";
 
 const directory = mkdtempSync(join(tmpdir(), "agentsims launcher test "));
 const launcherPath = join(directory, "launcher.cjs");
@@ -22,7 +22,7 @@ const version = "1.2.3-test.1";
 beforeAll(async () => {
 	if (!target || !runtimeName) return;
 	const result = await Bun.build({
-		entrypoints: [resolve(import.meta.dir, "../../cli/npm-launcher.ts")],
+		entrypoints: [resolve(import.meta.dir, "../../cli-launcher.ts")],
 		target: "node",
 		format: "cjs",
 		outdir: join(directory, "dist"),

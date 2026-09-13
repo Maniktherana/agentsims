@@ -106,7 +106,7 @@ import {
 import {
 	decodeForegroundAppEvent,
 	type ForegroundApp,
-} from "../../../shared/foreground-app";
+} from "../../../core/tools/devices/foreground-apps";
 const currentAppCache = new Map<string, ForegroundApp>();
 
 export interface SimulatorDeviceViewProps {

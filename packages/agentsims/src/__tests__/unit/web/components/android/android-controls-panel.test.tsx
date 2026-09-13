@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type {
 	AndroidEnvironmentState,
 	AndroidToolCapabilities,
-} from "../../../../../android/contracts";
+} from "../../../../../core/android/contracts";
 import {
 	AndroidControlsPanel,
 	AndroidSimulatorControlRows,

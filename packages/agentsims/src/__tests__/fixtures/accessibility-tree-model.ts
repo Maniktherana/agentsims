@@ -1,4 +1,4 @@
-import type { AxElement, AxSourceContext } from "../../accessibility/model";
+import type { AxElement, AxSourceContext } from "../../core/tools/observe/accessibility-model";
 
 const frame = { x: 0, y: 0, width: 320, height: 640 };
 

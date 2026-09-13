@@ -1,4 +1,4 @@
-import type { AndroidToolAction } from "../../../android/contracts";
+import type { AndroidToolAction } from "../../../core/android/contracts";
 import { shellEscape, type ExecResult } from "../../simulator/input/exec";
 
 export type LocationPoint = { lat: number; lng: number; altitude?: number };

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Save } from "lucide-react";
-import type { AndroidSavedState } from "../../../android/contracts";
+import type { AndroidSavedState } from "../../../core/android/contracts";
 import { runAndroidTool } from "../../android/tools-client";
 import { CollapsibleSection } from "../ui/collapsible-section";
 import { toolButtonClass, toolInputClass } from "./tool-fields";

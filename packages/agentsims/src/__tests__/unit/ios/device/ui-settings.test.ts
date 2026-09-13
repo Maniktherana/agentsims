@@ -4,7 +4,7 @@ import {
 	UI_OPTIONS,
 	normalizeUiValue,
 	parseUiArgs,
-} from "../../../../ios/device/ui-settings";
+} from "../../../../core/ios/settings";
 
 describe("parseUiArgs", () => {
 	test("no args requests status", () => {

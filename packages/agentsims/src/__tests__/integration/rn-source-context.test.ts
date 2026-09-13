@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
-import type { AxSnapshot } from "../../accessibility/model";
+import type { AxSnapshot } from "../../core/tools/observe/accessibility-model";
 import {
 	enrichAxSnapshotWithRnSource,
 	rnSourceManifestPath,
-} from "../../accessibility/rn-source";
-import { expoRoute } from "../../rn/babel-plugin";
+} from "../../core/react-native/enrich-accessibility";
+import { expoRoute } from "../../core/react-native/node/babel-plugin";
 import { startTestServer } from "../helpers/server";
 
 const originalManifest = process.env.AGENTSIMS_RN_MANIFEST;

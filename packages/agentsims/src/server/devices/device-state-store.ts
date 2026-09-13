@@ -1,6 +1,6 @@
 import { FileSystem, Path } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
-import type { DeviceState } from "../../shared/state";
+import type { DeviceState } from "../../core/tools/devices/state";
 
 export type DeviceStateStoreService = {
 	write(state: DeviceState): Effect.Effect<void, unknown>;

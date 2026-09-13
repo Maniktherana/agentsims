@@ -3,7 +3,7 @@ import { Command, CommandExecutor } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 /** TCP port ownership helpers for helper lifecycle management. */
-import { captureHostCommand, hostCommandText, hostSleep } from "./host-tools";
+import { captureHostCommand, hostCommandText, hostSleep } from "../../core/host";
 
 /**
  * Return PIDs currently listening on a TCP port, excluding this process.

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { AxElement } from "../../../../../accessibility/model";
+import type { AxElement } from "../../../../../core/tools/observe/accessibility-model";
 import {
 	accessibilityInspectorReducer,
 	createAccessibilityInspectorState,

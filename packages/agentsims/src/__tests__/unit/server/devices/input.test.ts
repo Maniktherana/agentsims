@@ -4,7 +4,7 @@ import {
 	decodeDeviceAction,
 	makeDeviceActions,
 	parseDeviceAction,
-} from "../../../../server/devices/input";
+} from "../../../../core/tools/input";
 
 function decodedFrame(data: Buffer): {
 	tag: number;

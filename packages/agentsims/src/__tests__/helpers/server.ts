@@ -5,30 +5,30 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import {
 	AxStreamers,
 	type AxStreamerCache,
-} from "../../accessibility/snapshot";
-import { Devices, type DeviceService } from "../../server/devices/service";
+} from "../../core/tools/observe/accessibility";
+import { Devices, type DeviceService } from "../../core/tools/devices/devices";
 import {
 	makeMediaRouting,
 	type MediaOperations,
 } from "../../server/media/service";
-import type { ForegroundApp } from "../../shared/foreground-app";
-import type { DeviceState } from "../../shared/state";
+import type { ForegroundApp } from "../../core/tools/devices/foreground-apps";
+import type { DeviceState } from "../../core/tools/devices/state";
 import { ForegroundApps } from "../../server/devices/foreground-apps";
-import { DeviceLifecycleService } from "../../server/devices/device-lifecycle";
-import { AndroidDevTools } from "../../server/devtools/android";
-import { DevToolsLive } from "../../server/devtools/service";
-import { webKitDevToolsLayer } from "../../server/devtools/webkit";
-import type { WebKitBridge } from "../../server/devtools/webkit-bridge";
+import { DeviceLifecycleService } from "../../core/tools/devices/lifecycle";
+import { AndroidDevTools } from "../../core/android/browser-devtools";
+import { DevToolsLive } from "../../core/tools/browser-devtools";
+import { webKitDevToolsLayer } from "../../core/ios/browser-devtools/webkit";
+import type { WebKitBridge } from "../../core/ios/browser-devtools/bridge";
 import {
 	httpApplicationLive,
 	serverServicesLive,
 	type HttpServerOptions,
 } from "../../server/http/server";
 import { MediaRouting } from "../../server/media/service";
-import { ScreenshotOperationsLive } from "../../server/screenshot/operations";
+import { ScreenshotOperationsLive } from "../../core/tools/observe/screenshots";
 import type { PreviewServer } from "../../server/http/server";
-import { ScreenshotStore } from "../../server/screenshot/store";
-import type { ScreenshotStoreService } from "../../server/screenshot/store";
+import { ScreenshotStore } from "../../core/tools/observe/screenshot-store";
+import type { ScreenshotStoreService } from "../../core/tools/observe/screenshot-store";
 
 export type TestServerOverrides = Partial<HttpServerOptions> & {
 	axStreamers?: AxStreamerCache;

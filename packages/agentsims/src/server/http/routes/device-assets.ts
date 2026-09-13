@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import {
 	serveDeviceFrameAssetWeb,
 	serveDevicePlaceholderAssetWeb,
-} from "../../devices/device-frame-assets";
+} from "../../../core/ios/device-assets";
 import { requestSource } from "./shared";
 
 function requestUrl(source: unknown): URL {

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
 	AndroidLogEvent,
 	AndroidLogLine,
-} from "../../../android/contracts";
+} from "../../../core/android/contracts";
 import {
 	androidToolsUrl,
 	downloadAndroidText,

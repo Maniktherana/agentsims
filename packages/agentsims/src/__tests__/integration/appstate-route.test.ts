@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { DeviceState } from "../../shared/state";
+import type { DeviceState } from "../../core/tools/devices/state";
 import { startTestServer } from "../helpers/server";
 
 const DEVICE = "android:emulator-5554";

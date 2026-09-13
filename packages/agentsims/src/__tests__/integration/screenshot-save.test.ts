@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import type { ScreenshotStoreService } from "../../server/screenshot/store";
+import type { ScreenshotStoreService } from "../../core/tools/observe/screenshot-store";
 import { startTestServer } from "../helpers/server";
 
 const TOKEN = "screenshot-save-token";

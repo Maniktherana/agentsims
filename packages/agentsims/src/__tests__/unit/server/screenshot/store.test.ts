@@ -7,7 +7,7 @@ import { join } from "path";
 import {
 	ScreenshotStore,
 	ScreenshotStoreLive,
-} from "../../../../server/screenshot/store";
+} from "../../../../core/tools/observe/screenshot-store";
 
 describe("saveScreenshotPng", () => {
 	test("atomically stores the PNG under the configured home directory", async () => {

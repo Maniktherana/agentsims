@@ -3,8 +3,8 @@ import {
 	classifyStaleDeviceState,
 	DEVICE_SHUTTING_DOWN_ERROR,
 	DeviceLifecycle,
-} from "../../../../server/devices/device-lifecycle";
-import { androidStateId } from "../../../../android/device/device";
+} from "../../../../core/tools/devices/lifecycle";
+import { androidStateId } from "../../../../core/android/device/device";
 
 const IOS = "EA490A70-320C-4CE1-A8F9-55A7116CAFD9";
 

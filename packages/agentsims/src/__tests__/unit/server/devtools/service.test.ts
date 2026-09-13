@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import {
 	WebKitDevTools,
 	webKitDevToolsLayer,
-} from "../../../../server/devtools/webkit";
+} from "../../../../core/ios/browser-devtools/webkit";
 
 test("the WebKit bridge starts lazily and closes with its Layer", async () => {
 	let starts = 0;

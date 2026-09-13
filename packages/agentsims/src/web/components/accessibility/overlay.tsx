@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAxSelectionContext, useAxSnapshotContext } from "./provider";
 import type { AxHighlightOrigin } from "../../accessibility/state";
-import type { AxElement } from "../../../accessibility/model";
+import type { AxElement } from "../../../core/tools/observe/accessibility-model";
 import {
 	meaningfulAxTargetElements,
 	axElementKey,

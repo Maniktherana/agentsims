@@ -3,7 +3,7 @@ import { BunRuntime } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { CliError } from "./error";
 import { dirname } from "node:path";
-import { configureDistDirectory } from "../server/runtime/runtime-paths";
+import { configureDistDirectory } from "../core/native-paths";
 
 declare const __AGENTSIMS_STANDALONE__: boolean;
 if (

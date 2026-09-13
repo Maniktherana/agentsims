@@ -7,13 +7,13 @@ import {
 	HttpServerResponse,
 } from "@effect/platform";
 import { Effect, Stream } from "effect";
-import { AndroidTools } from "../../../android/device/tools";
-import { AndroidLogs } from "../../../android/device/logs";
+import { AndroidTools } from "../../../core/android/device/tools";
+import { AndroidLogs } from "../../../core/android/device/logs";
 import {
 	commandFailure,
 	InvalidCommandInput,
-} from "../../../shared/application-errors";
-import type { AndroidLogLevel } from "../../../android/contracts";
+} from "../../../core/tools/errors";
+import type { AndroidLogLevel } from "../../../core/android/contracts";
 import { commandResponse, requestJson } from "../command";
 import { requestSource } from "./shared";
 

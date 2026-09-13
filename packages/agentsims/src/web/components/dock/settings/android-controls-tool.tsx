@@ -1,7 +1,7 @@
 import { Monitor, RefreshCw, Smartphone, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { simEndpoint } from "../../../preview/sim-endpoint";
-import type { AndroidStatus } from "../../../../android/device/types";
+import type { AndroidStatus } from "../../../../core/android/device/types";
 import { SettingRow } from "./simulator-settings-tool";
 
 const STATUS_VALUE =

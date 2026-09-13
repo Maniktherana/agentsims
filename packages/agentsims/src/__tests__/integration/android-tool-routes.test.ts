@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { HttpApp } from "@effect/platform";
 import { Effect, Stream } from "effect";
-import { makeAndroidTools } from "../../android/device/tools";
-import { AndroidTools } from "../../android/device/tools";
-import { AndroidLogs } from "../../android/device/logs";
+import { makeAndroidTools } from "../../core/android/device/tools";
+import { AndroidTools } from "../../core/android/device/tools";
+import { AndroidLogs } from "../../core/android/device/logs";
 import { androidRoutes } from "../../server/http/routes/android";
-import { CommandFailure } from "../../shared/application-errors";
+import { CommandFailure } from "../../core/tools/errors";
 
 function handler() {
 	const calls: { serial: string; args: readonly string[] }[] = [];

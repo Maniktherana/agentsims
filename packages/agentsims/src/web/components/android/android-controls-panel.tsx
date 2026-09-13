@@ -14,7 +14,7 @@ import type {
 	AndroidEnvironmentState,
 	AndroidToolAction,
 	AndroidToolCapabilities,
-} from "../../../android/contracts";
+} from "../../../core/android/contracts";
 import {
 	SettingRow,
 	SettingSelect,

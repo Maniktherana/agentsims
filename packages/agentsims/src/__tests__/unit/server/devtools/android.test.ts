@@ -4,7 +4,7 @@ import {
 	AndroidCdpAdapter,
 	AndroidDevTools,
 	AndroidDevToolsLive,
-} from "../../../../server/devtools/android";
+} from "../../../../core/android/browser-devtools";
 
 test("forwards Android Chrome CDP and removes the forward with its Layer", async () => {
 	const commands: Array<{ serial: string; args: readonly string[] }> = [];

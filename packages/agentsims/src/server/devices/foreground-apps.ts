@@ -2,12 +2,12 @@ import { Context, Effect, Layer } from "effect";
 import {
 	androidSerialFromStateId,
 	getAndroidForegroundApp,
-} from "../../android/device/device";
-import { IosSessions } from "../../ios/session/session";
+} from "../../core/android/device/device";
+import { IosSessions } from "../../core/ios/session";
 import {
 	decodeForegroundApp,
 	type ForegroundApp,
-} from "../../shared/foreground-app";
+} from "../../core/tools/devices/foreground-apps";
 
 export type ForegroundAppsService = {
 	read(device: string): Effect.Effect<ForegroundApp | null>;

@@ -8,7 +8,7 @@ import {
 	useState,
 	type ReactNode,
 } from "react";
-import type { AxSnapshot } from "../../../accessibility/model";
+import type { AxSnapshot } from "../../../core/tools/observe/accessibility-model";
 import { openHostEventStream } from "../../simulator/input/exec";
 import {
 	axElementKey,

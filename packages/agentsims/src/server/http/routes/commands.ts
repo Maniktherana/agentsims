@@ -1,14 +1,14 @@
 import { HttpRouter, HttpServerRequest } from "@effect/platform";
 import { Effect, Schema } from "effect";
-import { CommandNotFound, InvalidCommandInput } from "../../../shared/application-errors";
-import { MediaRouteActionSchema } from "../../../shared/media";
-import { Devices } from "../../devices/service";
+import { CommandNotFound, InvalidCommandInput } from "../../../core/tools/errors";
+import { MediaRouteActionSchema } from "../../../core/tools/media-contracts";
+import { Devices } from "../../../core/tools/devices/devices";
 import {
 	DeviceLifecycleService,
 	selectDeviceState,
-} from "../../devices/device-lifecycle";
+} from "../../../core/tools/devices/lifecycle";
 import { MediaRouting } from "../../media/service";
-import { ServerConfig } from "../../runtime/server-config";
+import { ServerConfig } from "../../runtime/config";
 import { commandResponse, decodeInput, requestJson } from "../command";
 import { exposedState, requestSource, requestedDevice } from "./shared";
 

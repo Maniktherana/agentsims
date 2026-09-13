@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeForegroundAppEvent } from "../../../../shared/foreground-app";
+import { decodeForegroundAppEvent } from "../../../../core/tools/devices/foreground-apps";
 
 describe("decodeForegroundAppEvent", () => {
 	test("accepts the foreground-app contract", () => {

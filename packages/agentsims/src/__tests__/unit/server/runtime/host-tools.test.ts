@@ -10,7 +10,7 @@ import {
 	captureHostCommand,
 	commandText,
 	hostCommandText,
-} from "../../../../server/runtime/host-tools";
+} from "../../../../core/host";
 
 const bytes = (...parts: string[]) =>
 	Stream.fromIterable(parts.map((part) => new TextEncoder().encode(part)));

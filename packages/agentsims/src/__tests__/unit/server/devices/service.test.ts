@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { makeDeviceService } from "../../../../server/devices/service";
+import { makeDeviceService } from "../../../../core/tools/devices/devices";
 
 const row = {
 	device: "android:emulator-5554",

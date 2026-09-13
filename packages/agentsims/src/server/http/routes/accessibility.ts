@@ -4,12 +4,12 @@ import {
 	HttpServerResponse,
 } from "@effect/platform";
 import { Effect, Stream } from "effect";
-import { readRnSourceFile } from "../../../accessibility/rn-source";
-import { AxStreamers } from "../../../accessibility/snapshot";
-import { DeviceLifecycleService } from "../../devices/device-lifecycle";
-import { ServerConfig } from "../../runtime/server-config";
+import { readRnSourceFile } from "../../../core/react-native/enrich-accessibility";
+import { AxStreamers } from "../../../core/tools/observe/accessibility";
+import { DeviceLifecycleService } from "../../../core/tools/devices/lifecycle";
+import { ServerConfig } from "../../runtime/config";
 import { json, requestSource, requestedDevice } from "./shared";
-import { selectDeviceState } from "../../devices/device-lifecycle";
+import { selectDeviceState } from "../../../core/tools/devices/lifecycle";
 
 export const accessibilityRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(

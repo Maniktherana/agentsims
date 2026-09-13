@@ -1,5 +1,5 @@
-import { AX_UNAVAILABLE_ERROR } from "../../accessibility/model";
-import type { AxElement, AxRect, AxSnapshot } from "../../accessibility/model";
+import { AX_UNAVAILABLE_ERROR } from "../../core/tools/observe/accessibility-model";
+import type { AxElement, AxRect, AxSnapshot } from "../../core/tools/observe/accessibility-model";
 
 export function isAxeUnavailable(snapshot: AxSnapshot | null) {
 	return snapshot?.errors?.includes(AX_UNAVAILABLE_ERROR) ?? false;

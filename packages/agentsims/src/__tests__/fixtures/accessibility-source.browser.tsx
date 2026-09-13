@@ -3,7 +3,7 @@ import "@fontsource/geist-mono/latin-500.css";
 import "../../web/global.css";
 import { createRoot } from "react-dom/client";
 import { AccessibilityDetails } from "../../web/components/accessibility/tree";
-import type { AxElement } from "../../accessibility/model";
+import type { AxElement } from "../../core/tools/observe/accessibility-model";
 
 const TEST_ID = "ags_fixture_toggle_sidebar";
 const SOURCE_FILE = "components/screens/chat-screen.tsx";

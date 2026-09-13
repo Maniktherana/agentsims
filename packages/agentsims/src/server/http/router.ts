@@ -5,7 +5,7 @@ import { hostRoutes } from "./routes/host";
 import { accessibilityRoutes } from "./routes/accessibility";
 import { controlRoutes } from "./routes/control";
 import { deviceAssetRoutes } from "./routes/device-assets";
-import { devtoolsRoutes } from "./routes/devtools";
+import { devtoolsRoutes } from "./routes/browser-devtools";
 import { helperRoutes } from "./routes/helpers";
 import { previewRoutes } from "./routes/preview";
 

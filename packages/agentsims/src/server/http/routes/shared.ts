@@ -1,8 +1,8 @@
-import type { DeviceState } from "../../../shared/state";
-import type { ServerConfigValue } from "../../runtime/server-config";
-import { exposeDeviceState } from "../../devices/device-state-exposure";
-import { selectDeviceState } from "../../devices/device-lifecycle";
-import { previewConfigForState } from "../../preview/preview-config";
+import type { DeviceState } from "../../../core/tools/devices/state";
+import type { ServerConfigValue } from "../../runtime/config";
+import { exposeDeviceState } from "../device-urls";
+import { selectDeviceState } from "../../../core/tools/devices/lifecycle";
+import { previewConfigForState } from "../connection-config";
 
 export function json(body: unknown, status = 200): Response {
 	return Response.json(body, {

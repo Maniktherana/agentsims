@@ -1,4 +1,4 @@
-import type { ForegroundApp } from "../../shared/foreground-app";
+import type { ForegroundApp } from "../../core/tools/devices/foreground-apps";
 import type { DevToolsTarget } from "./client";
 
 const IOS_SAFARI_BUNDLE = "com.apple.mobilesafari";

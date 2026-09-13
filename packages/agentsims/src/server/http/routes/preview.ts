@@ -6,15 +6,15 @@ import {
 } from "@effect/platform";
 import { Effect, Option, Schedule, Stream } from "effect";
 import { ForegroundApps } from "../../devices/foreground-apps";
-import { DeviceLifecycleService } from "../../devices/device-lifecycle";
+import { DeviceLifecycleService } from "../../../core/tools/devices/lifecycle";
 import {
 	ServerConfig,
 	type ServerConfigValue,
-} from "../../runtime/server-config";
+} from "../../runtime/config";
 import {
 	previewAssetContentType,
 	previewAssetKeyForRequest,
-} from "../../preview/preview-assets";
+} from "../static-files";
 import { json, previewConfig, requestSource, selectedState } from "./shared";
 
 function previewAssetResponse(

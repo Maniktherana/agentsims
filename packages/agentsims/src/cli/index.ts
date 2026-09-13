@@ -9,7 +9,7 @@ import {
 	isHelperAlive,
 	stopExistingHelper,
 	detectMediaKind,
-} from "../ios/device/camera-helper";
+} from "../core/ios/camera-helper";
 import { registerAndroidCommands } from "./android-commands";
 import { Command, InvalidArgumentError } from "commander";
 import { Effect } from "effect";
@@ -32,27 +32,27 @@ import {
 	stateFileForDevice,
 	listStateFiles,
 	inProcessDeviceState,
-} from "../shared/state";
+} from "../core/tools/devices/state";
 import { servePreview, type PreviewServer } from "../server/http/server";
 import {
 	configuredDistDirectory,
 	dirnameOf,
-} from "../server/runtime/runtime-paths";
+} from "../core/native-paths";
 import { killPortHolder, isPortFree } from "../server/runtime/ports";
-import { hostCommandText } from "../server/runtime/host-tools";
+import { hostCommandText } from "../core/host";
 import {
 	findBootedDevice,
 	resolveDevice,
 	listIosDevices,
-} from "../ios/device/device";
+} from "../core/ios/devices";
 import {
 	androidSerialFromStateId,
 	androidStateId,
 	listAndroidDevices,
-} from "../android/device/device";
-import { permissions } from "../ios/device/permissions";
-import { uiSettings } from "../ios/device/ui-settings";
-import { debugCli, debugHelper, debugState } from "../shared/debug";
+} from "../core/android/device/device";
+import { permissions } from "../core/ios/permissions";
+import { uiSettings } from "../core/ios/settings";
+import { debugCli, debugHelper, debugState } from "../core/logging";
 import { readAllStates, readState, type ServerState } from "./device-state";
 import { addCompatibilityCommands, DEVICE_OPTION } from "./device-control";
 import { addSetupCommand } from "./setup-command";

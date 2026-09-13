@@ -11,7 +11,7 @@ import {
 	stateFileForDevice,
 	listStateFiles,
 	STATE_DIR,
-} from "../../shared/state";
+} from "../../core/tools/devices/state";
 
 describe("multi-device state", () => {
 	const testDir = TEST_STATE_DIR;

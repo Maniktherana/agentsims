@@ -1,13 +1,13 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
-import { androidSerialFromStateId } from "../android/device/device";
-import { SIMCTL_LIST_MAX_BUFFER_BYTES } from "../ios/device/device";
-import { debugState } from "../shared/debug";
+import { androidSerialFromStateId } from "../core/android/device/device";
+import { SIMCTL_LIST_MAX_BUFFER_BYTES } from "../core/ios/devices";
+import { debugState } from "../core/logging";
 import {
 	listStateFiles,
 	stateFileForDevice,
 	type DeviceState,
-} from "../shared/state";
+} from "../core/tools/devices/state";
 
 export type ServerState = DeviceState;
 

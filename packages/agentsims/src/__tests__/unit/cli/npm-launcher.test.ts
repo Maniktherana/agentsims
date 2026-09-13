@@ -8,12 +8,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveRuntimeExecutable } from "../../../cli/npm-launcher";
+import { resolveRuntimeExecutable } from "../../../cli-launcher";
 import {
 	runtimeArtifacts,
 	runtimeCompileTarget,
 	type LauncherManifest,
-} from "../../../cli/npm-launcher";
+} from "../../../cli-launcher";
 
 const directories: string[] = [];
 afterEach(() => {

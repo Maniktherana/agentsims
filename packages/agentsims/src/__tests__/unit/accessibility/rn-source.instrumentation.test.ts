@@ -10,8 +10,8 @@ import {
 } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
-import agentsimsReactNativeBabelPlugin from "../../../rn/babel-plugin";
-import { getCacheKey, transform, withAgentsims } from "../../../rn/metro";
+import agentsimsReactNativeBabelPlugin from "../../../core/react-native/node/babel-plugin";
+import { getCacheKey, transform, withAgentsims } from "../../../core/react-native/node/metro";
 
 const originalManifest = process.env.AGENTSIMS_RN_MANIFEST;
 const originalProjectRoot = process.env.AGENTSIMS_PROJECT_ROOT;
@@ -406,7 +406,7 @@ describe("React Native instrumentation", () => {
 		);
 
 		const metroResult = await Bun.build({
-			entrypoints: [resolve(import.meta.dir, "../../../rn/metro.ts")],
+			entrypoints: [resolve(import.meta.dir, "../../../core/react-native/node/metro.ts")],
 			target: "node",
 			format: "cjs",
 			minify: true,
@@ -416,7 +416,7 @@ describe("React Native instrumentation", () => {
 		});
 		expect(metroResult.success).toBe(true);
 		const pluginResult = await Bun.build({
-			entrypoints: [resolve(import.meta.dir, "../../../rn/babel-plugin.ts")],
+			entrypoints: [resolve(import.meta.dir, "../../../core/react-native/node/babel-plugin.ts")],
 			target: "node",
 			format: "cjs",
 			minify: true,

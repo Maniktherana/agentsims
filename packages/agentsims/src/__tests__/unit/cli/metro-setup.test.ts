@@ -15,7 +15,7 @@ import {
 	planMetroSetup,
 	transformMetroConfig,
 	type MetroSetupSystem,
-} from "../../../cli/metro-setup";
+} from "../../../core/react-native/configure-metro";
 import {
 	runSetupCommand,
 	setupOptionsForProjectPath,

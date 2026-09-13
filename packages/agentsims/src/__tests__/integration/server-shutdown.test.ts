@@ -4,7 +4,7 @@ import {
 	IosSessions,
 	IosSessionsLive,
 	IosSessionsUnavailable,
-} from "../../ios/session/session";
+} from "../../core/ios/session";
 
 const DEVICE = "server-scope-test-device";
 

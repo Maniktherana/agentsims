@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { InvalidCommandInput } from "../../shared/application-errors";
+import { InvalidCommandInput } from "../../core/tools/errors";
 import type { PreviewServer } from "../../server/http/server";
 import { startTestServer, type TestServerOverrides } from "../helpers/server";
 

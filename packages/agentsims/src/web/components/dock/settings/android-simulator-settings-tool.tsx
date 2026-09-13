@@ -13,7 +13,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { AndroidToolAction } from "../../../../android/contracts";
+import type { AndroidToolAction } from "../../../../core/android/contracts";
 import { runAndroidTool } from "../../../android/tools-client";
 import { simEndpoint } from "../../../preview/sim-endpoint";
 import { CollapsibleSection } from "../../ui/collapsible-section";

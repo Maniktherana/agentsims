@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notify } from "../ui/toast";
 import { Package, ScrollText } from "lucide-react";
-import type { AndroidInstalledApp } from "../../../android/contracts";
+import type { AndroidInstalledApp } from "../../../core/android/contracts";
 import {
 	androidToolsRequest,
 	runAndroidTool,

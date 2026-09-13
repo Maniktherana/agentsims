@@ -30,7 +30,7 @@ import {
 import { useAvccStream } from "../../hooks/simulator/use-avcc-stream.js";
 import { isAvccSupported } from "../../simulator/stream/avcc-codec.js";
 import type { SimulatorFrameTiming } from "../../simulator/stream/avcc-codec.js";
-import { LatestValueScheduler } from "../../../shared/latest-value-scheduler.js";
+import { LatestValueScheduler } from "../../../core/latest-value-scheduler.js";
 import { useMjpegStream } from "../../hooks/simulator/use-mjpeg-stream.js";
 import { isCurrentMjpegPresentation } from "../../simulator/stream/mjpeg-presentation.js";
 import { SimulatorFrameRateStore } from "../../simulator/stream/simulator-frame-rate.js";

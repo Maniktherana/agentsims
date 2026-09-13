@@ -1,6 +1,6 @@
 import * as PlatformSocket from "@effect/platform/Socket";
 import { Effect } from "effect";
-import type { HidSocket } from "../../ios/session/session";
+import type { HidSocket } from "../../core/ios/session";
 
 type Listener = (data: Buffer) => void;
 type CloseListener = () => void;

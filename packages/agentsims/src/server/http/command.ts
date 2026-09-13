@@ -4,7 +4,7 @@ import {
 	commandFailure,
 	InvalidCommandInput,
 	type ApplicationCommandError,
-} from "../../shared/application-errors";
+} from "../../core/tools/errors";
 
 class UnsupportedMediaType extends Data.TaggedError("UnsupportedMediaType")<{
 	message: string;

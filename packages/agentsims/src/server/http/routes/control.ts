@@ -11,13 +11,13 @@ import {
 	getUiStatus,
 	normalizeUiValue,
 	setUiOption,
-} from "../../../ios/device/ui-settings";
-import { ScreenshotOperations } from "../../screenshot/operations";
+} from "../../../core/ios/settings";
+import { ScreenshotOperations } from "../../../core/tools/observe/screenshots";
 import {
 	ServerConfig,
 	type ServerConfigValue,
-} from "../../runtime/server-config";
-import { ShellExec, type ShellExecService } from "../../runtime/shell-exec";
+} from "../../runtime/config";
+import { ShellExec, type ShellExecService } from "../../../core/tools/host-commands";
 import { json, requestSource, requestedDevice } from "./shared";
 
 function execSocket(

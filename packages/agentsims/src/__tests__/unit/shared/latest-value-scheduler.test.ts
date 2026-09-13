@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	LatestValueScheduler,
 	type SchedulerTimer,
-} from "../../../shared/latest-value-scheduler";
+} from "../../../core/latest-value-scheduler";
 
 function fakeTimer() {
 	let callback: (() => void) | null = null;

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	AX_UNAVAILABLE_ERROR,
 	type AxSnapshot,
-} from "../../../../../accessibility/model";
+} from "../../../../../core/tools/observe/accessibility-model";
 import {
 	axRefreshEndpoint,
 	decodeAxSnapshotEvent,

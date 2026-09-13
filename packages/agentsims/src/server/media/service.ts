@@ -1,9 +1,9 @@
 import { Context, Effect, Layer } from "effect";
-import { commandFailure } from "../../shared/application-errors";
-import type { MediaRouteAction } from "../../shared/media";
-import { DeviceLifecycleService } from "../devices/device-lifecycle";
-import { ServerConfig } from "../runtime/server-config";
-import { MediaRouter } from "./router";
+import { commandFailure } from "../../core/tools/errors";
+import type { MediaRouteAction } from "../../core/tools/media-contracts";
+import { DeviceLifecycleService } from "../../core/tools/devices/lifecycle";
+import { ServerConfig } from "../runtime/config";
+import { MediaRouter } from "../../core/tools/media";
 
 export type MediaOperations = Pick<MediaRouter, "read" | "apply">;
 

@@ -9,7 +9,7 @@ import {
 	parsePdfPageSize,
 	resolveDevicePlaceholderAsset,
 	resolveDeviceFrame,
-} from "../../../../server/devices/device-frame-assets";
+} from "../../../../core/ios/device-assets";
 
 describe("Device frame asset helpers", () => {
 	test("strips Apple's chrome bundle prefix", () => {
@@ -63,7 +63,7 @@ describe("Device frame asset helpers", () => {
 		() => {
 			// A child process keeps the cold module cache and host spies local to this test.
 			const modulePath = new URL(
-				"../../../../server/devices/device-frame-assets.ts",
+				"../../../../core/ios/device-assets.ts",
 				import.meta.url,
 			).pathname;
 			const hostPath = new URL(

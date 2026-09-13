@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	textToKeyEvents,
 	UnsupportedCharacterError,
-} from "../../../../server/devices/text-to-keys";
+} from "../../../../core/ios/text-to-keys";
 
 describe("textToKeyEvents", () => {
 	it("emits down/up for a single lowercase letter", () => {

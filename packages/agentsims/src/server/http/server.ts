@@ -1,39 +1,39 @@
 import { BunContext, BunHttpServer } from "@effect/platform-bun";
 import { HttpServer } from "@effect/platform";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { AxStreamersLive } from "../../accessibility/snapshot";
-import { AndroidAxServersLive } from "../../android/accessibility/ax-server";
-import { AndroidSessionsLive } from "../../android/session/session";
-import { DevicesLive } from "../devices/service";
+import { AxStreamersLive } from "../../core/tools/observe/accessibility";
+import { AndroidAxServersLive } from "../../core/android/accessibility/ax-server";
+import { AndroidSessionsLive } from "../../core/android/session/session";
+import { DevicesLive } from "../../core/tools/devices/devices";
 import {
 	IosSessionsLive,
 	IosSessionsUnavailable,
-} from "../../ios/session/session";
-import { STATE_DIR } from "../../shared/state";
+} from "../../core/ios/session";
+import { STATE_DIR } from "../../core/tools/devices/state";
 import { deviceStateStoreLayer } from "../devices/device-state-store";
-import { DeviceLifecycleLive } from "../devices/device-lifecycle";
+import { DeviceLifecycleLive } from "../../core/tools/devices/lifecycle";
 import { ForegroundAppsLive } from "../devices/foreground-apps";
 import {
 	AndroidCdpAdapterLive,
 	AndroidDevToolsLive,
-} from "../devtools/android";
-import { DevToolsLive } from "../devtools/service";
+} from "../../core/android/browser-devtools";
+import { DevToolsLive } from "../../core/tools/browser-devtools";
 import {
 	WebKitDevToolsLive,
 	WebKitDevToolsUnavailable,
-} from "../devtools/webkit";
+} from "../../core/ios/browser-devtools/webkit";
 import { MediaRoutingLive } from "../media/service";
-import { ScreenshotOperationsLive } from "../screenshot/operations";
-import { ScreenshotStoreLive } from "../screenshot/store";
-import { ShellExecLive } from "../runtime/shell-exec";
+import { ScreenshotOperationsLive } from "../../core/tools/observe/screenshots";
+import { ScreenshotStoreLive } from "../../core/tools/observe/screenshot-store";
+import { ShellExecLive } from "../../core/tools/host-commands";
 import {
 	ServerConfig,
 	serverConfigLayer,
 	type ServerConfigInput,
-} from "../runtime/server-config";
+} from "../runtime/config";
 import { routesForBasePath } from "./router";
-import { AndroidToolsLive } from "../../android/device/tools";
-import { AndroidLogsLive } from "../../android/device/logs";
+import { AndroidToolsLive } from "../../core/android/device/tools";
+import { AndroidLogsLive } from "../../core/android/device/logs";
 
 export interface PreviewServer {
 	stop(force?: boolean): Promise<void>;

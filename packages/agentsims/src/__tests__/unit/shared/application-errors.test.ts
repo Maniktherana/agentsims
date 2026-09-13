@@ -3,7 +3,7 @@ import {
 	CommandConflict,
 	CommandFailure,
 	InvalidCommandInput,
-} from "../../../shared/application-errors";
+} from "../../../core/tools/errors";
 import { commandErrorStatus } from "../../../server/http/command";
 
 describe("application command contracts", () => {

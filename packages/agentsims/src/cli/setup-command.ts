@@ -7,7 +7,7 @@ import {
 	planMetroSetup,
 	type MetroSetupInput,
 	type MetroSetupSystem,
-} from "./metro-setup";
+} from "../core/react-native/configure-metro";
 
 export interface SetupCommandOptions {
 	project?: string;

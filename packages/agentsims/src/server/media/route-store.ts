@@ -6,7 +6,7 @@ import {
 	writeFileSync,
 } from "fs";
 import { dirname, join } from "path";
-import { STATE_DIR } from "../../shared/state";
+import { STATE_DIR } from "../../core/tools/devices/state";
 
 export interface StoredMediaRoute {
 	inputDeviceId?: string;

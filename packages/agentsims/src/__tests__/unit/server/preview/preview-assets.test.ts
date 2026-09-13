@@ -6,7 +6,7 @@ import {
 	assertPreviewDynamicImportsPresent,
 	assertPreviewManifestAssetsPresent,
 	enumeratePreviewDynamicImports,
-} from "../../../../server/preview/preview-assets";
+} from "../../../../server/http/static-files";
 import { startTestServer } from "../../../helpers/server";
 
 describe("preview assets", () => {

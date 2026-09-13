@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { AxSnapshot } from "../../accessibility/model";
-import { createAxStreamerCache } from "../../accessibility/snapshot";
-import type { DeviceState } from "../../shared/state";
+import type { AxSnapshot } from "../../core/tools/observe/accessibility-model";
+import { createAxStreamerCache } from "../../core/tools/observe/accessibility";
+import type { DeviceState } from "../../core/tools/devices/state";
 import { startTestServer } from "../helpers/server";
 
 const DEVICE_A = "android:emulator-5554";

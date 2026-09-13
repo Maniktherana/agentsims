@@ -2,9 +2,9 @@ import type { Command } from "commander";
 import { cliAction } from "./error";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parseDeviceAction, type DeviceAction } from "../server/devices/input";
-import type { DeviceObservation } from "../server/devices/service";
-import { STATE_DIR } from "../shared/state";
+import { parseDeviceAction, type DeviceAction } from "../core/tools/input";
+import type { DeviceObservation } from "../core/tools/devices/devices";
+import { STATE_DIR } from "../core/tools/devices/state";
 import { ApplicationCommandClient } from "./application-command-client";
 
 export type AgentAction = DeviceAction;

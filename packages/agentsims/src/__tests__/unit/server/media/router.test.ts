@@ -7,17 +7,17 @@ import {
 	parseAndroidEmulatorVersion,
 	parseAndroidWebcamList,
 	validateAndroidCameraStartupMode,
-} from "../../../../android/device/device";
+} from "../../../../core/android/device/device";
 import {
 	buildDeviceMediaState,
 	mediaDeviceFromRequestUrl,
-} from "../../../../server/media/router";
+} from "../../../../core/tools/media";
 import {
 	readStoredMediaRoutes,
 	updateStoredMediaRoute,
 	writeStoredMediaRoutes,
 } from "../../../../server/media/route-store";
-import type { AndroidStatus } from "../../../../android/device/types";
+import type { AndroidStatus } from "../../../../core/android/device/types";
 
 function androidStatus(serial = "emulator-5554"): AndroidStatus {
 	return {

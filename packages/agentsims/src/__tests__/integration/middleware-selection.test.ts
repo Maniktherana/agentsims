@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { parseForegroundAppLogMessage } from "../../server/devices/app-state";
 import { matchInstalledAppByDisplayName } from "../../server/devices/installed-apps";
-import { previewConfigForState } from "../../server/preview/preview-config";
-import { exposeDeviceState } from "../../server/devices/device-state-exposure";
-import { selectDeviceState } from "../../server/devices/device-lifecycle";
-import type { DeviceState } from "../../shared/state";
+import { previewConfigForState } from "../../server/http/connection-config";
+import { exposeDeviceState } from "../../server/http/device-urls";
+import { selectDeviceState } from "../../core/tools/devices/lifecycle";
+import type { DeviceState } from "../../core/tools/devices/state";
 
 const states: DeviceState[] = [
 	{

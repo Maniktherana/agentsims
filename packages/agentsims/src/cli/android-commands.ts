@@ -4,7 +4,7 @@ import type { Command } from "commander";
 import type {
 	AndroidToolAction,
 	AndroidLogEvent,
-} from "../android/contracts";
+} from "../core/android/contracts";
 import { ApplicationCommandClient } from "./application-command-client";
 
 type AndroidOptions = {

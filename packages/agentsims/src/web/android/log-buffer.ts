@@ -1,4 +1,4 @@
-import type { AndroidLogLine } from "../../android/contracts";
+import type { AndroidLogLine } from "../../core/android/contracts";
 
 /** Bound retained log text as well as row count when a panel is paused. */
 export function appendAndroidLogLines(

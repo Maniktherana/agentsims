@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { appendAndroidLogLines } from "../../../../web/android/log-buffer";
-import type { AndroidLogLine } from "../../../../android/contracts";
+import type { AndroidLogLine } from "../../../../core/android/contracts";
 
 test("paused browser logs stay within row and text budgets", () => {
 	const line: AndroidLogLine = {

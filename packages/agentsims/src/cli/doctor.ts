@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { configuredDistDirectory } from "../server/runtime/runtime-paths";
+import { configuredDistDirectory } from "../core/native-paths";
 import { Command, CommandExecutor } from "@effect/platform";
 import { Effect } from "effect";
-import { captureHostCommand } from "../server/runtime/host-tools";
-import { androidTool } from "../android/device/sdk-tools";
+import { captureHostCommand } from "../core/host";
+import { androidTool } from "../core/android/device/sdk-tools";
 import { hostPlatformInfo } from "../server/runtime/host-platform";
 
 type ToolCheck = { command: string; available: boolean; detail: string };

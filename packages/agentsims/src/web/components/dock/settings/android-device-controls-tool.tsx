@@ -3,7 +3,7 @@ import { notify } from "../../ui/toast";
 import type {
 	AndroidEnvironmentState,
 	AndroidToolCapabilities,
-} from "../../../../android/contracts";
+} from "../../../../core/android/contracts";
 import {
 	androidToolsRequest,
 	runAndroidTool,
