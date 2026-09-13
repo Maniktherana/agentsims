@@ -1,4 +1,4 @@
-import { Hand, Focus } from "lucide-react";
+import { Columns3, Focus } from "lucide-react";
 import { IconButton } from "../ui/icon-button";
 import { useCanvasPan } from "../../hooks/workspace/use-canvas-pan";
 import { canvasViewOffset } from "../../workspace/canvas-view";
@@ -380,6 +380,17 @@ export function WorkspaceCanvas({
 	const persistOffsets = useCallback(() => {
 		writeWorkspaceOffsets(offsetsRef.current);
 	}, []);
+	const arrangeDevices = useCallback(() => {
+		for (const deviceId of visibleDeviceIds) {
+			positionsRef.current.delete(deviceId);
+		}
+		const next = { ...offsetsRef.current };
+		for (const deviceId of visibleDeviceIds) delete next[deviceId];
+		offsetsRef.current = next;
+		setOffsets(next);
+		writeWorkspaceOffsets(next);
+		requestAnimationFrame(canvasPan.recenter);
+	}, [canvasPan.recenter, visibleDeviceIds]);
 
 	if (visibleDeviceIds.length === 0) {
 		return (
@@ -423,14 +434,12 @@ export function WorkspaceCanvas({
 			<div
 				ref={canvasRef}
 				{...canvasPan.handlers}
-				data-pan-mode={canvasPan.panMode}
 				data-panning={canvasPan.panning}
 				data-agentsims-workspace-scroll
 				className="relative h-dvh overflow-hidden bg-page font-system box-border [&_[data-workspace-device]]:cursor-auto data-[panning=true]:[&_*]:!cursor-grabbing"
 				style={{
 					...WORKSPACE_PADDING,
 					cursor: canvasPan.panning ? "grabbing" : "grab",
-					touchAction: canvasPan.panMode ? "none" : undefined,
 					userSelect: canvasPan.panning ? "none" : undefined,
 					backgroundImage:
 						"radial-gradient(circle, rgba(255,255,255,0.12) 1px, transparent 1px)",
@@ -503,18 +512,13 @@ export function WorkspaceCanvas({
 				className="fixed bottom-3 left-3 z-40 flex gap-1 rounded-[10px] border border-white/[0.1] bg-[#181818] p-1 shadow-[0_4px_14px_rgba(0,0,0,0.2)]"
 			>
 				<IconButton
-					label="Pan canvas"
-					tooltip={
-						canvasPan.panMode
-							? "Pan mode on · Drag to move · Escape to exit"
-							: "Pan canvas · Move the view instead of the phone"
-					}
-					selected={canvasPan.panMode}
-					onClick={canvasPan.togglePan}
+					label="Arrange devices"
+					tooltip="Arrange visible devices side by side"
+					onClick={arrangeDevices}
 					size="toolbar"
 					surface="toolbar"
 				>
-					<Hand size={17} />
+					<Columns3 size={17} />
 				</IconButton>
 				<IconButton
 					label="Recenter canvas"
@@ -524,14 +528,6 @@ export function WorkspaceCanvas({
 				>
 					<Focus size={17} />
 				</IconButton>
-				{canvasPan.panMode && (
-					<span
-						role="status"
-						className="self-center whitespace-nowrap px-2 text-[11px] text-white/65"
-					>
-						Drag to pan · Esc to exit
-					</span>
-				)}
 			</div>
 		</>
 	);

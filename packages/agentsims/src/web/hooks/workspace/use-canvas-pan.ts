@@ -72,7 +72,6 @@ export function useCanvasPan(
 	initialPan: CanvasPan,
 	onPanCommit: (pan: CanvasPan) => void,
 ) {
-	const [panMode, setPanMode] = useState(false);
 	const [panning, setPanning] = useState(false);
 	const pointer = useRef<{
 		id: number;
@@ -137,16 +136,9 @@ export function useCanvasPan(
 		setPanning(false);
 	}, [canvas]);
 	useEffect(() => {
-		const escape = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			stop();
-			setPanMode(false);
-		};
 		window.addEventListener("blur", stop);
-		window.addEventListener("keydown", escape);
 		return () => {
 			window.removeEventListener("blur", stop);
-			window.removeEventListener("keydown", escape);
 		};
 	}, [stop]);
 	const onPointerDownCapture = (event: PointerEvent<HTMLDivElement>) => {
@@ -164,12 +156,7 @@ export function useCanvasPan(
 		)
 			return;
 		if (event.button !== 0 && event.button !== 1) return;
-		if (
-			!panMode &&
-			event.button !== 1 &&
-			target.closest("[data-workspace-device]")
-		)
-			return;
+		if (event.button !== 1 && target.closest("[data-workspace-device]")) return;
 		event.preventDefault();
 		event.stopPropagation();
 		pointer.current = {
@@ -244,7 +231,7 @@ export function useCanvasPan(
 				)
 			)
 				return;
-			if (!panMode && target.closest("[data-workspace-device]")) return;
+			if (target.closest("[data-workspace-device]")) return;
 			event.preventDefault();
 			event.stopPropagation();
 			const unit =
@@ -263,7 +250,7 @@ export function useCanvasPan(
 		};
 		element.addEventListener("wheel", wheel, { capture: true, passive: false });
 		return () => element.removeEventListener("wheel", wheel, true);
-	}, [canvas, panMode, rememberScroll, visibleRevision]);
+	}, [canvas, commit, rememberScroll, visibleRevision]);
 	const recenter = () => {
 		const element = canvas.current;
 		if (!element) return;
@@ -293,9 +280,7 @@ export function useCanvasPan(
 		}
 	};
 	return {
-		panMode,
 		panning,
-		togglePan: () => setPanMode((value) => !value),
 		recenter,
 		handlers: {
 			onPointerDownCapture,
