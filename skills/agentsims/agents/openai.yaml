@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentsims"
+  short_description: "Inspect and control iOS and Android apps"
+  default_prompt: "Use $agentsims to inspect the app on my simulator and control it through the CLI."

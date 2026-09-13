@@ -1,0 +1,11 @@
+{
+	"version": "0.0.1",
+	"configurations": [
+		{
+			"name": "Agentsims",
+			"runtimeExecutable": "npx",
+			"runtimeArgs": ["agentsims", "--port", "3200"],
+			"port": 3200
+		}
+	]
+}

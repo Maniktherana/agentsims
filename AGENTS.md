@@ -11,20 +11,31 @@ Effect services, session lifetime, or distribution.
 
 ## Source Ownership
 
-Place code by runtime and responsibility:
+Place code by runtime and responsibility.
 
-- `packages/agentsims/src/cli` contains command parsing and CLI adapters.
-- `packages/agentsims/src/commands` contains use cases shared by CLI and HTTP adapters.
-- `packages/agentsims/src/services` contains Effect service definitions and runtime configuration.
-- `packages/agentsims/src/android` contains Android host integration. Use the `accessibility`, `device`, `session`, and `stream` subdirectories.
-- `packages/agentsims/src/ios` contains iOS host integration. Use the `device`, `session`, and `stream` subdirectories.
-- `packages/agentsims/src/accessibility` contains platform-neutral AX models, snapshots, and source mapping.
-- `packages/agentsims/src/server` contains server services. Group HTTP, devices, media, preview, runtime, and WebSocket code by service.
-- `packages/agentsims/src/rn` contains React Native build and Metro integration.
-- `packages/agentsims/src/shared` contains code that has no browser, server, Android, or iOS owner.
+- `packages/agentsims/src/core` contains Android, iOS, React Native, tools, and platform-neutral orchestration.
+- `packages/agentsims/src/core/android` and `packages/agentsims/src/core/ios` contain the platform host implementations.
+- `packages/agentsims/src/core/tools` contains contracts and the common implementations for device, app, media, and host operations.
+- `packages/agentsims/src/cli` contains the Bun CLI, argument parsing, and public HTTP clients.
+- `packages/agentsims/src/node/server-process.ts` is the generic Node process connector.
+- `packages/agentsims/src/core/react-native` contains React Native integration.
+- `packages/agentsims/src/core/react-native/node/metro.ts` and `babel-plugin.ts` are the Node entry points.
+- `packages/agentsims/src/core/host.ts`, `artifacts.ts`, `resources.ts`, and `logging.ts` contain shared runtime utilities.
+- `packages/agentsims/src/server/http/server.ts` currently owns transport composition.
 - `packages/agentsims/src/web` contains browser code only.
 
-Do not add a broad `utils` directory. Put a helper with the feature that owns it. Put a shared helper in `src/shared` only when it has no feature or runtime owner.
+Do not add a broad `utils` or `src/shared` directory. Put a helper with the feature that owns it. Add a utility to `src/core` only when it has no narrower owner.
+
+## Executables and Process Ownership
+
+- `src/cli/main.ts` is the Bun CLI entry point. It configures executable paths, parses commands, and handles errors.
+- `src/cli-launcher.ts` is the Node npm launcher. It starts the matching platform executable and remains outside the CLI.
+- Node connectors use `src/core/react-native/node/launch-server.ts` to start and stop their own server process.
+- Metro and Babel code stays in `src/core/react-native/node`. It can use the generic Node connector.
+- Bun-specific core, server, and CLI code stays outside the Node connector.
+- The CLI owns process signals. Server shutdown awaits disposal of the Effect runtime in `src/server/http/server.ts`.
+- Effect scopes own server resources and device sessions. Do not add a second signal handler that exits before these scopes close.
+- Keep imports static. Do not add another CLI entry-point wrapper.
 
 ## Browser Structure
 
@@ -44,16 +55,25 @@ Do not place React components in pure feature directories. Do not place feature 
 ## Server Structure
 
 - `src/server/http` owns HTTP and WebSocket upgrade adapters.
-- `src/server/http/router.ts` maps requests to commands and server services.
-- Route handlers must stay thin. Put device, media, preview, and runtime behavior in their service directories.
-- Put shared CLI and HTTP operations in `src/commands` instead of copying them into adapters.
+- `src/server/http/router.ts` composes the HTTP routes. Route handlers call the owning domain Effect services.
+- Route handlers must stay thin. Put common operation behavior in `src/core/tools`.
+- Use the CLI HTTP client for device, input, media, and Android tool operations.
+- `src/server/http/server.ts` owns the current transport composition. Common operation implementations remain in `src/core/tools`.
+
+## Resource Ownership
+
+- Effect scopes own the resources that they create.
+- A connector can stop only the process that it starts.
+- An attached URL grants access to a server. It does not grant the right to stop that server.
+- Browser disconnection does not grant process ownership.
 
 ## Dependency Direction
 
-- Browser code must not import server or platform host modules.
+- Browser code must not import server or platform host modules. Type-only imports from domain contracts, such as `android/contracts.ts`, are allowed. Contracts must not import host code.
 - Platform host modules must not import browser code.
-- `src/shared` must not import browser, server, Android, or iOS modules.
-- CLI and HTTP adapters can call command, service, and domain modules.
+- Shared `src/core` utilities must not import browser or server modules.
+- HTTP adapters call domain services. CLI adapters call HTTP clients and local startup or diagnostic modules.
+- CLI parsers can reuse domain input contracts without opening device sessions.
 - Use shared contracts at runtime boundaries.
 
 ## Tests

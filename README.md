@@ -17,6 +17,24 @@ Open the printed URL, usually [localhost:3200](http://localhost:3200).
 Agentsims attaches to running devices. The device picker can start additional simulators and emulators.
 Keep your app's Metro or Expo server running.
 
+The public process commands are:
+
+```sh
+npx agentsims start --detach
+npx agentsims status
+npx agentsims logs
+npx agentsims stop
+```
+
+`npx agentsims` and `npx agentsims start` start the workspace in the foreground by default.
+Startup does not install or prompt for agent skills.
+
+Install the optional agent skill explicitly:
+
+```sh
+npx skills add Maniktherana/agentsims --skill agentsims
+```
+
 To add Agentsims to your project:
 
 ```sh
@@ -38,10 +56,10 @@ Basic control and accessibility inspection require no changes to your app.
 
 ## Requirements
 
-| Host | Devices |
-| --- | --- |
+| Host                                      | Devices                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------- |
 | macOS 14 or newer, Apple Silicon or Intel | iOS simulators, Android emulators, and connected Android devices |
-| Linux x64 or WSL, with glibc | Android emulators and connected Android devices |
+| Linux x64 or WSL, with glibc              | Android emulators and connected Android devices                  |
 
 Use Node.js 20 or newer. The npm package includes the executable, so no separate Bun installation is necessary.
 
@@ -80,16 +98,21 @@ The integration runs during development and preserves existing static `testID` v
 With the workspace running:
 
 ```sh
-npx agentsims --list
+npx agentsims devices list
+npx agentsims devices boot android-avd:Pixel_9
+npx agentsims devices shutdown android:emulator-5554
 npx agentsims observe --device android:emulator-5554
-npx agentsims tap 0.5 0.7 --device android:emulator-5554
+npx agentsims act --device android:emulator-5554 \
+  '{"type":"tap","x":0.5,"y":0.7}'
 ```
 
 Use the device ID from the list. Tap coordinates range from `0` to `1`.
 `observe` saves a PNG and prints JSON with its path, screen details, and accessibility data.
 With source inspection enabled, the result also includes available React Native source context.
 
-For scripts and coding agents, `act` accepts structured input:
+Use `app` for bounded app operations. Run `npx agentsims app --help` for the exact operation syntax.
+
+For scripts and coding agents, use this cycle: devices, observe, act, observe.
 
 ```sh
 npx agentsims act \
@@ -97,4 +120,14 @@ npx agentsims act \
   --device android:emulator-5554
 ```
 
-See the [CLI reference](docs/cli.md) for device, camera, audio, and Android commands.
+See the [CLI reference](docs/cli.md) for actions, apps, troubleshooting, and React Native setup.
+
+See [editor and Metro connections](docs/connectors.md) for the agent skill, Codex and Claude launch actions, and Metro preview integration.
+
+## Release workflow
+
+The `Publish` workflow accepts one exact stable version. It does not publish automatically.
+It builds all three runtime packages, performs package smoke checks, and publishes `agentsims` last.
+
+Create a GitHub environment named `npm`. Configure npm trusted publishing for `.github/workflows/publish.yml` with that environment.
+The workflow uses GitHub OIDC provenance and does not require an `NPM_TOKEN` secret.

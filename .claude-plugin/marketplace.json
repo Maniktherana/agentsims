@@ -1,0 +1,13 @@
+{
+	"name": "agentsims",
+	"owner": { "name": "Manik" },
+	"plugins": [
+		{
+			"name": "agentsims",
+			"description": "Inspect and control iOS simulators and Android devices through the CLI.",
+			"source": "./",
+			"strict": false,
+			"skills": ["./skills/agentsims"]
+		}
+	]
+}
