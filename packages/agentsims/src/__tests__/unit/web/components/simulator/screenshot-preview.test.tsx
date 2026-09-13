@@ -11,7 +11,7 @@ import {
 } from "../../../../../web/components/simulator/screenshot-preview";
 
 describe("device screenshot feedback", () => {
-	test("does not use a browser download for screenshot persistence", () => {
+	test("uses a browser download for screenshot persistence", () => {
 		const source = readFileSync(
 			join(
 				import.meta.dir,
@@ -21,7 +21,7 @@ describe("device screenshot feedback", () => {
 		);
 		expect(source).not.toContain("link.click()");
 		expect(source).not.toContain("download =");
-		expect(source).toContain("saveScreenshotToHost");
+		expect(source).toContain("downloadScreenshot");
 		expect(source).not.toContain("actionToolbarRef");
 		expect(source).toContain("Boolean(screenshotPreviewLayout)");
 	});

@@ -83,7 +83,7 @@ import { PANEL_WIDTH } from "../../workspace/panel-widths";
 import { simEndpoint } from "../../preview/sim-endpoint";
 import type { RenderedScreenshot } from "../../simulator/screenshot/rendered-screenshot";
 import { startScreenshotCapture } from "../../simulator/screenshot/screenshot-capture-flow";
-import { saveScreenshotToHost } from "../../simulator/screenshot/screenshot-save";
+import { downloadScreenshot } from "../../simulator/screenshot/screenshot-save";
 import { SimulatorFrameRateStore } from "../../simulator/stream/simulator-frame-rate";
 import { resolveSimulatorDeviceLayout } from "../../workspace/simulator-device-layout";
 import { WORKSPACE_DEVICE_GEOMETRY_EVENT } from "../../workspace/layout-events";
@@ -756,15 +756,10 @@ export function SimulatorDeviceView({
 
 	const saveCapturedScreenshot = useCallback(
 		async (blob: Blob, signal: AbortSignal) => {
-			const path = await saveScreenshotToHost(
-				blob,
-				config.device,
-				signal,
-				config.execToken ?? "",
-			);
-			screenshot.reportSaved(path);
+			downloadScreenshot(blob, config.device, signal);
+			screenshot.reportSaved();
 		},
-		[config.device, config.execToken, screenshot],
+		[config.device, screenshot],
 	);
 
 	const captureDeviceScreenshot = useCallback(

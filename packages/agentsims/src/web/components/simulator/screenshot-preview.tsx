@@ -261,14 +261,6 @@ export function ScreenshotPreviewOverlay({
 					<X aria-hidden="true" size={14} strokeWidth={2} />
 				</IconButton>
 			</div>
-			{preview.error ? (
-				<div
-					className="agentsims-screenshot-preview-error pointer-events-none absolute inset-x-1.5 bottom-1.5"
-					role="alert"
-				>
-					{preview.error}
-				</div>
-			) : null}
 		</div>
 	);
 	return typeof document === "undefined"

@@ -1,50 +1,16 @@
-import { simEndpoint } from "../../preview/sim-endpoint";
-
-export async function saveScreenshotToHost(
+export function downloadScreenshot(
 	blob: Blob,
 	deviceId: string,
 	signal: AbortSignal,
-	token: string,
-): Promise<string> {
-	const endpoint = new URL(
-		simEndpoint("screenshot/save"),
-		window.location.href,
-	);
-	endpoint.searchParams.set("device", deviceId);
-	endpoint.searchParams.set("id", crypto.randomUUID());
-	const headers = { Authorization: `Bearer ${token}` };
-	const requestController = new AbortController();
-	const cancel = () => {
-		void fetch(endpoint, {
-			method: "DELETE",
-			headers,
-			keepalive: true,
-		}).catch(() => {});
-		requestController.abort(signal.reason);
-	};
-	if (signal.aborted) cancel();
-	else signal.addEventListener("abort", cancel, { once: true });
-	try {
-		const response = await fetch(endpoint, {
-			method: "POST",
-			headers: {
-				...headers,
-				"Content-Type": "image/png",
-			},
-			body: blob,
-			signal: requestController.signal,
-		});
-		const payload = (await response.json()) as {
-			path?: string;
-			error?: string;
-		};
-		if (!response.ok || !payload.path) {
-			throw new Error(
-				payload.error ?? `Screenshot save failed (${response.status})`,
-			);
-		}
-		return payload.path;
-	} finally {
-		signal.removeEventListener("abort", cancel);
-	}
+): void {
+	signal.throwIfAborted();
+	const href = URL.createObjectURL(blob);
+	const link = document.createElement("a");
+	link.href = href;
+	link.download = `agentsims-${deviceId.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.png`;
+	document.body.append(link);
+	link.click();
+	link.remove();
+	// Give the browser time to consume the URL before releasing the image.
+	setTimeout(() => URL.revokeObjectURL(href), 60_000);
 }

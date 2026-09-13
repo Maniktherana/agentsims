@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { notify } from "../../components/ui/toast";
 import {
 	copyScreenshotBlob,
 	type ScreenshotFlashState,
@@ -330,12 +331,8 @@ export function useScreenshotPreview(onCopied?: () => void) {
 					onExit: exitPreview,
 					onRemove: removePreview,
 					onError: (erroredId, message) => {
-						setPreview((value) => {
-							if (value?.id !== erroredId) return value;
-							const errored = { ...value, error: message };
-							activePreviewRef.current = errored;
-							return errored;
-						});
+						notify("error", "Screenshot failed", { description: message });
+						exitPreview(erroredId);
 					},
 				}),
 			);
@@ -365,15 +362,15 @@ export function useScreenshotPreview(onCopied?: () => void) {
 			onCopied?.();
 			exitPreview(current.id);
 		} catch (error) {
+			notify("error", "Screenshot copy failed", {
+				description:
+					error instanceof Error ? error.message : "Unable to copy screenshot",
+			});
 			setPreview((value) =>
 				value?.id === current.id
 					? {
 							...value,
 							copying: false,
-							error:
-								error instanceof Error
-									? error.message
-									: "Unable to copy screenshot",
 						}
 					: value,
 			);
