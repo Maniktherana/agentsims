@@ -7,8 +7,15 @@ import {
 } from "fs";
 import { createHash } from "crypto";
 import { dirname, join } from "path";
+import { homedir } from "os";
 import { createRequire } from "module";
-import { DEFAULT_RN_SOURCE_MANIFEST } from "../enrich-accessibility";
+import { createServerProcess } from "./launch-server";
+
+const DEFAULT_RN_SOURCE_MANIFEST = join(
+	homedir(),
+	".agentsims",
+	"rn-source-map.jsonl",
+);
 
 type Middleware = (req: any, res: any, next: (err?: unknown) => void) => void;
 
@@ -17,6 +24,8 @@ export interface AgentsimsMetroOptions {
 	projectRoot?: string;
 	resetManifest?: boolean;
 	instrumentBabel?: boolean;
+	/** Start the preview on the first request to /.sim. */
+	preview?: boolean;
 }
 
 const UPSTREAM_BABEL_TRANSFORMER_ENV = "AGENTSIMS_UPSTREAM_BABEL_TRANSFORMER";
@@ -170,11 +179,54 @@ export function withAgentsims<T extends Record<string, any>>(
 		server: {
 			...config.server,
 			enhanceMiddleware(middleware: Middleware, server: unknown) {
+				const preview = options.preview
+					? createServerProcess({
+							basePath: "/.sim",
+							projectRoot: resolvedOptions.projectRoot,
+						})
+					: undefined;
+				// Metro owns this server instance. Release its child when Metro ends.
+				const metro = server as
+					| { end?: (...args: unknown[]) => unknown }
+					| undefined;
+				if (preview && typeof metro?.end === "function") {
+					const end = metro.end;
+					metro.end = async function (...args: unknown[]) {
+						try {
+							return await end.apply(this, args);
+						} finally {
+							await preview.close();
+						}
+					};
+				}
 				const inner = previousEnhance
 					? previousEnhance(middleware, server)
 					: middleware;
 				return (req: any, res: any, next: (err?: unknown) => void) => {
 					const url = new URL(req.url || "/", "http://agentsims.metro");
+					if (
+						preview &&
+						(url.pathname === "/.sim" || url.pathname === "/.sim/")
+					) {
+						void preview
+							.ready()
+							.then((target) => {
+								if (res.destroyed) return;
+								res.writeHead(307, {
+									Location: target,
+									"Cache-Control": "no-store",
+								});
+								res.end();
+							})
+							.catch(() => {
+								if (res.destroyed) return;
+								res.statusCode = 503;
+								res.end(
+									"Cannot start Agentsims. Run agentsims doctor to check setup.",
+								);
+							});
+						return;
+					}
 					if (url.pathname === "/_agentsims/source-map") {
 						sendJson(res, {
 							manifestPath,
