@@ -24,10 +24,11 @@ export interface UseAvccStreamOptions {
 		height: number;
 		presentationGeneration?: number;
 	}) => void;
-	/** Native simulator framebuffer timing carried in the AVCC stream. */
+	/** Native timing when available; otherwise received video-frame timing. */
 	onSimulatorFrameTiming?: (timing: SimulatorFrameTiming) => void;
 	/** Tracks the HTTP stream transport independently from frame cadence. */
 	onTransportChange?: (connected: boolean) => void;
+	onStatusChange?: (status: string) => void;
 	/** Called with a human-readable message when the decode pipeline fails. */
 	onError?: (message: string) => void;
 	/**
@@ -62,6 +63,7 @@ export function useAvccStream({
 	onFrame,
 	onSimulatorFrameTiming,
 	onTransportChange,
+	onStatusChange,
 	onError,
 	onDecoderError,
 }: UseAvccStreamOptions): void {
@@ -71,6 +73,7 @@ export function useAvccStream({
 		onFrame,
 		onSimulatorFrameTiming,
 		onTransportChange,
+		onStatusChange,
 		onError,
 		onDecoderError,
 	});
@@ -79,6 +82,7 @@ export function useAvccStream({
 		onFrame,
 		onSimulatorFrameTiming,
 		onTransportChange,
+		onStatusChange,
 		onError,
 		onDecoderError,
 	};
@@ -99,6 +103,12 @@ export function useAvccStream({
 		let decoderGeneration: number | undefined;
 		let paintFrameRequest = 0;
 		let transportConnected = false;
+		let hasNativeTiming = false;
+		let receivedFrameSequence = 0n;
+		let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+		let awaitingKeyframe = true;
+		let firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
+		let attempts = 0;
 
 		const isLive = () => !stopped && !controller.signal.aborted;
 		const setTransportConnected = (connected: boolean) => {
@@ -145,6 +155,8 @@ export function useAvccStream({
 		};
 
 		const queuePaint = (frame: VideoFrame) => {
+			if (firstFrameTimer) clearTimeout(firstFrameTimer);
+			firstFrameTimer = null;
 			const generation = decodeGenerations.shift();
 			if (!isLive()) {
 				frame.close();
@@ -173,10 +185,19 @@ export function useAvccStream({
 			});
 		};
 
+		const restartAfterDecoderError = () => {
+			callbacks.current.onStatusChange?.("Decoder restarting");
+			setTransportConnected(false);
+			void activeReader?.cancel().catch(() => {});
+		};
+
 		const makeDecoder = () =>
 			new VideoDecoder({
 				output: queuePaint,
-				error: (err) => reportDecodeFailure(`decoder: ${err.message}`),
+				// A decoder can retain broken references across an interrupted H.264
+				// response. End this response and rebuild from its successor's decoder
+				// description and keyframe instead of leaving a false-live transport.
+				error: restartAfterDecoderError,
 			});
 
 		const paintSeed = async (jpeg: Uint8Array) => {
@@ -204,10 +225,9 @@ export function useAvccStream({
 				decoder.configure({
 					codec: avcCodecString(description),
 					description,
-					// `optimizeFor` is a valid runtime hint not yet in lib.dom's types.
-					optimizeFor: "latency",
+					optimizeForLatency: true,
 					hardwareAcceleration: "prefer-hardware",
-				} as VideoDecoderConfig & { optimizeFor: "latency" });
+				});
 			} catch (err) {
 				reportDecodeFailure(`config: ${(err as Error).message}`);
 			}
@@ -215,6 +235,13 @@ export function useAvccStream({
 
 		const decodeFrame = (type: "keyframe" | "delta", data: Uint8Array) => {
 			if (decoder?.state !== "configured") return;
+			if (awaitingKeyframe && type !== "keyframe") return;
+			if (type === "keyframe") awaitingKeyframe = false;
+			// Dropping arbitrary H.264 deltas breaks their reference chain. Reopen
+			// the stream for a fresh keyframe instead of accumulating old frames.
+			if (decodeGenerations.length >= 8) {
+				throw new Error("Video decoder fell behind; restarting the stream");
+			}
 			try {
 				decodeGenerations.push(frameGeneration);
 				decoder.decode(
@@ -226,6 +253,7 @@ export function useAvccStream({
 				);
 				timestamp += FRAME_DURATION_US;
 			} catch {
+				decodeGenerations.pop();
 				/* drop undecodable frame */
 			}
 		};
@@ -251,11 +279,20 @@ export function useAvccStream({
 				}
 				case "simulator-frame-timing": {
 					const timing = parseSimulatorFrameTiming(payload);
-					if (timing) callbacks.current.onSimulatorFrameTiming?.(timing);
+					if (timing) {
+						hasNativeTiming = true;
+						callbacks.current.onSimulatorFrameTiming?.(timing);
+					}
 					return;
 				}
 				case "keyframe":
 				case "delta":
+					if (!hasNativeTiming) {
+						callbacks.current.onSimulatorFrameTiming?.({
+							sequence: ++receivedFrameSequence,
+							timestampUs: BigInt(Math.round(performance.now() * 1000)),
+						});
+					}
 					decodeFrame(type, payload);
 					return;
 			}
@@ -270,27 +307,61 @@ export function useAvccStream({
 		};
 
 		const read = async () => {
+			callbacks.current.onStatusChange?.(
+				attempts++ === 0 ? "Opening stream" : "Retrying stream",
+			);
 			// Each HTTP response is a self-contained stream that opens with its own
 			// description — drop any partial bytes left over from a dropped connection.
 			demuxer.reset();
+			if (decoder && decoder.state !== "closed") decoder.close();
+			decoder = null;
+			decodeGenerations.length = 0;
+			pendingFrame?.frame.close();
+			pendingFrame = null;
+			hasNativeTiming = false;
+			receivedFrameSequence = 0n;
+			awaitingKeyframe = true;
+			let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 			try {
 				const res = await fetch(`${url}/stream.avcc`, {
 					signal: controller.signal,
+					cache: "no-store",
 				});
-				const reader = res.body?.getReader();
-				if (!reader) return;
+				if (!res.ok) throw new Error(`AVCC stream failed (${res.status})`);
+				const contentType = res.headers.get("content-type")?.split(";", 1)[0];
+				if (contentType !== "application/octet-stream") {
+					throw new Error("AVCC endpoint returned an invalid response");
+				}
+				reader = res.body?.getReader();
+				if (!reader) throw new Error("AVCC response has no body");
+				activeReader = reader;
 				setTransportConnected(true);
+				callbacks.current.onStatusChange?.("Waiting for video");
+				firstFrameTimer = setTimeout(() => {
+					callbacks.current.onStatusChange?.("No video received");
+					void reader?.cancel().catch(() => {});
+				}, 8000);
 				for (;;) {
 					const { done, value } = await reader.read();
 					if (done) break;
 					if (!value) continue;
 					for (const chunk of demuxer.push(value)) {
+						// A network read can contain several frames. Give decoder callbacks
+						// a chance to run before treating that batch as a sustained backlog.
+						if (decodeGenerations.length >= 8) {
+							await new Promise((resolve) => setTimeout(resolve, 50));
+							if (!isLive()) return;
+						}
 						handleChunk(chunk.type, chunk.payload);
 					}
 				}
 			} catch {
-				/* aborted or network error — falls through to retry */
+				if (isLive()) callbacks.current.onStatusChange?.("Stream unavailable");
 			} finally {
+				if (firstFrameTimer) clearTimeout(firstFrameTimer);
+				firstFrameTimer = null;
+				await reader?.cancel().catch(() => {});
+				if (activeReader === reader) activeReader = null;
 				if (isLive()) {
 					setTransportConnected(false);
 					scheduleRetry();
@@ -302,6 +373,7 @@ export function useAvccStream({
 
 		return () => {
 			stopped = true;
+			if (firstFrameTimer) clearTimeout(firstFrameTimer);
 			setTransportConnected(false);
 			if (retryTimer) clearTimeout(retryTimer);
 			controller.abort();

@@ -9,9 +9,11 @@ import type { DeviceLifecyclePhase } from "../dock/devices/device-row";
 export function StreamStatusPill({
 	phase,
 	frameRate = EMPTY_SIMULATOR_FRAME_RATE,
+	status,
 }: {
 	phase: DeviceLifecyclePhase;
 	frameRate?: SimulatorFrameRateStore;
+	status?: string;
 }) {
 	const streaming = phase === "streaming";
 	const fps = useSyncExternalStore(
@@ -24,12 +26,12 @@ export function StreamStatusPill({
 			? "Booting"
 			: phase === "shutting-down"
 				? "Shutting down"
-				: "Connecting";
+				: (status ?? "Connecting");
 
 	return (
 		<span
 			data-testid="stream-status-pill"
-			className="inline-flex w-[108px] items-center justify-end whitespace-nowrap"
+			className="inline-flex min-w-[108px] shrink-0 items-center justify-end whitespace-nowrap"
 		>
 			<span className="sr-only" aria-live="polite" aria-atomic="true">
 				{streaming ? "" : lifecycleLabel}

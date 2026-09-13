@@ -75,10 +75,22 @@ function openExecSocket(): Promise<WebSocket> {
 				ws.close();
 			}
 		}, CONNECT_TIMEOUT_MS);
-		ws.onopen = () => {
-			ws.send(
-				JSON.stringify({ token: window.__SIM_PREVIEW__?.execToken ?? "" }),
-			);
+		ws.onopen = async () => {
+			try {
+				// A server restart rotates its token. The page and device frames stay
+				// mounted, so their injected startup token is no longer authoritative.
+				const response = await fetch(simEndpoint("api"), {
+					cache: "no-store",
+					signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+				});
+				const config = response.ok ? await response.json() : null;
+				const token =
+					config?.execToken ?? window.__SIM_PREVIEW__?.execToken ?? "";
+				if (ws.readyState === WebSocket.OPEN)
+					ws.send(JSON.stringify({ token }));
+			} catch {
+				ws.close();
+			}
 		};
 		ws.onmessage = (event) => {
 			let msg: SocketReply;
@@ -113,7 +125,10 @@ function openExecSocket(): Promise<WebSocket> {
 			pendingRequests.delete(msg.id);
 			pending.resolve(msg);
 		};
+		let failed = false;
 		const fail = () => {
+			if (failed) return;
+			failed = true;
 			socketPromise = null;
 			openSocket = null;
 			const err = new Error(

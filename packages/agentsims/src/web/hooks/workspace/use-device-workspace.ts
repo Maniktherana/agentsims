@@ -16,18 +16,22 @@ import {
 	previewConfigKey,
 	setPreviewConfigForDevice,
 	subscribedWorkspaceDeviceIds,
-	visibleRunningDeviceIds,
 	workspaceSelectionReducer,
 	type PreviewConfig,
 } from "../../workspace/workspace-state";
 import { DeviceAutoAttachGuard } from "../../workspace/device-auto-attach-guard";
 import type { useWorkspaceUrlState } from "../../workspace/url-state";
+import type { GridDevice } from "../../workspace/grid";
 
 type WorkspaceUrlState = ReturnType<typeof useWorkspaceUrlState>;
 
-interface DeviceActionResponse {
-	ok?: boolean;
+interface DeviceStartResponse {
 	device?: string;
+	error?: string;
+}
+
+interface DeviceShutdownResponse {
+	ok?: boolean;
 	error?: string;
 }
 
@@ -47,6 +51,21 @@ function setInjectedPreviewConfig(config: PreviewConfig | null): void {
 	if (!window.__SIM_PREVIEW__) return;
 	const { basePath, execToken } = window.__SIM_PREVIEW__;
 	window.__SIM_PREVIEW__ = { basePath, execToken } as Window["__SIM_PREVIEW__"];
+}
+
+function previewConfigFromGridDevice(device: GridDevice): PreviewConfig | null {
+	if (!device.helper) return null;
+	const injected = window.__SIM_PREVIEW__;
+	return {
+		...injected,
+		device: device.device,
+		pid: injected?.pid ?? 0,
+		port: device.helper.port,
+		url: device.helper.url,
+		streamUrl: device.helper.streamUrl,
+		wsUrl: device.helper.wsUrl,
+		basePath: injected?.basePath ?? (simEndpoint("").replace(/\/$/, "") || "/"),
+	};
 }
 
 export function reconcileStreamingDeviceVisibility(
@@ -127,12 +146,21 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 		() => runningDevices.map((device) => device.device),
 		[runningDevices],
 	);
+	const availableDeviceIds = useMemo(() => {
+		const ids = new Set(runningDeviceIds);
+		for (const device of grid.devices ?? []) {
+			if (device.state === "Booted" && configsByDevice[device.device]) {
+				ids.add(device.device);
+			}
+		}
+		return [...ids];
+	}, [configsByDevice, grid.devices, runningDeviceIds]);
 	const visibleDeviceIds = useMemo(() => {
+		const available = new Set(availableDeviceIds);
 		if (urlState.devices === null)
-			return visibleRunningDeviceIds(runningDeviceIds, selection);
-		const running = new Set(runningDeviceIds);
-		return urlState.devices.filter((id) => running.has(id));
-	}, [runningDeviceIds, selection, urlState.devices]);
+			return [...selection.visibleDeviceIds].filter((id) => available.has(id));
+		return urlState.devices.filter((id) => available.has(id));
+	}, [availableDeviceIds, selection, urlState.devices]);
 	const visibleDeviceIdKey = visibleDeviceIds.join("|");
 	useEffect(() => {
 		setStreamingByDevice((current) =>
@@ -193,7 +221,32 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 
 	useEffect(() => {
 		if (grid.devices === null) return;
-		dispatchSelection({ type: "reconcile-devices", devices: grid.devices });
+		dispatchSelection({
+			type: "reconcile-devices",
+			devices: grid.devices.map((device) => ({
+				...device,
+				helper:
+					device.helper ??
+					(device.state === "Booted" && configsByDevice[device.device]
+						? configsByDevice[device.device]
+						: null),
+			})),
+		});
+	}, [configsByDevice, grid.devices]);
+
+	useEffect(() => {
+		if (!grid.devices) return;
+		const devices = grid.devices;
+		setConfigsByDevice((previous) => {
+			let next = previous;
+			for (const device of devices) {
+				if (next[device.device]) continue;
+				const derived = previewConfigFromGridDevice(device);
+				if (derived)
+					next = setPreviewConfigForDevice(next, device.device, derived);
+			}
+			return next;
+		});
 	}, [grid.devices]);
 
 	const waitForHelper = useCallback(
@@ -232,16 +285,19 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 				});
 				const body = (await response
 					.json()
-					.catch(() => ({}))) as DeviceActionResponse;
-				if (!response.ok || !body.ok) {
+					.catch(() => ({}))) as DeviceStartResponse;
+				if (!response.ok || typeof body.device !== "string") {
 					setActionErrors((current) => ({
 						...current,
-						[deviceId]: body.error ?? `HTTP ${response.status}`,
+						[deviceId]:
+							body.error ??
+							(response.ok
+								? "Invalid device start response"
+								: `HTTP ${response.status}`),
 					}));
 					return null;
 				}
-				const resolvedDeviceId =
-					typeof body.device === "string" ? body.device : deviceId;
+				const resolvedDeviceId = body.device;
 				dispatchSelection({
 					type: "device-started",
 					requestedDeviceId: deviceId,
@@ -321,7 +377,7 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 				});
 				const body = (await response
 					.json()
-					.catch(() => ({}))) as DeviceActionResponse;
+					.catch(() => ({}))) as DeviceShutdownResponse;
 				if (!response.ok || !body.ok) {
 					setActionErrors((current) => ({
 						...current,
@@ -330,6 +386,9 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 					return;
 				}
 				succeeded = true;
+				setConfigsByDevice((previous) =>
+					setPreviewConfigForDevice(previous, deviceId, null),
+				);
 			} catch (error) {
 				setActionErrors((current) => ({
 					...current,
@@ -370,10 +429,12 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 						),
 						window.location,
 					);
-					setConfigsByDevice((previous) =>
-						setPreviewConfigForDevice(previous, deviceId, next),
-					);
-					if (selectedUdidRef.current === deviceId) {
+					if (next) {
+						setConfigsByDevice((previous) =>
+							setPreviewConfigForDevice(previous, deviceId, next),
+						);
+					}
+					if (next && selectedUdidRef.current === deviceId) {
 						setConfig((previous) => {
 							if (previewConfigKey(previous) === previewConfigKey(next))
 								return previous;
@@ -395,17 +456,7 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 	useEffect(() => {
 		if (!selectedUdid) return;
 		if (grid.devices === null) return;
-		if (!selectedHasHelper) {
-			setConfigsByDevice((previous) =>
-				setPreviewConfigForDevice(previous, selectedUdid, null),
-			);
-			setConfig((previous) => {
-				if (!previous) return previous;
-				setInjectedPreviewConfig(null);
-				return null;
-			});
-			return;
-		}
+		if (!selectedHasHelper) return;
 		const next = configsByDevice[selectedUdid] ?? null;
 		if (!next) return;
 		setConfig((previous) => {

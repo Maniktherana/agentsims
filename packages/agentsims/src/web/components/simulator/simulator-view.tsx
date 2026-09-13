@@ -145,6 +145,7 @@ export interface SimulatorViewProps {
 	hideControls?: boolean;
 	/** Called when streaming state changes (true = frames are flowing). */
 	onStreamingChange?: (streaming: boolean) => void;
+	onStreamStatusChange?: (status: string) => void;
 	/** Device-local FPS store. */
 	frameRate?: SimulatorFrameRateStore;
 	/** Connection quality indicator: green (good), yellow (degraded), red (poor). */
@@ -218,6 +219,7 @@ export function SimulatorView({
 	onScreenConfigChange,
 	hideControls,
 	onStreamingChange,
+	onStreamStatusChange,
 	frameRate,
 	connectionQuality,
 	codec = "avcc",
@@ -246,7 +248,7 @@ export function SimulatorView({
 	const [connected, setConnected] = useState(false);
 	const [internalFrameRate] = useState(() => new SimulatorFrameRateStore());
 	const simulatorFrameRate = frameRate ?? internalFrameRate;
-	const [error, setError] = useState<string | null>(null);
+	const [, setError] = useState<string | null>(null);
 	const [screenSize, setScreenSize] = useState<StreamConfig | null>(null);
 	const screenSizeRef = useRef<StreamConfig | null>(null);
 	const onScreenConfigChangeRef = useRef(onScreenConfigChange);
@@ -500,6 +502,7 @@ export function SimulatorView({
 		onFrame: onAvccFrame,
 		onSimulatorFrameTiming: onAvccSimulatorFrameTiming,
 		onTransportChange: onAvccTransportChange,
+		onStatusChange: onStreamStatusChange,
 		onError: setError,
 		onDecoderError: onAvccError,
 	});
@@ -739,10 +742,11 @@ export function SimulatorView({
 
 		let interval: ReturnType<typeof setInterval> | null = null;
 		const checkStaleness = () => {
+			// Event-driven H.264 capture can stay silent on a static display.
+			// Its HTTP reader reports disconnection; frame silence must not disable input.
+			if (useAvcc && avccTransportConnectedRef.current) return;
 			const last = lastFrameAtRef.current;
 			if (!last || !connectedRef.current) return;
-			// A live accessibility snapshot can pause emulator rendering for roughly
-			// two seconds. A five-second silence is transport loss, not ordinary AX.
 			if (isPresentedStreamStale(last, Date.now())) setConnected(false);
 		};
 
@@ -1550,25 +1554,6 @@ export function SimulatorView({
 							/>
 						</>
 					)}
-					{!connected && !error && (
-						<div style={{ ...overlayStyle, ...imageStyle }}>
-							<span style={{ color: "#888", fontSize: 14 }}>Connecting...</span>
-						</div>
-					)}
-					{error && (
-						<div style={overlayStyle}>
-							<span
-								style={{
-									color: "#f44",
-									fontSize: 14,
-									padding: 20,
-									textAlign: "center",
-								}}
-							>
-								{error}
-							</span>
-						</div>
-					)}
 					{showSlowOverlay && (
 						<div style={slowOverlayStyle}>
 							<span
@@ -1673,16 +1658,6 @@ const slowOverlayStyle: React.CSSProperties = {
 	background: "rgba(0,0,0,0.7)",
 	borderRadius: 6,
 	padding: "4px 12px",
-	pointerEvents: "none",
-};
-
-const overlayStyle: React.CSSProperties = {
-	position: "absolute",
-	inset: 0,
-	display: "flex",
-	alignItems: "center",
-	justifyContent: "center",
-	background: "rgba(0,0,0,0.8)",
 	pointerEvents: "none",
 };
 

@@ -170,6 +170,11 @@ export function SimulatorDeviceView({
 		() => new SimulatorFrameRateStore(),
 		[config.device],
 	);
+	const [streamRetry, retryStream] = useReducer(
+		(value: number) => value + 1,
+		0,
+	);
+	const [streamStatus, setStreamStatus] = useState("Opening stream");
 
 	useEffect(() => {
 		if (!focused) return;
@@ -1007,7 +1012,7 @@ export function SimulatorDeviceView({
 								alignSelf: "center",
 								width: "auto",
 								minWidth: 0,
-								maxWidth: "100%",
+								maxWidth: "none",
 								flexWrap: "nowrap",
 								justifyContent: "center",
 								gap: 10,
@@ -1031,7 +1036,22 @@ export function SimulatorDeviceView({
 							<StreamStatusPill
 								phase={lifecyclePhase}
 								frameRate={simulatorFrameRate}
+								status={streamStatus}
 							/>
+							{!streaming && lifecyclePhase !== "shutting-down" ? (
+								<button
+									type="button"
+									aria-label="Retry stream"
+									title="Retry stream"
+									onClick={(event) => {
+										event.stopPropagation();
+										retryStream();
+									}}
+									className="inline-flex size-4 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+								>
+									<ReloadIcon />
+								</button>
+							) : null}
 						</SimulatorToolbar>
 						<div
 							ref={simContainerRef}
@@ -1052,6 +1072,7 @@ export function SimulatorDeviceView({
 							{(() => {
 								const streamView = (
 									<SimulatorView
+										key={`${config.streamUrl}:${streamRetry}`}
 										url={config.url}
 										wsUrl={config.wsUrl}
 										style={{
@@ -1084,6 +1105,7 @@ export function SimulatorDeviceView({
 										}
 										hideControls
 										onStreamingChange={setStreaming}
+										onStreamStatusChange={setStreamStatus}
 										frameRate={simulatorFrameRate}
 										onStreamTouch={onStreamTouch}
 										onStreamMultiTouch={onStreamMultiTouch}
