@@ -1,12 +1,30 @@
 import { Context, Effect, Layer } from "effect";
-import { androidSerialFromStateId } from "../android/device/device";
+import { androidSerialFromStateId } from "../android/device/identifiers";
 import { AndroidDevTools } from "../android/browser-devtools";
-import type {
-	DevToolsProvider,
-	DevToolsProviderTarget,
-	DevToolsTarget,
-} from "../../server/devtools/model";
 import { WebKitDevTools } from "../ios/browser-devtools/webkit";
+
+export type DevToolsProviderId = "webkit" | "android-cdp";
+
+export type DevToolsProviderTarget = {
+	id: string;
+	device: string;
+	provider: DevToolsProviderId;
+	title: string;
+	url: string;
+	type: string;
+	appName?: string;
+	bundleId?: string;
+	inUseByOtherInspector?: boolean;
+	webSocketUrl: string;
+};
+
+export type DevToolsTarget = Omit<DevToolsProviderTarget, "webSocketUrl">;
+
+export type DevToolsProvider = {
+	list(device: string): Effect.Effect<DevToolsProviderTarget[], unknown>;
+	highlight?(targetId: string, on: boolean): Effect.Effect<void, unknown>;
+	releaseHighlights?(): Effect.Effect<void>;
+};
 
 export type DevToolsService = {
 	list(device: string): Effect.Effect<DevToolsTarget[], unknown>;

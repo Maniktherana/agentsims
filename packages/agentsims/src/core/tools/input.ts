@@ -3,6 +3,7 @@ import {
 	UnsupportedCharacterError,
 } from "../ios/text-to-keys";
 import { Effect } from "effect";
+import { z } from "zod";
 import {
 	commandFailure,
 	InvalidCommandInput,
@@ -14,12 +15,12 @@ const INPUT_BUTTON = 0x04;
 const INPUT_KEY = 0x06;
 const INPUT_ROTATE = 0x07;
 
-const VALID_ORIENTATIONS: Record<string, true> = {
-	portrait: true,
-	portrait_upside_down: true,
-	landscape_left: true,
-	landscape_right: true,
-};
+const orientations = [
+	"portrait",
+	"portrait_upside_down",
+	"landscape_left",
+	"landscape_right",
+] as const;
 
 const HID_BUTTON_CODES: Record<string, { page: number; usage: number }> = {
 	power: { page: 12, usage: 48 },
@@ -31,25 +32,38 @@ const HID_BUTTON_CODES: Record<string, { page: number; usage: number }> = {
 	"left-side-button": { page: 65281, usage: 512 },
 };
 
-export type DeviceAction =
-	| { type: "tap"; x: number; y: number }
-	| {
-			type: "gesture";
-			phase: "begin" | "move" | "end" | "cancel";
-			x: number;
-			y: number;
-	  }
-	| {
-			type: "swipe";
-			x1: number;
-			y1: number;
-			x2: number;
-			y2: number;
-			durationMs?: number;
-	  }
-	| { type: "type"; text: string }
-	| { type: "button"; button: string }
-	| { type: "rotate"; orientation: string };
+const coordinate = (name: string) =>
+	z
+		.number({ error: `${name} must be a number between 0 and 1` })
+		.finite({ error: `${name} must be a number between 0 and 1` })
+		.min(0, { error: `${name} must be a number between 0 and 1` })
+		.max(1, { error: `${name} must be a number between 0 and 1` });
+const duration = z
+	.number({ error: "durationMs must be a positive finite number" })
+	.finite({ error: "durationMs must be a positive finite number" })
+	.positive({ error: "durationMs must be a positive finite number" })
+	.transform((value) => Math.min(5_000, Math.round(value)));
+export const DeviceActionSchema = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("tap"), x: coordinate("x"), y: coordinate("y") }),
+	z.object({
+		type: z.literal("gesture"),
+		phase: z.enum(["begin", "move", "end", "cancel"]),
+		x: coordinate("x"),
+		y: coordinate("y"),
+	}),
+	z.object({
+		type: z.literal("swipe"),
+		x1: coordinate("x1"),
+		y1: coordinate("y1"),
+		x2: coordinate("x2"),
+		y2: coordinate("y2"),
+		durationMs: duration.optional(),
+	}),
+	z.object({ type: z.literal("type"), text: z.string() }),
+	z.object({ type: z.literal("button"), button: z.string().min(1) }),
+	z.object({ type: z.literal("rotate"), orientation: z.enum(orientations) }),
+]);
+export type DeviceAction = z.infer<typeof DeviceActionSchema>;
 
 export type DeviceInputSession = {
 	dispatchInputFrame(data: Buffer): Promise<void>;
@@ -64,18 +78,6 @@ export type ResolveSession = (
 	device: string,
 ) => Effect.Effect<DeviceInputSession, ApplicationCommandError>;
 type Pause = (milliseconds: number) => Effect.Effect<void>;
-
-function normalized(value: unknown, name: string): number {
-	if (
-		typeof value !== "number" ||
-		!Number.isFinite(value) ||
-		value < 0 ||
-		value > 1
-	) {
-		throw new Error(`${name} must be a number between 0 and 1`);
-	}
-	return value;
-}
 
 function inputFrame(tag: number, payload: Record<string, unknown>): Buffer {
 	return Buffer.concat([
@@ -181,75 +183,7 @@ function defaultPause(milliseconds: number): Effect.Effect<void> {
 export function decodeDeviceAction(value: unknown): DeviceAction {
 	if (!value || typeof value !== "object")
 		throw new Error("Action must be a JSON object");
-	const action = value as Record<string, unknown>;
-	switch (action.type) {
-		case "tap":
-			return {
-				type: "tap",
-				x: normalized(action.x, "x"),
-				y: normalized(action.y, "y"),
-			};
-		case "gesture": {
-			if (
-				action.phase !== "begin" &&
-				action.phase !== "move" &&
-				action.phase !== "end" &&
-				action.phase !== "cancel"
-			) {
-				throw new Error("gesture phase must be begin, move, end, or cancel");
-			}
-			return {
-				type: "gesture",
-				phase: action.phase,
-				x: normalized(action.x, "x"),
-				y: normalized(action.y, "y"),
-			};
-		}
-		case "swipe": {
-			if (
-				action.durationMs !== undefined &&
-				(typeof action.durationMs !== "number" ||
-					!Number.isFinite(action.durationMs) ||
-					action.durationMs <= 0)
-			) {
-				throw new Error("durationMs must be a positive finite number");
-			}
-			return {
-				type: "swipe",
-				x1: normalized(action.x1, "x1"),
-				y1: normalized(action.y1, "y1"),
-				x2: normalized(action.x2, "x2"),
-				y2: normalized(action.y2, "y2"),
-				durationMs:
-					typeof action.durationMs === "number"
-						? Math.min(5_000, Math.round(action.durationMs))
-						: undefined,
-			};
-		}
-		case "type":
-			if (typeof action.text !== "string")
-				throw new Error("type action requires text");
-			return { type: "type", text: action.text };
-		case "button":
-			if (typeof action.button !== "string" || !action.button) {
-				throw new Error("button action requires button");
-			}
-			return { type: "button", button: action.button };
-		case "rotate":
-			if (
-				typeof action.orientation !== "string" ||
-				!VALID_ORIENTATIONS[action.orientation]
-			) {
-				throw new Error(
-					`orientation must be one of ${Object.keys(VALID_ORIENTATIONS).join(", ")}`,
-				);
-			}
-			return { type: "rotate", orientation: action.orientation };
-		default:
-			throw new Error(
-				"Unsupported action type. Use tap, gesture, swipe, type, button, or rotate.",
-			);
-	}
+	return DeviceActionSchema.parse(value);
 }
 
 export function parseDeviceAction(value: string): DeviceAction {

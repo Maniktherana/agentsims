@@ -26,7 +26,7 @@ import { parseDetachedOutput } from "../helpers/detached-output";
  * `bun test packages/serve-sim/src/__tests__/`, so it runs there.
  */
 
-const CLI_PATH = join(import.meta.dir, "../../cli/index.ts");
+const CLI_PATH = join(import.meta.dir, "../../cli/main.ts");
 const STATE_DIR = join(tmpdir(), "agentsims");
 
 function firstBootedIosSim(): string | null {
@@ -76,7 +76,7 @@ describeWithSim(
 		beforeAll(async () => {
 			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
 			try {
-				execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" });
+				execSync(`bun run ${CLI_PATH} stop`, { stdio: "pipe" });
 			} catch (error) {
 				console.warn(
 					"[agentsims:test] recoverable setup or cleanup failure",
@@ -84,31 +84,27 @@ describeWithSim(
 				);
 			}
 
-			const detach = spawnSync(
-				"bun",
-				["run", CLI_PATH, "--detach", bootedUdid!],
-				{
-					encoding: "utf-8",
-					stdio: ["ignore", "pipe", "inherit"],
-					timeout: 45_000,
-					// Surface the per-event `[hid] Key …` lines this test asserts on; the
-					// env propagates to the detached `serve` child the CLI re-execs.
-					env: { ...process.env, SERVE_SIM_DEBUG_HID: "1" },
-				},
-			);
+			const detach = spawnSync("bun", ["run", CLI_PATH, "start", "--detach"], {
+				encoding: "utf-8",
+				stdio: ["ignore", "pipe", "inherit"],
+				timeout: 45_000,
+				// Surface the per-event `[hid] Key …` lines this test asserts on; the
+				// env propagates to the detached `serve` child the CLI re-execs.
+				env: { ...process.env, SERVE_SIM_DEBUG_HID: "1" },
+			});
 			if (detach.status !== 0 || !detach.stdout) {
 				throw new Error(
 					`serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\nstdout: ${detach.stdout}`,
 				);
 			}
 			serverUrl = serverUrlFromOutput(detach.stdout);
-			logFile = join(STATE_DIR, `server-${bootedUdid!}.log`);
+			logFile = join(STATE_DIR, "local-server.log");
 		}, IOS_E2E_HOOK_TIMEOUT_MS);
 
 		afterAll(() => {
 			try {
 				try {
-					execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" });
+					execSync(`bun run ${CLI_PATH} stop`, { stdio: "pipe" });
 				} catch (error) {
 					console.warn(
 						"[agentsims:test] recoverable setup or cleanup failure",
@@ -120,7 +116,7 @@ describeWithSim(
 			}
 		}, 30_000);
 
-		test("`serve-sim type` injects HID key events into the booted simulator", async () => {
+		test("`agentsims act` injects HID key events into the booted simulator", async () => {
 			const logBefore = readFileSync(logFile, "utf-8");
 			const beforeCount = countKeyLines(logBefore);
 
@@ -130,7 +126,16 @@ describeWithSim(
 			//   !: shift down, Digit1 down, Digit1 up, shift up  (0xe1, 0x1e, 0x1e, 0xe1)
 			const result = spawnSync(
 				"bun",
-				["run", CLI_PATH, "type", "Hi!", "-d", bootedUdid!, "--url", serverUrl],
+				[
+					"run",
+					CLI_PATH,
+					"act",
+					JSON.stringify({ type: "type", text: "Hi!" }),
+					"-d",
+					bootedUdid!,
+					"--url",
+					serverUrl,
+				],
 				{
 					encoding: "utf-8",
 					stdio: ["ignore", "pipe", "pipe"],

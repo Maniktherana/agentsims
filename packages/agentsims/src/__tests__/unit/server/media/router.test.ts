@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
 	androidEmulatorSupportsImage360,
-	androidMediaVolumeKeyEvents,
 	androidCameraStartupArgs,
-	parseAndroidAudioStatus,
 	parseAndroidEmulatorVersion,
 	parseAndroidWebcamList,
 	validateAndroidCameraStartupMode,
-} from "../../../../core/android/device/device";
+} from "../../../../core/android/device/emulator";
+import {
+	androidMediaVolumeKeyEvents,
+	parseAndroidAudioStatus,
+} from "../../../../core/android/device/media";
 import {
 	buildDeviceMediaState,
 	mediaDeviceFromRequestUrl,
@@ -16,7 +18,7 @@ import {
 	readStoredMediaRoutes,
 	updateStoredMediaRoute,
 	writeStoredMediaRoutes,
-} from "../../../../server/media/route-store";
+} from "../../../../core/tools/media";
 import type { AndroidStatus } from "../../../../core/android/device/types";
 
 function androidStatus(serial = "emulator-5554"): AndroidStatus {

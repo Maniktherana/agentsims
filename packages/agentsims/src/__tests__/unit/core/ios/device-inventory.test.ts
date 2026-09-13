@@ -19,12 +19,6 @@ afterEach(() => {
 const inventoryModule = pathToFileURL(
 	resolve(import.meta.dir, "../../../../core/ios/devices.ts"),
 ).href;
-const stateModule = pathToFileURL(
-	resolve(import.meta.dir, "../../../../core/tools/devices/state.ts"),
-).href;
-const cliStateModule = pathToFileURL(
-	resolve(import.meta.dir, "../../../../cli/device-state.ts"),
-).href;
 
 function fixture(
 	code: string,
@@ -101,20 +95,3 @@ test("Linux inventory never starts an Apple command", () => {
 	expect(result.value).toBeNull();
 	expect(existsSync(result.calls)).toBe(false);
 });
-
-for (const [platform, device] of [
-	["linux", "11111111-1111-1111-1111-111111111111"],
-	["darwin", "android:emulator-5554"],
-]) {
-	test(`CLI state reading avoids Apple queries for ${platform} / ${device}`, () => {
-		const result =
-			fixture(`Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });
-			const { writeDeviceState } = await import(${JSON.stringify(stateModule)});
-			const { readState } = await import(${JSON.stringify(cliStateModule)});
-			const device = ${JSON.stringify(device)};
-			writeDeviceState({ device, pid: process.pid, port: 3219 });
-			console.log(JSON.stringify(readState(device)));`);
-		expect(result.value.device).toBe(device);
-		expect(existsSync(result.calls)).toBe(false);
-	});
-}

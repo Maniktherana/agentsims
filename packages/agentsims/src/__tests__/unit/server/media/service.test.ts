@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { makeMediaRouting } from "../../../../server/media/service";
+import { makeMediaRouting } from "../../../../core/tools/media";
 
 describe("makeMediaRouting", () => {
 	test("delegates reads and writes without HTTP concerns", async () => {

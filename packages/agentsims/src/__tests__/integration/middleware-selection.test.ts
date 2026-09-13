@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { parseForegroundAppLogMessage } from "../../server/devices/app-state";
-import { matchInstalledAppByDisplayName } from "../../server/devices/installed-apps";
 import { previewConfigForState } from "../../server/http/connection-config";
 import { exposeDeviceState } from "../../server/http/device-urls";
 import { selectDeviceState } from "../../core/tools/devices/lifecycle";
@@ -171,54 +169,5 @@ describe("exposeDeviceState", () => {
 				wsUrl: "wss://tunnel.example.com/helper/DEVICE-A/ws",
 			});
 		});
-	});
-});
-
-describe("parseForegroundAppLogMessage", () => {
-	test("extracts bundle id and pid from SpringBoard foreground logs", () => {
-		expect(
-			parseForegroundAppLogMessage(
-				"[app<com.example.SampleApp>:43117] Setting process visibility to: Foreground",
-			),
-		).toEqual({ bundleId: "com.example.SampleApp", pid: 43117 });
-	});
-
-	test("ignores unrelated log messages", () => {
-		expect(
-			parseForegroundAppLogMessage("Setting process visibility to: Background"),
-		).toBeNull();
-	});
-});
-
-describe("matchInstalledAppByDisplayName", () => {
-	test("matches the AX application label to an installed app bundle id", () => {
-		expect(
-			matchInstalledAppByDisplayName(
-				{
-					"com.example.SampleApp": {
-						CFBundleDisplayName: "Sample App",
-						CFBundleIdentifier: "com.example.SampleApp",
-					},
-					"com.apple.mobilesafari": {
-						CFBundleDisplayName: "Safari",
-						CFBundleIdentifier: "com.apple.mobilesafari",
-					},
-				},
-				"Sample App",
-			),
-		).toBe("com.example.SampleApp");
-	});
-
-	test("falls back to bundle name fields and normalizes whitespace", () => {
-		expect(
-			matchInstalledAppByDisplayName(
-				{
-					"com.example.App": {
-						CFBundleName: "Example App",
-					},
-				},
-				" example   app ",
-			),
-		).toBe("com.example.App");
 	});
 });

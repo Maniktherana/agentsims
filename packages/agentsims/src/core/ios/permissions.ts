@@ -1,10 +1,8 @@
-import { CliError } from "../../cli/error";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { Effect } from "effect";
 import { hostCommandText } from "../host";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
-import { findBootedDevice, resolveDevice } from "./devices";
 
 // ─── Permission catalogue ───
 
@@ -37,18 +35,6 @@ const TCC_SERVICES: Record<string, string> = {
 	homekit: "kTCCServiceWillow",
 };
 
-// Names that map onto a canonical permission, sometimes pinning a `--value`.
-const ALIASES: Record<string, { permission: string; value?: string }> = {
-	push: { permission: "notifications" },
-	notification: { permission: "notifications" },
-	"photo-library": { permission: "photos" },
-	photo: { permission: "photos" },
-	"location-always": { permission: "location", value: "always" },
-	"location-in-use": { permission: "location", value: "inuse" },
-	"location-inuse": { permission: "location", value: "inuse" },
-	mic: { permission: "microphone" },
-};
-
 export function resolvePermission(name: string): PermissionSpec | null {
 	if (name === "notifications")
 		return { kind: "notifications", values: ["critical"] };
@@ -69,117 +55,6 @@ export function resolvePermission(name: string): PermissionSpec | null {
 /** Every canonical permission name, used by `reset all` and `--help`. */
 export function allPermissionNames(): string[] {
 	return ["notifications", "location", ...Object.keys(TCC_SERVICES)];
-}
-
-// ─── Argument parsing ───
-
-export type Verb = "grant" | "revoke" | "reset" | "list";
-
-export interface ParsedArgs {
-	verb: Verb;
-	/** Canonical permission name, or "all" for `reset all`. Absent for `list`. */
-	permission?: string;
-	value?: string;
-	bundleId?: string;
-	device?: string;
-}
-
-const BUNDLE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
-
-export function parsePermissionsArgs(
-	args: string[],
-): ParsedArgs | { error: string } {
-	let device: string | undefined;
-	let value: string | undefined;
-	const positional: string[] = [];
-
-	for (let i = 0; i < args.length; i++) {
-		const a = args[i];
-		if (a === undefined) continue;
-		if (a === "-d" || a === "--device") {
-			device = args[++i];
-			if (!device) return { error: "Missing value for -d/--device" };
-		} else if (a === "--value") {
-			value = args[++i];
-			if (value === undefined) return { error: "Missing value for --value" };
-		} else if (a.startsWith("--value=")) {
-			value = a.slice("--value=".length);
-		} else if (a.startsWith("-")) {
-			return { error: `Unknown flag: ${a}` };
-		} else {
-			positional.push(a);
-		}
-	}
-
-	const verbRaw = positional[0];
-	if (!verbRaw)
-		return { error: "Missing subcommand: grant | revoke | reset | list" };
-	const verb: Verb | undefined = (
-		{
-			grant: "grant",
-			revoke: "revoke",
-			deny: "revoke",
-			reset: "reset",
-			list: "list",
-		} as const
-	)[verbRaw];
-	if (!verb) return { error: `Unknown subcommand: ${verbRaw}` };
-
-	if (verb === "list") {
-		// permissions list [bundle-id] [-d udid]
-		const bundleId = positional[1];
-		if (bundleId && !BUNDLE_ID_RE.test(bundleId)) {
-			return { error: `Invalid bundle id: ${bundleId}` };
-		}
-		return { verb, bundleId, device };
-	}
-
-	let permission = positional[1];
-	if (!permission) return { error: `Missing permission name for "${verb}"` };
-
-	// `reset all` is a special case — no bundle-scoped permission lookup.
-	if (verb === "reset" && permission === "all") {
-		const bundleId = positional[2];
-		if (!bundleId) return { error: "Missing bundle id for `reset all`" };
-		if (!BUNDLE_ID_RE.test(bundleId))
-			return { error: `Invalid bundle id: ${bundleId}` };
-		return { verb, permission: "all", bundleId, device };
-	}
-
-	// Resolve aliases (may pin a value).
-	const alias = ALIASES[permission];
-	if (alias) {
-		permission = alias.permission;
-		if (alias.value && !value) value = alias.value;
-	}
-
-	const spec = resolvePermission(permission);
-	if (!spec) {
-		return {
-			error: `Unknown permission: ${positional[1]}\nSupported: ${allPermissionNames().join(", ")}`,
-		};
-	}
-
-	const bundleId = positional[2];
-	if (!bundleId)
-		return { error: `Missing bundle id for "${verb} ${permission}"` };
-	if (!BUNDLE_ID_RE.test(bundleId))
-		return { error: `Invalid bundle id: ${bundleId}` };
-
-	// A trailing positional (4th arg) is also accepted as the value, matching
-	// applesimutils' `permission grant photos limited` shape.
-	if (!value && positional[3]) value = positional[3];
-
-	if (value !== undefined) {
-		if (!spec.values || !spec.values.includes(value)) {
-			const allowed = spec.values ? spec.values.join(", ") : "(none)";
-			return {
-				error: `Invalid --value "${value}" for ${permission}. Allowed: ${allowed}`,
-			};
-		}
-	}
-
-	return { verb, permission, value, bundleId, device };
 }
 
 // ─── Simulator paths ───
@@ -492,9 +367,11 @@ async function readNotifications(
 
 // ─── Dispatch ───
 
+type PermissionMutation = "grant" | "revoke" | "reset";
+
 async function applyOne(
 	udid: string,
-	verb: Exclude<Verb, "list">,
+	verb: PermissionMutation,
 	permission: string,
 	value: string | undefined,
 	bundleId: string,
@@ -531,74 +408,32 @@ async function applyOne(
 	}
 }
 
-export async function permissions(args: string[]): Promise<void> {
-	const quiet = args.includes("-q") || args.includes("--quiet");
-	const rest = args.filter((a) => a !== "-q" && a !== "--quiet");
-	const parsed = parsePermissionsArgs(rest);
-
-	if ("error" in parsed) {
-		throw new CliError(
-			`${parsed.error}\n\nUsage:\n` +
-				"  agentsims permissions grant  <permission> <bundle-id> [--value <v>] [-d <udid|name>]\n" +
-				"  agentsims permissions revoke <permission> <bundle-id> [-d <udid|name>]\n" +
-				"  agentsims permissions reset  <permission|all> <bundle-id> [-d <udid|name>]\n" +
-				"  agentsims permissions list   [bundle-id] [-d <udid|name>]\n" +
-				`\nPermissions: ${allPermissionNames().join(", ")}`,
-		);
+export async function resetAllPermissions(udid: string, bundleId: string) {
+	for (const name of allPermissionNames()) {
+		await applyOne(udid, "reset", name, undefined, bundleId);
 	}
+}
 
-	const udid = parsed.device
-		? await resolveDevice(parsed.device)
-		: await findBootedDevice();
-	if (!udid)
-		throw new CliError("No booted simulator. Boot one or pass -d <udid|name>.");
-
-	if (parsed.verb === "list") {
-		const [tcc, location, notifications] = await Promise.all([
-			readTcc(udid, parsed.bundleId),
-			readLocation(udid, parsed.bundleId),
-			readNotifications(udid, parsed.bundleId),
-		]);
-		const result = {
-			udid,
-			bundleId: parsed.bundleId ?? null,
-			tcc,
-			location,
-			notifications,
-		};
-		console.log(JSON.stringify(result, null, quiet ? 0 : 2));
-		return;
+export async function setPermission(
+	udid: string,
+	verb: PermissionMutation,
+	permission: string,
+	bundleId: string,
+	value?: string,
+): Promise<void> {
+	const spec = resolvePermission(permission);
+	if (!spec) throw new Error(`Unknown permission: ${permission}`);
+	if (value !== undefined && !spec.values?.includes(value)) {
+		throw new Error(`Invalid value for ${permission}: ${value}`);
 	}
+	await applyOne(udid, verb, permission, value, bundleId);
+}
 
-	const bundleId = parsed.bundleId!;
-	if (parsed.permission === "all") {
-		for (const name of allPermissionNames()) {
-			await applyOne(udid, "reset", name, undefined, bundleId);
-		}
-	} else {
-		await applyOne(
-			udid,
-			parsed.verb,
-			parsed.permission!,
-			parsed.value,
-			bundleId,
-		);
-	}
-
-	if (quiet) {
-		console.log(
-			JSON.stringify({
-				udid,
-				verb: parsed.verb,
-				permission: parsed.permission,
-				value: parsed.value ?? null,
-				bundleId,
-			}),
-		);
-	} else {
-		const valueStr = parsed.value ? ` (${parsed.value})` : "";
-		console.log(
-			`🔐 ${parsed.verb} ${parsed.permission}${valueStr} for ${bundleId} on ${udid}`,
-		);
-	}
+export async function listPermissions(udid: string, bundleId?: string) {
+	const [tcc, location, notifications] = await Promise.all([
+		readTcc(udid, bundleId),
+		readLocation(udid, bundleId),
+		readNotifications(udid, bundleId),
+	]);
+	return { udid, bundleId: bundleId ?? null, tcc, location, notifications };
 }

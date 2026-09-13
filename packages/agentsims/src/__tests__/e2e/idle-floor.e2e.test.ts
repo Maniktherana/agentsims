@@ -28,7 +28,7 @@ import { parseDetachedOutput } from "../helpers/detached-output";
  * publish-serve-sim CI job boots one explicitly, the test runs there.
  */
 
-const CLI_PATH = join(import.meta.dir, "../../cli/index.ts");
+const CLI_PATH = join(import.meta.dir, "../../cli/main.ts");
 // CI macOS simulators are markedly slower than dev laptops at producing the
 // first framebuffer snapshot, so budgets here are sized for the slow runner —
 // the regression we're guarding against (silenced stream → blank img tags) is
@@ -151,7 +151,7 @@ describeWithSim(
 			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
 			// Try kill any prior state — best effort.
 			try {
-				execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" });
+				execSync(`bun run ${CLI_PATH} stop`, { stdio: "pipe" });
 			} catch (error) {
 				console.warn(
 					"[agentsims:test] recoverable setup or cleanup failure",
@@ -163,15 +163,11 @@ describeWithSim(
 			// lands directly in the test output — critical when the subprocess hangs
 			// under CI and we need to know *where*. stdout stays captured so we can
 			// still parse the JSON state blob.
-			const detach = spawnSync(
-				"bun",
-				["run", CLI_PATH, "--detach", bootedUdid!],
-				{
-					encoding: "utf-8",
-					stdio: ["ignore", "pipe", "inherit"],
-					timeout: 45_000,
-				},
-			);
+			const detach = spawnSync("bun", ["run", CLI_PATH, "start", "--detach"], {
+				encoding: "utf-8",
+				stdio: ["ignore", "pipe", "inherit"],
+				timeout: 45_000,
+			});
 			if (detach.status !== 0 || !detach.stdout) {
 				const helperLogs = dumpHelperLogs();
 				throw new Error(
@@ -181,8 +177,8 @@ describeWithSim(
 				);
 			}
 			try {
-				const info = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
-				streamUrl = info.streamUrl;
+				const info = parseDetachedOutput<{ url: string }>(detach.stdout);
+				streamUrl = `${info.url}/helper/${encodeURIComponent(bootedUdid!)}/stream.mjpeg`;
 			} catch {
 				throw new Error(
 					`serve-sim --detach returned unparseable stdout: ${detach.stdout}\n` +
@@ -194,7 +190,7 @@ describeWithSim(
 		afterAll(() => {
 			try {
 				try {
-					execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" });
+					execSync(`bun run ${CLI_PATH} stop`, { stdio: "pipe" });
 				} catch (error) {
 					console.warn(
 						"[agentsims:test] recoverable setup or cleanup failure",

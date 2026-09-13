@@ -11,7 +11,7 @@ import {
 	resolveAndroidAxServer,
 	subscribeAndroidAxChanges,
 } from "../../../../../core/android/accessibility/ax-server";
-import { collectAndroidAxSnapshot } from "../../../../../core/android/device/device";
+import { collectAndroidAxSnapshot } from "../../../../../core/android/accessibility/snapshot";
 
 const XML = [
 	'<?xml version="1.0" encoding="UTF-8"?>',

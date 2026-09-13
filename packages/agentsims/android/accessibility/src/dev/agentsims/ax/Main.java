@@ -3,6 +3,16 @@ package dev.agentsims.ax;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.UiAutomation;
 import android.graphics.Rect;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.res.AssetManager;
+import android.content.res.Resources;
+import android.util.DisplayMetrics;
+import android.util.Base64;
+import java.io.ByteArrayOutputStream;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -94,6 +104,10 @@ public final class Main {
 
   public static void main(String[] args) throws Exception {
     output = new PrintWriter(System.out, true);
+    if (args.length == 2 && "metadata".equals(args[0])) {
+      output.println(appMetadata(args[1]).toString());
+      return;
+    }
     try {
       connect();
       emit(new JSONObject().put("ready", true));
@@ -135,6 +149,50 @@ public final class Main {
       disconnect();
       output = null;
     }
+  }
+
+  private static JSONObject appMetadata(String packageName) throws Exception {
+    Object manager = Class.forName("android.app.AppGlobals").getMethod("getPackageManager").invoke(null);
+    ApplicationInfo application = (ApplicationInfo) invokePackageQuery(manager, "getApplicationInfo", packageName);
+    PackageInfo pkg = (PackageInfo) invokePackageQuery(manager, "getPackageInfo", packageName);
+    AssetManager assets = AssetManager.class.getDeclaredConstructor().newInstance();
+    AssetManager.class.getMethod("addAssetPath", String.class).invoke(assets, application.sourceDir);
+    DisplayMetrics metrics = new DisplayMetrics();
+    metrics.setToDefaults();
+    Resources resources = new Resources(assets, metrics, null);
+    JSONObject result = new JSONObject().put("bundleId", packageName);
+    if (application.labelRes != 0) result.put("displayName", resources.getText(application.labelRes).toString());
+    else if (application.nonLocalizedLabel != null) result.put("displayName", application.nonLocalizedLabel.toString());
+    if (pkg.versionName != null) result.put("shortVersion", pkg.versionName);
+    result.put("bundleVersion", Long.toString(android.os.Build.VERSION.SDK_INT >= 28 ? pkg.getLongVersionCode() : pkg.versionCode));
+    Drawable drawable = resources.getDrawable(application.icon, null);
+    int width = Math.max(1, drawable.getIntrinsicWidth());
+    int height = Math.max(1, drawable.getIntrinsicHeight());
+    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+    drawable.setBounds(0, 0, width, height);
+    drawable.draw(new Canvas(bitmap));
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    bitmap.compress(Bitmap.CompressFormat.PNG, 100, bytes);
+    bitmap.recycle();
+    result.put("iconDataUrl", "data:image/png;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
+    return result;
+  }
+
+  private static Object invokePackageQuery(Object manager, String name, String packageName) throws Exception {
+    for (Method method : manager.getClass().getMethods()) {
+      if (!name.equals(method.getName())) continue;
+      Class<?>[] types = method.getParameterTypes();
+      if (types.length < 2 || types[0] != String.class) continue;
+      Object[] arguments = new Object[types.length];
+      arguments[0] = packageName;
+      for (int i = 1; i < types.length; i++) {
+        if (types[i] == int.class) arguments[i] = 0;
+        else if (types[i] == long.class) arguments[i] = 0L;
+        else arguments[i] = null;
+      }
+      return method.invoke(manager, arguments);
+    }
+    throw new NoSuchMethodException(name);
   }
 
   private static void connect() throws Exception {

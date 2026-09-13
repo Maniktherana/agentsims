@@ -68,6 +68,14 @@ export type DevicePlaceholderAssetDescriptor = {
 	height: number;
 };
 
+export type DeviceAssetResult =
+	| { ok: true; bytes: Uint8Array }
+	| {
+			ok: false;
+			kind: "invalid-request" | "not-found" | "render-failed";
+			error: string;
+	  };
+
 export type DeviceFrameDescriptor = {
 	identifier: string;
 	frame: Size;
@@ -247,25 +255,17 @@ async function resolveDevicePlaceholderAssetUncached(
 		: null;
 }
 
-function webPng(path: string): Response {
-	const body = Bun.file(path);
-	return new Response(body, {
-		headers: {
-			"Content-Type": "image/png",
-			"Cache-Control": "public, max-age=604800, immutable",
-			"Content-Length": String(body.size),
-		},
-	});
-}
-
-export async function serveDeviceFrameAssetWeb(url: URL): Promise<Response> {
-	const identifier = bareChromeIdentifier(url.searchParams.get("frame") ?? "");
-	const imageName = url.searchParams.get("image") ?? "";
+export async function readDeviceFrameAsset(
+	frame: string,
+	imageName: string,
+): Promise<DeviceAssetResult> {
+	const identifier = bareChromeIdentifier(frame);
 	if (!/^[A-Za-z0-9_-]+$/.test(identifier) || !imageName) {
-		return Response.json(
-			{ ok: false, error: "Invalid device frame asset request" },
-			{ status: 400 },
-		);
+		return {
+			ok: false,
+			kind: "invalid-request",
+			error: "Invalid device frame asset request",
+		};
 	}
 	const chrome = readChrome(identifier);
 	if (
@@ -273,58 +273,58 @@ export async function serveDeviceFrameAssetWeb(url: URL): Promise<Response> {
 		!chrome.allowedImages.has(imageName) ||
 		imageName.includes("/")
 	) {
-		return Response.json(
-			{ ok: false, error: "Device frame asset not found" },
-			{ status: 404 },
-		);
+		return {
+			ok: false,
+			kind: "not-found",
+			error: "Device frame asset not found",
+		};
 	}
 	const pdfPath = chromeAssetPath(identifier, imageName);
 	if (!existsSync(pdfPath)) {
-		return Response.json(
-			{ ok: false, error: "Device frame asset not found" },
-			{ status: 404 },
-		);
+		return {
+			ok: false,
+			kind: "not-found",
+			error: "Device frame asset not found",
+		};
 	}
 	try {
-		return webPng(await cachedPngPath(identifier, imageName, pdfPath));
+		return {
+			ok: true,
+			bytes: readFileSync(await cachedPngPath(identifier, imageName, pdfPath)),
+		};
 	} catch (error) {
-		return Response.json(
-			{
-				ok: false,
-				error:
-					error instanceof Error
-						? error.message
-						: "Failed to render chrome asset",
-			},
-			{ status: 500 },
-		);
+		return {
+			ok: false,
+			kind: "render-failed",
+			error:
+				error instanceof Error
+					? error.message
+					: "Failed to render chrome asset",
+		};
 	}
 }
 
-export async function serveDevicePlaceholderAssetWeb(
-	url: URL,
-): Promise<Response> {
+export async function readDevicePlaceholderAsset(
+	name: string,
+): Promise<DeviceAssetResult> {
 	try {
-		const asset = await placeholderAssetInfo(
-			url.searchParams.get("name") ?? "",
-		);
+		const asset = await placeholderAssetInfo(name);
 		return asset
-			? webPng(asset.pngPath)
-			: Response.json(
-					{ ok: false, error: "Placeholder asset not found" },
-					{ status: 404 },
-				);
+			? { ok: true, bytes: readFileSync(asset.pngPath) }
+			: {
+					ok: false,
+					kind: "not-found",
+					error: "Placeholder asset not found",
+				};
 	} catch (error) {
-		return Response.json(
-			{
-				ok: false,
-				error:
-					error instanceof Error
-						? error.message
-						: "Failed to render placeholder asset",
-			},
-			{ status: 500 },
-		);
+		return {
+			ok: false,
+			kind: "render-failed",
+			error:
+				error instanceof Error
+					? error.message
+					: "Failed to render placeholder asset",
+		};
 	}
 }
 

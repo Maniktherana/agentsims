@@ -69,13 +69,6 @@ function controlledTimerClock() {
 	};
 }
 
-function snapshotFromSseMessage(message: string): AxSnapshot {
-	expect(message.startsWith("data: ")).toBe(true);
-	expect(message.endsWith("\n\n")).toBe(true);
-	expect(message.match(/\ndata: /g)).toBeNull();
-	return JSON.parse(message.slice("data: ".length, -2)) as AxSnapshot;
-}
-
 describe("createAxStreamerCache", () => {
 	test("get() reuses the same streamer for a udid", () => {
 		const cache = createAxStreamerCache();
@@ -106,8 +99,8 @@ describe("createAxStreamerCache", () => {
 
 		// Disposed streamer's addClient returns a no-op cleanup and never
 		// pushes data — verifies it won't keep poll timers alive after prune.
-		const writes: string[] = [];
-		const removeClient = streamer.addClient({ write: (s) => writes.push(s) });
+		const writes: AxSnapshot[] = [];
+		const removeClient = streamer.addClient((value) => writes.push(value));
 		expect(typeof removeClient).toBe("function");
 		expect(writes).toEqual([]);
 		removeClient();
@@ -124,33 +117,27 @@ describe("createAxStreamerCache", () => {
 		});
 		const streamer = cache.get("android:emulator-5554");
 
-		const firstWrites: string[] = [];
-		const removeFirst = streamer.addClient({
-			write: (message) => firstWrites.push(message),
-		});
+		const firstWrites: AxSnapshot[] = [];
+		const removeFirst = streamer.addClient((value) => firstWrites.push(value));
 		await flushPoll();
 		expect(captures).toBe(1);
 		expect(firstWrites).toHaveLength(1);
-		expect(firstWrites[0]).toContain('"first"');
+		expect(firstWrites[0]?.elements[0]?.label).toBe("first");
 		now = 10;
 		await Bun.sleep(15);
 		expect(captures).toBe(1);
 
-		const lateWrites: string[] = [];
-		const removeLate = streamer.addClient({
-			write: (message) => lateWrites.push(message),
-		});
+		const lateWrites: AxSnapshot[] = [];
+		const removeLate = streamer.addClient((value) => lateWrites.push(value));
 		expect(captures).toBe(1);
 		expect(lateWrites).toHaveLength(1);
-		expect(snapshotFromSseMessage(lateWrites[0]!).elements[0]?.label).toBe(
-			"first",
-		);
+		expect(lateWrites[0]?.elements[0]?.label).toBe("first");
 
 		streamer.refresh();
 		await flushPoll();
 		expect(captures).toBe(2);
-		expect(firstWrites.at(-1)).toContain('"fresh"');
-		expect(lateWrites.at(-1)).toContain('"fresh"');
+		expect(firstWrites.at(-1)?.elements[0]?.label).toBe("fresh");
+		expect(lateWrites.at(-1)?.elements[0]?.label).toBe("fresh");
 		removeLate();
 		removeFirst();
 	});
@@ -166,10 +153,8 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const writes: string[] = [];
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const writes: AxSnapshot[] = [];
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 		expect(captures).toBe(1);
 		expect(writes).toHaveLength(1);
@@ -179,7 +164,7 @@ describe("createAxStreamerCache", () => {
 
 		expect(captures).toBe(2);
 		expect(writes).toHaveLength(2);
-		expect(writes[1]).toContain('"same"');
+		expect(writes[1]).toEqual(snapshot("same"));
 		remove();
 	});
 
@@ -197,10 +182,8 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const writes: string[] = [];
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const writes: AxSnapshot[] = [];
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 		expect(captures).toBe(1);
 		expect(writes).toHaveLength(1);
@@ -215,7 +198,7 @@ describe("createAxStreamerCache", () => {
 
 		expect(captures).toBe(3);
 		expect(writes).toHaveLength(3);
-		expect(snapshotFromSseMessage(writes.at(-1)!)).toEqual(snapshot("same"));
+		expect(writes.at(-1)).toEqual(snapshot("same"));
 		remove();
 	});
 
@@ -226,15 +209,13 @@ describe("createAxStreamerCache", () => {
 			collect: async () => snapshot(captures++ === 0 ? "cached" : "fresh"),
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const firstWrites: string[] = [];
-		const secondWrites: string[] = [];
-		const removeFirst = streamer.addClient({
-			write: (message) => firstWrites.push(message),
-		});
+		const firstWrites: AxSnapshot[] = [];
+		const secondWrites: AxSnapshot[] = [];
+		const removeFirst = streamer.addClient((value) => firstWrites.push(value));
 		await flushPoll();
-		const removeSecond = streamer.addClient({
-			write: (message) => secondWrites.push(message),
-		});
+		const removeSecond = streamer.addClient((value) =>
+			secondWrites.push(value),
+		);
 
 		streamer.refresh();
 		await flushPoll();
@@ -242,7 +223,7 @@ describe("createAxStreamerCache", () => {
 		expect(captures).toBe(2);
 		expect(firstWrites).toHaveLength(2);
 		expect(secondWrites).toHaveLength(2);
-		expect(snapshotFromSseMessage(firstWrites[1]!)).toEqual(snapshot("fresh"));
+		expect(firstWrites[1]).toEqual(snapshot("fresh"));
 		expect(secondWrites[1]).toBe(firstWrites[1]);
 		removeSecond();
 		removeFirst();
@@ -265,19 +246,19 @@ describe("createAxStreamerCache", () => {
 		});
 		const streamer = cache.get("android:emulator-5554");
 
-		const removeFirst = streamer.addClient({ write: () => {} });
+		const removeFirst = streamer.addClient(() => {});
 		await flushPoll();
 		expect(captures).toBe(1);
 		removeFirst();
 
 		now = 1_000;
-		const removeDuringBackoff = streamer.addClient({ write: () => {} });
+		const removeDuringBackoff = streamer.addClient(() => {});
 		await flushPoll();
 		expect(captures).toBe(1);
 		removeDuringBackoff();
 
 		now = 15_000;
-		const removeAfterBackoff = streamer.addClient({ write: () => {} });
+		const removeAfterBackoff = streamer.addClient(() => {});
 		await flushPoll();
 		expect(captures).toBe(2);
 		removeAfterBackoff();
@@ -292,10 +273,8 @@ describe("createAxStreamerCache", () => {
 			collect: async () => snapshot(captures++ === 0 ? "initial" : "changed"),
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const writes: string[] = [];
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const writes: AxSnapshot[] = [];
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 
 		changes.change();
@@ -305,9 +284,7 @@ describe("createAxStreamerCache", () => {
 
 		expect(captures).toBe(3);
 		expect(writes).toHaveLength(2);
-		expect(snapshotFromSseMessage(writes[1]!).elements[0]?.label).toBe(
-			"changed",
-		);
+		expect(writes[1]?.elements[0]?.label).toBe("changed");
 		remove();
 	});
 
@@ -323,10 +300,8 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const writes: string[] = [];
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const writes: AxSnapshot[] = [];
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 
 		changes.change();
@@ -355,10 +330,8 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const writes: string[] = [];
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const writes: AxSnapshot[] = [];
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 
 		changes.change();
@@ -372,9 +345,7 @@ describe("createAxStreamerCache", () => {
 		await Bun.sleep(1);
 
 		expect(captures).toBe(3);
-		expect(snapshotFromSseMessage(writes.at(-1)!).elements[0]?.label).toBe(
-			"after-event",
-		);
+		expect(writes.at(-1)?.elements[0]?.label).toBe("after-event");
 		remove();
 	});
 
@@ -386,7 +357,7 @@ describe("createAxStreamerCache", () => {
 			collect: async () => snapshot(String(++captures)),
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const remove = streamer.addClient({ write: () => {} });
+		const remove = streamer.addClient(() => {});
 		await flushPoll();
 
 		changes.change();
@@ -410,7 +381,7 @@ describe("createAxStreamerCache", () => {
 			collect: async () => snapshot(String(++captures)),
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const remove = streamer.addClient({ write: () => {} });
+		const remove = streamer.addClient(() => {});
 		await flushPoll();
 		expect(captures).toBe(1);
 
@@ -440,7 +411,7 @@ describe("createAxStreamerCache", () => {
 			collect: async () => snapshot(String(++captures)),
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const remove = streamer.addClient({ write: () => {} });
+		const remove = streamer.addClient(() => {});
 		await flushPoll();
 
 		clock.advance(100);
@@ -468,7 +439,7 @@ describe("createAxStreamerCache", () => {
 		const changes = androidChangeHarness();
 		const clock = controlledTimerClock();
 		let captures = 0;
-		const writes: string[] = [];
+		const writes: AxSnapshot[] = [];
 		const cache = createAxStreamerCache({
 			now: clock.now,
 			setTimer: clock.setTimer,
@@ -480,9 +451,7 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 
 		clock.advance(100);
@@ -506,7 +475,7 @@ describe("createAxStreamerCache", () => {
 	test("caps 100 rapid explicit refreshes at ten capture starts per second", async () => {
 		const clock = controlledTimerClock();
 		let captures = 0;
-		const writes: string[] = [];
+		const writes: AxSnapshot[] = [];
 		const cache = createAxStreamerCache({
 			now: clock.now,
 			setTimer: clock.setTimer,
@@ -517,9 +486,7 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 
 		clock.advance(100);
@@ -544,7 +511,7 @@ describe("createAxStreamerCache", () => {
 		const inFlight = new Promise<AxSnapshot>((resolve) => {
 			finishInFlight = resolve;
 		});
-		const writes: string[] = [];
+		const writes: AxSnapshot[] = [];
 		const cache = createAxStreamerCache({
 			now: clock.now,
 			setTimer: clock.setTimer,
@@ -557,9 +524,7 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const remove = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const remove = streamer.addClient((value) => writes.push(value));
 		await flushPoll();
 
 		clock.advance(100);
@@ -604,7 +569,7 @@ describe("createAxStreamerCache", () => {
 			},
 		});
 		const streamer = cache.get("android:emulator-5554");
-		const removeFirst = streamer.addClient({ write: () => {} });
+		const removeFirst = streamer.addClient(() => {});
 		await flushPoll();
 
 		clock.advance(100);
@@ -619,10 +584,8 @@ describe("createAxStreamerCache", () => {
 		expect(captures).toBe(2);
 		expect(clock.size()).toBe(0);
 
-		const writes: string[] = [];
-		const removeSecond = streamer.addClient({
-			write: (message) => writes.push(message),
-		});
+		const writes: AxSnapshot[] = [];
+		const removeSecond = streamer.addClient((value) => writes.push(value));
 		expect(writes).toHaveLength(1);
 		streamer.refresh();
 		await flushPoll();

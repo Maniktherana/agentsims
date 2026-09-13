@@ -1,13 +1,18 @@
 import { HttpRouter, HttpServerRequest } from "@effect/platform";
-import { Effect, Schema } from "effect";
-import { CommandNotFound, InvalidCommandInput } from "../../../core/tools/errors";
-import { MediaRouteActionSchema } from "../../../core/tools/media-contracts";
+import { Effect } from "effect";
+import { z } from "zod";
+import {
+	CommandNotFound,
+	InvalidCommandInput,
+} from "../../../core/tools/errors";
+import { MediaRouteActionSchema } from "../../../core/tools/media";
 import { Devices } from "../../../core/tools/devices/devices";
 import {
 	DeviceLifecycleService,
 	selectDeviceState,
 } from "../../../core/tools/devices/lifecycle";
-import { MediaRouting } from "../../media/service";
+import { MediaRouting } from "../../../core/tools/media";
+import { Apps, AppOperationSchema } from "../../../core/tools/apps";
 import { ServerConfig } from "../../runtime/config";
 import { commandResponse, decodeInput, requestJson } from "../command";
 import { exposedState, requestSource, requestedDevice } from "./shared";
@@ -18,12 +23,12 @@ const requestContext = Effect.gen(function* () {
 	);
 	return { request, url: new URL(request.url) };
 });
-const deviceBody = Schema.Struct({ udid: Schema.String });
-const actionsBody = Schema.Struct({ actions: Schema.Array(Schema.Unknown) });
-const listQuery = Schema.Struct({
-	device: Schema.optional(Schema.String),
-	limit: Schema.optional(Schema.NumberFromString),
-	offset: Schema.optional(Schema.NumberFromString),
+const deviceBody = z.object({ udid: z.string() });
+const actionsBody = z.object({ actions: z.array(z.unknown()) });
+const listQuery = z.object({
+	device: z.string().optional(),
+	limit: z.coerce.number().optional(),
+	offset: z.coerce.number().optional(),
 });
 const requestedMediaDevice = Effect.gen(function* () {
 	const { url } = yield* requestContext;
@@ -51,7 +56,10 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		"/status",
 		commandResponse(
 			Effect.gen(function* () {
-				return { workspaces: yield* (yield* Devices).workspaces() };
+				return {
+					pid: process.pid,
+					workspaces: yield* (yield* Devices).workspaces(),
+				};
 			}),
 		),
 	),
@@ -134,11 +142,21 @@ export const commandRoutes = HttpRouter.empty.pipe(
 					actionsBody,
 					yield* requestJson(request),
 				);
-				yield* (yield* Devices).act(
-					yield* pathDevice,
-					body.actions,
-				);
+				yield* (yield* Devices).act(yield* pathDevice, body.actions);
 				return { ok: true };
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/device/:device/app",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request } = yield* requestContext;
+				const input = yield* decodeInput(
+					AppOperationSchema,
+					yield* requestJson(request),
+				);
+				return yield* (yield* Apps).execute(yield* pathDevice, input);
 			}),
 		),
 	),

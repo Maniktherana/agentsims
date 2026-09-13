@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import type { ServerResponse } from "node:http";
-import type { HidSocket } from "../../../../../core/ios/session";
 import {
 	AndroidSession,
+	type AndroidHidSocket,
 	type AndroidSessionDependencies,
 } from "../../../../../core/android/session/session";
 import type {
 	AndroidTransport,
 	AndroidTransportConfig,
+	AvccSubscriberSink,
 } from "../../../../../core/android/stream/transport";
 import type { AndroidScreenConfig } from "../../../../../core/android/device/types";
 
-class FakeHidSocket extends EventEmitter implements HidSocket {
+class FakeHidSocket extends EventEmitter implements AndroidHidSocket {
 	readonly sent: Buffer[] = [];
 
 	send(data: Buffer): void {
@@ -41,7 +41,7 @@ function fakeTransport(
 		inputReady: true,
 		start: async () => {},
 		close: () => {},
-		attachAvcc: async () => {},
+		attachAvccSink: async () => () => {},
 		resetVideo: () => true,
 		injectTouch: (_phase, x, y, width = 0, height = 0) => {
 			touches.push({ x, y, width, height });
@@ -52,10 +52,15 @@ function fakeTransport(
 	};
 }
 
-function response(): ServerResponse {
+function response(): AvccSubscriberSink {
 	return {
-		writeHead: () => response(),
-	} as unknown as ServerResponse;
+		closed: false,
+		bufferedBytes: 0,
+		write() {},
+		close() {},
+		onClose() {},
+		onDrain() {},
+	};
 }
 
 describe("Android session orientation observation", () => {
@@ -68,8 +73,9 @@ describe("Android session orientation observation", () => {
 			start: async () => {
 				transportStarts += 1;
 			},
-			attachAvcc: async () => {
+			attachAvccSink: async () => {
 				streamAttaches += 1;
+				return () => {};
 			},
 		};
 		const session = new AndroidSession("emulator-5554", {
@@ -226,7 +232,7 @@ describe("Android session orientation observation", () => {
 		await session.start();
 		const socket = new FakeHidSocket();
 		session.attachHidSocket(socket);
-		await session.attachAvcc(response());
+		await session.attachAvccSink(response());
 
 		reportConfig?.({
 			width: 2560,
@@ -296,7 +302,7 @@ describe("Android session orientation observation", () => {
 		await session.start();
 		const socket = new FakeHidSocket();
 		session.attachHidSocket(socket);
-		await session.attachAvcc(response());
+		await session.attachAvccSink(response());
 
 		reportConfig?.({
 			width: 1600,
@@ -388,7 +394,7 @@ describe("Android session orientation observation", () => {
 			rotateEmulatorAbsolute: async () => {},
 		});
 		await session.start();
-		await session.attachAvcc(response());
+		await session.attachAvccSink(response());
 		reportConfig?.({
 			width: 2560,
 			height: 1600,
@@ -523,7 +529,7 @@ describe("Android session orientation observation", () => {
 		await session.start();
 		const socket = new FakeHidSocket();
 		session.attachHidSocket(socket);
-		await session.attachAvcc(response());
+		await session.attachAvccSink(response());
 		socket.emit(
 			"message",
 			Buffer.concat([
@@ -610,7 +616,7 @@ describe("Android session orientation observation", () => {
 			await session.start();
 			const socket = new FakeHidSocket();
 			session.attachHidSocket(socket);
-			await session.attachAvcc(response());
+			await session.attachAvccSink(response());
 
 			for (let click = 0; click < 4; click += 1) {
 				socket.emit(

@@ -1,11 +1,8 @@
 import { Command } from "@effect/platform";
 import { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { Context, Effect, Layer } from "effect";
-import {
-	startInspectWebKitBridge,
-	type WebKitBridge,
-} from "./bridge";
-import type { DevToolsProvider } from "../../../server/devtools/model";
+import { startInspectWebKitBridge, type WebKitBridge } from "./bridge";
+import type { DevToolsProvider } from "../../tools/browser-devtools";
 
 export class WebKitDevTools extends Context.Tag("@agentsims/WebKitDevTools")<
 	WebKitDevTools,

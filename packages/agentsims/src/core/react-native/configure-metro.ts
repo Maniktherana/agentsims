@@ -20,7 +20,7 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from "path";
 import { parse } from "@babel/parser";
 
 const AGENTSIMS_METRO = "agentsims/metro";
-const MAX_CONFIG_BYTES = 512 * 1024;
+const MAX_METRO_CONFIG_BYTES = 512 * 1024;
 const ROOT_CONFIG_NAMES = [
 	"metro.config.js",
 	"metro.config.cjs",
@@ -255,7 +255,7 @@ function expoTypeScriptShimTarget(path: string): string | null {
 	}
 	if (target.style !== "cjs") return null;
 	const request = requireSource(target.expression);
-	if (!request?.startsWith("../../cli/index")) return null;
+	if (!request?.startsWith(".")) return null;
 	const resolvedTarget = resolve(dirname(path), request);
 	return [".ts", ".cts", ".mts"].includes(extname(resolvedTarget)) &&
 		existsSync(resolvedTarget)
@@ -722,9 +722,9 @@ export function transformMetroConfig(
 	source: string,
 	path: string,
 ): TransformedMetroConfig {
-	if (Buffer.byteLength(source) > MAX_CONFIG_BYTES) {
+	if (Buffer.byteLength(source) > MAX_METRO_CONFIG_BYTES) {
 		throw new MetroSetupError(
-			`${path} is larger than ${MAX_CONFIG_BYTES / 1024} KiB and will not be edited automatically.\n` +
+			`${path} is larger than ${MAX_METRO_CONFIG_BYTES / 1024} KiB and will not be edited automatically.\n` +
 				"No files changed.",
 		);
 	}

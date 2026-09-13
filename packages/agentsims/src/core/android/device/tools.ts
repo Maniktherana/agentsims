@@ -1,14 +1,11 @@
-import { performAndroidAppAction } from "./app-tools";
+import { performAndroidAppAction, readAndroidAppDetails } from "./app-tools";
 import {
 	performAndroidEnvironmentAction,
 	androidTalkbackServices,
 	readAndroidEnvironmentState,
 } from "./environment-tools";
-import { Context, Effect, Layer, Schema } from "effect";
-import type {
-	AndroidToolAction,
-	AndroidToolCapabilities,
-} from "../contracts";
+import { Context, Effect, Layer } from "effect";
+import type { AndroidToolAction, AndroidToolCapabilities } from "../contracts";
 import {
 	androidShell,
 	androidToolSerial,
@@ -24,7 +21,7 @@ import {
 } from "../../tools/errors";
 
 import { CommandExecutor } from "@effect/platform";
-import { clearAndroidDeviceCaches } from "./device";
+import { clearAndroidDeviceCaches } from "./discovery";
 import { AndroidSessions } from "../session/session";
 import { makeAndroidToolRunner } from "./tool-command";
 
@@ -99,9 +96,10 @@ export function makeAndroidTools(dependencies: ToolsDependencies) {
 	): Effect.Effect<unknown, ApplicationCommandError> {
 		return Effect.gen(function* () {
 			const serial = yield* serialFor(device);
-			const action = yield* Schema.decodeUnknown(AndroidToolActionSchema)(
-				value,
-			).pipe(Effect.mapError(invalid));
+			const action = yield* Effect.try({
+				try: () => AndroidToolActionSchema.parse(value),
+				catch: invalid,
+			});
 			const lock = yield* Effect.try({
 				try: () => lockFor(serial),
 				catch: commandFailure,
@@ -133,6 +131,12 @@ export function makeAndroidTools(dependencies: ToolsDependencies) {
 	}
 	return {
 		capabilities,
+		details: (device: string, packageName: string) =>
+			serialFor(device).pipe(
+				Effect.flatMap((serial) =>
+					readAndroidAppDetails(dependencies.run, serial, packageName),
+				),
+			),
 		state: (device: string) =>
 			serialFor(device).pipe(
 				Effect.flatMap((serial) =>

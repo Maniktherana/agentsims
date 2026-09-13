@@ -1,11 +1,10 @@
 import { expect, test } from "bun:test";
-import { Schema } from "effect";
 import {
 	AndroidToolActionSchema,
 	type AndroidToolAction,
 } from "../../../../core/android/contracts";
 
-const decodeAction = Schema.decodeUnknownSync(AndroidToolActionSchema);
+const decodeAction = AndroidToolActionSchema.parse;
 test("Android action validation preserves optional fields and strips excess input", () => {
 	const action: AndroidToolAction = decodeAction({
 		type: "settings",

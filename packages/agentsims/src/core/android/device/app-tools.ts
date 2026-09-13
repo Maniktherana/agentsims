@@ -4,8 +4,30 @@ import { androidShell, type AndroidToolRunner } from "./tool-command";
 import {
 	CommandUnavailable,
 	InvalidCommandInput,
+	commandFailure,
 	type ApplicationCommandError,
 } from "../../tools/errors";
+import { resolveAndroidAxServer } from "../accessibility/ax-server";
+
+const METADATA_HELPER_PATH = "/data/local/tmp/agentsims-ax-server.jar";
+export function readAndroidAppDetails(
+	run: AndroidToolRunner,
+	serial: string,
+	packageName: string,
+) {
+	return Effect.gen(function* () {
+		yield* run(serial, [
+			"push",
+			resolveAndroidAxServer(),
+			METADATA_HELPER_PATH,
+		]);
+		const output = yield* run(serial, [
+			"shell",
+			`CLASSPATH=${METADATA_HELPER_PATH} app_process / dev.agentsims.ax.Main metadata '${packageName.replace(/'/g, "'\\''")}'`,
+		]);
+		return JSON.parse(output) as unknown;
+	}).pipe(Effect.mapError(commandFailure));
+}
 
 type AppAction = Extract<
 	AndroidToolAction,

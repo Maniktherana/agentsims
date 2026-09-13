@@ -14,7 +14,6 @@
  * Replaces the helper's HTTP/client layer; the framing here mirrors the
  * original byte-for-byte so the existing browser client is unchanged.
  */
-import type { IncomingMessage, ServerResponse } from "http";
 import { Context, Data, Effect, Layer } from "effect";
 import { ScopedResourceRegistry } from "../resources";
 import {
@@ -39,11 +38,9 @@ export interface HidSocket {
 	close(): void;
 }
 
-const CORS = {
-	"Access-Control-Allow-Origin": "*",
-	"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-	"Access-Control-Allow-Headers": "Content-Type",
-};
+export interface StreamSink {
+	write(chunk: Uint8Array): Promise<void> | void;
+}
 
 // Description/keyframe/delta envelopes are framed natively; only the
 // on-connect JPEG seed is built here.
@@ -51,15 +48,6 @@ const AVCC_SEED_TAG = 0x04;
 
 // WS server→client screen-config push (ClientManager.wsMsgConfig).
 const WS_MSG_CONFIG = 0x82;
-
-const MJPEG_TRAILER = Buffer.from("\r\n", "ascii");
-
-function mjpegHeader(jpegLength: number): Buffer {
-	return Buffer.from(
-		`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpegLength}\r\n\r\n`,
-		"ascii",
-	);
-}
 
 function avccSeed(jpeg: Uint8Array): Buffer {
 	const out = Buffer.allocUnsafe(5 + jpeg.length);
@@ -75,66 +63,6 @@ const ORIENTATION_BY_NAME: Record<string, number> = {
 	landscape_left: Orientation.landscapeLeft,
 	landscape_right: Orientation.landscapeRight,
 };
-
-function waitForDrain(res: ServerResponse): Promise<void> {
-	if (res.writableEnded || res.destroyed || !res.writableNeedDrain)
-		return Promise.resolve();
-
-	return new Promise((resolve) => {
-		const done = () => {
-			cleanup();
-			resolve();
-		};
-		const cleanup = () => {
-			res.off("drain", done);
-			res.off("close", done);
-			res.off("error", done);
-		};
-		res.once("drain", done);
-		res.once("close", done);
-		res.once("error", done);
-	});
-}
-
-function streamedResponse(
-	headers: Record<string, string>,
-	subscribe: (
-		write: (chunk: Uint8Array) => Promise<void>,
-	) => Promise<() => void>,
-	initial?: Uint8Array,
-): Response {
-	let unsubscribe: (() => void) | undefined;
-	let cancelled = false;
-	let resume: (() => void) | undefined;
-	const stream = new ReadableStream<Uint8Array>(
-		{
-			async start(controller) {
-				const write = async (chunk: Uint8Array) => {
-					while (!cancelled && (controller.desiredSize ?? 1) <= 0) {
-						const gate = Promise.withResolvers<void>();
-						resume = gate.resolve;
-						await gate.promise;
-					}
-					if (!cancelled) controller.enqueue(Buffer.from(chunk));
-				};
-				if (initial) await write(initial);
-				unsubscribe = await subscribe(write);
-				if (cancelled) unsubscribe();
-			},
-			pull() {
-				resume?.();
-				resume = undefined;
-			},
-			cancel() {
-				cancelled = true;
-				resume?.();
-				unsubscribe?.();
-			},
-		},
-		{ highWaterMark: 1 },
-	);
-	return new Response(stream, { status: 200, headers });
-}
 
 export class DeviceSession {
 	private readonly capture: NativeCapture;
@@ -225,117 +153,20 @@ export class DeviceSession {
 		return this.latestJpegBuffer.subarray(0, this.latestJpegLength);
 	}
 
-	/** Write a multipart JPEG part (header + shared frame + boundary) without copying the JPEG. */
-	private writeMjpegFrame(res: ServerResponse, jpeg: Uint8Array): void {
-		res.write(mjpegHeader(jpeg.length));
-		res.write(jpeg);
-		res.write(MJPEG_TRAILER);
-	}
-
-	// ── HTTP handlers ────────────────────────────────────────────────────────
-
-	handleMjpeg(req: IncomingMessage, res: ServerResponse): void {
-		const raw =
-			new URL(req.url ?? "", "http://x").searchParams.get("raw") === "1";
-		res.writeHead(200, {
-			"Content-Type": raw
-				? "application/octet-stream"
-				: "multipart/x-mixed-replace; boundary=frame",
-			"Cache-Control": "no-cache, no-store",
-			Connection: "keep-alive",
-			...CORS,
-		});
-
-		void (async () => {
-			const latestJpeg = this.latestJpeg();
-			if (latestJpeg) this.writeMjpegFrame(res, latestJpeg); // paint immediately
-			const unsubscribe = await this.capture.subscribeMjpeg(async (frame) => {
-				await waitForDrain(res);
-				this.writeMjpegFrame(res, frame.data);
-			});
-			if (res.writableEnded || res.destroyed) unsubscribe();
-			res.on("close", unsubscribe);
-			res.on("error", unsubscribe);
-		})();
-	}
-
-	handleAvcc(_req: IncomingMessage, res: ServerResponse): void {
-		res.writeHead(200, {
-			"Content-Type": "application/octet-stream",
-			"Cache-Control": "no-cache, no-store",
-			Connection: "keep-alive",
-			...CORS,
-		});
-
-		void (async () => {
-			// Seed with the current screen; the per-client native AVCC subscription
-			// starts with its own decoder config and keyframe.
-			const latestJpeg = this.latestJpeg();
-			if (latestJpeg) res.write(avccSeed(latestJpeg));
-
-			const unsubscribe = await this.capture.subscribeAvcc(async (frame) => {
-				await waitForDrain(res);
-				res.write(frame.data);
-			});
-			if (res.writableEnded || res.destroyed) unsubscribe();
-			res.on("close", unsubscribe);
-			res.on("error", unsubscribe);
-		})();
-	}
-
-	mjpegResponse(raw = false): Response {
-		const initial = this.latestJpeg();
-		const seed = initial
-			? Buffer.concat([
-					mjpegHeader(initial.length),
-					Buffer.from(initial),
-					MJPEG_TRAILER,
-				])
-			: undefined;
-		return streamedResponse(
-			{
-				"Content-Type": raw
-					? "application/octet-stream"
-					: "multipart/x-mixed-replace; boundary=frame",
-				"Cache-Control": "no-cache, no-store",
-				...CORS,
-			},
-			async (write) =>
-				this.capture.subscribeMjpeg(async (frame) => {
-					await write(
-						Buffer.concat([
-							mjpegHeader(frame.data.length),
-							Buffer.from(frame.data),
-							MJPEG_TRAILER,
-						]),
-					);
-				}),
-			seed,
-		);
-	}
-
-	avccResponse(): Response {
+	async subscribeMjpeg(sink: StreamSink): Promise<() => void> {
 		const latest = this.latestJpeg();
-		return streamedResponse(
-			{
-				"Content-Type": "application/octet-stream",
-				"Cache-Control": "no-cache, no-store",
-				...CORS,
-			},
-			async (write) =>
-				this.capture.subscribeAvcc(async (frame) => {
-					await write(Buffer.from(frame.data));
-				}),
-			latest ? avccSeed(Buffer.from(latest)) : undefined,
-		);
+		if (latest) await sink.write(latest);
+		return this.capture.subscribeMjpeg(async ({ data }) => {
+			await sink.write(data);
+		});
 	}
 
-	handleConfig(_req: IncomingMessage, res: ServerResponse): void {
-		this.sendJson(res, 200, this.screenConfig());
-	}
-
-	handleHealth(_req: IncomingMessage, res: ServerResponse): void {
-		this.sendJson(res, 200, { status: "ok" });
+	async subscribeAvcc(sink: StreamSink): Promise<() => void> {
+		const latest = this.latestJpeg();
+		if (latest) await sink.write(avccSeed(latest));
+		return this.capture.subscribeAvcc(async ({ data }) => {
+			await sink.write(data);
+		});
 	}
 
 	async captureScreenshot(): Promise<Buffer> {
@@ -352,61 +183,8 @@ export class DeviceSession {
 		return JSON.parse(await axDescribeAsync(this.udid));
 	}
 
-	handleScreenshot(_req: IncomingMessage, res: ServerResponse): void {
-		void this.captureScreenshot()
-			.then((jpeg) => {
-				res.writeHead(200, {
-					"Content-Type": "image/jpeg",
-					"Content-Length": String(jpeg.length),
-					"Cache-Control": "no-store",
-					...CORS,
-				});
-				res.end(jpeg);
-			})
-			.catch((error) => {
-				this.sendJson(res, 503, {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			});
-	}
-
 	async readForeground(): Promise<unknown> {
 		return JSON.parse(await axFrontmostAsync(this.udid));
-	}
-
-	handleAx(_req: IncomingMessage, res: ServerResponse): Promise<void> {
-		return this.serveAxJson(
-			res,
-			() => axDescribeAsync(this.udid),
-			"ax_unavailable",
-		);
-	}
-
-	handleForeground(_req: IncomingMessage, res: ServerResponse): Promise<void> {
-		return this.serveAxJson(
-			res,
-			() => axFrontmostAsync(this.udid),
-			"foreground_unavailable",
-		);
-	}
-
-	/** Run a native AX probe and stream its JSON, or 503 with `errorCode` if it's not ready. */
-	private async serveAxJson(
-		res: ServerResponse,
-		probe: () => Promise<string>,
-		errorCode: string,
-	): Promise<void> {
-		try {
-			const json = await probe();
-			if (res.writableEnded) return;
-			this.sendJsonString(res, 200, json);
-		} catch (err) {
-			if (res.writableEnded) return;
-			this.sendJson(res, 503, {
-				error: errorCode,
-				message: err instanceof Error ? err.message : String(err),
-			});
-		}
 	}
 
 	// ── HID WebSocket ────────────────────────────────────────────────────────
@@ -556,25 +334,6 @@ export class DeviceSession {
 		const frame = this.configFrame();
 		if (!frame) return;
 		for (const ws of this.hidSockets) ws.send(frame);
-	}
-
-	private sendJson(res: ServerResponse, status: number, body: unknown): void {
-		this.sendJsonString(res, status, JSON.stringify(body));
-	}
-
-	private sendJsonString(
-		res: ServerResponse,
-		status: number,
-		json: string,
-	): void {
-		const buf = Buffer.from(json, "utf8");
-		res.writeHead(status, {
-			"Content-Type": "application/json",
-			"Cache-Control": "no-cache, no-store",
-			"Content-Length": String(buf.length),
-			...CORS,
-		});
-		res.end(buf);
 	}
 }
 

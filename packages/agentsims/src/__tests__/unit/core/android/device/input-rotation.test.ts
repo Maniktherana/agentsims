@@ -12,7 +12,7 @@ import {
 	logicalSizeForRotation,
 	parseAndroidRoundedCorners,
 	parseAndroidEmulatorViewportState,
-} from "../../../../../core/android/device/device";
+} from "../../../../../core/android/device/input";
 import {
 	androidOrientationForScreen,
 	androidRotationForOrientation,

@@ -1,5 +1,4 @@
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
-import type { ServerResponse } from "http";
 import {
 	AndroidEmulatorSession,
 	type AndroidEmulatorConfig,
@@ -9,6 +8,7 @@ import {
 	AndroidDeviceScreenrecordSession,
 	type AndroidDeviceStreamConfig,
 } from "./device-screenrecord";
+export type { AvccSubscriberSink } from "./emulator-controller";
 
 export type AndroidTransportConfig =
 	| AndroidEmulatorConfig
@@ -26,7 +26,6 @@ export interface AndroidTransport {
 
 	start(): Promise<void>;
 	close(): void;
-	attachAvcc(res: ServerResponse): Promise<void>;
 	attachAvccSink(sink: AvccSubscriberSink): Promise<() => void>;
 	resetVideo(): boolean;
 	setPresentationGeneration?(generation: number): void;

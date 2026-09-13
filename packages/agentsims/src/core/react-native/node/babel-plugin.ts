@@ -27,7 +27,7 @@ const HOST_COMPONENTS = new Set([
 	"VirtualizedList",
 ]);
 
-const DEFAULT_MANIFEST = `${homedir()}/.agentsims/rn-source-map.jsonl`;
+const DEFAULT_SOURCE_MANIFEST = `${homedir()}/.agentsims/rn-source-map.jsonl`;
 const SAFE_PROP_NAMES = new Set([
 	"accessibilityHint",
 	"accessibilityLabel",
@@ -66,7 +66,7 @@ function hash(input: string): string {
 }
 
 function manifestPath(): string {
-	return process.env.AGENTSIMS_RN_MANIFEST || DEFAULT_MANIFEST;
+	return process.env.AGENTSIMS_RN_MANIFEST || DEFAULT_SOURCE_MANIFEST;
 }
 
 function projectRoot(state: any): string {

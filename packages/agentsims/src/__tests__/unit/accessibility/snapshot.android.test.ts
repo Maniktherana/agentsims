@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collectAndroidAxSnapshot } from "../../../core/android/device/device";
+import { collectAndroidAxSnapshot } from "../../../core/android/accessibility/snapshot";
 
 describe("collectAndroidAxSnapshot", () => {
 	test("derives the screen from UIAutomator bounds without extra ADB config calls", async () => {

@@ -7,13 +7,10 @@ import {
 	type AxStreamerCache,
 } from "../../core/tools/observe/accessibility";
 import { Devices, type DeviceService } from "../../core/tools/devices/devices";
-import {
-	makeMediaRouting,
-	type MediaOperations,
-} from "../../server/media/service";
+import { makeMediaRouting, type MediaOperations } from "../../core/tools/media";
 import type { ForegroundApp } from "../../core/tools/devices/foreground-apps";
 import type { DeviceState } from "../../core/tools/devices/state";
-import { ForegroundApps } from "../../server/devices/foreground-apps";
+import { ForegroundApps } from "../../core/tools/devices/foreground-apps";
 import { DeviceLifecycleService } from "../../core/tools/devices/lifecycle";
 import { AndroidDevTools } from "../../core/android/browser-devtools";
 import { DevToolsLive } from "../../core/tools/browser-devtools";
@@ -24,7 +21,7 @@ import {
 	serverServicesLive,
 	type HttpServerOptions,
 } from "../../server/http/server";
-import { MediaRouting } from "../../server/media/service";
+import { MediaRouting } from "../../core/tools/media";
 import { ScreenshotOperationsLive } from "../../core/tools/observe/screenshots";
 import type { PreviewServer } from "../../server/http/server";
 import { ScreenshotStore } from "../../core/tools/observe/screenshot-store";
@@ -137,7 +134,7 @@ export async function startTestServer(
 	await runtime.runPromise(Effect.void);
 	return {
 		origin: `http://127.0.0.1:${port}`,
-		server: { stop: () => runtime.dispose() },
+		server: { port, stop: () => runtime.dispose() },
 		port,
 	};
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { hostPlatformInfo } from "../../../../server/runtime/host-platform";
+import { hostPlatformInfo } from "../../../../core/host";
 
 test("Linux and WSL expose Android without Apple capabilities", () => {
 	expect(hostPlatformInfo("linux")).toEqual({

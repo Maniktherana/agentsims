@@ -1,12 +1,7 @@
 import { execFile } from "child_process";
 import { existsSync } from "fs";
 import { join, resolve } from "path";
-import { findBootedDevice, resolveDevice } from "./devices";
-import {
-	configuredDistDirectory,
-	dirnameOf,
-} from "../native-paths";
-import { CliError } from "../../cli/error";
+import { configuredDistDirectory, dirnameOf } from "../native-paths";
 
 // Bun's bundler inlines a bare `__dirname` as the build machine's source
 // directory; shadow it with the runtime location so the published bundle
@@ -107,55 +102,6 @@ export function normalizeUiValue(option: string, value: string): string | null {
 	if (spec.values.includes(aliased)) return aliased;
 	if (spec.extraValues?.includes(aliased)) return aliased;
 	return null;
-}
-
-export interface UiArgs {
-	command: "status" | "get" | "set";
-	option?: string;
-	value?: string;
-	device?: string;
-	json: boolean;
-	error?: string;
-}
-
-export function parseUiArgs(args: string[]): UiArgs {
-	const rest: string[] = [];
-	let device: string | undefined;
-	let json = false;
-	for (let i = 0; i < args.length; i++) {
-		const a = args[i]!;
-		if (a === "-d" || a === "--device") {
-			if (i + 1 >= args.length) {
-				return { command: "get", json, error: `${a} requires a value` };
-			}
-			device = args[++i];
-		} else if (a === "--json") json = true;
-		else rest.push(a);
-	}
-
-	if (rest.length === 0 || rest[0] === "status") {
-		return { command: "status", json, ...(device ? { device } : {}) };
-	}
-
-	const option = rest[0]!.toLowerCase();
-	if (!UI_OPTIONS[option]) {
-		return { command: "get", json, error: `unknown option: ${option}` };
-	}
-	if (rest.length === 1) {
-		return { command: "get", option, json, ...(device ? { device } : {}) };
-	}
-	const value = normalizeUiValue(option, rest[1]!);
-	if (value === null) {
-		const spec = UI_OPTIONS[option]!;
-		const accepted = [...spec.values, ...(spec.extraValues ?? [])].join("|");
-		return {
-			command: "set",
-			option,
-			json,
-			error: `invalid value for ${option}: ${rest[1]} (accepted: ${accepted})`,
-		};
-	}
-	return { command: "set", option, value, json, ...(device ? { device } : {}) };
 }
 
 // ─── In-sim helper binary ───
@@ -311,59 +257,4 @@ export async function getUiStatus(
 		status[option] = simctlValues[i]!;
 	});
 	return status;
-}
-
-// ─── CLI entry (`agentsims ui …`) ───
-
-const USAGE = `Usage: agentsims ui [status] [--json] [-d udid]
-       agentsims ui <option> [-d udid]            Print the current value
-       agentsims ui <option> <value> [-d udid]    Change the value
-
-Simulator-wide UI options:
-  appearance           light | dark
-  liquid-glass         clear | tinted
-  color-filter         none | grayscale | red-green | green-red | blue-yellow
-                       (protanopia/deuteranopia/tritanopia aliases accepted)
-  text-size            ${CONTENT_SIZE_CATEGORIES.slice(0, 4).join(" | ")} | …
-                       (12 content-size categories, or increment | decrement)
-  reduce-motion        on | off
-  increase-contrast    on | off
-  show-borders         on | off
-  reduce-transparency  on | off
-  voiceover            on | off`;
-
-export async function uiSettings(args: string[]): Promise<void> {
-	if (args.includes("-h") || args.includes("--help")) {
-		console.log(USAGE);
-		return;
-	}
-	const parsed = parseUiArgs(args);
-	if (parsed.error) throw new CliError(`${parsed.error}\n${USAGE}`);
-
-	const udid = parsed.device
-		? await resolveDevice(parsed.device)
-		: await findBootedDevice();
-	if (!udid)
-		throw new CliError(
-			"No booted simulator found. Boot one or pass -d <udid>.",
-		);
-
-	if (parsed.command === "status") {
-		const status = await getUiStatus(udid);
-		if (parsed.json) {
-			console.log(JSON.stringify(status));
-		} else {
-			for (const [option, value] of Object.entries(status)) {
-				console.log(`${option.padEnd(20)} ${value}`);
-			}
-		}
-		return;
-	}
-
-	if (parsed.command === "get") {
-		console.log(await getUiOption(udid, parsed.option!));
-		return;
-	}
-
-	await setUiOption(udid, parsed.option!, parsed.value!);
 }

@@ -13,11 +13,11 @@ import {
 	setUiOption,
 } from "../../../core/ios/settings";
 import { ScreenshotOperations } from "../../../core/tools/observe/screenshots";
+import { ServerConfig, type ServerConfigValue } from "../../runtime/config";
 import {
-	ServerConfig,
-	type ServerConfigValue,
-} from "../../runtime/config";
-import { ShellExec, type ShellExecService } from "../../../core/tools/host-commands";
+	ShellExec,
+	type ShellExecService,
+} from "../../../core/tools/host-commands";
 import { json, requestSource, requestedDevice } from "./shared";
 
 function execSocket(

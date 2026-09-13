@@ -5,18 +5,24 @@ import {
 	androidAvdStateId,
 	androidSerialFromStateId,
 	androidStateId,
-	launchAndroidAvd,
+} from "../../android/device/identifiers";
+import {
+	invalidateAndroidDiscoveryCache,
 	listAndroidDevices,
-} from "../../android/device/device";
+} from "../../android/device/discovery";
+import { launchAndroidAvd } from "../../android/device/emulator";
 import {
 	AndroidSessions,
 	type AndroidSession,
 } from "../../android/session/session";
 import { IosSessions } from "../../ios/session";
 import { debugMw } from "../../logging";
-import { inProcessDeviceState, type DeviceState } from "./state";
-import { DeviceStateStore } from "../../../server/devices/device-state-store";
-import { getStoredMediaRoute } from "../../../server/media/route-store";
+import {
+	DeviceStateStore,
+	inProcessDeviceState,
+	type DeviceState,
+} from "./state";
+import { getStoredMediaRoute } from "../media";
 import { androidTool } from "../../android/device/sdk-tools";
 
 type SimctlBootedList = {
@@ -372,10 +378,14 @@ export class DeviceLifecycle {
 		const before = new Set(existing.map((device) => device.serial));
 		try {
 			const cameraRoute = getStoredMediaRoute(androidAvdStateId(avdName));
-			launchAndroidAvd(avdName, {
-				front: cameraRoute.androidCameraFront,
-				back: cameraRoute.androidCameraBack,
-			});
+			launchAndroidAvd(
+				avdName,
+				{
+					front: cameraRoute.androidCameraFront,
+					back: cameraRoute.androidCameraBack,
+				},
+				invalidateAndroidDiscoveryCache,
+			);
 		} catch (error) {
 			return { error: error instanceof Error ? error.message : String(error) };
 		}

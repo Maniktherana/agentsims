@@ -1,4 +1,3 @@
-import type { IncomingMessage, ServerResponse } from "http";
 import { Context, Effect, Layer } from "effect";
 import { CommandExecutor } from "@effect/platform/CommandExecutor";
 import type {
@@ -11,8 +10,8 @@ import {
 	createAndroidTransport,
 	type AndroidTransport,
 	type AndroidTransportConfig,
+	type AvccSubscriberSink,
 } from "../stream/transport";
-import type { HidSocket } from "../../ios/session";
 import { ScopedResourceRegistry } from "../../resources";
 import {
 	androidButton,
@@ -23,9 +22,7 @@ import {
 	androidSwipe,
 	androidTap,
 	captureAndroidPng,
-	collectAndroidAxSnapshot,
 	getAndroidEmulatorViewportState,
-	getAndroidStatus,
 	getAndroidScreenConfig,
 	freeAndroidEmulatorRotation,
 	reloadAndroidReactNative,
@@ -35,9 +32,11 @@ import {
 	rotateAndroidEmulatorAbsolute,
 	toggleAndroidDarkMode,
 	toggleAndroidSoftwareKeyboard,
-} from "../device/device";
+} from "../device/input";
+import { getAndroidStatus } from "../device/media";
+import { collectAndroidAxSnapshot } from "../accessibility/snapshot";
+import type { AxSnapshot } from "../../tools/observe/accessibility";
 import { enrichAxSnapshotWithRnSource } from "../../react-native/enrich-accessibility";
-import type { AxSnapshot } from "../../tools/observe/accessibility-model";
 import { LatestValueScheduler } from "../../latest-value-scheduler";
 import {
 	AndroidAxServers,
@@ -46,11 +45,12 @@ import {
 	type AndroidAxTouchPhase,
 } from "../accessibility/ax-server";
 
-const CORS = {
-	"Access-Control-Allow-Origin": "*",
-	"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-	"Access-Control-Allow-Headers": "Content-Type",
-};
+export interface AndroidHidSocket {
+	send(data: Buffer): void;
+	close(): void;
+	on(event: "message", callback: (data: Buffer) => void): void;
+	on(event: "close" | "error", callback: () => void): void;
+}
 
 const WS_MSG_CONFIG = 0x82;
 const WS_MSG_TOUCH = 0x03;
@@ -207,20 +207,6 @@ function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function sendJson(res: ServerResponse, status: number, payload: unknown): void {
-	res.writeHead(status, { "Content-Type": "application/json", ...CORS });
-	res.end(JSON.stringify(payload));
-}
-
-function sendJsonString(
-	res: ServerResponse,
-	status: number,
-	payload: string,
-): void {
-	res.writeHead(status, { "Content-Type": "application/json", ...CORS });
-	res.end(payload);
-}
-
 export interface AndroidSessionDependencies {
 	readScreenConfig(serial: string): Promise<AndroidScreenConfig>;
 	readEmulatorViewport?(serial: string): Promise<{
@@ -281,7 +267,7 @@ export class AndroidSession {
 	private rotation: AndroidRotation = 0;
 	private presentationGeneration = 0;
 	private cornerRadii: AndroidCornerRadii | undefined;
-	private readonly hidSockets = new Set<HidSocket>();
+	private readonly hidSockets = new Set<AndroidHidSocket>();
 	private touchStart: { x: number; y: number; at: number } | null = null;
 	private lastMove: { x: number; y: number } | null = null;
 	private transport: AndroidTransport | null = null;
@@ -583,87 +569,9 @@ export class AndroidSession {
 		await this.ensureTransportStarted();
 	}
 
-	async attachAvcc(res: ServerResponse): Promise<void> {
+	async attachAvccSink(sink: AvccSubscriberSink): Promise<() => void> {
 		const transport = await this.ensureTransportStarted();
-		res.writeHead(200, {
-			"Content-Type": "application/octet-stream",
-			"Cache-Control": "no-cache, no-store",
-			Connection: "keep-alive",
-			...CORS,
-		});
-		await transport.attachAvcc(res);
-	}
-
-	avccResponse(): Response {
-		let closed = false;
-		let detach: (() => void) | undefined;
-		const closeCallbacks = new Set<() => void>();
-		const drainCallbacks = new Set<() => void>();
-		const stream = new ReadableStream<Uint8Array>(
-			{
-				start: async (controller) => {
-					const transport = await this.ensureTransportStarted();
-					detach = await transport.attachAvccSink({
-						get closed() {
-							return closed;
-						},
-						get bufferedBytes() {
-							return (controller.desiredSize ?? 1) <= 0 ? 512 * 1024 : 0;
-						},
-						write(chunk) {
-							if (!closed) controller.enqueue(Buffer.from(chunk));
-						},
-						close() {
-							if (!closed) controller.close();
-							closed = true;
-						},
-						onClose(callback) {
-							closeCallbacks.add(callback);
-						},
-						onDrain(callback) {
-							drainCallbacks.add(callback);
-						},
-					});
-				},
-				pull() {
-					for (const callback of drainCallbacks) callback();
-				},
-				cancel: () => {
-					if (closed) return;
-					closed = true;
-					detach?.();
-					for (const callback of closeCallbacks) callback();
-					this.updateTransportIdleTimer();
-				},
-			},
-			{ highWaterMark: 1 },
-		);
-		return new Response(stream, {
-			status: 200,
-			headers: {
-				"Content-Type": "application/octet-stream",
-				"Cache-Control": "no-cache, no-store",
-				...CORS,
-			},
-		});
-	}
-
-	handleScreenshot(_req: IncomingMessage, res: ServerResponse): void {
-		void (async () => {
-			try {
-				const png = await this.captureScreenshot();
-				res.writeHead(200, {
-					"Content-Type": "image/png",
-					"Cache-Control": "no-store",
-					...CORS,
-				});
-				res.end(png);
-			} catch (error) {
-				sendJson(res, 503, {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
-		})();
+		return transport.attachAvccSink(sink);
 	}
 
 	captureScreenshot(): Promise<Buffer> {
@@ -684,32 +592,8 @@ export class AndroidSession {
 		);
 	}
 
-	handleConfig(_req: IncomingMessage, res: ServerResponse): void {
-		void this.readConfig()
-			.then((config) => sendJson(res, 200, config))
-			.catch((error) => {
-				sendJson(res, 503, {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			});
-	}
-
 	async readStatus(): Promise<AndroidStatus> {
 		return this.decorateStatus(await getAndroidStatus(this.serial));
-	}
-
-	handleHealth(_req: IncomingMessage, res: ServerResponse): void {
-		sendJson(res, 200, { status: "ok", platform: "android" });
-	}
-
-	handleStatus(_req: IncomingMessage, res: ServerResponse): void {
-		void this.readStatus()
-			.then((status) => sendJson(res, 200, status))
-			.catch((error) => {
-				sendJson(res, 503, {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			});
 	}
 
 	private decorateStatus(status: AndroidStatus): AndroidStatus {
@@ -725,25 +609,7 @@ export class AndroidSession {
 		};
 	}
 
-	handleAx(req: IncomingMessage, res: ServerResponse): void {
-		void (async () => {
-			const requestedMode = new URL(
-				req.url ?? "/ax",
-				"http://agentsims.local",
-			).searchParams.get("mode");
-			// Direct helper AX is the agent/CLI surface, so its default is a bounded
-			// settled observation. The browser SSE path calls the provider directly
-			// and uses fresh hot snapshots without an idle barrier.
-			const mode: AndroidAxMode =
-				requestedMode === "latest" || requestedMode === "fresh"
-					? requestedMode
-					: "settled";
-			const snapshot = await this.readAccessibility(mode);
-			sendJsonString(res, 200, JSON.stringify(snapshot));
-		})();
-	}
-
-	attachHidSocket(ws: HidSocket): void {
+	attachHidSocket(ws: AndroidHidSocket): void {
 		this.hidSockets.add(ws);
 		this.updateTransportIdleTimer();
 		const cfg = this.configFrame();

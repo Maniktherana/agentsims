@@ -14,7 +14,6 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ServerResponse } from "node:http";
 import { NativeAndroidVideoCapture } from "./native-video";
 
 const SCREENSHOT_METHOD =
@@ -440,30 +439,6 @@ export class AndroidAvccFrameCoordinator {
 		if (this._currentConfig) this.submitCaptureFrame(this._currentConfig);
 	}
 
-	attach(res: ServerResponse): void {
-		this.attachSink({
-			get closed() {
-				return res.writableEnded || res.destroyed;
-			},
-			get bufferedBytes() {
-				return res.writableLength;
-			},
-			write(chunk) {
-				res.write(chunk);
-			},
-			close() {
-				res.end();
-			},
-			onClose(callback) {
-				res.on("close", callback);
-				res.on("error", callback);
-			},
-			onDrain(callback) {
-				res.on("drain", callback);
-			},
-		});
-	}
-
 	attachSink(sink: AvccSubscriberSink): () => void {
 		const subscriber: AvccSubscriber = {
 			sink,
@@ -624,11 +599,6 @@ export class AndroidEmulatorSession {
 			});
 		}
 		return this.startPromise;
-	}
-
-	async attachAvcc(res: ServerResponse): Promise<void> {
-		await this.start();
-		this.frameCoordinator?.attach(res);
 	}
 
 	async attachAvccSink(sink: AvccSubscriberSink): Promise<() => void> {

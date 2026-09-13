@@ -65,8 +65,14 @@ describe("device command routes", () => {
 		expect(responses.map((response) => response.status)).toEqual([
 			200, 200, 200, 400,
 		]);
-		expect(await responses[0]!.json()).toEqual({ workspaces: [] });
-		expect(await responses[1]!.json()).toEqual({ workspaces: [] });
+		expect(await responses[0]!.json()).toEqual({
+			pid: process.pid,
+			workspaces: [],
+		});
+		expect(await responses[1]!.json()).toEqual({
+			pid: process.pid,
+			workspaces: [],
+		});
 		expect(await responses[2]!.json()).toMatchObject({
 			platforms: expect.arrayContaining(["android"]),
 		});
@@ -142,7 +148,7 @@ describe("device command routes", () => {
 		const response = await fetch(`${origin}/status`);
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ workspaces });
+		expect(await response.json()).toEqual({ pid: process.pid, workspaces });
 	});
 
 	test("serves memory status through the device command boundary", async () => {

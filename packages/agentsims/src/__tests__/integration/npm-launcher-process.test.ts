@@ -11,7 +11,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { runtimePackageName, runtimeTarget } from "../../cli-launcher";
+import {
+	runtimePackageName,
+	runtimeTarget,
+} from "../../../scripts/release-targets";
 
 const directory = mkdtempSync(join(tmpdir(), "agentsims launcher test "));
 const launcherPath = join(directory, "launcher.cjs");

@@ -1,10 +1,8 @@
 import { Context, Effect, Layer } from "effect";
 import { AX_UNAVAILABLE_ERROR } from "./accessibility-model";
 import type { AxElement, AxRect, AxSnapshot } from "./accessibility-model";
-import {
-	androidSerialFromStateId,
-	collectAndroidAxSnapshot,
-} from "../../android/device/device";
+import { androidSerialFromStateId } from "../../android/device/identifiers";
+import { collectAndroidAxSnapshot } from "../../android/accessibility/snapshot";
 import { subscribeAndroidAxChanges } from "../../android/accessibility/ax-server";
 import { AndroidAxServers } from "../../android/accessibility/ax-server";
 import { axDescribeAsync } from "../../ios/stream/native";
@@ -168,12 +166,8 @@ async function collectAxSnapshot(udid: string): Promise<AxSnapshot> {
 	};
 }
 
-function sseMessage(payload: unknown) {
-	return `data: ${JSON.stringify(payload)}\n\n`;
-}
-
 interface AxStreamer {
-	addClient(res: { write(chunk: string): void }): () => void;
+	addClient(onSnapshot: (snapshot: AxSnapshot) => void): () => void;
 	hasClients(): boolean;
 	refresh(): void;
 	dispose(): void;
@@ -207,7 +201,7 @@ function createAxStreamer({
 }: {
 	udid: string;
 } & AxStreamerCacheOptions): AxStreamer {
-	const clients = new Set<{ write(chunk: string): void }>();
+	const clients = new Set<(snapshot: AxSnapshot) => void>();
 	const androidSerial = androidSerialFromStateId(udid);
 	const android = androidSerial !== null;
 	const basePollIntervalMs = android ? androidPollIntervalMs : POLL_INTERVAL_MS;
@@ -216,7 +210,8 @@ function createAxStreamer({
 		: MAX_POLL_INTERVAL_MS;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let androidChangeTimer: ReturnType<typeof setTimeout> | null = null;
-	let latestMessage: string | null = null;
+	let latestSnapshot: AxSnapshot | null = null;
+	let latestSnapshotKey: string | null = null;
 	let latestCollectedAt = 0;
 	let latestUsable = false;
 	let retryNotBefore = 0;
@@ -263,16 +258,17 @@ function createAxStreamer({
 		let retry = true;
 		try {
 			const next = await collect(udid);
-			const nextMessage = sseMessage(next);
-			if (forceMessage || nextMessage !== latestMessage) {
-				for (const client of clients) client.write(nextMessage);
+			const nextSnapshotKey = JSON.stringify(next);
+			if (forceMessage || nextSnapshotKey !== latestSnapshotKey) {
+				for (const client of clients) client(next);
 			}
-			if (nextMessage !== latestMessage) {
+			if (nextSnapshotKey !== latestSnapshotKey) {
 				pollIntervalMs = basePollIntervalMs;
 			} else {
 				pollIntervalMs = Math.min(pollIntervalMs * 2, maxPollIntervalMs);
 			}
-			latestMessage = nextMessage;
+			latestSnapshot = next;
+			latestSnapshotKey = nextSnapshotKey;
 			latestCollectedAt = now();
 			latestUsable = isUsableAxSnapshot(next);
 			// If the helper says AX is unavailable (framework missing, sim
@@ -335,11 +331,11 @@ function createAxStreamer({
 	}
 
 	return {
-		addClient(res) {
+		addClient(onSnapshot) {
 			if (disposed) return () => {};
-			clients.add(res);
-			if (latestMessage) res.write(latestMessage);
-			if (!latestMessage) {
+			clients.add(onSnapshot);
+			if (latestSnapshot) onSnapshot(latestSnapshot);
+			if (!latestSnapshot) {
 				void poll();
 			} else if (android && latestDirty) {
 				if (androidChangeTimer) {
@@ -356,7 +352,7 @@ function createAxStreamer({
 				schedule(Math.max(0, basePollIntervalMs - (now() - latestCollectedAt)));
 			}
 			return () => {
-				clients.delete(res);
+				clients.delete(onSnapshot);
 				if (clients.size === 0 && timer) {
 					clearTimer(timer);
 					timer = null;
@@ -406,7 +402,8 @@ function createAxStreamer({
 			unsubscribeAndroidChanges();
 			unsubscribeAndroidChanges = () => {};
 			clients.clear();
-			latestMessage = null;
+			latestSnapshot = null;
+			latestSnapshotKey = null;
 			forceMessagePending = false;
 			changeCapturePending = false;
 			latestDirty = false;

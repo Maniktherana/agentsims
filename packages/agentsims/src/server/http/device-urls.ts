@@ -1,4 +1,4 @@
-import { androidSerialFromStateId } from "../../core/android/device/device";
+import { androidSerialFromStateId } from "../../core/android/device/identifiers";
 import type { DeviceState } from "../../core/tools/devices/state";
 
 export function exposeDeviceState(

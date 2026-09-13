@@ -1,6 +1,6 @@
 import { HttpRouter, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
-import { hostPlatformInfo } from "../../runtime/host-platform";
+import { hostPlatformInfo } from "../../../core/host";
 
 export const hostRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(

@@ -6,7 +6,7 @@ import { Command, CommandExecutor } from "@effect/platform";
 import { Effect } from "effect";
 import { captureHostCommand } from "../core/host";
 import { androidTool } from "../core/android/device/sdk-tools";
-import { hostPlatformInfo } from "../server/runtime/host-platform";
+import { hostPlatformInfo } from "../core/host";
 
 type ToolCheck = { command: string; available: boolean; detail: string };
 

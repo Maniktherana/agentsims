@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { EventEmitter } from "events";
 import {
 	androidTransportKindForSerial,
 	isAndroidEmulatorSerial,
@@ -148,17 +147,16 @@ describe("Android stream transport", () => {
 		expect(coordinator.currentConfig).toEqual(configs[0]);
 		expect(orchestration).toEqual([]);
 
-		const response = Object.assign(new EventEmitter(), {
-			writableEnded: false,
-			destroyed: false,
-			writableLength: 0,
+		const detach = coordinator.attachSink({
+			closed: false,
+			bufferedBytes: 0,
 			write(chunk: Buffer) {
 				writes.push(chunk);
-				return true;
 			},
-			end() {},
-		}) as unknown as ServerResponse;
-		coordinator.attach(response);
+			close() {},
+			onClose() {},
+			onDrain() {},
+		});
 		expect(orchestration).toEqual([
 			"subscribers:1",
 			"keyframe",
@@ -175,7 +173,7 @@ describe("Android stream transport", () => {
 		coordinator.publish(keyframe);
 		expect(writes).toEqual([writes[0], keyframe]);
 
-		response.emit("close");
+		detach();
 		coordinator.observeFrameMetadata({
 			width: 2424,
 			height: 1080,
@@ -222,16 +220,6 @@ describe("Android stream transport", () => {
 
 	test("forwards native emulator timing without waiting for encoded output", () => {
 		const writes: Buffer[] = [];
-		const response = Object.assign(new EventEmitter(), {
-			writableEnded: false,
-			destroyed: false,
-			writableLength: 0,
-			write(chunk: Buffer) {
-				writes.push(chunk);
-				return true;
-			},
-			end() {},
-		}) as unknown as ServerResponse;
 		const coordinator = new AndroidAvccFrameCoordinator(
 			{ requestKeyframe: () => {}, frame: () => {} },
 			() => {},
@@ -241,7 +229,16 @@ describe("Android stream transport", () => {
 			height: 2424,
 			rotation: 0,
 		});
-		coordinator.attach(response);
+		coordinator.attachSink({
+			closed: false,
+			bufferedBytes: 0,
+			write(chunk: Buffer) {
+				writes.push(chunk);
+			},
+			close() {},
+			onClose() {},
+			onDrain() {},
+		});
 
 		coordinator.observeFrameMetadata({
 			width: 1080,

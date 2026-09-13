@@ -6,7 +6,10 @@ import {
 	type Process,
 } from "@effect/platform/CommandExecutor";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import { AndroidLogs, AndroidLogsLive } from "../../../../../core/android/device/logs";
+import {
+	AndroidLogs,
+	AndroidLogsLive,
+} from "../../../../../core/android/device/logs";
 import type { AndroidLogEvent } from "../../../../../core/android/contracts";
 
 function line(message: string) {

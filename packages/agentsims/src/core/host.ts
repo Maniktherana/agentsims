@@ -2,6 +2,46 @@ import { Command, CommandExecutor } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
 import { Effect, Stream } from "effect";
 
+export interface LinuxMemorySnapshot {
+	totalBytes: number | null;
+	availableBytes: number | null;
+}
+
+/** Describe host platform support without probing installed tools or devices. */
+export function hostPlatformInfo(platform: NodeJS.Platform = process.platform) {
+	const apple = platform === "darwin";
+	const android = apple || platform === "linux";
+	return {
+		platform,
+		platforms: apple ? ["android", "ios"] : android ? ["android"] : [],
+		iosSimulator: apple,
+		nativeAndroidVideo: android,
+		hostAudio: apple,
+		webkit: apple,
+	};
+}
+
+/** MemAvailable accounts for reclaimable caches; MemFree alone does not. */
+export function parseLinuxMemory(text: string): LinuxMemorySnapshot {
+	const read = (name: string): number | null => {
+		const match = text.match(new RegExp(`^${name}:\\s+(\\d+)\\s+kB$`, "m"));
+		if (!match) return null;
+		const bytes = Number(match[1]) * 1024;
+		return Number.isSafeInteger(bytes) ? bytes : null;
+	};
+	const totalBytes = read("MemTotal");
+	const availableBytes = read("MemAvailable");
+	return {
+		totalBytes,
+		availableBytes:
+			availableBytes === null
+				? null
+				: totalBytes === null
+					? availableBytes
+					: Math.min(totalBytes, availableBytes),
+	};
+}
+
 export type HostCommandResult = {
 	stdout: string;
 	stderr: string;

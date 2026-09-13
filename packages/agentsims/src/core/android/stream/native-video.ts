@@ -3,7 +3,14 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { configuredDistDirectory } from "../../native-paths";
-import type { AvccFrame } from "../../ios/stream/native";
+
+export interface AvccFrame {
+	data: Uint8Array;
+	width: number;
+	height: number;
+	isDescription: boolean;
+	isKeyframe: boolean;
+}
 
 const require = createRequire(import.meta.url);
 const FLAG_DESCRIPTION = 1 << 0;

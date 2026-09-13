@@ -1,26 +1,36 @@
 import { CommandUnavailable } from "./errors";
+import { commandFailure } from "./errors";
+import { Context, Effect, Layer } from "effect";
+import { z } from "zod";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import {
 	androidAvdStateId,
 	androidSerialFromStateId,
-	getAndroidStatus,
-	listAndroidDevices,
+} from "../android/device/identifiers";
+import { listAndroidDevices } from "../android/device/discovery";
+import {
 	listAndroidWebcams,
+	validateAndroidCameraStartupMode,
+	type AndroidWebcam,
+} from "../android/device/emulator";
+import {
+	getAndroidStatus,
 	setAndroidHostMicrophone,
 	setAndroidMediaVolume,
 	setAndroidMediaVolumeLevel,
 	setAndroidVirtualSceneImage,
-	validateAndroidCameraStartupMode,
-	type AndroidWebcam,
-} from "../android/device/device";
+} from "../android/device/media";
 import type { AndroidStatus } from "../android/device/types";
 import type { DeviceLifecycleServiceValue } from "./devices/lifecycle";
-import type {
-	DeviceMediaState,
-	MediaApplyMode,
-	MediaRouteAction,
-	MediaRouteResult,
-	MediaSourceChoice,
-} from "./media-contracts";
+import { DeviceLifecycleService } from "./devices/lifecycle";
+import { STATE_DIR } from "./devices/state";
 import {
 	emptyHostAudioSnapshot,
 	hostAudioLabel,
@@ -36,11 +46,180 @@ import {
 	listIosWebcams,
 	type IosCameraStatus,
 } from "../ios/camera";
-import {
-	getStoredMediaRoute,
-	updateStoredMediaRoute,
-	type StoredMediaRoute,
-} from "../../server/media/route-store";
+
+export type MediaApplyMode =
+	| "live"
+	| "app-relaunch"
+	| "device-restart"
+	| "unsupported";
+
+export interface MediaSourceChoice {
+	id: string;
+	label: string;
+	apply: MediaApplyMode;
+	scope?: "device" | "host-global" | "app";
+}
+
+export interface DeviceMediaState {
+	platform: "ios" | "android";
+	deviceKind: "simulator" | "emulator" | "physical";
+	deviceId: string;
+	camera: {
+		owner: "agentsims-injection" | "android-emulator" | "device";
+		source?: string;
+		front?: string;
+		back?: string;
+		sourceChoices?: MediaSourceChoice[];
+		frontChoices: MediaSourceChoice[];
+		backChoices: MediaSourceChoice[];
+		supportsFiles: boolean;
+		supportsLivePoster: boolean;
+		attachedApps?: string[];
+		status?: "attached" | "not-attached" | "device-owned";
+	};
+	audioInput: {
+		current: "host" | "disabled" | "system-default" | "device" | "unknown";
+		currentDeviceId?: string;
+		currentDeviceLabel?: string;
+		preferredDeviceId?: string;
+		preferredDeviceLabel?: string;
+		choices: MediaSourceChoice[];
+		scope?: "host-global" | "device";
+	};
+	audioOutput: {
+		current: "host-system-default" | "device";
+		currentDeviceId?: string;
+		currentDeviceLabel?: string;
+		preferredDeviceId?: string;
+		preferredDeviceLabel?: string;
+		choices: MediaSourceChoice[];
+		scope?: "host-global" | "device";
+		volume?: number;
+		volumeSettable?: boolean;
+		volumeLevel?: { current: number; min: number; max: number };
+	};
+}
+
+export const MediaRouteActionSchema = z.discriminatedUnion("action", [
+	z.object({
+		action: z.literal("android-host-microphone"),
+		enabled: z.boolean(),
+	}),
+	z.object({
+		action: z.literal("android-camera-source"),
+		face: z.enum(["front", "back"]),
+		source: z.string(),
+	}),
+	z.object({
+		action: z.literal("android-camera-sources"),
+		front: z.string(),
+		back: z.string(),
+	}),
+	z.object({
+		action: z.literal("ios-camera-source"),
+		source: z.enum(["placeholder", "webcam", "image", "video"]),
+		deviceId: z.string().optional(),
+		path: z.string().optional(),
+	}),
+	z.object({ action: z.literal("host-audio-input"), deviceId: z.string() }),
+	z.object({ action: z.literal("host-audio-output"), deviceId: z.string() }),
+	z.object({ action: z.literal("android-output-volume"), level: z.number() }),
+	z.object({
+		action: z.literal("audio-output-volume"),
+		deviceId: z.string().optional(),
+		volume: z.number(),
+	}),
+	z.object({
+		action: z.literal("host-audio-output-volume"),
+		deviceId: z.string(),
+		volume: z.number(),
+	}),
+	z.object({
+		action: z.literal("android-virtual-scene-image"),
+		surface: z.enum(["wall", "table"]),
+		path: z.string().optional(),
+	}),
+	z.object({ action: z.literal("restart-device") }),
+]);
+export type MediaRouteAction = z.infer<typeof MediaRouteActionSchema>;
+
+export interface MediaRouteResult {
+	ok: true;
+	apply: Exclude<MediaApplyMode, "unsupported">;
+	device?: string;
+}
+
+export interface StoredMediaRoute {
+	inputDeviceId?: string;
+	outputDeviceId?: string;
+	androidCameraFront?: string;
+	androidCameraBack?: string;
+}
+
+export interface StoredMediaRoutes {
+	version: 1;
+	devices: Record<string, StoredMediaRoute>;
+}
+
+export const MEDIA_ROUTES_FILE = join(STATE_DIR, "media-routes.json");
+
+export function emptyStoredMediaRoutes(): StoredMediaRoutes {
+	return { version: 1, devices: {} };
+}
+
+export function readStoredMediaRoutes(
+	path = MEDIA_ROUTES_FILE,
+): StoredMediaRoutes {
+	if (!existsSync(path)) return emptyStoredMediaRoutes();
+	try {
+		const parsed = JSON.parse(
+			readFileSync(path, "utf8"),
+		) as Partial<StoredMediaRoutes>;
+		const devices: Record<string, StoredMediaRoute> = {};
+		if (parsed.devices && typeof parsed.devices === "object") {
+			for (const [deviceId, route] of Object.entries(parsed.devices)) {
+				if (!route || typeof route !== "object") continue;
+				devices[deviceId] = Object.fromEntries(
+					Object.entries(route).filter(
+						([, value]) => typeof value === "string",
+					),
+				) as StoredMediaRoute;
+			}
+		}
+		return { version: 1, devices };
+	} catch {
+		return emptyStoredMediaRoutes();
+	}
+}
+
+export function writeStoredMediaRoutes(
+	routes: StoredMediaRoutes,
+	path = MEDIA_ROUTES_FILE,
+): void {
+	mkdirSync(dirname(path), { recursive: true });
+	const temp = `${path}.${process.pid}.tmp`;
+	writeFileSync(temp, JSON.stringify(routes, null, 2), "utf8");
+	renameSync(temp, path);
+}
+
+export function getStoredMediaRoute(
+	deviceId: string,
+	path = MEDIA_ROUTES_FILE,
+): StoredMediaRoute {
+	return readStoredMediaRoutes(path).devices[deviceId] ?? {};
+}
+
+export function updateStoredMediaRoute(
+	deviceId: string,
+	patch: StoredMediaRoute,
+	path = MEDIA_ROUTES_FILE,
+): StoredMediaRoute {
+	const routes = readStoredMediaRoutes(path);
+	const next = { ...routes.devices[deviceId], ...patch };
+	routes.devices[deviceId] = next;
+	writeStoredMediaRoutes(routes, path);
+	return next;
+}
 
 export function mediaDeviceFromRequestUrl(
 	rawUrl: string | undefined,
@@ -627,3 +806,35 @@ export class MediaRouter {
 		}
 	}
 }
+
+export type MediaOperations = Pick<MediaRouter, "read" | "apply">;
+
+export function makeMediaRouting(operations: MediaOperations) {
+	return {
+		read: (device: string) =>
+			Effect.tryPromise({
+				try: () => operations.read(device),
+				catch: commandFailure,
+			}),
+		apply: (device: string, action: MediaRouteAction, port: number) =>
+			Effect.tryPromise({
+				try: () => operations.apply(device, action, port),
+				catch: commandFailure,
+			}),
+	};
+}
+export type MediaRoutingService = ReturnType<typeof makeMediaRouting>;
+
+export class MediaRouting extends Context.Tag("@agentsims/MediaRouting")<
+	MediaRouting,
+	MediaRoutingService
+>() {}
+
+export const mediaRoutingLayer = (basePath: string) =>
+	Layer.effect(
+		MediaRouting,
+		Effect.gen(function* () {
+			const lifecycle = yield* DeviceLifecycleService;
+			return makeMediaRouting(new MediaRouter(basePath, lifecycle));
+		}),
+	);

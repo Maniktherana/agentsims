@@ -1,7 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import {
 	CommandUnavailable,
-	InvalidCommandInput,
 	commandFailure,
 	type ApplicationCommandError,
 } from "../errors";
@@ -12,81 +11,10 @@ import {
 	type DeviceLifecycleServiceValue,
 } from "./lifecycle";
 import { makeDeviceActions, type DeviceInputSession } from "../input";
-import { androidSerialFromStateId } from "../../android/device/device";
+import { androidSerialFromStateId } from "../../android/device/identifiers";
 import { AndroidSessions } from "../../android/session/session";
 import { IosSessions } from "../../ios/session";
-
-export type DeviceObservation = {
-	device: string;
-	platform: "ios" | "android";
-	capturedAt: number;
-	screenshot: {
-		mimeType: string;
-		contentBase64: string;
-		bytes: number;
-	};
-	config: unknown;
-	accessibility: unknown;
-	warnings: string[];
-};
-
-export type ObservationSession = {
-	platform: "ios" | "android";
-	mimeType: string;
-	captureScreenshot(): Promise<Buffer>;
-	readConfig(): Promise<unknown>;
-	readAccessibility(): Promise<unknown>;
-};
-
-export type ResolveObservationSession = (
-	device: string,
-) => Effect.Effect<ObservationSession, ApplicationCommandError>;
-
-export function observeDevice(
-	resolveSession: ResolveObservationSession,
-	device: string,
-	includeAccessibility = true,
-): Effect.Effect<DeviceObservation, ApplicationCommandError> {
-	return Effect.gen(function* () {
-		if (!device) {
-			return yield* Effect.fail(
-				new InvalidCommandInput({ message: "Invalid or missing device" }),
-			);
-		}
-		const session = yield* resolveSession(device);
-		const warnings: string[] = [];
-		let accessibility: unknown = null;
-		if (includeAccessibility) {
-			accessibility = yield* Effect.tryPromise({
-				try: () => session.readAccessibility(),
-				catch: commandFailure,
-			}).pipe(
-				Effect.catchAll((error) => {
-					warnings.push(`accessibility unavailable: ${error.message}`);
-					return Effect.succeed(null);
-				}),
-			);
-		}
-		const [screenshot, config] = yield* Effect.tryPromise({
-			try: () =>
-				Promise.all([session.captureScreenshot(), session.readConfig()]),
-			catch: commandFailure,
-		});
-		return {
-			device,
-			platform: session.platform,
-			capturedAt: Date.now(),
-			screenshot: {
-				mimeType: session.mimeType,
-				contentBase64: screenshot.toString("base64"),
-				bytes: screenshot.byteLength,
-			},
-			config,
-			accessibility,
-			warnings,
-		};
-	});
-}
+import { observeDevice, type ObservationSession } from "../observe/observe";
 
 export type DeviceListOptions = {
 	selectedDevice?: string | null;

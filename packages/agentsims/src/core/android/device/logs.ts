@@ -1,9 +1,6 @@
 import { Command, CommandExecutor } from "@effect/platform";
 import { Context, Effect, Fiber, Layer, PubSub, Stream } from "effect";
-import type {
-	AndroidLogEvent,
-	AndroidLogFilter,
-} from "../contracts";
+import type { AndroidLogEvent, AndroidLogFilter } from "../contracts";
 import {
 	androidLogMatches,
 	AndroidLogBuffer,

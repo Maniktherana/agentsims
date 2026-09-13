@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	bareChromeIdentifier,
 	alphaBounds,
-	serveDeviceFrameAssetWeb,
+	readDeviceFrameAsset,
 	logicalScreenSizeFromProfile,
 	parsePdfPageSize,
 	resolveDevicePlaceholderAsset,
@@ -66,10 +66,7 @@ describe("Device frame asset helpers", () => {
 				"../../../../core/ios/device-assets.ts",
 				import.meta.url,
 			).pathname;
-			const hostPath = new URL(
-				"../runtime/host-tools.ts",
-				`file://${modulePath}`,
-			).pathname;
+			const hostPath = new URL("../host.ts", `file://${modulePath}`).pathname;
 			const child = Bun.spawnSync({
 				cmd: [
 					process.execPath,
@@ -222,37 +219,25 @@ describe("PNG alpha bounds", () => {
 
 describe("device frame file responses", () => {
 	test("keeps validation and missing-asset responses", async () => {
-		expect(
-			(
-				await serveDeviceFrameAssetWeb(
-					new URL("http://localhost/?frame=../bad&image=foo"),
-				)
-			).status,
-		).toBe(400);
-		expect(
-			(
-				await serveDeviceFrameAssetWeb(
-					new URL("http://localhost/?frame=missing-frame&image=foo"),
-				)
-			).status,
-		).toBe(404);
+		expect(await readDeviceFrameAsset("../bad", "foo")).toMatchObject({
+			ok: false,
+			kind: "invalid-request",
+		});
+		expect(await readDeviceFrameAsset("missing-frame", "foo")).toMatchObject({
+			ok: false,
+			kind: "not-found",
+		});
 	});
-	test("serves a cached installed frame with the same PNG and cache headers", async () => {
+	test("reads a cached installed frame as the same PNG bytes", async () => {
 		if (!existsSync("/Library/Developer/DeviceKit/Chrome/phone11.devicechrome"))
 			return;
 		const frame = await resolveDeviceFrame({ name: "iPhone 17" });
 		const image = frame?.compositeImage ?? frame?.slice?.topLeft;
 		if (!frame || !image) return;
-		const response = await serveDeviceFrameAssetWeb(
-			new URL(`http://localhost/?frame=${frame.identifier}&image=${image}`),
-		);
-		expect(response.status).toBe(200);
-		expect(response.headers.get("content-type")).toBe("image/png");
-		expect(response.headers.get("cache-control")).toBe(
-			"public, max-age=604800, immutable",
-		);
-		const body = new Uint8Array(await response.arrayBuffer());
-		expect(Number(response.headers.get("content-length"))).toBe(body.length);
+		const response = await readDeviceFrameAsset(frame.identifier, image);
+		expect(response.ok).toBe(true);
+		if (!response.ok) return;
+		const body = response.bytes;
 		expect(body.slice(0, 8)).toEqual(
 			new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
 		);

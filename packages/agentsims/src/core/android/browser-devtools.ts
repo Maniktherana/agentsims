@@ -1,8 +1,11 @@
 import { makeAndroidToolRunner } from "./device/tool-command";
 import { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { Context, Effect, Layer } from "effect";
-import { androidSerialFromStateId } from "./device/device";
-import type { DevToolsProvider, DevToolsProviderTarget } from "../../server/devtools/model";
+import { androidSerialFromStateId } from "./device/identifiers";
+import type {
+	DevToolsProvider,
+	DevToolsProviderTarget,
+} from "../tools/browser-devtools";
 
 export type AndroidCdpAdapterService = {
 	command(

@@ -1,102 +1,85 @@
-import { Schema } from "effect";
+import { z } from "zod";
 
-const text = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4096));
-export const AndroidPackageSchema = Schema.String.pipe(
-	Schema.pattern(/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$/),
-);
-const optionalBoolean = Schema.optional(Schema.Boolean);
-const phone = Schema.String.pipe(Schema.pattern(/^\+?[0-9*#]{1,32}$/));
-export const AndroidToolActionSchema = Schema.Union(
-	Schema.Struct({ type: Schema.Literal("apps") }),
-	Schema.Struct({
-		type: Schema.Literal("app"),
-		operation: Schema.Literal("launch", "stop", "clear", "uninstall"),
+const text = z.string().min(1).max(4096);
+export const AndroidPackageSchema = z
+	.string()
+	.regex(/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$/);
+const optionalBoolean = z.boolean().optional();
+const phone = z.string().regex(/^\+?[0-9*#]{1,32}$/);
+export const AndroidToolActionSchema = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("apps") }),
+	z.object({
+		type: z.literal("app"),
+		operation: z.enum(["launch", "stop", "clear", "uninstall"]),
 		package: AndroidPackageSchema,
 	}),
-	Schema.Struct({ type: Schema.Literal("install"), path: text }),
-	Schema.Struct({
-		type: Schema.Literal("link"),
-		url: text.pipe(Schema.pattern(/^[a-zA-Z][a-zA-Z0-9+.-]*:/)),
-		package: Schema.optional(AndroidPackageSchema),
+	z.object({ type: z.literal("install"), path: text }),
+	z.object({
+		type: z.literal("link"),
+		url: text.regex(/^[a-zA-Z][a-zA-Z0-9+.-]*:/),
+		package: AndroidPackageSchema.optional(),
 	}),
-	Schema.Struct({
-		type: Schema.Literal("network"),
+	z.object({
+		type: z.literal("network"),
 		wifi: optionalBoolean,
 		data: optionalBoolean,
 		airplane: optionalBoolean,
-		speed: Schema.optional(
-			Schema.Literal(
-				"full",
-				"gsm",
-				"hscsd",
-				"gprs",
-				"edge",
-				"umts",
-				"hsdpa",
-				"lte",
-			),
-		),
-		delay: Schema.optional(Schema.Literal("none", "gprs", "edge", "umts")),
+		speed: z
+			.enum(["full", "gsm", "hscsd", "gprs", "edge", "umts", "hsdpa", "lte"])
+			.optional(),
+		delay: z.enum(["none", "gprs", "edge", "umts"]).optional(),
 	}),
-	Schema.Struct({
-		type: Schema.Literal("battery"),
-		level: Schema.optional(
-			Schema.Number.pipe(Schema.int(), Schema.between(0, 100)),
-		),
+	z.object({
+		type: z.literal("battery"),
+		level: z.number().int().min(0).max(100).optional(),
 		charging: optionalBoolean,
 		reset: optionalBoolean,
 	}),
-	Schema.Struct({
-		type: Schema.Literal("snapshot"),
-		operation: Schema.Literal("list", "save", "load", "delete"),
-		name: Schema.optional(
-			Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._-]{1,64}$/)),
-		),
-	}).pipe(
-		Schema.filter(
-			(v) =>
-				v.operation === "list" ||
-				Boolean(v.name) ||
-				"Snapshot name is required",
-		),
-	),
-	Schema.Struct({
-		type: Schema.Literal("call"),
-		operation: Schema.Literal("call", "accept", "cancel", "busy", "hold"),
+	z
+		.object({
+			type: z.literal("snapshot"),
+			operation: z.enum(["list", "save", "load", "delete"]),
+			name: z
+				.string()
+				.regex(/^[A-Za-z0-9._-]{1,64}$/)
+				.optional(),
+		})
+		.refine((value) => value.operation === "list" || Boolean(value.name), {
+			message: "Snapshot name is required",
+			path: ["name"],
+		}),
+	z.object({
+		type: z.literal("call"),
+		operation: z.enum(["call", "accept", "cancel", "busy", "hold"]),
 		number: phone,
 	}),
-	Schema.Struct({ type: Schema.Literal("sms"), number: phone, text: text }),
-	Schema.Struct({
-		type: Schema.Literal("density"),
-		dpi: Schema.Union(
-			Schema.Number.pipe(Schema.int(), Schema.between(72, 1200)),
-			Schema.Literal("reset"),
-		),
+	z.object({ type: z.literal("sms"), number: phone, text }),
+	z.object({
+		type: z.literal("density"),
+		dpi: z.union([z.number().int().min(72).max(1200), z.literal("reset")]),
 	}),
-	Schema.Struct({
-		type: Schema.Literal("locale"),
+	z.object({
+		type: z.literal("locale"),
 		package: AndroidPackageSchema,
-		locale: Schema.String.pipe(
-			Schema.pattern(/^(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)?$/),
-		),
+		locale: z.string().regex(/^(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)?$/),
 	}),
-	Schema.Struct({ type: Schema.Literal("talkback"), enabled: Schema.Boolean }),
-	Schema.Struct({
-		type: Schema.Literal("location"),
-		latitude: Schema.Number.pipe(Schema.between(-90, 90)),
-		longitude: Schema.Number.pipe(Schema.between(-180, 180)),
-		altitude: Schema.optional(Schema.Number.pipe(Schema.between(-500, 100000))),
+	z.object({ type: z.literal("talkback"), enabled: z.boolean() }),
+	z.object({
+		type: z.literal("location"),
+		latitude: z.number().min(-90).max(90),
+		longitude: z.number().min(-180).max(180),
+		altitude: z.number().min(-500).max(100000).optional(),
 	}),
-	Schema.Struct({
-		type: Schema.Literal("settings"),
-		theme: Schema.optional(Schema.Literal("light", "dark", "auto")),
-		fontScale: Schema.optional(Schema.Number.pipe(Schema.between(0.5, 3))),
+	z.object({
+		type: z.literal("settings"),
+		theme: z.enum(["light", "dark", "auto"]).optional(),
+		fontScale: z.number().min(0.5).max(3).optional(),
 		reducedMotion: optionalBoolean,
 		showTouches: optionalBoolean,
 		pointerLocation: optionalBoolean,
 	}),
-);
-export type AndroidToolAction = typeof AndroidToolActionSchema.Type;
+]);
+export type AndroidToolAction = z.infer<typeof AndroidToolActionSchema>;
 
 export type AndroidEnvironmentState = {
 	network: {

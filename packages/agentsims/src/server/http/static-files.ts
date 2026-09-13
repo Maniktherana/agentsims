@@ -1,4 +1,4 @@
-import { posix } from "path";
+import { posix } from "node:path";
 
 export function previewAssetContentType(path: string): string {
 	if (path.endsWith(".js")) return "text/javascript; charset=utf-8";

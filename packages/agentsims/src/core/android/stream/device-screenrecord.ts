@@ -3,7 +3,6 @@ import { Command } from "@effect/platform";
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { Cause, Effect, Fiber, Stream } from "effect";
 import type { RuntimeFiber } from "effect/Fiber";
-import type { ServerResponse } from "http";
 import {
 	AndroidAvccFrameCoordinator,
 	type AvccSubscriberSink,
@@ -354,11 +353,6 @@ export class AndroidDeviceScreenrecordSession {
 		this.captureFiber = null;
 		if (fiber) Effect.runFork(Fiber.interrupt(fiber));
 		this.frames.close();
-	}
-
-	async attachAvcc(res: ServerResponse): Promise<void> {
-		await this.start();
-		this.frames.attach(res);
 	}
 
 	async attachAvccSink(sink: AvccSubscriberSink): Promise<() => void> {

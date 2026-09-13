@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { BunContext } from "@effect/platform-bun";
-import {
-	ShellExec,
-	ShellExecLive,
-} from "../../../../core/tools/host-commands";
+import { ShellExec, ShellExecLive } from "../../../../core/tools/host-commands";
 
 describe("ShellExec", () => {
 	test("accepts a stub layer without module mocking", async () => {

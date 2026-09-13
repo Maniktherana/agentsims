@@ -92,7 +92,7 @@ describeIfSim(
 		beforeAll(async () => {
 			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
 			try {
-				execFileSync("node", [CLI, "--kill", bootedUdid!], { stdio: "pipe" });
+				execFileSync("node", [CLI, "stop"], { stdio: "pipe" });
 			} catch (error) {
 				console.warn(
 					"[agentsims:test] recoverable setup or cleanup failure",
@@ -103,7 +103,7 @@ describeIfSim(
 			const startPort = 40_000 + Math.floor(Math.random() * 20_000);
 			const detach = spawnSync(
 				"node",
-				[CLI, "--detach", "-p", String(startPort), bootedUdid!],
+				[CLI, "start", "--detach", "-p", String(startPort)],
 				{
 					encoding: "utf-8",
 					stdio: ["ignore", "pipe", "inherit"],
@@ -116,11 +116,10 @@ describeIfSim(
 						`stdout: ${detach.stdout ?? "<none>"}`,
 				);
 			}
-			const state = parseDetachedOutput<{ wsUrl: string; streamUrl: string }>(
-				detach.stdout,
-			);
-			wsUrl = state.wsUrl;
-			configUrl = state.streamUrl.replace("stream.mjpeg", "config");
+			const state = parseDetachedOutput<{ url: string }>(detach.stdout);
+			const helperUrl = `${state.url}/helper/${encodeURIComponent(bootedUdid!)}`;
+			wsUrl = helperUrl.replace(/^http/, "ws") + "/ws";
+			configUrl = `${helperUrl}/config`;
 
 			// `--detach` returns once the child is spawned, but on a cold CI runner the
 			// server may not be listening yet. Poll /config until it answers so the
@@ -142,7 +141,7 @@ describeIfSim(
 		afterAll(() => {
 			try {
 				try {
-					execFileSync("node", [CLI, "--kill", bootedUdid!], { stdio: "pipe" });
+					execFileSync("node", [CLI, "stop"], { stdio: "pipe" });
 				} catch (error) {
 					console.warn(
 						"[agentsims:test] recoverable setup or cleanup failure",

@@ -1,15 +1,12 @@
-import {
-	listIosDevices,
-	type IosSimulatorDevice,
-} from "../../ios/devices";
+import { listIosDevices, type IosSimulatorDevice } from "../../ios/devices";
 import { readFile } from "node:fs/promises";
-import { parseLinuxMemory } from "../../../server/runtime/linux-memory";
+import { parseLinuxMemory } from "../../host";
 import {
 	androidAvdStateId,
 	androidStateId,
-	listAndroidAvds,
-	listAndroidDevices,
-} from "../../android/device/device";
+} from "../../android/device/identifiers";
+import { listAndroidDevices } from "../../android/device/discovery";
+import { listAndroidAvds } from "../../android/device/emulator";
 import {
 	resolveDeviceFrame,
 	resolveDevicePlaceholderAsset,

@@ -1,5 +1,6 @@
 import { HttpServerResponse } from "@effect/platform";
-import { Data, Effect, Schema, Stream } from "effect";
+import { Data, Effect, Stream } from "effect";
+import type { z } from "zod";
 import {
 	commandFailure,
 	InvalidCommandInput,
@@ -91,10 +92,10 @@ export function requestJson(request: Request) {
 	});
 }
 
-export function decodeInput<A, I>(schema: Schema.Schema<A, I>, value: unknown) {
-	return Schema.decodeUnknown(schema)(value).pipe(
-		Effect.mapError(
-			(cause) => new InvalidCommandInput({ message: String(cause), cause }),
-		),
-	);
+export function decodeInput<T extends z.ZodType>(schema: T, value: unknown) {
+	return Effect.try({
+		try: () => schema.parse(value) as z.infer<T>,
+		catch: (cause) =>
+			new InvalidCommandInput({ message: String(cause), cause }),
+	});
 }

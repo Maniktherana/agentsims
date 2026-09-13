@@ -17,7 +17,7 @@ import { parseDetachedOutput } from "../helpers/detached-output";
  * decodable H.264 stream rather than the endpoint silently emitting nothing.
  */
 
-const CLI_PATH = join(import.meta.dir, "../../cli/index.ts");
+const CLI_PATH = join(import.meta.dir, "../../cli/main.ts");
 const STREAM_BUDGET_MS = process.env.CI ? 30_000 : 12_000;
 
 // Envelope tags — kept in sync with Swift AVCCEnvelope / TS avcc-codec.
@@ -76,7 +76,7 @@ describeWithSim(
 		beforeAll(async () => {
 			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
 			try {
-				execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], {
+				execFileSync("bun", ["run", CLI_PATH, "stop"], {
 					stdio: "pipe",
 				});
 			} catch (error) {
@@ -89,7 +89,7 @@ describeWithSim(
 			const startPort = 40_000 + Math.floor(Math.random() * 20_000);
 			const detach = spawnSync(
 				"bun",
-				["run", CLI_PATH, "--detach", "-p", String(startPort), bootedUdid!],
+				["run", CLI_PATH, "start", "--detach", "-p", String(startPort)],
 				{
 					encoding: "utf-8",
 					stdio: ["ignore", "pipe", "inherit"],
@@ -104,8 +104,9 @@ describeWithSim(
 			}
 			// The preview server serves the stream in-process under
 			// /helper/<device>/… — derive the AVCC URL from the reported MJPEG one.
-			const state = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
-			avccUrl = state.streamUrl.replace("stream.mjpeg", "stream.avcc");
+			const state = parseDetachedOutput<{ url: string }>(detach.stdout);
+			const helperUrl = `${state.url}/helper/${encodeURIComponent(bootedUdid!)}`;
+			avccUrl = `${helperUrl}/stream.avcc`;
 
 			// Wait for capture to warm before the AVCC test connects. The /stream.avcc
 			// response only flushes its 200 once the first envelope is written, and the
@@ -115,7 +116,7 @@ describeWithSim(
 			// budget — distinct from "encoder never warmed", which the test soft-passes.
 			// /config reports width 0 until the first frame, so poll it as the ready
 			// signal. MJPEG capture works even where the H.264 encoder doesn't.
-			const configUrl = state.streamUrl.replace("stream.mjpeg", "config");
+			const configUrl = `${helperUrl}/config`;
 			const warmDeadline = Date.now() + 20_000;
 			while (Date.now() < warmDeadline) {
 				try {
@@ -136,7 +137,7 @@ describeWithSim(
 		afterAll(() => {
 			try {
 				try {
-					execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], {
+					execFileSync("bun", ["run", CLI_PATH, "stop"], {
 						stdio: "pipe",
 					});
 				} catch (error) {

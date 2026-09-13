@@ -10,9 +10,9 @@ export function resolveRuntimeExecutable(
 	platform = process.platform as string,
 	architecture = process.arch as string,
 ): string {
-	const target = runtimeTarget(platform, architecture);
-	const packageName = target && manifest.agentsimsRuntime?.targets[target];
-	if (!target || !packageName) {
+	const target = `${platform}-${architecture}`;
+	const packageName = manifest.agentsimsRuntime?.targets[target];
+	if (!packageName) {
 		const supported = Object.keys(
 			manifest.agentsimsRuntime?.targets ?? {},
 		).join(", ");
@@ -52,7 +52,7 @@ export function resolveRuntimeExecutable(
 	return executable;
 }
 
-/** The launcher never handles device data. It only supervises the executable. */
+/** The npm launcher never handles device data. It only supervises the executable. */
 export function launchInstalledRuntime(manifestPath: string): void {
 	try {
 		const manifest = JSON.parse(
@@ -93,52 +93,10 @@ export function launchInstalledRuntime(manifestPath: string): void {
 	}
 }
 
-export const RUNTIME_TARGETS = [
-	"darwin-arm64",
-	"darwin-x64",
-	"linux-x64",
-] as const;
-export type RuntimeTarget = (typeof RUNTIME_TARGETS)[number];
-
-export function runtimeTarget(
-	platform: string,
-	architecture: string,
-): RuntimeTarget | null {
-	const target = `${platform}-${architecture}`;
-	return RUNTIME_TARGETS.find((candidate) => candidate === target) ?? null;
-}
-
-export function runtimePackageName(target: RuntimeTarget): string {
-	return `agentsims-runtime-${target}`;
-}
-
-export function runtimeCompileTarget(
-	target: RuntimeTarget,
-): Bun.Build.CompileTarget {
-	return target === "linux-x64" ? "bun-linux-x64-baseline" : `bun-${target}`;
-}
-
-export function runtimeArtifacts(target: RuntimeTarget): readonly string[] {
-	return [
-		"agentsims",
-		"preview",
-		"android/agentsims-ax-server.jar",
-		"native/agentsims-android-video.node",
-		...(target.startsWith("darwin-")
-			? [
-					"native/agentsims-native.node",
-					"simcam/libSimCameraInjector.dylib",
-					"simcam/agentsims-camera-helper",
-					"simax/agentsims-ax-settings",
-				]
-			: []),
-	];
-}
-
 export interface LauncherManifest {
 	version: string;
 	optionalDependencies?: Record<string, string>;
-	agentsimsRuntime?: { targets: Partial<Record<RuntimeTarget, string>> };
+	agentsimsRuntime?: { targets: Record<string, string> };
 }
 
 // Bun emits a Node CommonJS main check here. Imported tests/build scripts do not launch.

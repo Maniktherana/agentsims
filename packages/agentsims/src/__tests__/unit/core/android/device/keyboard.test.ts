@@ -2,9 +2,11 @@ import { describe, expect, spyOn, test } from "bun:test";
 import {
 	androidKeycodeForHidUsage,
 	androidNightModeEnabled,
+} from "../../../../../core/android/device/input";
+import {
 	getAndroidForegroundApp,
 	parseAndroidForegroundPackage,
-} from "../../../../../core/android/device/device";
+} from "../../../../../core/android/device/discovery";
 
 describe("Android browser keyboard mapping", () => {
 	test("maps letters, digits, editing, navigation, and modifiers", () => {

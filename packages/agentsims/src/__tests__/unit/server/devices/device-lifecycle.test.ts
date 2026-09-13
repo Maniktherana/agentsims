@@ -4,7 +4,7 @@ import {
 	DEVICE_SHUTTING_DOWN_ERROR,
 	DeviceLifecycle,
 } from "../../../../core/tools/devices/lifecycle";
-import { androidStateId } from "../../../../core/android/device/device";
+import { androidStateId } from "../../../../core/android/device/identifiers";
 
 const IOS = "EA490A70-320C-4CE1-A8F9-55A7116CAFD9";
 

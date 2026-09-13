@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseLinuxMemory } from "../../../../server/runtime/linux-memory";
+import { parseLinuxMemory } from "../../../../core/host";
 
 test("Linux capacity uses MemAvailable, including reclaimable memory", () => {
 	expect(

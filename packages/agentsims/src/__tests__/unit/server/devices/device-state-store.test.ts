@@ -7,7 +7,7 @@ import { join } from "node:path";
 import {
 	DeviceStateStore,
 	deviceStateStoreLayer,
-} from "../../../../server/devices/device-state-store";
+} from "../../../../core/tools/devices/state";
 
 test("DeviceStateStore uses platform filesystem services", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "agentsims-state-"));

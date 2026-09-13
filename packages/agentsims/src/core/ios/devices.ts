@@ -1,4 +1,3 @@
-import { CliError } from "../../cli/error";
 import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { commandText } from "../host";
@@ -76,5 +75,5 @@ export async function resolveDevice(nameOrUDID: string): Promise<string> {
 			}
 		}
 	}
-	throw new CliError(`Could not resolve device: ${nameOrUDID}`);
+	throw new Error(`Could not resolve device: ${nameOrUDID}`);
 }

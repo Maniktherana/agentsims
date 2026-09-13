@@ -16,7 +16,7 @@ import { parseDetachedOutput } from "../helpers/detached-output";
  * compile-only changes.
  */
 
-const CLI_PATH = join(import.meta.dir, "../../cli/index.ts");
+const CLI_PATH = join(import.meta.dir, "../../cli/main.ts");
 const AX_RESPONSE_BUDGET_MS = process.env.CI ? 10_000 : 5_000;
 // The Swift helper returns 503 while the simulator's AX framework is still
 // warming up after boot. A cold CI runner can take well past a minute on its
@@ -62,7 +62,7 @@ describeWithSim(
 		beforeAll(async () => {
 			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
 			try {
-				execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" });
+				execSync(`bun run ${CLI_PATH} stop`, { stdio: "pipe" });
 			} catch (error) {
 				console.warn(
 					"[agentsims:test] recoverable setup or cleanup failure",
@@ -76,7 +76,7 @@ describeWithSim(
 			const startPort = 40_000 + Math.floor(Math.random() * 20_000);
 			const detach = spawnSync(
 				"bun",
-				["run", CLI_PATH, "--detach", "-p", String(startPort), bootedUdid!],
+				["run", CLI_PATH, "start", "--detach", "-p", String(startPort)],
 				{
 					encoding: "utf-8",
 					stdio: ["ignore", "pipe", "inherit"],
@@ -93,14 +93,14 @@ describeWithSim(
 
 			// The raw axe-shaped tree is served in-process at /helper/<device>/ax
 			// (the root /ax is the normalized SSE stream). Derive it from streamUrl.
-			const state = parseDetachedOutput<{ streamUrl: string }>(detach.stdout);
-			axUrl = state.streamUrl.replace("stream.mjpeg", "ax");
+			const state = parseDetachedOutput<{ url: string }>(detach.stdout);
+			axUrl = `${state.url}/helper/${encodeURIComponent(bootedUdid!)}/ax`;
 		}, IOS_E2E_HOOK_TIMEOUT_MS);
 
 		afterAll(() => {
 			try {
 				try {
-					execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, {
+					execSync(`bun run ${CLI_PATH} stop`, {
 						stdio: "pipe",
 					});
 				} catch (error) {

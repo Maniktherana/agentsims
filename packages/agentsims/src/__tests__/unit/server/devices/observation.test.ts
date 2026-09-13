@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { observeDevice } from "../../../../core/tools/devices/devices";
+import { observeDevice } from "../../../../core/tools/observe/observe";
 
 describe("observeDevice", () => {
 	test("captures settled accessibility before screenshot and config", async () => {

@@ -1,7 +1,11 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import type { AxElement, AxSnapshot, AxSourceContext } from "../tools/observe/accessibility-model";
+import type {
+	AxElement,
+	AxSnapshot,
+	AxSourceContext,
+} from "../tools/observe/accessibility-model";
 
 export const DEFAULT_RN_SOURCE_MANIFEST = join(
 	homedir(),

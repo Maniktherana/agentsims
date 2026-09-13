@@ -19,7 +19,7 @@ import {
 	runtimeCompileTarget,
 	runtimePackageName,
 	runtimeTarget,
-} from "../src/cli-launcher";
+} from "./release-targets";
 import {
 	assertPreviewDynamicImportsPresent,
 	assertPreviewManifestAssetsPresent,
@@ -49,7 +49,9 @@ function run(command: string, ...args: string[]): void {
 	const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
 	if (result.error) throw result.error;
 	if (result.status !== 0)
-		throw new Error(`${command} ${args[0] ?? ""} failed (${result.signal ?? result.status})`);
+		throw new Error(
+			`${command} ${args[0] ?? ""} failed (${result.signal ?? result.status})`,
+		);
 }
 
 rmSync(dist, { recursive: true, force: true });

@@ -5,7 +5,7 @@ import {
 } from "@effect/platform";
 import { Effect } from "effect";
 import type { Scope } from "effect/Scope";
-import { androidSerialFromStateId } from "../../../core/android/device/device";
+import { androidSerialFromStateId } from "../../../core/android/device/identifiers";
 import {
 	AndroidSessions,
 	type AndroidSessionsService,
@@ -17,6 +17,121 @@ import {
 import { ServerConfig } from "../../runtime/config";
 import { HidSocketAdapter } from "../../websocket/hid-socket";
 import { bytes, json, requestSource } from "./shared";
+
+const mjpegFrame = (jpeg: Uint8Array) => {
+	const header = Buffer.from(
+		`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.byteLength}\r\n\r\n`,
+		"ascii",
+	);
+	return Buffer.concat([
+		header,
+		Buffer.from(jpeg),
+		Buffer.from("\r\n", "ascii"),
+	]);
+};
+
+function subscriptionResponse(
+	contentType: string,
+	subscribe: (sink: {
+		write(chunk: Uint8Array): Promise<void>;
+	}) => Promise<() => void>,
+	frame: (chunk: Uint8Array) => Uint8Array = (chunk) => chunk,
+): Response {
+	let closed = false;
+	let unsubscribe: (() => void) | undefined;
+	let writer: WritableStreamDefaultWriter<Uint8Array>;
+	const stream = new TransformStream<Uint8Array, Uint8Array>(
+		undefined,
+		undefined,
+		{
+			highWaterMark: 1,
+		},
+	);
+	writer = stream.writable.getWriter();
+	void writer.closed
+		.finally(() => {
+			closed = true;
+			unsubscribe?.();
+		})
+		.catch(() => {});
+	void subscribe({ write: (chunk) => writer.write(frame(Buffer.from(chunk))) })
+		.then((stop) => {
+			unsubscribe = stop;
+			if (closed) stop();
+		})
+		.catch((error) => writer.abort(error))
+		.catch(() => {});
+	return new Response(stream.readable, {
+		headers: { "Content-Type": contentType, "Cache-Control": "no-store" },
+	});
+}
+
+function androidAvccResponse(
+	attach: (
+		sink: import("../../../core/android/stream/transport").AvccSubscriberSink,
+	) => Promise<() => void>,
+): Response {
+	let closed = false;
+	let unsubscribe: (() => void) | undefined;
+	const closeListeners = new Set<() => void>();
+	const drainListeners = new Set<() => void>();
+	let bufferedBytes = 0;
+	const stream = new TransformStream<Uint8Array, Uint8Array>(
+		undefined,
+		undefined,
+		{
+			highWaterMark: 1,
+		},
+	);
+	const writer = stream.writable.getWriter();
+	void writer.closed
+		.finally(() => {
+			closed = true;
+			unsubscribe?.();
+			for (const listener of closeListeners) listener();
+		})
+		.catch(() => {});
+	void attach({
+		get closed() {
+			return closed;
+		},
+		get bufferedBytes() {
+			return bufferedBytes;
+		},
+		write: (chunk) => {
+			bufferedBytes += chunk.byteLength;
+			void writer.write(Buffer.from(chunk)).then(
+				() => {
+					bufferedBytes -= chunk.byteLength;
+					for (const listener of drainListeners) listener();
+				},
+				() => {
+					bufferedBytes -= chunk.byteLength;
+				},
+			);
+		},
+		close: () => {
+			closed = true;
+			void writer.close().catch(() => {});
+		},
+		onClose: (callback) => closeListeners.add(callback),
+		onDrain: (callback) => drainListeners.add(callback),
+	})
+		.then(
+			(stop) => {
+				unsubscribe = stop;
+				if (closed) stop();
+			},
+			(error) => writer.abort(error),
+		)
+		.catch(() => {});
+	return new Response(stream.readable, {
+		headers: {
+			"Content-Type": "application/octet-stream",
+			"Cache-Control": "no-store",
+		},
+	});
+}
 
 function target(
 	pathname: string,
@@ -50,7 +165,7 @@ async function response(
 			const session = await Effect.runPromise(androidSessions.get(serial));
 			switch (endpoint) {
 				case "stream.avcc":
-					return session.avccResponse();
+					return androidAvccResponse((sink) => session.attachAvccSink(sink));
 				case "stream.mjpeg":
 					return json({ error: "Android MJPEG streaming is disabled" }, 410);
 				case "screenshot.png":
@@ -85,9 +200,17 @@ async function response(
 		await session.start();
 		switch (endpoint) {
 			case "stream.mjpeg":
-				return session.mjpegResponse(url.searchParams.get("raw") === "1");
+				return subscriptionResponse(
+					url.searchParams.get("raw") === "1"
+						? "application/octet-stream"
+						: "multipart/x-mixed-replace; boundary=frame",
+					(sink) => session.subscribeMjpeg(sink),
+					url.searchParams.get("raw") === "1" ? undefined : mjpegFrame,
+				);
 			case "stream.avcc":
-				return session.avccResponse();
+				return subscriptionResponse("application/octet-stream", (sink) =>
+					session.subscribeAvcc(sink),
+				);
 			case "screenshot.png":
 				return bytes(await session.captureScreenshot(), "image/jpeg");
 			case "config":

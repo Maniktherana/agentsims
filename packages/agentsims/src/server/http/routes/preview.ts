@@ -5,12 +5,9 @@ import {
 	HttpServerResponse,
 } from "@effect/platform";
 import { Effect, Option, Schedule, Stream } from "effect";
-import { ForegroundApps } from "../../devices/foreground-apps";
+import { ForegroundApps } from "../../../core/tools/devices/foreground-apps";
 import { DeviceLifecycleService } from "../../../core/tools/devices/lifecycle";
-import {
-	ServerConfig,
-	type ServerConfigValue,
-} from "../../runtime/config";
+import { ServerConfig, type ServerConfigValue } from "../../runtime/config";
 import {
 	previewAssetContentType,
 	previewAssetKeyForRequest,

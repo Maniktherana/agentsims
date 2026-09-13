@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	clearAndroidDeviceCaches,
 	getAndroidForegroundApp,
-} from "../../../../../core/android/device/device";
+} from "../../../../../core/android/device/discovery";
 
 const activity =
 	"mResumedActivity: ActivityRecord{123 u0 com.cache.example/.MainActivity t1}";

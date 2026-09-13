@@ -64,6 +64,21 @@ export class ApplicationCommandClient {
 			body: JSON.stringify({ actions }),
 		});
 	}
+
+	async app(
+		deviceId: string,
+		operation: string,
+		value?: string,
+	): Promise<unknown> {
+		return this.request(`/device/${encodeURIComponent(deviceId)}/app`, {
+			method: "POST",
+			body: JSON.stringify({
+				operation,
+				...(value === undefined ? {} : { value }),
+			}),
+		});
+	}
+
 	async android(
 		device: string,
 		endpoint: string,

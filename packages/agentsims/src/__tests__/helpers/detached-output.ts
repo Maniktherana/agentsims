@@ -1,4 +1,9 @@
 export function parseDetachedOutput<T>(output: string): T {
+	try {
+		return JSON.parse(output) as T;
+	} catch {
+		// Readiness can follow diagnostic lines in detached output.
+	}
 	const lines = output
 		.split(/\r?\n/)
 		.map((line) => line.trim())

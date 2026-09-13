@@ -94,10 +94,10 @@ export const accessibilityRoutes = HttpRouter.empty.pipe(
 				(emit) =>
 					Effect.acquireRelease(
 						Effect.sync(() =>
-							streamers.get(state.device).addClient({
-								write: (chunk) => {
-									void emit.single(encoder.encode(chunk));
-								},
+							streamers.get(state.device).addClient((snapshot) => {
+								void emit.single(
+									encoder.encode(`data: ${JSON.stringify(snapshot)}\n\n`),
+								);
 							}),
 						),
 						(unsubscribe) => Effect.sync(unsubscribe),
