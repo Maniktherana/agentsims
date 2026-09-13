@@ -9,6 +9,8 @@ import { useEffect } from "react";
 
 export type WorkspacePanel = "devices" | "tools" | "devtools";
 export type CanvasPan = { x: number; y: number };
+export type WorkspaceDeviceOffset = { x: number; y: number };
+export type WorkspaceDeviceOffsets = Record<string, WorkspaceDeviceOffset>;
 
 export function nextWorkspacePanel(
 	current: WorkspacePanel | null,
@@ -58,6 +60,40 @@ export const finiteFloatParser = createParser<number>({
 	},
 });
 
+export const deviceOffsetsParser = createParser<WorkspaceDeviceOffsets>({
+	parse(value) {
+		try {
+			const parsed = JSON.parse(value) as unknown;
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+				return null;
+			}
+			return Object.fromEntries(
+				Object.entries(parsed).flatMap(([deviceId, offset]) => {
+					if (
+						!offset ||
+						typeof offset !== "object" ||
+						typeof (offset as WorkspaceDeviceOffset).x !== "number" ||
+						typeof (offset as WorkspaceDeviceOffset).y !== "number" ||
+						!Number.isFinite((offset as WorkspaceDeviceOffset).x) ||
+						!Number.isFinite((offset as WorkspaceDeviceOffset).y)
+					) {
+						return [];
+					}
+					return [[deviceId, offset as WorkspaceDeviceOffset]];
+				}),
+			);
+		} catch {
+			return null;
+		}
+	},
+	serialize(value) {
+		return JSON.stringify(value);
+	},
+	eq(a, b) {
+		return JSON.stringify(a) === JSON.stringify(b);
+	},
+});
+
 export function useWorkspaceUrlState() {
 	const [state, setState] = useQueryStates(
 		{
@@ -72,6 +108,7 @@ export function useWorkspaceUrlState() {
 			target: parseAsString,
 			panX: finiteFloatParser,
 			panY: finiteFloatParser,
+			positions: deviceOffsetsParser,
 			legacyDevice: parseAsString,
 		},
 		{
@@ -105,5 +142,7 @@ export function useWorkspaceUrlState() {
 				panX: Math.abs(x) < 0.01 ? null : Math.round(x * 100) / 100,
 				panY: Math.abs(y) < 0.01 ? null : Math.round(y * 100) / 100,
 			}),
+		setPositions: (positions: WorkspaceDeviceOffsets) =>
+			setState({ positions: Object.keys(positions).length ? positions : null }),
 	};
 }

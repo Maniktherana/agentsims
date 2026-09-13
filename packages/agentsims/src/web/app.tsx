@@ -13,6 +13,8 @@ import {
 	useWorkspaceUrlState,
 } from "./workspace/url-state";
 
+const DEFAULT_DEVICE_OFFSETS = {};
+
 export function App() {
 	const urlState = useWorkspaceUrlState();
 	const workspace = useDeviceWorkspace(urlState);
@@ -59,6 +61,8 @@ export function App() {
 				focusedDeviceId={workspace.effectiveUdid}
 				initialPan={urlState.pan}
 				onPanCommit={(pan) => void urlState.setPan(pan)}
+				initialOffsets={urlState.positions ?? DEFAULT_DEVICE_OFFSETS}
+				onOffsetsCommit={(positions) => void urlState.setPositions(positions)}
 				selectedDevice={workspace.selectedDevice}
 				runningDeviceCount={workspace.runningDevices.length}
 				starting={workspace.starting}

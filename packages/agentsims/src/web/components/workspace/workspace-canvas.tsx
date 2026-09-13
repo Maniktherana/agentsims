@@ -22,7 +22,11 @@ import {
 } from "../../workspace/device-position";
 import type { GridDevice } from "../../workspace/grid";
 import type { PreviewConfig } from "../../workspace/workspace-state";
-import type { CanvasPan } from "../../workspace/url-state";
+import type {
+	CanvasPan,
+	WorkspaceDeviceOffset,
+	WorkspaceDeviceOffsets,
+} from "../../workspace/url-state";
 
 export interface WorkspaceDeviceRenderContext {
 	deviceId: string;
@@ -38,86 +42,6 @@ const WORKSPACE_PADDING = {
 	paddingBottom: 24,
 } as const;
 
-export interface WorkspaceOffset {
-	x: number;
-	y: number;
-}
-
-type WorkspaceOffsets = Record<string, WorkspaceOffset>;
-const WORKSPACE_OFFSETS_KEY = "agentsims:workspace-device-offsets";
-
-function readWorkspaceOffsets(): WorkspaceOffsets {
-	try {
-		const value = JSON.parse(
-			window.localStorage.getItem(WORKSPACE_OFFSETS_KEY) ?? "{}",
-		) as unknown;
-		if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-		return Object.fromEntries(
-			Object.entries(value).flatMap(([deviceId, offset]) => {
-				if (
-					!offset ||
-					typeof offset !== "object" ||
-					typeof (offset as WorkspaceOffset).x !== "number" ||
-					typeof (offset as WorkspaceOffset).y !== "number"
-				) {
-					return [];
-				}
-				return [[deviceId, offset as WorkspaceOffset]];
-			}),
-		);
-	} catch {
-		return {};
-	}
-}
-
-function writeWorkspaceOffsets(offsets: WorkspaceOffsets) {
-	window.localStorage.setItem(WORKSPACE_OFFSETS_KEY, JSON.stringify(offsets));
-}
-
-export function clampWorkspaceDeviceOffset(
-	rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
-	current: WorkspaceOffset,
-	next: WorkspaceOffset,
-	viewportWidth: number,
-	viewportHeight: number,
-): WorkspaceOffset {
-	const margin = 12;
-	const dockReserve = 72;
-	const originLeft = rect.left - current.x;
-	const originTop = rect.top - current.y;
-	const maxRight = viewportWidth - margin;
-	const maxBottom = viewportHeight - dockReserve;
-	return {
-		x: Math.min(
-			maxRight - originLeft - rect.width,
-			Math.max(margin - originLeft, next.x),
-		),
-		y: Math.min(
-			maxBottom - originTop - rect.height,
-			Math.max(margin - originTop, next.y),
-		),
-	};
-}
-
-function clampOffset(
-	element: HTMLElement,
-	current: WorkspaceOffset,
-	next: WorkspaceOffset,
-): WorkspaceOffset {
-	const rect = element.getBoundingClientRect();
-	const scroll = element.closest<HTMLElement>(
-		"[data-agentsims-workspace-scroll]",
-	);
-	const parent = scroll?.getBoundingClientRect();
-	const view = canvasViewOffset(scroll);
-	const left = (parent?.left ?? 0) - (scroll?.scrollLeft ?? 0) + view.x + 12;
-	const top = (parent?.top ?? 0) - (scroll?.scrollTop ?? 0) + view.y + 12;
-	return {
-		x: Math.max(left - (rect.left - current.x), next.x),
-		y: Math.max(top - (rect.top - current.y), next.y),
-	};
-}
-
 function DraggableDevice({
 	deviceId,
 	offset,
@@ -132,8 +56,8 @@ function DraggableDevice({
 	visibleDeviceIds,
 }: {
 	deviceId: string;
-	offset: WorkspaceOffset;
-	onOffsetChange: (deviceId: string, offset: WorkspaceOffset) => void;
+	offset: WorkspaceDeviceOffset;
+	onOffsetChange: (deviceId: string, offset: WorkspaceDeviceOffset) => void;
 	onOffsetCommit: () => void;
 	onFocus: (deviceId: string) => void;
 	children: ReactNode;
@@ -150,7 +74,7 @@ function DraggableDevice({
 		pointerId: number;
 		startX: number;
 		startY: number;
-		offset: WorkspaceOffset;
+		offset: WorkspaceDeviceOffset;
 	} | null>(null);
 
 	const correctingRef = useRef(false);
@@ -259,15 +183,14 @@ function DraggableDevice({
 	const onPointerMove = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
 			const drag = dragRef.current;
-			const element = ref.current;
-			if (!drag || !element || drag.pointerId !== event.pointerId) return;
-			const next = clampOffset(element, offset, {
+			if (!drag || drag.pointerId !== event.pointerId) return;
+			const next = {
 				x: drag.offset.x + event.clientX - drag.startX,
 				y: drag.offset.y + event.clientY - drag.startY,
-			});
+			};
 			onOffsetChange(deviceId, next);
 		},
-		[deviceId, offset, onOffsetChange],
+		[deviceId, onOffsetChange],
 	);
 
 	const finishDrag = useCallback(
@@ -316,6 +239,8 @@ export function WorkspaceCanvas({
 	focusedDeviceId,
 	initialPan,
 	onPanCommit,
+	initialOffsets,
+	onOffsetsCommit,
 	selectedDevice,
 	runningDeviceCount,
 	starting,
@@ -331,6 +256,8 @@ export function WorkspaceCanvas({
 	focusedDeviceId: string | null;
 	initialPan: CanvasPan;
 	onPanCommit: (pan: CanvasPan) => void;
+	initialOffsets: WorkspaceDeviceOffsets;
+	onOffsetsCommit: (offsets: WorkspaceDeviceOffsets) => void;
 	selectedDevice: GridDevice | null;
 	runningDeviceCount: number;
 	starting: Record<string, boolean>;
@@ -352,23 +279,27 @@ export function WorkspaceCanvas({
 		for (const id of visibleDeviceIds) knownDevicesRef.current.add(id);
 	}, [visibleDeviceIds.join("|")]);
 	const [offsets, setOffsets] =
-		useState<WorkspaceOffsets>(readWorkspaceOffsets);
+		useState<WorkspaceDeviceOffsets>(initialOffsets);
 	const offsetsRef = useRef(offsets);
 	offsetsRef.current = offsets;
+	useEffect(() => {
+		offsetsRef.current = initialOffsets;
+		setOffsets(initialOffsets);
+	}, [initialOffsets]);
 
 	useEffect(() => {
 		const reset = () => {
 			positionsRef.current.clear();
 			setOffsets({});
-			writeWorkspaceOffsets({});
+			onOffsetsCommit({});
 		};
 		window.addEventListener(RESET_WORKSPACE_LAYOUT_EVENT, reset);
 		return () =>
 			window.removeEventListener(RESET_WORKSPACE_LAYOUT_EVENT, reset);
-	}, []);
+	}, [onOffsetsCommit]);
 
 	const updateOffset = useCallback(
-		(deviceId: string, offset: WorkspaceOffset) => {
+		(deviceId: string, offset: WorkspaceDeviceOffset) => {
 			setOffsets((current) => {
 				const next = { ...current, [deviceId]: offset };
 				offsetsRef.current = next;
@@ -378,8 +309,8 @@ export function WorkspaceCanvas({
 		[],
 	);
 	const persistOffsets = useCallback(() => {
-		writeWorkspaceOffsets(offsetsRef.current);
-	}, []);
+		onOffsetsCommit(offsetsRef.current);
+	}, [onOffsetsCommit]);
 	const arrangeDevices = useCallback(() => {
 		for (const deviceId of visibleDeviceIds) {
 			positionsRef.current.delete(deviceId);
@@ -388,9 +319,9 @@ export function WorkspaceCanvas({
 		for (const deviceId of visibleDeviceIds) delete next[deviceId];
 		offsetsRef.current = next;
 		setOffsets(next);
-		writeWorkspaceOffsets(next);
+		onOffsetsCommit(next);
 		requestAnimationFrame(canvasPan.recenter);
-	}, [canvasPan.recenter, visibleDeviceIds]);
+	}, [canvasPan.recenter, onOffsetsCommit, visibleDeviceIds]);
 
 	if (visibleDeviceIds.length === 0) {
 		return (
@@ -477,29 +408,17 @@ export function WorkspaceCanvas({
 									onFocus={onFocus}
 									singleDevice={singleDevice}
 									layoutRevision={visibleDeviceIds.join("|")}
-									added={!knownDevicesRef.current.has(deviceId)}
+									added={
+										knownDevicesRef.current.size > 0 &&
+										!knownDevicesRef.current.has(deviceId) &&
+										!initialOffsets[deviceId]
+									}
 									positions={positionsRef.current}
 									visibleDeviceIds={visibleDeviceIds}
 								>
-									{config ? (
-										renderDevice({ deviceId, device, config, focused })
-									) : (
-										<DevicePlaceholder
-											deviceId={deviceId}
-											name={device?.name ?? "Connecting device"}
-											runtime={device?.runtime ?? ""}
-											chrome={device?.chrome ?? null}
-											placeholderAsset={device?.placeholderAsset ?? null}
-											busy
-											busyLabel="Connecting…"
-											actionLabel="Connect"
-											error={
-												device ? (actionErrors[device.device] ?? null) : null
-											}
-											onStart={() => device && onStart(device.device)}
-											embedded
-										/>
-									)}
+									{config
+										? renderDevice({ deviceId, device, config, focused })
+										: null}
 								</DraggableDevice>
 							);
 						})}

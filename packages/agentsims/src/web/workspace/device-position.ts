@@ -20,13 +20,11 @@ export function reserveWorkspaceDevicePosition(
 			return position ? [position.right] : [];
 		}),
 	);
-	const left = Math.max(
-		12,
-		previous?.left ?? (added && right > 0 ? right + 20 : current.left),
-	);
+	const left =
+		previous?.left ?? (added && right > 0 ? right + 20 : current.left);
 	const next = {
 		left,
-		top: Math.max(12, previous?.top ?? current.top),
+		top: previous?.top ?? current.top,
 		right: left + current.right - current.left,
 	};
 	positions.set(deviceId, next);
