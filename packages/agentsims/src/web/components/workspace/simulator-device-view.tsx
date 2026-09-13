@@ -718,6 +718,9 @@ export function SimulatorDeviceView({
 				if (type === "down" && !e.repeat) sendWs(0x0c, {});
 				return;
 			}
+			// Unhandled Command shortcuts belong to the browser, not Android's
+			// Meta key (which opens its launcher). Never forward the modifier.
+			if (e.metaKey || e.code === "MetaLeft" || e.code === "MetaRight") return;
 			const usage = hidUsageForCode(e.code);
 			if (usage == null) return;
 			e.preventDefault();

@@ -846,7 +846,7 @@ export function SimulatorView({
 	// Track Alt key globally to show preview before click
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Alt") setAltHeld(true);
+			setAltHeld(e.altKey && !e.metaKey);
 		};
 		const onKeyUp = (e: KeyboardEvent) => {
 			if (e.key === "Alt") {
@@ -856,11 +856,17 @@ export function SimulatorView({
 				}
 			}
 		};
+		const onBlur = () => {
+			setAltHeld(false);
+			if (!multiTouchActiveRef.current) setFingerIndicators(null);
+		};
 		window.addEventListener("keydown", onKeyDown);
 		window.addEventListener("keyup", onKeyUp);
+		window.addEventListener("blur", onBlur);
 		return () => {
 			window.removeEventListener("keydown", onKeyDown);
 			window.removeEventListener("keyup", onKeyUp);
+			window.removeEventListener("blur", onBlur);
 		};
 	}, []);
 
