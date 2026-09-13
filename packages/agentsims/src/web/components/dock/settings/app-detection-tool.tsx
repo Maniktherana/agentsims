@@ -118,18 +118,7 @@ export function AppDetectionTool({
 			loading: true,
 		};
 		setDetails(baseDetails);
-		if (isAndroid) {
-			const nextDetails: AppDetails = {
-				bundleId: currentApp.bundleId,
-				isReactNative: currentApp.isReactNative,
-				pid: currentApp.pid,
-				loading: false,
-			};
-			appDetectionDetailsCache.set(cacheKey, nextDetails);
-			setDetails(nextDetails);
-			return;
-		}
-		fetchAppDetails(execOnHost, udid, currentApp.bundleId).then((extra) => {
+		fetchAppDetails(udid, currentApp.bundleId).then((extra) => {
 			if (cancelled) return;
 			const nextDetails: AppDetails = {
 				bundleId: currentApp.bundleId,
