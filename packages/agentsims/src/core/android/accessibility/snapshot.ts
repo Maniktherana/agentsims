@@ -169,27 +169,20 @@ export async function collectAndroidAxSnapshot(
 	serial: string,
 	dependencies: AndroidAxSnapshotDependencies = {},
 ): Promise<AxSnapshot> {
-	let providerWarning: string | undefined;
 	const readXml =
 		dependencies.readXml ??
 		(async (targetSerial: string) => {
 			const readFallbackXml =
 				dependencies.readFallbackXml ?? readUiautomatorXml;
 			if (!dependencies.readFastXml) return readFallbackXml(targetSerial);
-			try {
-				return await dependencies.readFastXml(
-					targetSerial,
-					dependencies.mode ?? "fresh",
-				);
-			} catch (error) {
-				// Hidden UiAutomation APIs vary across Android releases and another
-				// automation tool may temporarily own the single system connection.
-				// Keep the stock command as a correctness fallback.
-				providerWarning = `Fast Android AX unavailable; using stock UIAutomator: ${
-					error instanceof Error ? error.message : String(error)
-				}`;
-				return readFallbackXml(targetSerial);
-			}
+			// Both providers need Android's single UiAutomation connection. If the
+			// persistent helper times out, starting stock UIAutomator can compete
+			// with a device-side helper that has not exited yet. Report the helper
+			// failure and let the streamer's retry backoff recover instead.
+			return dependencies.readFastXml(
+				targetSerial,
+				dependencies.mode ?? "fresh",
+			);
 		});
 	const readScreenConfig =
 		dependencies.readScreenConfig ?? getAndroidScreenConfig;
@@ -238,10 +231,7 @@ export async function collectAndroidAxSnapshot(
 			return {
 				screen: { width: config.width, height: config.height },
 				elements,
-				errors: [
-					...(providerWarning ? [providerWarning] : []),
-					"UIAutomator returned no accessibility elements",
-				],
+				errors: ["UIAutomator returned no accessibility elements"],
 			};
 		}
 		const screen = screenFromAndroidElements(elements, { width: 1, height: 1 });
@@ -251,7 +241,6 @@ export async function collectAndroidAxSnapshot(
 				...element,
 				frame: clampAndroidFrameToScreen(element.frame, screen),
 			})),
-			...(providerWarning ? { errors: [providerWarning] } : {}),
 		};
 	} catch (error) {
 		const config = await readScreenConfig(serial).catch(() => ({
@@ -262,10 +251,7 @@ export async function collectAndroidAxSnapshot(
 		return {
 			screen: { width: config.width, height: config.height },
 			elements: [],
-			errors: [
-				...(providerWarning ? [providerWarning] : []),
-				error instanceof Error ? error.message : String(error),
-			],
+			errors: [error instanceof Error ? error.message : String(error)],
 		};
 	}
 }

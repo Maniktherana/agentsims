@@ -33,6 +33,11 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.json.JSONObject;
 
@@ -51,6 +56,7 @@ public final class Main {
   private static final long SETTLED_TIMEOUT_MS = 2000;
   private static final long CHANGE_DEBOUNCE_MS = 12;
   private static final long CHANGE_MAX_LATENCY_MS = 50;
+  private static final int MAX_PENDING_SNAPSHOTS = 1;
   private static final int RELEVANT_EVENT_TYPES =
     AccessibilityEvent.TYPE_VIEW_CLICKED |
     AccessibilityEvent.TYPE_VIEW_SELECTED |
@@ -67,6 +73,7 @@ public final class Main {
   private static HandlerThread handlerThread;
   private static Handler changeHandler;
   private static UiAutomation automation;
+  private static ThreadPoolExecutor snapshotExecutor;
   private static PrintWriter output;
   private static final Object outputLock = new Object();
   private static final Object changeLock = new Object();
@@ -110,6 +117,21 @@ public final class Main {
     }
     try {
       connect();
+      snapshotExecutor = new ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        new ArrayBlockingQueue<Runnable>(MAX_PENDING_SNAPSHOTS),
+        new ThreadFactory() {
+          @Override
+          public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "AgentsimsAxSnapshot");
+            thread.setDaemon(true);
+            return thread;
+          }
+        }
+      );
       emit(new JSONObject().put("ready", true));
 
       BufferedReader input = new BufferedReader(new InputStreamReader(System.in));
@@ -129,16 +151,14 @@ public final class Main {
           if (!"snapshot".equals(operation)) {
             throw new IllegalArgumentException("Unsupported operation");
           }
-          if (request.optBoolean("settled", false)) waitForIdle();
-          long startedAt = SystemClock.elapsedRealtimeNanos();
-          snapshotInProgress = true;
           try {
-            response.put("xml", snapshotXml());
-          } finally {
-            snapshotInProgress = false;
+            snapshotExecutor.execute(new SnapshotRequest(request, response));
+          } catch (RejectedExecutionException error) {
+            response.put("ok", false);
+            response.put("error", "Too many pending snapshot requests");
+            emit(response);
           }
-          response.put("ok", true);
-          response.put("elapsedMs", (SystemClock.elapsedRealtimeNanos() - startedAt) / 1_000_000.0);
+          continue;
         } catch (Throwable error) {
           response.put("ok", false);
           response.put("error", errorMessage(error));
@@ -146,8 +166,54 @@ public final class Main {
         emit(response);
       }
     } finally {
+      stopSnapshotWorker();
       disconnect();
       output = null;
+    }
+  }
+
+  private static void stopSnapshotWorker() {
+    ThreadPoolExecutor executor = snapshotExecutor;
+    snapshotExecutor = null;
+    if (executor == null) return;
+    // A timed-out framework traversal can remain blocked in Binder. Do not
+    // keep app_process alive and retain the one system UiAutomation connection
+    // after the host closes stdin to restart the helper.
+    executor.shutdownNow();
+  }
+
+  private static final class SnapshotRequest implements Runnable {
+    private final JSONObject request;
+    private final JSONObject response;
+
+    SnapshotRequest(JSONObject request, JSONObject response) {
+      this.request = request;
+      this.response = response;
+    }
+
+    @Override
+    public void run() {
+      try {
+        if (request.optBoolean("settled", false)) waitForIdle();
+        long startedAt = SystemClock.elapsedRealtimeNanos();
+        snapshotInProgress = true;
+        try {
+          response.put("xml", snapshotXml());
+        } finally {
+          snapshotInProgress = false;
+        }
+        response.put("ok", true);
+        response.put(
+          "elapsedMs",
+          (SystemClock.elapsedRealtimeNanos() - startedAt) / 1_000_000.0
+        );
+      } catch (Throwable error) {
+        try {
+          response.put("ok", false);
+          response.put("error", errorMessage(error));
+        } catch (Throwable ignored) {}
+      }
+      emit(response);
     }
   }
 

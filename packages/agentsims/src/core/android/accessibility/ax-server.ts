@@ -174,7 +174,7 @@ export function parseAndroidAxServerLine(line: string): AndroidAxResponse {
 export class AndroidAxServerClient {
 	private child: ChildProcessWithoutNullStreams | null = null;
 	private startPromise: Promise<void> | null = null;
-	private freshInFlight: Promise<string> | null = null;
+	private snapshotInFlight: Promise<string> | null = null;
 	private latestXml: string | null = null;
 	private stdoutBuffer = "";
 	private stderrTail = "";
@@ -189,25 +189,24 @@ export class AndroidAxServerClient {
 	snapshot(mode: AndroidAxMode = "fresh"): Promise<string> {
 		if (mode === "latest" && this.latestXml)
 			return Promise.resolve(this.latestXml);
-		if (mode !== "settled" && this.freshInFlight) return this.freshInFlight;
+		// The helper has one UiAutomation worker. Coalesce every request mode so
+		// settled and fresh callers cannot queue overlapping full-tree captures.
+		if (this.snapshotInFlight) return this.snapshotInFlight;
 
 		const capture = this.requestSnapshot(mode);
-		if (mode !== "settled") {
-			const inFlight = capture.finally(() => {
-				if (this.freshInFlight === inFlight) this.freshInFlight = null;
-			});
-			this.freshInFlight = inFlight;
-			return inFlight;
-		}
-		return capture;
+		const inFlight = capture.finally(() => {
+			if (this.snapshotInFlight === inFlight) this.snapshotInFlight = null;
+		});
+		this.snapshotInFlight = inFlight;
+		return inFlight;
 	}
 
 	async warm(): Promise<void> {
 		try {
 			await this.snapshot("fresh");
 		} catch {
-			// The caller has a stock UIAutomator fallback. Warming is deliberately
-			// best effort and must never delay display/control session startup.
+			// Warming is best effort. A later requested snapshot reports the helper
+			// error without delaying display/control session startup here.
 		}
 	}
 
@@ -518,10 +517,20 @@ export const androidAxServersLayer = (
 			Effect.map((registry) =>
 				AndroidAxServers.of({
 					read: (serial, mode) =>
-						Effect.tryPromise(() => registry.read(serial, mode)),
-					warm: (serial) => Effect.tryPromise(() => registry.warm(serial)),
+						Effect.tryPromise({
+							try: () => registry.read(serial, mode),
+							catch: (error) => error,
+						}),
+					warm: (serial) =>
+						Effect.tryPromise({
+							try: () => registry.warm(serial),
+							catch: (error) => error,
+						}),
 					touch: (serial, phase, x, y) =>
-						Effect.tryPromise(() => registry.touch(serial, phase, x, y)),
+						Effect.tryPromise({
+							try: () => registry.touch(serial, phase, x, y),
+							catch: (error) => error,
+						}),
 					close: (serial) => Effect.sync(() => registry.close(serial)),
 				}),
 			),

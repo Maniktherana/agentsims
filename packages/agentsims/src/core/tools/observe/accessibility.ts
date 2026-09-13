@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect";
+import { logRuntime } from "../../logging";
 import { AX_UNAVAILABLE_ERROR } from "./accessibility-model";
 import type { AxElement, AxRect, AxSnapshot } from "./accessibility-model";
 import { androidSerialFromStateId } from "../../android/device/identifiers";
@@ -214,6 +215,7 @@ function createAxStreamer({
 	let latestSnapshotKey: string | null = null;
 	let latestCollectedAt = 0;
 	let latestUsable = false;
+	let reportedStatus: string | null = null;
 	let retryNotBefore = 0;
 	let pollIntervalMs = basePollIntervalMs;
 	let polling = false;
@@ -232,13 +234,20 @@ function createAxStreamer({
 
 	const scheduleAndroidChangeCapture = () => {
 		if (disposed || clients.size === 0 || androidChangeTimer) return;
-		const intervalDelay =
+		const cadenceDelay =
 			lastAndroidCaptureStartedAt === null
 				? 0
 				: Math.max(
 						0,
 						androidChangeMinIntervalMs - (now() - lastAndroidCaptureStartedAt),
 					);
+		// A failing or empty capture enters the unavailable backoff. Native
+		// invalidations can continue while UiAutomation is unhealthy; do not let
+		// those events bypass the backoff and start repeated expensive captures.
+		const intervalDelay = Math.max(
+			cadenceDelay,
+			Math.max(0, retryNotBefore - now()),
+		);
 		if (intervalDelay === 0) {
 			captureAndroidChange();
 			return;
@@ -258,6 +267,18 @@ function createAxStreamer({
 		let retry = true;
 		try {
 			const next = await collect(udid);
+			const status = isUsableAxSnapshot(next)
+				? "ready"
+				: next.errors?.join("; ") || "No accessibility elements returned";
+			if (status !== reportedStatus) {
+				logRuntime(
+					`${udid}:ax`,
+					status === "ready"
+						? `Ready (${next.elements.length} elements).`
+						: `Unavailable: ${status}. Retrying.`,
+				);
+				reportedStatus = status;
+			}
 			const nextSnapshotKey = JSON.stringify(next);
 			if (forceMessage || nextSnapshotKey !== latestSnapshotKey) {
 				for (const client of clients) client(next);
@@ -333,6 +354,7 @@ function createAxStreamer({
 	return {
 		addClient(onSnapshot) {
 			if (disposed) return () => {};
+			if (clients.size === 0) logRuntime(`${udid}:ax`, "Subscribed.");
 			clients.add(onSnapshot);
 			if (latestSnapshot) onSnapshot(latestSnapshot);
 			if (!latestSnapshot) {
@@ -362,6 +384,7 @@ function createAxStreamer({
 					androidChangeTimer = null;
 				}
 				if (clients.size === 0) {
+					logRuntime(`${udid}:ax`, "Unsubscribed. Snapshot collection paused.");
 					forceMessagePending = false;
 					changeCapturePending = false;
 					explicitRefreshPending = false;
@@ -390,6 +413,7 @@ function createAxStreamer({
 		},
 		dispose() {
 			if (disposed) return;
+			logRuntime(`${udid}:ax`, "Closed.");
 			disposed = true;
 			if (timer) {
 				clearTimer(timer);

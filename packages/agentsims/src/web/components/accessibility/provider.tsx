@@ -110,21 +110,30 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 	const latestSnapshotRef = useRef<AxSnapshot | null>(null);
 	const latestStatusRef = useRef("AX off");
 	const latestRefreshSignalRef = useRef(refreshSignal);
+	const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
-	const refresh = useCallback(async () => {
-		if (!endpoint) return;
+	const refresh = useCallback((): Promise<void> => {
+		if (!endpoint) return Promise.resolve();
+		if (refreshInFlightRef.current) return refreshInFlightRef.current;
 		setRefreshing(true);
-		try {
-			const response = await fetch(axRefreshEndpoint(endpoint), {
-				method: "POST",
+		const request = fetch(axRefreshEndpoint(endpoint), { method: "POST" })
+			.then((response) => {
+				if (!response.ok)
+					throw new Error(`AX refresh failed (${response.status})`);
+			})
+			.catch((error) => {
+				const message = error instanceof Error ? error.message : String(error);
+				latestStatusRef.current = message;
+				setStatus(message);
+				setRefreshing(false);
+			})
+			.finally(() => {
+				if (refreshInFlightRef.current === request) {
+					refreshInFlightRef.current = null;
+				}
 			});
-			if (!response.ok)
-				throw new Error(`AX refresh failed (${response.status})`);
-		} catch {
-			latestStatusRef.current = "AX refresh failed";
-			setStatus("AX refresh failed");
-			setRefreshing(false);
-		}
+		refreshInFlightRef.current = request;
+		return request;
 	}, [endpoint]);
 
 	useEffect(() => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { resolve } from "path";
 import { Effect } from "effect";
 import {
 	AndroidAxServerClient,
@@ -23,6 +24,26 @@ const XML = [
 ].join("");
 
 describe("persistent Android AX server", () => {
+	test("runs snapshots off the stdin touch-injection thread", () => {
+		const source = readFileSync(
+			resolve(
+				import.meta.dir,
+				"../../../../../../android/accessibility/src/dev/agentsims/ax/Main.java",
+			),
+			"utf8",
+		);
+
+		expect(source).toContain(
+			"snapshotExecutor.execute(new SnapshotRequest(request, response))",
+		);
+		expect(source).toContain(
+			"new ArrayBlockingQueue<Runnable>(MAX_PENDING_SNAPSHOTS)",
+		);
+		expect(source.indexOf("awaitSnapshotWorker();")).toBeLessThan(
+			source.indexOf("disconnect();"),
+		);
+	});
+
 	test("resolves the bundled server artifact from the source layout", () => {
 		expect(existsSync(resolveAndroidAxServer())).toBe(true);
 	});
@@ -35,6 +56,7 @@ describe("persistent Android AX server", () => {
 			"Ldev/agentsims/ax/Main;",
 			"Ldev/agentsims/ax/Main$1;",
 			"Ldev/agentsims/ax/Main$2;",
+			"Ldev/agentsims/ax/Main$SnapshotRequest;",
 			"Ldev/agentsims/ax/Main$WindowMetadata;",
 		]) {
 			expect(extracted.stdout.includes(Buffer.from(descriptor))).toBe(true);
