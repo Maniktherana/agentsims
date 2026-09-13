@@ -168,23 +168,14 @@ export function hostDiagnosticsFor(
 					}
 				}
 				if (
-					!physical ||
-					connected.some((line) => line.startsWith("emulator-"))
+					platform === "darwin" &&
+					(!physical || connected.some((line) => line.startsWith("emulator-")))
 				) {
-					const ffmpeg = yield* check("ffmpeg", ["-version"]);
-					add(
-						"ffmpeg",
-						"FFmpeg for emulator capture",
-						ffmpeg,
-						platform === "darwin"
-							? "Install FFmpeg with brew install ffmpeg."
-							: "Install FFmpeg with your distribution package manager.",
-					);
 					add(
 						"android-native",
 						"Android capture module",
-						yield* nativeAddon("agentsims-android-video.node"),
-						"Install FFmpeg, then reinstall the matching Agentsims runtime package. In a source checkout, run bun run build.",
+						yield* nativeAddon("agentsims-native.node"),
+						"Reinstall the matching Agentsims runtime package. In a source checkout, run bun run build.",
 					);
 				}
 			} else {

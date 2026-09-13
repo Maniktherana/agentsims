@@ -72,18 +72,6 @@ jobs:
       - name: Select the native compiler
         if: runner.os == 'macOS'
         run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-      - name: Install macOS FFmpeg
-        if: runner.os == 'macOS'
-        run: brew install ffmpeg
-      - name: Install Linux FFmpeg
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-      - run: cargo fetch --locked --manifest-path android/video/Cargo.toml
       - run: bun install --frozen-lockfile
         working-directory: .
       - run: bun run build

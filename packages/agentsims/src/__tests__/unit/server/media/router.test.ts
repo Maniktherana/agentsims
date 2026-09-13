@@ -31,7 +31,9 @@ function androidStatus(serial = "emulator-5554"): AndroidStatus {
 			backend: serial.startsWith("emulator-")
 				? "emulator-controller"
 				: "unsupported",
-			transport: serial.startsWith("emulator-") ? "mmap-ffmpeg-h264" : "none",
+			transport: serial.startsWith("emulator-")
+				? "mmap-videotoolbox-h264"
+				: "none",
 			source: "display",
 			canChangeSource: false,
 		},

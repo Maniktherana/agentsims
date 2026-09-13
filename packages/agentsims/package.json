@@ -39,8 +39,7 @@
 		"dist/simcam/agentsims-camera-helper",
 		"dist/simax/agentsims-ax-settings",
 		"dist/android/agentsims-ax-server.jar",
-		"dist/native/agentsims-native.node",
-		"dist/native/agentsims-android-video.node"
+		"dist/native/agentsims-native.node"
 	],
 	"os": [
 		"darwin",
@@ -76,7 +75,6 @@
 	"scripts": {
 		"build": "bun run scripts/build.ts",
 		"build:android:ax": "bash android/accessibility/build.sh",
-		"build:android:video": "bash android/video/build.sh",
 		"verify:package": "bun run scripts/verify-package.ts",
 		"start": "bun dist/agentsims.js",
 		"prepack": "bun run build",

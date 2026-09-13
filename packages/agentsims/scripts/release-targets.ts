@@ -28,7 +28,6 @@ export function runtimeArtifacts(target: RuntimeTarget): readonly string[] {
 		"agentsims",
 		"preview",
 		"android/agentsims-ax-server.jar",
-		"native/agentsims-android-video.node",
 		...(target.startsWith("darwin-")
 			? [
 					"native/agentsims-native.node",

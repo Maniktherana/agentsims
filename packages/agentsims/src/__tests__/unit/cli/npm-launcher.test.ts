@@ -84,8 +84,18 @@ describe("npm executable launcher", () => {
 			"agentsims",
 			"preview",
 			"android/agentsims-ax-server.jar",
-			"native/agentsims-android-video.node",
 		]);
 		expect(runtimeCompileTarget("linux-x64")).toBe("bun-linux-x64-baseline");
+	});
+	test("macOS includes only the Swift native addon", () => {
+		for (const target of ["darwin-arm64", "darwin-x64"] as const) {
+			expect(
+				runtimeArtifacts(target).filter((artifact) =>
+					artifact.startsWith("native/"),
+				),
+			).toEqual([
+				"native/agentsims-native.node",
+			]);
+		}
 	});
 });

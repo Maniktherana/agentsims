@@ -34,7 +34,7 @@ function fakeTransport(
 ): AndroidTransport {
 	return {
 		backend: "emulator-controller",
-		wireTransport: "mmap-ffmpeg-h264",
+		wireTransport: "mmap-videotoolbox-h264",
 		closed: false,
 		running: true,
 		subscriberCount: 1,
@@ -64,6 +64,45 @@ function response(): AvccSubscriberSink {
 }
 
 describe("Android session orientation observation", () => {
+	test("ADB video startup does not block emulator touch input", async () => {
+		const touches: Array<{
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		}> = [];
+		let videoStarts = 0;
+		const session = new AndroidSession("emulator-5554", {
+			readScreenConfig: async () => ({
+				width: 1080,
+				height: 2424,
+				orientation: "portrait",
+				rotation: 0,
+			}),
+			warmAx: async () => {},
+			freeEmulatorRotation: async () => {},
+			createTransport: () => ({
+				...fakeTransport(touches),
+				backend: "adb-screenrecord",
+				wireTransport: "adb-screenrecord-h264",
+				start: async () => {
+					videoStarts++;
+					throw new Error("Video not ready");
+				},
+			}),
+		});
+		await session.start();
+		await session.dispatchInputFrame(
+			Buffer.concat([
+				Buffer.from([0x03]),
+				Buffer.from(JSON.stringify({ type: "begin", x: 0.25, y: 0.75 })),
+			]),
+		);
+		expect(videoStarts).toBe(0);
+		expect(touches).toEqual([{ x: 270, y: 1818, width: 1080, height: 2424 }]);
+		await session.close();
+	});
+
 	test("starts native transport without a browser stream subscriber", async () => {
 		let transportStarts = 0;
 		let streamAttaches = 0;
@@ -130,63 +169,66 @@ describe("Android session orientation observation", () => {
 		session.close();
 	});
 
-	test("turns an Android wheel burst into one native touch gesture without ADB swipe queuing", async () => {
-		const scrollTouches: Array<{
-			phase: string;
-			x: number;
-			y: number;
-			width: number;
-			height: number;
-		}> = [];
-		const transport = fakeTransport();
-		transport.injectTouch = (phase, x, y, width = 0, height = 0) => {
-			scrollTouches.push({ phase, x, y, width, height });
-			return true;
-		};
-		const dependencies: AndroidSessionDependencies = {
-			readScreenConfig: async () => ({
-				width: 1080,
-				height: 2424,
-				orientation: "portrait",
-				rotation: 0,
-			}),
-			warmAx: async () => {},
-			createTransport: () => transport,
-			rotate: async () => {},
-			freeEmulatorRotation: async () => {},
-			rotateEmulator: async () => {},
-			rotateEmulatorAbsolute: async () => {},
-		};
-		const session = new AndroidSession("emulator-5554", dependencies);
-		await session.start();
-		const socket = new FakeHidSocket();
-		session.attachHidSocket(socket);
+	test.each(["emulator-controller", "adb-screenrecord"] as const)(
+		"uses native emulator touch for wheel bursts with %s video",
+		async (backend) => {
+			const scrollTouches: Array<{
+				phase: string;
+				x: number;
+				y: number;
+				width: number;
+				height: number;
+			}> = [];
+			const transport = { ...fakeTransport(), backend };
+			transport.injectTouch = (phase, x, y, width = 0, height = 0) => {
+				scrollTouches.push({ phase, x, y, width, height });
+				return true;
+			};
+			const dependencies: AndroidSessionDependencies = {
+				readScreenConfig: async () => ({
+					width: 1080,
+					height: 2424,
+					orientation: "portrait",
+					rotation: 0,
+				}),
+				warmAx: async () => {},
+				createTransport: () => transport,
+				rotate: async () => {},
+				freeEmulatorRotation: async () => {},
+				rotateEmulator: async () => {},
+				rotateEmulatorAbsolute: async () => {},
+			};
+			const session = new AndroidSession("emulator-5554", dependencies);
+			await session.start();
+			const socket = new FakeHidSocket();
+			session.attachHidSocket(socket);
 
-		socket.emit(
-			"message",
-			Buffer.concat([
-				Buffer.from([0x0b]),
-				Buffer.from(JSON.stringify({ dx: 0.1, dy: 0.2, x: 0.25, y: 0.5 })),
-			]),
-		);
-		await Bun.sleep(100);
+			socket.emit(
+				"message",
+				Buffer.concat([
+					Buffer.from([0x0b]),
+					Buffer.from(JSON.stringify({ dx: 0.1, dy: 0.2, x: 0.25, y: 0.5 })),
+				]),
+			);
+			await Bun.sleep(100);
 
-		expect(scrollTouches.map((touch) => touch.phase)).toEqual([
-			"begin",
-			"move",
-			"end",
-		]);
-		expect(scrollTouches[0]).toMatchObject({ x: 270, y: 1212 });
-		expect(scrollTouches[1]?.x).toBeCloseTo(162);
-		expect(scrollTouches[1]?.y).toBeCloseTo(727.2);
-		expect(scrollTouches[2]).toMatchObject({
-			phase: "end",
-			x: scrollTouches[1]!.x,
-			y: scrollTouches[1]!.y,
-			width: scrollTouches[1]!.width,
-			height: scrollTouches[1]!.height,
-		});
-	});
+			expect(scrollTouches.map((touch) => touch.phase)).toEqual([
+				"begin",
+				"move",
+				"end",
+			]);
+			expect(scrollTouches[0]).toMatchObject({ x: 270, y: 1212 });
+			expect(scrollTouches[1]?.x).toBeCloseTo(162);
+			expect(scrollTouches[1]?.y).toBeCloseTo(727.2);
+			expect(scrollTouches[2]).toMatchObject({
+				phase: "end",
+				x: scrollTouches[1]!.x,
+				y: scrollTouches[1]!.y,
+				width: scrollTouches[1]!.width,
+				height: scrollTouches[1]!.height,
+			});
+		},
+	);
 
 	test("coalesces same-dimension r0 to r2 frame signals into one canonical 0x82 update", async () => {
 		let reads = 0;

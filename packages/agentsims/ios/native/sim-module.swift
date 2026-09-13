@@ -204,6 +204,54 @@ private func u32(_ v: Int) -> UInt32 {
     }
 }
 
+/// Android Emulator mmap capture. `frame` only replaces the latest mailbox
+/// item. `stop` resolves after encoding and callback delivery have ended.
+@NodeClass @NodeActor final class AndroidVideoCapture {
+    private let engine: AndroidVideoEngine
+    private let queue: NodeAsyncQueue
+    private var stopped = false
+
+    @NodeConstructor init(_ path: String, _ onFrame: NodeFunction) throws {
+        let queue = try NodeAsyncQueue(label: "androidVideoCapture", maxQueueSize: 4)
+        self.queue = queue
+        self.engine = try AndroidVideoEngine(path: path) { data, width, height, flags in
+            try? await queue.run {
+                // This allocation is owned by this callback. It is never reused
+                // while JavaScript or an asynchronous consumer can retain it.
+                let buffer = try NodeArrayBuffer(capacity: data.count)
+                _ = try buffer.withUnsafeMutableBytes { data.copyBytes(to: $0) }
+                let array = try NodeTypedArray<UInt8>(for: buffer, count: data.count)
+                let tuple = try NodeArray(capacity: 4)
+                try tuple[0].set(to: array)
+                try tuple[1].set(to: width)
+                try tuple[2].set(to: height)
+                try tuple[3].set(to: Int(flags))
+                _ = try? await onFrame.call([tuple])
+                    .as(NodePromise.self)?.value
+            }
+        }
+        Task { await engine.start() }
+    }
+
+    @NodeMethod func frame(_ width: Int, _ height: Int) async {
+        guard !stopped else { return }
+        await engine.frame(width: width, height: height)
+    }
+
+    @NodeMethod func requestKeyframe() async {
+        guard !stopped else { return }
+        await engine.requestKeyframe()
+    }
+
+    @NodeMethod func stop() async {
+        guard !stopped else { return }
+        stopped = true
+        await engine.stop()
+    }
+
+    deinit { Task { [engine] in await engine.stop() } }
+}
+
 // MARK: - Accessibility
 
 /// Run a blocking accessibility query off the JS event loop (on a background
@@ -225,6 +273,7 @@ private func axQuery(
 #NodeModule(exports: [
     "SimHID": SimHID.deferredConstructor,
     "SimCapture": SimCapture.deferredConstructor,
+    "AndroidVideoCapture": AndroidVideoCapture.deferredConstructor,
     "hostAudioSnapshot": try NodeFunction { () throws -> String in
         try HostAudio.snapshotJSON()
     },

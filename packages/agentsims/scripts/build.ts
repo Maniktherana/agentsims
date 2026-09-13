@@ -169,7 +169,6 @@ mkdirSync(dirname(androidJar), { recursive: true });
 if (process.env.AGENTSIMS_ANDROID_AX_JAR)
 	cpSync(resolve(process.env.AGENTSIMS_ANDROID_AX_JAR), androidJar);
 else run("bash", "android/accessibility/build.sh", androidJar);
-run("bash", "android/video/build.sh", resolve(dist, "native"));
 if (process.platform === "darwin") {
 	for (const [source, output, artifact] of [
 		["camera-injector", "simcam", "libSimCameraInjector.dylib"],

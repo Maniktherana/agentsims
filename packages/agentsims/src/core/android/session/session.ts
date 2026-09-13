@@ -8,6 +8,7 @@ import type {
 import {
 	androidTransportKindForSerial,
 	createAndroidTransport,
+	isAndroidEmulatorSerial,
 	type AndroidTransport,
 	type AndroidTransportConfig,
 	type AvccSubscriberSink,
@@ -56,7 +57,6 @@ export interface AndroidHidSocket {
 const WS_MSG_CONFIG = 0x82;
 const WS_MSG_TOUCH = 0x03;
 const WS_MSG_MULTI_TOUCH = 0x05;
-const ANDROID_WHEEL_SCALE = 16;
 const TRANSPORT_IDLE_CLOSE_MS = 15_000;
 const ANDROID_INPUT_MOVE_INTERVAL_MS = 1000 / 60;
 const ANDROID_SCROLL_GESTURE_END_MS = 80;
@@ -285,8 +285,8 @@ export class AndroidSession {
 	private deviceRotationLocked = false;
 	private pendingEmulatorRotation: AndroidRotation | null = null;
 	private readonly inputSemaphore = Effect.runSync(Effect.makeSemaphore(1));
-	private emulatorScrollGesture: {
-		transport: AndroidTransport;
+	private scrollGesture: {
+		transport: AndroidTransport | null;
 		x: number;
 		y: number;
 		timer: ReturnType<typeof setTimeout> | null;
@@ -322,7 +322,14 @@ export class AndroidSession {
 		void this.dependencies.warmAx(this.serial).catch(() => {});
 	}
 
-	close(): void {
+	private closePromise: Promise<void> | undefined;
+	private readonly closingTransports = new Set<Promise<void>>();
+
+	close(): Promise<void> {
+		return (this.closePromise ??= this.closeImpl());
+	}
+
+	private async closeImpl(): Promise<void> {
 		if (this.closed) return;
 		this.closed = true;
 		if (this.transportIdleTimer) clearTimeout(this.transportIdleTimer);
@@ -333,18 +340,19 @@ export class AndroidSession {
 		this.emulatorViewportTimer = null;
 		this.emulatorConfigRefreshPending = false;
 		this.inputMoveScheduler.cancel();
-		this.finishEmulatorScrollGesture();
+		this.finishScrollGesture();
 		for (const ws of this.hidSockets) ws.close();
 		this.hidSockets.clear();
-		this.transport?.close();
+		const transportStopped = this.transport?.close();
 		this.transport = null;
 		this.dependencies.closeAx(this.serial);
-		logRuntime(`android:${this.serial}`, "Session closed.");
 		if (this.deviceRotationLocked) {
 			// Never leave a physical device ignoring its own orientation.
 			this.deviceRotationLocked = false;
 			void this.dependencies.restoreDeviceRotation(this.serial).catch(() => {});
 		}
+		await Promise.all([transportStopped, ...this.closingTransports]);
+		logRuntime(`android:${this.serial}`, "Session closed.");
 	}
 
 	private screenConfig() {
@@ -544,7 +552,9 @@ export class AndroidSession {
 				session.subscriberCount > 0
 			)
 				return;
-			session.close();
+			const closing = Promise.resolve(session.close());
+			this.closingTransports.add(closing);
+			void closing.finally(() => this.closingTransports.delete(closing));
 			logRuntime(
 				`android:${this.serial}`,
 				"Stream closed after 15 seconds without clients.",
@@ -555,6 +565,8 @@ export class AndroidSession {
 
 	private async activeTransport(): Promise<AndroidTransport | null> {
 		try {
+			const current = this.transportSession();
+			if (current.inputReady) return current;
 			const session = await this.ensureTransportStarted();
 			return session.inputReady ? session : null;
 		} catch {
@@ -662,14 +674,25 @@ export class AndroidSession {
 		);
 	}
 
-	private emulatorScrollTouch(
-		transport: AndroidTransport,
+	private scrollTouch(
+		transport: AndroidTransport | null,
 		phase: "begin" | "move" | "end",
 		x: number,
 		y: number,
 	): boolean {
+		if (!isAndroidEmulatorSerial(this.serial)) {
+			void this.dependencies
+				.touchDevice(this.serial, phase, x * this.width, y * this.height)
+				.catch((error) =>
+					logRuntime(`android:${this.serial}`, `Input failed: ${error}`),
+				);
+			return true;
+		}
+		if (!transport) return false;
 		const point = androidTouchCoordinatesForTransport(
-			transport.backend,
+			isAndroidEmulatorSerial(this.serial)
+				? "emulator-controller"
+				: transport.backend,
 			{ x, y },
 			{ width: this.width, height: this.height, rotation: this.rotation },
 		);
@@ -682,42 +705,42 @@ export class AndroidSession {
 		);
 	}
 
-	private finishEmulatorScrollGesture(): void {
-		const gesture = this.emulatorScrollGesture;
+	private finishScrollGesture(): void {
+		const gesture = this.scrollGesture;
 		if (!gesture) return;
 		if (gesture.timer) clearTimeout(gesture.timer);
-		this.emulatorScrollGesture = null;
-		this.emulatorScrollTouch(gesture.transport, "end", gesture.x, gesture.y);
+		this.scrollGesture = null;
+		this.scrollTouch(gesture.transport, "end", gesture.x, gesture.y);
 	}
 
-	private injectEmulatorScrollGesture(
-		transport: AndroidTransport,
+	private injectScrollGesture(
+		transport: AndroidTransport | null,
 		message: { dx: number; dy: number; x: number; y: number },
 	): boolean {
-		let gesture = this.emulatorScrollGesture;
+		let gesture = this.scrollGesture;
 		if (gesture?.transport !== transport) {
-			this.finishEmulatorScrollGesture();
+			this.finishScrollGesture();
 			gesture = null;
 		}
 		if (!gesture) {
 			const x = Math.min(0.92, Math.max(0.08, message.x));
 			const y = Math.min(0.92, Math.max(0.08, message.y));
-			if (!this.emulatorScrollTouch(transport, "begin", x, y)) return false;
+			if (!this.scrollTouch(transport, "begin", x, y)) return false;
 			gesture = {
 				transport,
 				x,
 				y,
 				timer: null,
 			};
-			this.emulatorScrollGesture = gesture;
+			this.scrollGesture = gesture;
 		}
 		gesture.x = Math.min(0.92, Math.max(0.08, gesture.x - message.dx));
 		gesture.y = Math.min(0.92, Math.max(0.08, gesture.y - message.dy));
-		if (!this.emulatorScrollTouch(transport, "move", gesture.x, gesture.y))
+		if (!this.scrollTouch(transport, "move", gesture.x, gesture.y))
 			return false;
 		if (gesture.timer) clearTimeout(gesture.timer);
 		gesture.timer = setTimeout(
-			() => this.finishEmulatorScrollGesture(),
+			() => this.finishScrollGesture(),
 			ANDROID_SCROLL_GESTURE_END_MS,
 		);
 		return true;
@@ -748,24 +771,22 @@ export class AndroidSession {
 				m.type === "cancel"
 					? m.type
 					: null;
-			if (
-				phase &&
-				androidTransportKindForSerial(this.serial) === "adb-screenrecord"
-			) {
+			if (phase && !isAndroidEmulatorSerial(this.serial)) {
 				try {
 					await this.dependencies.touchDevice(this.serial, phase, x, y);
 					this.touchStart = null;
 					this.lastMove = null;
-					return;
-				} catch {
-					// The release-time ADB tap/swipe path below remains the fallback
-					// when the persistent UiAutomation helper is unavailable.
+				} catch (error) {
+					logRuntime(`android:${this.serial}`, `Input failed: ${error}`);
 				}
+				return;
 			}
 			const transport = await this.activeTransport();
 			const transportPoint = transport
 				? androidTouchCoordinatesForTransport(
-						transport.backend,
+						isAndroidEmulatorSerial(this.serial)
+							? "emulator-controller"
+							: transport.backend,
 						{ x: m.x, y: m.y },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
@@ -859,14 +880,18 @@ export class AndroidSession {
 			const transport = await this.activeTransport();
 			const first = transport
 				? androidTouchCoordinatesForTransport(
-						transport.backend,
+						isAndroidEmulatorSerial(this.serial)
+							? "emulator-controller"
+							: transport.backend,
 						{ x: m.x1, y: m.y1 },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
 				: null;
 			const second = transport
 				? androidTouchCoordinatesForTransport(
-						transport.backend,
+						isAndroidEmulatorSerial(this.serial)
+							? "emulator-controller"
+							: transport.backend,
 						{ x: m.x2, y: m.y2 },
 						{ width: this.width, height: this.height, rotation: this.rotation },
 					)
@@ -936,34 +961,10 @@ export class AndroidSession {
 		if (tag === 0x0b) {
 			const m = json<{ dx: number; dy: number; x: number; y: number }>();
 			if (!m) return;
-			const anchorX = m.x * this.width;
-			const anchorY = m.y * this.height;
-			const transport = await this.activeTransport();
-			if (
-				transport?.backend === "emulator-controller" &&
-				this.injectEmulatorScrollGesture(transport, m)
-			) {
-				return;
-			}
-			if (
-				transport?.injectScroll?.(
-					anchorX,
-					anchorY,
-					m.dx * ANDROID_WHEEL_SCALE,
-					-m.dy * ANDROID_WHEEL_SCALE,
-					this.width,
-					this.height,
-				)
-			)
-				return;
-			await androidSwipe(
-				this.serial,
-				anchorX,
-				anchorY,
-				anchorX - m.dx * this.width,
-				anchorY - m.dy * this.height,
-				220,
-			);
+			const transport = isAndroidEmulatorSerial(this.serial)
+				? await this.activeTransport()
+				: null;
+			this.injectScrollGesture(transport, m);
 			return;
 		}
 

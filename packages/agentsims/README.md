@@ -25,9 +25,9 @@ npm install --save-dev agentsims
 - Node.js 20 or newer.
 - **iOS:** macOS 14 or newer with Xcode and an installed Simulator runtime.
 - **Android:** macOS or Linux x64, including WSL, with the Android SDK.
-- **Android emulator video:** compatible FFmpeg shared libraries and a browser with WebCodecs support.
+- **Android video:** a browser with WebCodecs support.
 
-The packages target Homebrew `ffmpeg@8` on macOS and Ubuntu 22.04 FFmpeg 4.4 on Linux.
+Linux emulators use the `adb-screenrecord-h264` path. macOS emulators use the `mmap-videotoolbox-h264` path with Apple's VideoToolbox encoder. Physical Android devices stream video through ADB.
 They include the Agentsims executable. You do not need a separate Bun installation.
 
 Check your installed tools:

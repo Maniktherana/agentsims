@@ -23,7 +23,7 @@ export function formatAndroidDisplay(status: AndroidStatus | null): string {
 
 export function formatAndroidStream(status: AndroidStatus | null): string {
 	if (!status?.stream) return "Loading";
-	if (status.stream.transport === "mmap-ffmpeg-h264") {
+	if (status.stream.transport === "mmap-videotoolbox-h264") {
 		return "H.264 · emulator framebuffer";
 	}
 	if (status.stream.transport === "adb-screenrecord-h264") return "H.264 · ADB";

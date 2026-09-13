@@ -65,12 +65,12 @@ Use Node.js 20 or newer. The npm package includes the executable, so no separate
 
 - **iOS:** Install Xcode and a Simulator runtime. Physical iPhones are not supported.
 - **Android:** Install the Android SDK. Agentsims finds it in standard locations, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `PATH`.
-- **Android emulators:** Hardware acceleration and compatible FFmpeg shared libraries are required.
+- **Android emulators:** Emulator hardware acceleration is required.
 - **Android video:** Use a browser with WebCodecs support.
 
-The packages target Homebrew `ffmpeg@8` on macOS and Ubuntu 22.04 FFmpeg 4.4 on Linux.
+Linux emulators use the `adb-screenrecord-h264` path. macOS emulators use the `mmap-videotoolbox-h264` path with Apple's VideoToolbox encoder.
 Linux, WSL, and Intel macOS builds still need validation on those hosts.
-Physical Android devices use ADB and do not need FFmpeg.
+Physical Android devices stream video through ADB.
 
 Check installed tools and get specific repair steps:
 

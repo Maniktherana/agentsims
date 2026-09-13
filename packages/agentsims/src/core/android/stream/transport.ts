@@ -1,5 +1,6 @@
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import {
+	AndroidEmulatorInput,
 	AndroidEmulatorSession,
 	type AndroidEmulatorConfig,
 	type AvccSubscriberSink,
@@ -18,14 +19,14 @@ export type AndroidButtonPhase = "down" | "up" | "press";
 
 export interface AndroidTransport {
 	readonly backend: "emulator-controller" | "adb-screenrecord";
-	readonly wireTransport: "mmap-ffmpeg-h264" | "adb-screenrecord-h264";
+	readonly wireTransport: "mmap-videotoolbox-h264" | "adb-screenrecord-h264";
 	readonly closed: boolean;
 	readonly running: boolean;
 	readonly subscriberCount: number;
 	readonly inputReady: boolean;
 
 	start(): Promise<void>;
-	close(): void;
+	close(): void | Promise<void>;
 	attachAvccSink(sink: AvccSubscriberSink): Promise<() => void>;
 	resetVideo(): boolean;
 	setPresentationGeneration?(generation: number): void;
@@ -62,13 +63,14 @@ export function isAndroidEmulatorSerial(serial: string): boolean {
 }
 
 /**
- * Emulators expose a host gRPC/MMAP framebuffer. Physical devices instead
- * publish Android's built-in screenrecord H.264 stream over ADB.
+ * macOS emulators use VideoToolbox. Linux and physical devices publish
+ * Android's built-in screenrecord H.264 stream over ADB.
  */
 export function androidTransportKindForSerial(
 	serial: string,
+	platform: string = process.platform,
 ): AndroidTransport["backend"] {
-	return isAndroidEmulatorSerial(serial)
+	return isAndroidEmulatorSerial(serial) && platform === "darwin"
 		? "emulator-controller"
 		: "adb-screenrecord";
 }
@@ -95,6 +97,9 @@ export function createAndroidTransport(
 				(() => {
 					throw new Error("ADB screenrecord command executor is unavailable");
 				})(),
+			isAndroidEmulatorSerial(serial)
+				? new AndroidEmulatorInput(serial)
+				: undefined,
 		);
 	}
 	return new AndroidEmulatorSession(

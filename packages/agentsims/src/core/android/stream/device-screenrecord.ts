@@ -5,6 +5,7 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import type { RuntimeFiber } from "effect/Fiber";
 import {
 	AndroidAvccFrameCoordinator,
+	type AndroidEmulatorInput,
 	type AvccSubscriberSink,
 } from "./emulator-controller";
 
@@ -13,7 +14,6 @@ const AVCC_TAG_KEYFRAME = 0x02;
 const AVCC_TAG_DELTA = 0x03;
 const DEFAULT_BIT_RATE = 8_000_000;
 const START_TIMEOUT_MS = 8_000;
-const ACCESS_UNIT_SETTLE_MS = 2;
 
 export type AndroidDeviceStreamConfig = {
 	width: number;
@@ -216,7 +216,6 @@ export class ScreenrecordAvccParser {
 	private accessUnit: Buffer[] = [];
 	private accessUnitIsKeyframe = false;
 	private accessUnitHasSlice = false;
-	private settleTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(private readonly publish: (chunk: Buffer) => void) {}
 
@@ -243,7 +242,9 @@ export class ScreenrecordAvccParser {
 			return;
 		}
 		const isSlice = type >= 1 && type <= 5;
-		if (isSlice && this.accessUnitHasSlice && firstMbInSlice(nal) === 0) {
+		const firstMb = isSlice ? firstMbInSlice(nal) : null;
+		if (isSlice && firstMb === null) return;
+		if (isSlice && this.accessUnitHasSlice && firstMb === 0) {
 			this.publishAccessUnit();
 		}
 		if (!isSlice && this.accessUnitHasSlice) this.publishAccessUnit();
@@ -251,7 +252,6 @@ export class ScreenrecordAvccParser {
 		if (isSlice) {
 			this.accessUnitHasSlice = true;
 			this.accessUnitIsKeyframe ||= type === 5;
-			this.scheduleSettle();
 		}
 	}
 
@@ -263,17 +263,7 @@ export class ScreenrecordAvccParser {
 		this.publish(envelope(AVCC_TAG_DESCRIPTION, description));
 	}
 
-	private scheduleSettle(): void {
-		if (this.settleTimer) clearTimeout(this.settleTimer);
-		this.settleTimer = setTimeout(
-			() => this.publishAccessUnit(),
-			ACCESS_UNIT_SETTLE_MS,
-		);
-	}
-
 	private publishAccessUnit(): void {
-		if (this.settleTimer) clearTimeout(this.settleTimer);
-		this.settleTimer = null;
 		if (this.accessUnitHasSlice) {
 			this.publish(
 				envelope(
@@ -292,7 +282,9 @@ export class ScreenrecordAvccParser {
 export class AndroidDeviceScreenrecordSession {
 	readonly backend = "adb-screenrecord" as const;
 	readonly wireTransport = "adb-screenrecord-h264" as const;
-	readonly inputReady = false;
+	get inputReady(): boolean {
+		return !this.stopped && (this.emulatorInput?.ready ?? false);
+	}
 	private captureFiber: RuntimeFiber<void, never> | null = null;
 	private parser: ScreenrecordAvccParser | null = null;
 	private startPromise: Promise<void> | null = null;
@@ -309,6 +301,7 @@ export class AndroidDeviceScreenrecordSession {
 		onSubscriberCountChange: ((count: number) => void) | undefined,
 		initialPresentationGeneration: number,
 		private readonly commandExecutor: CommandExecutor,
+		private readonly emulatorInput?: AndroidEmulatorInput,
 	) {
 		this.frames = new AndroidAvccFrameCoordinator(
 			{
@@ -346,6 +339,7 @@ export class AndroidDeviceScreenrecordSession {
 	close(): void {
 		if (this.stopped) return;
 		this.stopped = true;
+		this.emulatorInput?.close();
 		this.captureGeneration += 1;
 		this.parser?.flush();
 		this.parser = null;
@@ -356,8 +350,14 @@ export class AndroidDeviceScreenrecordSession {
 	}
 
 	async attachAvccSink(sink: AvccSubscriberSink): Promise<() => void> {
-		await this.start();
-		return this.frames.attachSink(sink);
+		const detach = this.frames.attachSink(sink);
+		try {
+			await this.start();
+			return detach;
+		} catch (error) {
+			detach();
+			throw error;
+		}
 	}
 
 	setPresentationGeneration(generation: number): void {
@@ -370,12 +370,30 @@ export class AndroidDeviceScreenrecordSession {
 		return true;
 	}
 
-	injectTouch(): boolean {
-		return false;
+	injectTouch(
+		phase: "begin" | "move" | "end" | "cancel",
+		x: number,
+		y: number,
+	): boolean {
+		return (
+			this.emulatorInput?.writeTouches(phase, [{ x, y, identifier: 1 }]) ??
+			false
+		);
 	}
 
-	injectMultiTouch(): boolean {
-		return false;
+	injectMultiTouch(
+		phase: "begin" | "move" | "end" | "cancel",
+		x1: number,
+		y1: number,
+		x2: number,
+		y2: number,
+	): boolean {
+		return (
+			this.emulatorInput?.writeTouches(phase, [
+				{ x: x1, y: y1, identifier: 1 },
+				{ x: x2, y: y2, identifier: 2 },
+			]) ?? false
+		);
 	}
 
 	private async startImpl(): Promise<void> {
@@ -412,15 +430,15 @@ export class AndroidDeviceScreenrecordSession {
 	private async replaceCapture(): Promise<void> {
 		const generation = ++this.captureGeneration;
 		const previous = this.captureFiber;
+		const previousParser = this.parser;
 		this.captureFiber = null;
-		this.parser?.flush();
 		this.parser = null;
 		if (previous) await Effect.runPromise(Fiber.interrupt(previous));
+		previousParser?.flush();
 		if (this.stopped || generation !== this.captureGeneration) return;
 
 		let stderr = "";
 		let settled = false;
-		let sawDescription = false;
 		await new Promise<void>((settle, reject) => {
 			const finish = (error?: Error) => {
 				if (settled) return;
@@ -440,9 +458,10 @@ export class AndroidDeviceScreenrecordSession {
 			);
 			const parser = new ScreenrecordAvccParser((chunk) => {
 				if (generation !== this.captureGeneration || this.stopped) return;
-				if (chunk[4] === AVCC_TAG_DESCRIPTION) sawDescription = true;
 				this.frames.publish(chunk, chunk[4] === AVCC_TAG_DESCRIPTION);
-				if (sawDescription && chunk[4] === AVCC_TAG_KEYFRAME) finish();
+				// A static display may not emit another NAL to delimit its first
+				// frame. Encoder configuration proves startup without waiting for motion.
+				if (chunk[4] === AVCC_TAG_DESCRIPTION) finish();
 			});
 			this.parser = parser;
 

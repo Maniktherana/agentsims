@@ -534,9 +534,48 @@ export class AndroidAvccFrameCoordinator {
 	}
 }
 
+/** Persistent emulator input, independent of the selected video source. */
+export class AndroidEmulatorInput {
+	private readonly client: ClientHttp2Session;
+	private readonly input: ClientHttp2Stream;
+
+	constructor(serial: string) {
+		const metadata = controllerMetadata(serial);
+		this.client = connect(`http://127.0.0.1:${metadata.port}`);
+		this.client.on("error", () => this.close());
+		this.input = this.client.request(
+			requestHeaders(INPUT_METHOD, metadata.token),
+		);
+		this.input.on("error", () => this.close());
+	}
+
+	get ready(): boolean {
+		return !this.input.destroyed && !this.input.closed;
+	}
+
+	writeTouches(
+		phase: "begin" | "move" | "end" | "cancel",
+		touches: Array<{ x: number; y: number; identifier: number }>,
+	): boolean {
+		if (!this.ready) return false;
+		const pressure = phase === "end" || phase === "cancel" ? 0 : 1024;
+		this.input.write(
+			grpcFrame(
+				touchInputEvent(touches.map((touch) => ({ ...touch, pressure }))),
+			),
+		);
+		return true;
+	}
+
+	close(): void {
+		this.input.close();
+		this.client.close();
+	}
+}
+
 export class AndroidEmulatorSession {
 	readonly backend = "emulator-controller" as const;
-	readonly wireTransport = "mmap-ffmpeg-h264" as const;
+	readonly wireTransport = "mmap-videotoolbox-h264" as const;
 	private readonly metadata: ControllerMetadata;
 	private readonly requested: { width: number; height: number };
 	private readonly initialPresentationGeneration: number;
@@ -545,7 +584,7 @@ export class AndroidEmulatorSession {
 	private screenshots: ClientHttp2Stream | null = null;
 	private input: ClientHttp2Stream | null = null;
 	private capture: NativeAndroidVideoCapture | null = null;
-	private unsubscribeCapture: (() => void) | null = null;
+	private closePromise: Promise<void> | undefined;
 	private startPromise: Promise<void> | null = null;
 	private stopped = false;
 	private pendingGrpc = Buffer.alloc(0);
@@ -593,8 +632,8 @@ export class AndroidEmulatorSession {
 
 	async start(): Promise<void> {
 		if (!this.startPromise) {
-			this.startPromise = this.startImpl().catch((error) => {
-				this.close();
+			this.startPromise = this.startImpl().catch(async (error) => {
+				await this.close();
 				throw error;
 			});
 		}
@@ -640,16 +679,18 @@ export class AndroidEmulatorSession {
 		]);
 	}
 
-	close(): void {
+	close(): Promise<void> {
+		return (this.closePromise ??= this.closeImpl());
+	}
+
+	private async closeImpl(): Promise<void> {
 		if (this.stopped) return;
 		this.stopped = true;
 		this.frameCoordinator?.close();
 		this.frameCoordinator = null;
 		if (this.idleFrameTimer) clearInterval(this.idleFrameTimer);
 		this.idleFrameTimer = null;
-		this.unsubscribeCapture?.();
-		this.unsubscribeCapture = null;
-		this.capture?.stop();
+		const captureStopped = this.capture?.stop();
 		this.capture = null;
 		this.input?.end();
 		this.input?.close();
@@ -658,6 +699,7 @@ export class AndroidEmulatorSession {
 		this.input = null;
 		this.screenshots = null;
 		this.client = null;
+		await captureStopped;
 		try {
 			unlinkSync(this.mmapPath);
 		} catch (error) {
@@ -677,12 +719,10 @@ export class AndroidEmulatorSession {
 			this.onSubscriberCountChange,
 			this.initialPresentationGeneration,
 		);
-		this.unsubscribeCapture = await this.capture.subscribeAvcc(
-			async (frame) => {
-				const chunk = Buffer.from(frame.data);
-				this.frameCoordinator?.publish(chunk, frame.isDescription);
-			},
-		);
+		await this.capture.subscribeAvcc(async (frame) => {
+			const chunk = Buffer.from(frame.data);
+			this.frameCoordinator?.publish(chunk, frame.isDescription);
+		});
 		this.client = connect(`http://127.0.0.1:${this.metadata.port}`);
 		this.client.on("error", () => this.close());
 		this.input = this.client.request(

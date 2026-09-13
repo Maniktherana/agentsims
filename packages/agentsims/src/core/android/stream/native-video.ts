@@ -19,9 +19,9 @@ const FLAG_KEYFRAME = 1 << 1;
 type RawFrameCallback = (frame: [Uint8Array, number, number, number]) => void;
 
 interface AndroidVideoCaptureHandle {
-	frame(width: number, height: number): void;
-	requestKeyframe(): void;
-	stop(): void;
+	frame(width: number, height: number): void | Promise<void>;
+	requestKeyframe(): void | Promise<void>;
+	stop(): void | Promise<void>;
 }
 
 interface AndroidVideoAddon {
@@ -32,30 +32,20 @@ interface AndroidVideoAddon {
 }
 
 function resolveAddon(): string {
+	const filename = "agentsims-native.node";
 	const configuredDist = configuredDistDirectory();
 	const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 	const candidates = [
-		...(configuredDist
-			? [join(configuredDist, "native", "agentsims-android-video.node")]
-			: []),
-		join(dirname(process.execPath), "native", "agentsims-android-video.node"),
-		join(moduleDirectory, "native", "agentsims-android-video.node"),
-		join(
-			moduleDirectory,
-			"..",
-			"..",
-			"..",
-			"..",
-			"dist",
-			"native",
-			"agentsims-android-video.node",
-		),
+		...(configuredDist ? [join(configuredDist, "native", filename)] : []),
+		join(dirname(process.execPath), "native", filename),
+		join(moduleDirectory, "native", filename),
+		join(moduleDirectory, "..", "..", "..", "..", "dist", "native", filename),
 	];
 	for (const candidate of candidates) {
 		if (existsSync(candidate)) return candidate;
 	}
 	throw new Error(
-		`agentsims-android-video.node not found. Looked in:\n  ${candidates.join("\n  ")}\n` +
+		`${filename} not found. Looked in:\n  ${candidates.join("\n  ")}\n` +
 			"Run the Agentsims build to compile the native Android video addon.",
 	);
 }
@@ -66,10 +56,11 @@ function load(): AndroidVideoAddon {
 	return addon;
 }
 
-/** Latest-only Android Emulator MMAP encoder backed by native FFmpeg. */
+/** Latest-only emulator encoder using VideoToolbox on macOS. */
 export class NativeAndroidVideoCapture {
 	private readonly path: string;
 	private handle: AndroidVideoCaptureHandle | null = null;
+	private stopping: Promise<void> | undefined;
 
 	constructor(path: string) {
 		this.path = path;
@@ -77,13 +68,13 @@ export class NativeAndroidVideoCapture {
 
 	async subscribeAvcc(
 		onFrame: (frame: AvccFrame) => Promise<void>,
-	): Promise<() => void> {
+	): Promise<() => Promise<void>> {
 		if (this.handle)
 			throw new Error("Android video capture already has a subscriber");
 		const next = new (load().AndroidVideoCapture)(
 			this.path,
 			([data, width, height, flags]) => {
-				void onFrame({
+				return onFrame({
 					data,
 					width,
 					height,
@@ -93,13 +84,7 @@ export class NativeAndroidVideoCapture {
 			},
 		);
 		this.handle = next;
-		let active = true;
-		return () => {
-			if (!active) return;
-			active = false;
-			next.stop();
-			if (this.handle === next) this.handle = null;
-		};
+		return () => this.stop();
 	}
 
 	frame(width: number, height: number): void {
@@ -110,8 +95,11 @@ export class NativeAndroidVideoCapture {
 		this.handle?.requestKeyframe();
 	}
 
-	stop(): void {
-		this.handle?.stop();
+	stop(): Promise<void> {
+		if (this.stopping) return this.stopping;
+		const handle = this.handle;
 		this.handle = null;
+		this.stopping = Promise.resolve(handle?.stop());
+		return this.stopping;
 	}
 }

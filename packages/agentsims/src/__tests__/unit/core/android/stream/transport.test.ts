@@ -38,14 +38,17 @@ describe("Android stream transport", () => {
 		expect(isAndroidEmulatorSerial("192.168.1.8:5555")).toBe(false);
 	});
 
-	test("selects emulator MMAP and physical-device ADB transports", () => {
-		expect(androidTransportKindForSerial("emulator-5554")).toBe(
+	test("selects emulator transport by host platform and ADB for physical devices", () => {
+		expect(androidTransportKindForSerial("emulator-5554", "darwin")).toBe(
 			"emulator-controller",
 		);
-		expect(androidTransportKindForSerial("R5CW1234ABC")).toBe(
+		expect(androidTransportKindForSerial("emulator-5554", "linux")).toBe(
 			"adb-screenrecord",
 		);
-		expect(androidTransportKindForSerial("192.168.1.8:5555")).toBe(
+		expect(androidTransportKindForSerial("R5CW1234ABC", "darwin")).toBe(
+			"adb-screenrecord",
+		);
+		expect(androidTransportKindForSerial("192.168.1.8:5555", "linux")).toBe(
 			"adb-screenrecord",
 		);
 	});

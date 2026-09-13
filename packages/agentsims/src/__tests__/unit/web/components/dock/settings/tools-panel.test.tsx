@@ -115,7 +115,7 @@ describe("ToolsPanel", () => {
 			},
 			stream: {
 				backend: "emulator-controller",
-				transport: "mmap-ffmpeg-h264",
+				transport: "mmap-videotoolbox-h264",
 				source: "display",
 				canChangeSource: false,
 			},

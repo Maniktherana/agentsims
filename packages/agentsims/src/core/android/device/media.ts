@@ -1,4 +1,5 @@
 import { existsSync } from "fs";
+import { androidTransportKindForSerial } from "../stream/transport";
 import { adbText, getAndroidProp } from "./adb";
 import {
 	getAndroidAvdName,
@@ -210,21 +211,16 @@ export async function getAndroidStatus(serial: string): Promise<AndroidStatus> {
 		emulator ? getAndroidEmulatorCapabilities() : Promise.resolve(undefined),
 	]);
 	const camera = readAndroidAvdConfig(avdName);
-	const nativeCapture =
-		emulator &&
-		process.platform === "darwin" &&
-		process.env.AGENTSIMS_ANDROID_CAPTURE !== "adb";
 	const status: AndroidStatus = {
 		platform: "android",
 		serial,
 		screen,
 		stream: {
-			backend: nativeCapture ? "emulator-controller" : "adb-screenrecord",
-			transport: nativeCapture
-				? process.env.AGENTSIMS_ANDROID_ENCODER === "ffmpeg"
-					? "mmap-ffmpeg-h264"
-					: "mmap-videotoolbox-h264"
-				: "adb-screenrecord-h264",
+			backend: androidTransportKindForSerial(serial),
+			transport:
+				androidTransportKindForSerial(serial) === "emulator-controller"
+					? "mmap-videotoolbox-h264"
+					: "adb-screenrecord-h264",
 			source: "display",
 			canChangeSource: false,
 		},

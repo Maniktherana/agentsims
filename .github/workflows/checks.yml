@@ -31,14 +31,6 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools platforms;android-35 build-tools;35.0.0
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-      - run: cargo fetch --locked --manifest-path android/video/Cargo.toml
       - run: bun install --frozen-lockfile
         working-directory: .
       - run: bun run typecheck

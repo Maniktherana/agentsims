@@ -75,7 +75,11 @@ actor H264Encoder {
     }
 
     /// Submit a frame. Returns immediately; `onEncoded` fires on VT's queue.
-    func encode(_ source: CVPixelBuffer, forceKeyframe: Bool = false) async throws -> Encoded {
+    func encode(
+        _ source: CVPixelBuffer,
+        forceKeyframe: Bool = false,
+        presentationTimeStamp: CMTime? = nil
+    ) async throws -> Encoded {
         let w = Int32(CVPixelBufferGetWidth(source))
         let h = Int32(CVPixelBufferGetHeight(source))
         if session == nil || w != width || h != height {
@@ -88,7 +92,10 @@ actor H264Encoder {
         }
 
         frameCount += 1
-        let pts = CMTime(value: frameCount, timescale: fps)
+        // Simulator capture keeps its existing synthetic 60 Hz clock. Sources
+        // with native capture timing (for example, Android mmap notifications)
+        // can supply that clock without imposing a capture-rate limit.
+        let pts = presentationTimeStamp ?? CMTime(value: frameCount, timescale: fps)
         let frameProps: NSDictionary? = forceKeyframe
             ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue!] as NSDictionary
             : nil
