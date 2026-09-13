@@ -1,6 +1,6 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Toaster } from "sonner";
-import { useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { AgentsimsBrandLink } from "./components/ui/agentsims-brand-link";
 import { resolveDeviceLifecyclePhase } from "./components/dock/devices/device-row";
 import { WorkspaceHeader } from "./components/workspace/workspace-header";
@@ -8,16 +8,38 @@ import { SimulatorDeviceView } from "./components/workspace/simulator-device-vie
 import { useDeviceWorkspace } from "./hooks/workspace/use-device-workspace";
 import { resetWorkspaceLayout } from "./workspace/layout-events";
 import { WorkspaceCanvas } from "./components/workspace/workspace-canvas";
+import {
+	nextWorkspacePanel,
+	useWorkspaceUrlState,
+} from "./workspace/url-state";
 
 export function App() {
-	const workspace = useDeviceWorkspace();
-	const [devicePickerOpen, setDevicePickerOpen] = useState(false);
-	const [toolsOpen, setToolsOpen] = useState(false);
-	const [settingsDeviceId, setSettingsDeviceId] = useState<string | null>(null);
-	const [devtoolsOpen, setDevtoolsOpen] = useState(false);
-	const [selectedDevtoolsTargetId, setSelectedDevtoolsTargetId] = useState<
-		string | null
-	>(null);
+	const urlState = useWorkspaceUrlState();
+	const workspace = useDeviceWorkspace(urlState);
+	const devicePickerOpen = urlState.panel === "devices";
+	const toolsOpen = urlState.panel === "tools";
+	const devtoolsOpen = urlState.panel === "devtools";
+	const setToolsOpen: Dispatch<SetStateAction<boolean>> = (value) => {
+		const open = typeof value === "function" ? value(toolsOpen) : value;
+		void urlState.setPanel(nextWorkspacePanel(urlState.panel, "tools", open));
+	};
+	const setDevtoolsOpen: Dispatch<SetStateAction<boolean>> = (value) => {
+		const open = typeof value === "function" ? value(devtoolsOpen) : value;
+		void urlState.setPanel(
+			nextWorkspacePanel(urlState.panel, "devtools", open),
+		);
+	};
+	const settingsDeviceId = urlState.settings;
+	const setSettingsDeviceId = (id: string | null) =>
+		void urlState.setSettings(id);
+	const selectedDevtoolsTargetId = urlState.target;
+	const setSelectedDevtoolsTargetId: Dispatch<SetStateAction<string | null>> = (
+		value,
+	) => {
+		const id =
+			typeof value === "function" ? value(selectedDevtoolsTargetId) : value;
+		void urlState.setTarget(id);
+	};
 	const effectiveSettingsDeviceId =
 		settingsDeviceId && workspace.visibleDeviceIds.includes(settingsDeviceId)
 			? settingsDeviceId
@@ -35,6 +57,8 @@ export function App() {
 				configsByDevice={workspace.configsByDevice}
 				fallbackConfig={workspace.config}
 				focusedDeviceId={workspace.effectiveUdid}
+				initialPan={urlState.pan}
+				onPanCommit={(pan) => void urlState.setPan(pan)}
 				selectedDevice={workspace.selectedDevice}
 				runningDeviceCount={workspace.runningDevices.length}
 				starting={workspace.starting}
@@ -98,10 +122,9 @@ export function App() {
 			<WorkspaceHeader
 				pickerOpen={devicePickerOpen}
 				onPickerOpenChange={(open) => {
-					setDevicePickerOpen(open);
-					if (!open) return;
-					setToolsOpen(false);
-					setDevtoolsOpen(false);
+					void urlState.setPanel(
+						nextWorkspacePanel(urlState.panel, "devices", open),
+					);
 				}}
 				devices={workspace.gridDevices}
 				total={workspace.gridTotal}
@@ -122,10 +145,7 @@ export function App() {
 				onShutdown={workspace.shutdownDevice}
 				toolsOpen={toolsOpen}
 				onToggleTools={() => {
-					const nextOpen = !toolsOpen;
-					setDevicePickerOpen(false);
-					setDevtoolsOpen(false);
-					setToolsOpen(nextOpen);
+					void urlState.setPanel(toolsOpen ? null : "tools");
 				}}
 				hasActiveDevice={workspace.visibleDeviceIds.length > 0}
 				onResetLayout={resetWorkspaceLayout}

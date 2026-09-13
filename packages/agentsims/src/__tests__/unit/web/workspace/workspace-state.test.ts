@@ -130,6 +130,14 @@ describe("workspace selection state", () => {
 	test("effective selection falls back through visible device then config", () => {
 		expect(
 			effectiveDeviceId(
+				createWorkspaceSelectionState("ios-stale"),
+				["ios-1"],
+				"ios-2",
+				"android:emulator-5554",
+			),
+		).toBe("android:emulator-5554");
+		expect(
+			effectiveDeviceId(
 				createWorkspaceSelectionState(null),
 				["ios-1"],
 				"ios-2",

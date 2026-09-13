@@ -11,6 +11,7 @@ import {
 	canvasCenterDelta,
 	canvasViewOffset,
 } from "../../workspace/canvas-view";
+import type { CanvasPan } from "../../workspace/url-state";
 
 export function moveView(
 	element: HTMLDivElement,
@@ -68,6 +69,8 @@ export function animateView(element: HTMLDivElement, x: number, y: number) {
 export function useCanvasPan(
 	canvas: RefObject<HTMLDivElement | null>,
 	visibleRevision: string,
+	initialPan: CanvasPan,
+	onPanCommit: (pan: CanvasPan) => void,
 ) {
 	const [panMode, setPanMode] = useState(false);
 	const [panning, setPanning] = useState(false);
@@ -84,6 +87,29 @@ export function useCanvasPan(
 		left: number;
 		top: number;
 	}>({ element: null, left: 0, top: 0 });
+	const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const commit = useCallback(
+		(delay = 0) => {
+			if (commitTimer.current) clearTimeout(commitTimer.current);
+			commitTimer.current = setTimeout(() => {
+				commitTimer.current = null;
+				onPanCommit(canvasViewOffset(canvas.current));
+			}, delay);
+		},
+		[canvas, onPanCommit],
+	);
+	useLayoutEffect(() => {
+		const element = canvas.current;
+		if (!element) return;
+		const current = canvasViewOffset(element);
+		moveView(element, initialPan.x - current.x, initialPan.y - current.y);
+	}, [canvas, initialPan.x, initialPan.y, visibleRevision]);
+	useEffect(
+		() => () => {
+			if (commitTimer.current) clearTimeout(commitTimer.current);
+		},
+		[],
+	);
 	const rememberScroll = useCallback(() => {
 		const element = canvas.current;
 		lastScroll.current = {
@@ -205,6 +231,7 @@ export function useCanvasPan(
 				rememberScroll();
 			}
 		}
+		commit(180);
 	};
 	useEffect(() => {
 		const element = canvas.current;
@@ -232,6 +259,7 @@ export function useCanvasPan(
 				event.shiftKey ? 0 : -event.deltaY * unit,
 			);
 			rememberScroll();
+			commit(180);
 		};
 		element.addEventListener("wheel", wheel, { capture: true, passive: false });
 		return () => element.removeEventListener("wheel", wheel, true);
@@ -261,6 +289,7 @@ export function useCanvasPan(
 		if (delta) {
 			animateView(element, delta.x, delta.y);
 			rememberScroll();
+			commit(320);
 		}
 	};
 	return {

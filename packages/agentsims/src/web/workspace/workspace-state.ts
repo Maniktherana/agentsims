@@ -202,8 +202,14 @@ export function effectiveDeviceId(
 	selection: WorkspaceSelectionState,
 	visibleDeviceIds: readonly string[],
 	configDeviceId: string | null,
+	urlFocusDeviceId: string | null = null,
 ): string | null {
-	return selection.selectedDeviceId ?? visibleDeviceIds[0] ?? configDeviceId;
+	return (
+		urlFocusDeviceId ??
+		selection.selectedDeviceId ??
+		visibleDeviceIds[0] ??
+		configDeviceId
+	);
 }
 
 export function previewConfigKey(config: PreviewConfig | null): string {

@@ -22,6 +22,7 @@ import {
 } from "../../workspace/device-position";
 import type { GridDevice } from "../../workspace/grid";
 import type { PreviewConfig } from "../../workspace/workspace-state";
+import type { CanvasPan } from "../../workspace/url-state";
 
 export interface WorkspaceDeviceRenderContext {
 	deviceId: string;
@@ -313,6 +314,8 @@ export function WorkspaceCanvas({
 	configsByDevice,
 	fallbackConfig,
 	focusedDeviceId,
+	initialPan,
+	onPanCommit,
 	selectedDevice,
 	runningDeviceCount,
 	starting,
@@ -326,6 +329,8 @@ export function WorkspaceCanvas({
 	configsByDevice: Record<string, PreviewConfig | null>;
 	fallbackConfig: PreviewConfig | null;
 	focusedDeviceId: string | null;
+	initialPan: CanvasPan;
+	onPanCommit: (pan: CanvasPan) => void;
 	selectedDevice: GridDevice | null;
 	runningDeviceCount: number;
 	starting: Record<string, boolean>;
@@ -335,7 +340,12 @@ export function WorkspaceCanvas({
 	renderDevice: (context: WorkspaceDeviceRenderContext) => ReactNode;
 }) {
 	const canvasRef = useRef<HTMLDivElement | null>(null);
-	const canvasPan = useCanvasPan(canvasRef, visibleDeviceIds.join("|"));
+	const canvasPan = useCanvasPan(
+		canvasRef,
+		visibleDeviceIds.join("|"),
+		initialPan,
+		onPanCommit,
+	);
 	const positionsRef = useRef(new Map<string, WorkspaceDevicePosition>());
 	const knownDevicesRef = useRef(new Set(visibleDeviceIds));
 	useLayoutEffect(() => {
@@ -416,7 +426,7 @@ export function WorkspaceCanvas({
 				data-pan-mode={canvasPan.panMode}
 				data-panning={canvasPan.panning}
 				data-agentsims-workspace-scroll
-				className="relative h-dvh overflow-hidden bg-page font-system box-border [&_[data-workspace-device]]:cursor-auto data-[pan-mode=true]:[&_[data-workspace-device]]:cursor-grab data-[panning=true]:[&_*]:!cursor-grabbing"
+				className="relative h-dvh overflow-hidden bg-page font-system box-border [&_[data-workspace-device]]:cursor-auto data-[panning=true]:[&_*]:!cursor-grabbing"
 				style={{
 					...WORKSPACE_PADDING,
 					cursor: canvasPan.panning ? "grabbing" : "grab",

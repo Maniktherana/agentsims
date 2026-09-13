@@ -21,6 +21,9 @@ import {
 	type PreviewConfig,
 } from "../../workspace/workspace-state";
 import { DeviceAutoAttachGuard } from "../../workspace/device-auto-attach-guard";
+import type { useWorkspaceUrlState } from "../../workspace/url-state";
+
+type WorkspaceUrlState = ReturnType<typeof useWorkspaceUrlState>;
 
 interface DeviceActionResponse {
 	ok?: boolean;
@@ -33,20 +36,7 @@ interface GridResponse {
 }
 
 function initialSelectedDeviceId(config: PreviewConfig | null): string | null {
-	return (
-		config?.device ?? new URLSearchParams(window.location.search).get("device")
-	);
-}
-
-function consumeUrlDevice(): void {
-	try {
-		const url = new URL(window.location.href);
-		if (!url.searchParams.has("device")) return;
-		url.searchParams.delete("device");
-		window.history.replaceState(null, "", url.toString());
-	} catch (error) {
-		console.warn("[agentsims:web] recoverable operation failed", error);
-	}
+	return config?.device ?? null;
 }
 
 function setInjectedPreviewConfig(config: PreviewConfig | null): void {
@@ -71,12 +61,25 @@ export function reconcileStreamingDeviceVisibility(
 	return Object.fromEntries(entries);
 }
 
+export function startedDeviceUrlState(
+	currentDeviceIds: readonly string[],
+	requestedDeviceId: string,
+	resolvedDeviceId: string,
+): string[] {
+	const withoutRequested = currentDeviceIds.filter(
+		(id) => id !== requestedDeviceId,
+	);
+	return withoutRequested.includes(resolvedDeviceId)
+		? withoutRequested
+		: [...withoutRequested, resolvedDeviceId];
+}
+
 /**
  * Owns the browser workspace's device catalog, lifecycle actions, selection,
  * visibility, URL state, and per-device helper subscriptions. Rendering and
  * per-simulator interaction deliberately live outside this controller.
  */
-export function useDeviceWorkspace() {
+export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 	const [initialConfig] = useState(() =>
 		proxyPreviewConfigForBrowser(
 			streamConfigFrom(window.__SIM_PREVIEW__),
@@ -103,10 +106,6 @@ export function useDeviceWorkspace() {
 	const [uiStarted, setUiStarted] = useState<Set<string>>(() => new Set());
 	const autoAttachGuardRef = useRef(new DeviceAutoAttachGuard());
 
-	useEffect(() => {
-		consumeUrlDevice();
-	}, []);
-
 	const [endpoints] = useState(() => {
 		const preview = window.__SIM_PREVIEW__;
 		return {
@@ -128,17 +127,19 @@ export function useDeviceWorkspace() {
 		() => runningDevices.map((device) => device.device),
 		[runningDevices],
 	);
-	const visibleDeviceIds = useMemo(
-		() => visibleRunningDeviceIds(runningDeviceIds, selection),
-		[runningDeviceIds, selection],
-	);
+	const visibleDeviceIds = useMemo(() => {
+		if (urlState.devices === null)
+			return visibleRunningDeviceIds(runningDeviceIds, selection);
+		const running = new Set(runningDeviceIds);
+		return urlState.devices.filter((id) => running.has(id));
+	}, [runningDeviceIds, selection, urlState.devices]);
 	const visibleDeviceIdKey = visibleDeviceIds.join("|");
 	useEffect(() => {
 		setStreamingByDevice((current) =>
 			reconcileStreamingDeviceVisibility(current, visibleDeviceIds),
 		);
 	}, [visibleDeviceIdKey]);
-	const selectedUdid = selection.selectedDeviceId;
+	const selectedUdid = urlState.focus ?? selection.selectedDeviceId;
 	const selectedUdidRef = useRef(selectedUdid);
 	selectedUdidRef.current = selectedUdid;
 	const selectedHasHelper = !!(
@@ -154,16 +155,40 @@ export function useDeviceWorkspace() {
 	}, [selectedHasHelper, selectedUdid, visibleDeviceIds]);
 	const subscribedDeviceIdKey = subscribedDeviceIds.join("|");
 
-	const selectDevice = useCallback((deviceId: string) => {
-		dispatchSelection({ type: "select", deviceId });
-	}, []);
+	const selectDevice = useCallback(
+		(deviceId: string) => {
+			dispatchSelection({ type: "select", deviceId });
+			void urlState.setFocus(deviceId);
+		},
+		[urlState.setFocus],
+	);
 
 	const setDeviceVisible = useCallback(
 		(deviceId: string, visible: boolean) => {
+			const current = urlState.devices ?? visibleDeviceIds;
+			const next = visible
+				? current.includes(deviceId)
+					? current
+					: [...current, deviceId]
+				: current.filter((id) => id !== deviceId);
+			const nextFocus = visible
+				? deviceId
+				: selectedUdid === deviceId
+					? (next[0] ?? null)
+					: urlState.focus;
 			dispatchSelection({ type: "set-visible", deviceId, visible });
-			if (visible) selectDevice(deviceId);
+			if (!visible && selectedUdid === deviceId) {
+				dispatchSelection({ type: "focus-visible", visibleDeviceIds: next });
+			}
+			void urlState.setDevicesAndFocus(next, nextFocus);
 		},
-		[selectDevice],
+		[
+			selectedUdid,
+			urlState.devices,
+			urlState.focus,
+			urlState.setDevicesAndFocus,
+			visibleDeviceIds,
+		],
 	);
 
 	useEffect(() => {
@@ -196,7 +221,7 @@ export function useDeviceWorkspace() {
 	);
 
 	const requestDeviceStart = useCallback(
-		async (deviceId: string, focusDevice = true) => {
+		async (deviceId: string, focusDevice = true): Promise<string | null> => {
 			setStarting((current) => ({ ...current, [deviceId]: true }));
 			setActionErrors((current) => ({ ...current, [deviceId]: null }));
 			try {
@@ -213,7 +238,7 @@ export function useDeviceWorkspace() {
 						...current,
 						[deviceId]: body.error ?? `HTTP ${response.status}`,
 					}));
-					return;
+					return null;
 				}
 				const resolvedDeviceId =
 					typeof body.device === "string" ? body.device : deviceId;
@@ -230,6 +255,7 @@ export function useDeviceWorkspace() {
 					return next;
 				});
 				await waitForHelper(resolvedDeviceId);
+				return resolvedDeviceId;
 			} catch (error) {
 				setActionErrors((current) => ({
 					...current,
@@ -239,6 +265,7 @@ export function useDeviceWorkspace() {
 				setStarting((current) => ({ ...current, [deviceId]: false }));
 				grid.refresh();
 			}
+			return null;
 		},
 		[endpoints.start, grid.refresh, waitForHelper],
 	);
@@ -246,9 +273,22 @@ export function useDeviceWorkspace() {
 	const startDevice = useCallback(
 		async (deviceId: string, focusDevice = true) => {
 			autoAttachGuardRef.current.beginExplicitStart(deviceId);
-			await requestDeviceStart(deviceId, focusDevice);
+			const resolvedDeviceId = await requestDeviceStart(deviceId, focusDevice);
+			if (!resolvedDeviceId) return;
+			const current = urlState.devices ?? visibleDeviceIds;
+			const next = startedDeviceUrlState(current, deviceId, resolvedDeviceId);
+			void urlState.setDevicesAndFocus(
+				next,
+				focusDevice ? resolvedDeviceId : urlState.focus,
+			);
 		},
-		[requestDeviceStart],
+		[
+			requestDeviceStart,
+			urlState.devices,
+			urlState.focus,
+			urlState.setDevicesAndFocus,
+			visibleDeviceIds,
+		],
 	);
 
 	useEffect(() => {
@@ -376,16 +416,36 @@ export function useDeviceWorkspace() {
 		});
 	}, [configsByDevice, grid.devices, selectedHasHelper, selectedUdid]);
 
+	const previousUrlFocusRef = useRef(urlState.focus);
 	useEffect(() => {
-		if (visibleDeviceIds.length === 0) return;
-		if (selectedUdid && visibleDeviceIds.includes(selectedUdid)) return;
-		selectDevice(visibleDeviceIds[0]!);
-	}, [selectDevice, selectedUdid, visibleDeviceIdKey]);
+		const previousFocus = previousUrlFocusRef.current;
+		previousUrlFocusRef.current = urlState.focus;
+		if (urlState.focus) {
+			dispatchSelection({ type: "select", deviceId: urlState.focus });
+			return;
+		}
+		if (previousFocus) {
+			dispatchSelection({ type: "focus-visible", visibleDeviceIds });
+		}
+	}, [urlState.focus, visibleDeviceIdKey]);
+
+	useEffect(() => {
+		if (
+			urlState.devices === null ||
+			!urlState.focus ||
+			urlState.devices.includes(urlState.focus)
+		)
+			return;
+		const nextFocus = visibleDeviceIds[0] ?? null;
+		dispatchSelection({ type: "focus-visible", visibleDeviceIds });
+		void urlState.setFocus(nextFocus);
+	}, [urlState.devices, urlState.focus, urlState.setFocus, visibleDeviceIdKey]);
 
 	const effectiveUdid = effectiveDeviceId(
 		selection,
 		visibleDeviceIds,
 		config?.device ?? null,
+		urlState.focus,
 	);
 	const selectedDevice =
 		grid.devices?.find((device) => device.device === effectiveUdid) ?? null;
@@ -401,7 +461,7 @@ export function useDeviceWorkspace() {
 		configsByDevice,
 		streamingByDevice,
 		setDeviceStreaming,
-		visibleUdids: selection.visibleDeviceIds,
+		visibleUdids: new Set(visibleDeviceIds),
 		visibleDeviceIds,
 		selectedUdid,
 		effectiveUdid,
