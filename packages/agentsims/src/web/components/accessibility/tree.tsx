@@ -16,7 +16,10 @@ import {
 	type CSSProperties,
 	type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import type { AxElement, AxSnapshot } from "../../../core/tools/observe/accessibility-model";
+import type {
+	AxElement,
+	AxSnapshot,
+} from "../../../core/tools/observe/accessibility-model";
 import {
 	axElementKey,
 	axFrameString,

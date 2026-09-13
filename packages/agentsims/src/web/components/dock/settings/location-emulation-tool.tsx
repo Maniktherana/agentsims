@@ -41,7 +41,10 @@ import {
 } from "../../icons/index";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { Select } from "../../ui/select";
-import { setDeviceLocation, type LocationPoint } from "../../../dock/settings/location-actions";
+import {
+	setDeviceLocation,
+	type LocationPoint,
+} from "../../../dock/settings/location-actions";
 export { locationSetCommand } from "../../../dock/settings/location-actions";
 import { runAndroidTool } from "../../../android/tools-client";
 import { simEndpoint } from "../../../preview/sim-endpoint";
@@ -365,7 +368,11 @@ export function LocationEmulationTool({
 			summary={
 				<>
 					<div className="flex min-w-0 items-center gap-2">
-						<MapPin size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<MapPin
+							size={14}
+							strokeWidth={2}
+							className="shrink-0 text-white/45"
+						/>
 						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Location
 						</span>
@@ -507,19 +514,29 @@ export function LocationEmulationTool({
 							lat: Number(data.get("latitude")),
 							lng: Number(data.get("longitude")),
 							altitude: Number(data.get("altitude")),
-						}).then((result) => {
-							setError(result.exitCode ? result.stderr : null);
-						}).catch((cause) => {
-							setError(cause instanceof Error ? cause.message : String(cause));
-						}).finally(() => setSettingLocation(false));
+						})
+							.then((result) => {
+								setError(result.exitCode ? result.stderr : null);
+							})
+							.catch((cause) => {
+								setError(
+									cause instanceof Error ? cause.message : String(cause),
+								);
+							})
+							.finally(() => setSettingLocation(false));
 					}}
 				>
-					{([
-						["latitude", "Latitude", -90, 90, 37.7749],
-						["longitude", "Longitude", -180, 180, -122.4194],
-						["altitude", "Altitude (m)", -500, 100000, 0],
-					] as const).map(([name, label, min, max, value]) => (
-						<label key={name} className="flex min-w-24 flex-1 flex-col gap-1 text-[10px] text-white/45">
+					{(
+						[
+							["latitude", "Latitude", -90, 90, 37.7749],
+							["longitude", "Longitude", -180, 180, -122.4194],
+							["altitude", "Altitude (m)", -500, 100000, 0],
+						] as const
+					).map(([name, label, min, max, value]) => (
+						<label
+							key={name}
+							className="flex min-w-24 flex-1 flex-col gap-1 text-[10px] text-white/45"
+						>
 							{label}
 							<input
 								name={name}
@@ -533,7 +550,11 @@ export function LocationEmulationTool({
 							/>
 						</label>
 					))}
-					<button type="submit" disabled={settingLocation} className="cursor-pointer rounded-[8px] border border-white/12 bg-transparent px-3 py-1.5 text-[12px] text-white/85 enabled:hover:bg-white/[0.06] disabled:opacity-40">
+					<button
+						type="submit"
+						disabled={settingLocation}
+						className="cursor-pointer rounded-[8px] border border-white/12 bg-transparent px-3 py-1.5 text-[12px] text-white/85 enabled:hover:bg-white/[0.06] disabled:opacity-40"
+					>
 						Set location
 					</button>
 				</form>

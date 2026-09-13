@@ -183,9 +183,7 @@ export function AndroidSimulatorControlRows({
 								...NETWORK_DELAYS.map((value) => ({
 									value,
 									label:
-										value === "none"
-											? "No added latency"
-											: value.toUpperCase(),
+										value === "none" ? "No added latency" : value.toUpperCase(),
 								})),
 							]}
 							onChange={(value) => {

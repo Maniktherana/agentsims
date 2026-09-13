@@ -322,7 +322,8 @@ details.lem-section > summary:hover .lem-chevron {
 }
 
 .agentsims-screenshot-preview:is(:hover, :focus-within)
-	.agentsims-screenshot-preview-image img {
+	.agentsims-screenshot-preview-image
+	img {
 	filter: blur(2px) brightness(0.65);
 }
 

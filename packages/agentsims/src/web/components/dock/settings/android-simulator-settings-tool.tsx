@@ -219,11 +219,15 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 			data-android-simulator-settings=""
 			summary={
 				<div className="flex min-w-0 items-center gap-2">
-						<Smartphone size={14} strokeWidth={2} className="shrink-0 text-white/45" />
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
-							Simulator
-						</span>
-					</div>
+					<Smartphone
+						size={14}
+						strokeWidth={2}
+						className="shrink-0 text-white/45"
+					/>
+					<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						Simulator
+					</span>
+				</div>
 			}
 			bodyClassName="flex flex-col gap-1.5"
 		>

@@ -73,10 +73,7 @@ export function ToolsPanel({
 
 	const mediaAndLocation = (
 		<>
-			<MediaRoutingTool
-				udid={udid}
-				bundleId={currentApp?.bundleId ?? null}
-			/>
+			<MediaRoutingTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
 			{supportsLocation && (
 				<LocationEmulationTool key={udid} udid={udid} exec={execOnHost} />
 			)}

@@ -108,7 +108,11 @@ export function AppPermissionsTool({
 			summary={
 				<>
 					<div className="flex min-w-0 items-center gap-2">
-						<ShieldCheck size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<ShieldCheck
+							size={14}
+							strokeWidth={2}
+							className="shrink-0 text-white/45"
+						/>
 						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Permissions
 						</span>
@@ -126,7 +130,10 @@ export function AppPermissionsTool({
 			<div className="relative">
 				<div
 					className="max-h-[260px] overflow-y-auto flex flex-col gap-1 py-2 [scrollbar-width:thin]"
-					style={{ maskImage: "linear-gradient(to bottom, transparent, black 14px, black calc(100% - 14px), transparent)" }}
+					style={{
+						maskImage:
+							"linear-gradient(to bottom, transparent, black 14px, black calc(100% - 14px), transparent)",
+					}}
 				>
 					{PERMISSION_SERVICES.map(({ key, label }) => {
 						const current = state[key];
@@ -201,11 +208,15 @@ export function AppPermissionsLoading() {
 		>
 			<div className="select-none text-white/55 min-h-[36px] leading-none py-2.5 px-1 -my-2 -mx-1 w-[calc(100%+8px)] grid [grid-template-columns:auto_1fr_auto] items-center gap-2 text-left cursor-default">
 				<div className="flex min-w-0 items-center gap-2">
-						<ShieldCheck size={14} strokeWidth={2} className="shrink-0 text-white/45" />
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
-							Permissions
-						</span>
-					</div>
+					<ShieldCheck
+						size={14}
+						strokeWidth={2}
+						className="shrink-0 text-white/45"
+					/>
+					<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						Permissions
+					</span>
+				</div>
 				<span />
 				<span
 					data-testid="permissions-loading-indicator"

@@ -204,10 +204,16 @@ export function WorkspaceHeader({
 	const compactDockWidth = 96;
 	const availableWidth = Math.max(0, viewport.width - 24);
 	const dockWidth = expanded
-		? Math.min(availableWidth, Math.max(toolsOpen ? 560 : 400, availableWidth * 0.4))
+		? Math.min(
+				availableWidth,
+				Math.max(toolsOpen ? 560 : 400, availableWidth * 0.4),
+			)
 		: compactDockWidth;
 	const dockHeight = expanded
-		? Math.min(Math.max(0, viewport.height - 24), Math.max(320, viewport.height * 0.76))
+		? Math.min(
+				Math.max(0, viewport.height - 24),
+				Math.max(320, viewport.height * 0.76),
+			)
 		: 50;
 
 	useLayoutEffect(() => {
@@ -332,12 +338,18 @@ export function WorkspaceHeader({
 					role="toolbar"
 					aria-label="Workspace"
 					onKeyDown={(event) => {
-						if (!expanded || event.key !== "Escape" || event.defaultPrevented) return;
+						if (!expanded || event.key !== "Escape" || event.defaultPrevented)
+							return;
 						event.preventDefault();
 						event.stopPropagation();
 						const label = pickerOpen ? devicesLabel : "Device settings";
-						Array.from(pickerRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-							.find((button) => button.getAttribute("aria-label") === label)?.focus();
+						Array.from(
+							pickerRef.current?.querySelectorAll<HTMLButtonElement>(
+								"button",
+							) ?? [],
+						)
+							.find((button) => button.getAttribute("aria-label") === label)
+							?.focus();
 						if (pickerOpen) onPickerOpenChange(false);
 						else onToggleTools();
 					}}

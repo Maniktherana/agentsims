@@ -1,4 +1,10 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { notify } from "../../ui/toast";
 import type {
 	AndroidEnvironmentState,
@@ -130,7 +136,11 @@ export function AndroidDeviceControlsTool(props: DeviceControlsProps) {
 	return <DeviceControls key={props.udid} {...props} />;
 }
 
-function DeviceControls({ udid, active = true, children }: DeviceControlsProps) {
+function DeviceControls({
+	udid,
+	active = true,
+	children,
+}: DeviceControlsProps) {
 	const basePath = simEndpoint("");
 	const [capabilities, setCapabilities] =
 		useState<AndroidToolCapabilities | null>(null);
@@ -140,43 +150,51 @@ function DeviceControls({ udid, active = true, children }: DeviceControlsProps) 
 	const [error, setError] = useState<string | null>(null);
 	const read = useRef<AbortController | null>(null);
 	const write = useRef<AbortController | null>(null);
-	const refresh = useCallback(async (includeCapabilities = false) => {
-		read.current?.abort();
-		const controller = new AbortController();
-		read.current = controller;
-		setLoading(true);
-		setError(null);
-		try {
-			const [environment, available] = await Promise.all([
-				androidToolsRequest<AndroidEnvironmentState>(basePath, udid, "state", {
-					signal: controller.signal,
-				}),
-				includeCapabilities
-					? androidToolsRequest<AndroidToolCapabilities>(
-							basePath,
-							udid,
-							"capabilities",
-							{ signal: controller.signal },
-						)
-					: null,
-			]);
-			if (!controller.signal.aborted) {
-				setState(environment);
-				if (available) setCapabilities(available);
+	const refresh = useCallback(
+		async (includeCapabilities = false) => {
+			read.current?.abort();
+			const controller = new AbortController();
+			read.current = controller;
+			setLoading(true);
+			setError(null);
+			try {
+				const [environment, available] = await Promise.all([
+					androidToolsRequest<AndroidEnvironmentState>(
+						basePath,
+						udid,
+						"state",
+						{
+							signal: controller.signal,
+						},
+					),
+					includeCapabilities
+						? androidToolsRequest<AndroidToolCapabilities>(
+								basePath,
+								udid,
+								"capabilities",
+								{ signal: controller.signal },
+							)
+						: null,
+				]);
+				if (!controller.signal.aborted) {
+					setState(environment);
+					if (available) setCapabilities(available);
+				}
+			} catch (cause) {
+				if (!controller.signal.aborted) {
+					setState(null);
+					setError(
+						cause instanceof Error
+							? cause.message
+							: "Could not read device state",
+					);
+				}
+			} finally {
+				if (!controller.signal.aborted) setLoading(false);
 			}
-		} catch (cause) {
-			if (!controller.signal.aborted) {
-				setState(null);
-				setError(
-					cause instanceof Error
-						? cause.message
-						: "Could not read device state",
-				);
-			}
-		} finally {
-			if (!controller.signal.aborted) setLoading(false);
-		}
-	}, [basePath, udid]);
+		},
+		[basePath, udid],
+	);
 	useEffect(() => {
 		if (!active) return;
 		void refresh(true);

@@ -122,7 +122,10 @@ export function clampSimulatorFrameWidth(
 	aspectRatio: number,
 ) {
 	const fitWidth = getSimulatorFrameMaxWidth(
-		defaultWidth, viewportWidth, viewportHeight, aspectRatio,
+		defaultWidth,
+		viewportWidth,
+		viewportHeight,
+		aspectRatio,
 	);
 	return Math.max(Math.min(SIMULATOR_RESIZE_MIN_WIDTH, fitWidth), value);
 }

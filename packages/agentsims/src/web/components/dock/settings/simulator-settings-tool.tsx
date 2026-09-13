@@ -514,7 +514,11 @@ export function SimulatorSettingsTool({
 			summary={
 				<>
 					<div className="flex min-w-0 items-center gap-2">
-						<Smartphone size={14} strokeWidth={2} className="shrink-0 text-white/45" />
+						<Smartphone
+							size={14}
+							strokeWidth={2}
+							className="shrink-0 text-white/45"
+						/>
 						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Simulator
 						</span>

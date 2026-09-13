@@ -50,9 +50,7 @@ export function AndroidSavedStates({
 		} catch (cause) {
 			if (!controller.signal.aborted)
 				setError(
-					cause instanceof Error
-						? cause.message
-						: "Could not load snapshots",
+					cause instanceof Error ? cause.message : "Could not load snapshots",
 				);
 		} finally {
 			if (!controller.signal.aborted) setLoading(false);

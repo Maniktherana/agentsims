@@ -96,8 +96,7 @@ export function resolveScreenshotPreviewSidecar({
 		screen.top + screen.height,
 		viewport.height - margin,
 	);
-	const rightWidth =
-		viewport.width - margin - screenRight - gap;
+	const rightWidth = viewport.width - margin - screenRight - gap;
 	const leftWidth = screen.left - margin - gap;
 	const side: ScreenshotPreviewSide =
 		rightWidth >= desiredWidth || rightWidth >= leftWidth ? "right" : "left";
@@ -237,9 +236,7 @@ export function ScreenshotPreviewOverlay({
 					style={{ objectFit: "contain", pointerEvents: "none" }}
 				/>
 			</div>
-			<div
-				className="agentsims-screenshot-preview-controls absolute right-1.5 top-1.5 flex items-center"
-			>
+			<div className="agentsims-screenshot-preview-controls absolute right-1.5 top-1.5 flex items-center">
 				<IconButton
 					label="Copy image"
 					tooltip="Copy image"

@@ -125,7 +125,11 @@ export function useSimulatorResize({
 
 	const persistNow = useCallback(
 		(value: number) => {
-			if (typeof window === "undefined" || defaultWidth <= 0 || fitModeRef.current)
+			if (
+				typeof window === "undefined" ||
+				defaultWidth <= 0 ||
+				fitModeRef.current
+			)
 				return;
 			const clamped = clampSimulatorFrameWidth(
 				value,
@@ -164,13 +168,15 @@ export function useSimulatorResize({
 		if (isResizing || isInertia) return;
 		const current = lastWidthRef.current;
 		if (current == null) return;
-		const next = fitModeRef.current ? fitWidth : clampSimulatorFrameWidth(
-			current,
-			defaultWidth,
-			viewportWidth,
-			viewportHeight,
-			aspectRatio,
-		);
+		const next = fitModeRef.current
+			? fitWidth
+			: clampSimulatorFrameWidth(
+					current,
+					defaultWidth,
+					viewportWidth,
+					viewportHeight,
+					aspectRatio,
+				);
 		if (next !== current) writeWidth(next);
 	}, [
 		aspectRatio,

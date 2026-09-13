@@ -40,12 +40,21 @@ test("location command failures remain visible to route playback", async () => {
 	).rejects.toThrow("Location requires an emulator");
 });
 
-
 test("manual Android location includes altitude in the same command path", async () => {
 	const actions: unknown[] = [];
-	await setDeviceLocation("android:emulator-5554", { lat: 10, lng: 20, altitude: 250 }, {
-		exec: async () => { throw new Error("Unexpected shell command"); },
-		android: async (_device, action) => { actions.push(action); },
-	});
-	expect(actions).toEqual([{ type: "location", latitude: 10, longitude: 20, altitude: 250 }]);
+	await setDeviceLocation(
+		"android:emulator-5554",
+		{ lat: 10, lng: 20, altitude: 250 },
+		{
+			exec: async () => {
+				throw new Error("Unexpected shell command");
+			},
+			android: async (_device, action) => {
+				actions.push(action);
+			},
+		},
+	);
+	expect(actions).toEqual([
+		{ type: "location", latitude: 10, longitude: 20, altitude: 250 },
+	]);
 });

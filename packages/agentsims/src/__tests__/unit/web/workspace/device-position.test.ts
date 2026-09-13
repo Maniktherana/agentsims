@@ -10,10 +10,24 @@ describe("workspace device placement", () => {
 			["visible", { left: 100, top: 50, right: 400 }],
 			["hidden", { left: 2000, top: 200, right: 2300 }],
 		]);
-		expect(reserveWorkspaceDevicePosition(positions, ["visible", "new"], "new", { left: 0, top: 50, right: 200 }, true))
-			.toEqual({ left: 420, top: 50, right: 620 });
-		expect(reserveWorkspaceDevicePosition(positions, ["visible", "hidden", "new"], "hidden", { left: 700, top: 50, right: 1000 }, false))
-			.toEqual({ left: 2000, top: 200, right: 2300 });
+		expect(
+			reserveWorkspaceDevicePosition(
+				positions,
+				["visible", "new"],
+				"new",
+				{ left: 0, top: 50, right: 200 },
+				true,
+			),
+		).toEqual({ left: 420, top: 50, right: 620 });
+		expect(
+			reserveWorkspaceDevicePosition(
+				positions,
+				["visible", "hidden", "new"],
+				"hidden",
+				{ left: 700, top: 50, right: 1000 },
+				false,
+			),
+		).toEqual({ left: 2000, top: 200, right: 2300 });
 	});
 
 	test("reserves distinct positions when multiple phones are added together", () => {
@@ -21,8 +35,20 @@ describe("workspace device placement", () => {
 			["existing", { left: 100, top: 50, right: 400 }],
 		]);
 		const visible = ["existing", "new-a", "new-b"];
-		const a = reserveWorkspaceDevicePosition(positions, visible, "new-a", { left: 0, top: 50, right: 250 }, true);
-		const b = reserveWorkspaceDevicePosition(positions, visible, "new-b", { left: 0, top: 50, right: 300 }, true);
+		const a = reserveWorkspaceDevicePosition(
+			positions,
+			visible,
+			"new-a",
+			{ left: 0, top: 50, right: 250 },
+			true,
+		);
+		const b = reserveWorkspaceDevicePosition(
+			positions,
+			visible,
+			"new-b",
+			{ left: 0, top: 50, right: 300 },
+			true,
+		);
 		expect(a).toEqual({ left: 420, top: 50, right: 670 });
 		expect(b).toEqual({ left: 690, top: 50, right: 990 });
 	});
@@ -31,9 +57,23 @@ describe("workspace device placement", () => {
 		const positions = new Map<string, WorkspaceDevicePosition>([
 			["resized", { left: 100, top: 80, right: 400 }],
 		]);
-		expect(reserveWorkspaceDevicePosition(positions, ["resized", "new"], "resized", { left: 20, top: 30, right: 620 }, false))
-			.toEqual({ left: 100, top: 80, right: 700 });
-		expect(reserveWorkspaceDevicePosition(positions, ["resized", "new"], "new", { left: 0, top: 50, right: 250 }, true).left)
-			.toBe(720);
+		expect(
+			reserveWorkspaceDevicePosition(
+				positions,
+				["resized", "new"],
+				"resized",
+				{ left: 20, top: 30, right: 620 },
+				false,
+			),
+		).toEqual({ left: 100, top: 80, right: 700 });
+		expect(
+			reserveWorkspaceDevicePosition(
+				positions,
+				["resized", "new"],
+				"new",
+				{ left: 0, top: 50, right: 250 },
+				true,
+			).left,
+		).toBe(720);
 	});
 });
