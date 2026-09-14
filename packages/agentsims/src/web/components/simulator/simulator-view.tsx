@@ -39,6 +39,7 @@ import {
 	captureRenderedScreenshot,
 	type RenderedScreenshot,
 } from "../../simulator/screenshot/rendered-screenshot.js";
+import { StreamPlaceholder } from "./stream-placeholder.js";
 
 // Custom round cursor matching the finger dot indicator
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
@@ -55,6 +56,14 @@ const WS_MSG_DIGITAL_CROWN = 0x0a;
 const WS_MSG_SCROLL = 0x0b;
 
 type MoveMessage = { type: "begin" | "move" | "end" };
+
+export function streamSurfaceState(
+	connected: boolean,
+	hasPresentedFrame: boolean,
+): "live" | "retained-frame" | "placeholder" {
+	if (connected) return "live";
+	return hasPresentedFrame ? "retained-frame" : "placeholder";
+}
 
 function useMoveCoalescedSender<T extends MoveMessage>(
 	sendNow: (message: T) => void,
@@ -246,6 +255,8 @@ export function SimulatorView({
 	const inputLayerRef = useRef<HTMLDivElement | null>(null);
 	const wsRef = useRef<WebSocket | null>(null);
 	const [connected, setConnected] = useState(false);
+	const [hasPresentedFrame, setHasPresentedFrame] = useState(false);
+	const hasPresentedFrameRef = useRef(false);
 	const [internalFrameRate] = useState(() => new SimulatorFrameRateStore());
 	const simulatorFrameRate = frameRate ?? internalFrameRate;
 	const [, setError] = useState<string | null>(null);
@@ -344,8 +355,15 @@ export function SimulatorView({
 	useEffect(() => {
 		lastFrameAtRef.current = 0;
 		avccTransportConnectedRef.current = false;
+		hasPresentedFrameRef.current = false;
+		setHasPresentedFrame(false);
 		setConnected(false);
 	}, [url, useAvcc]);
+	const markFramePresented = useCallback(() => {
+		if (hasPresentedFrameRef.current) return;
+		hasPresentedFrameRef.current = true;
+		setHasPresentedFrame(true);
+	}, []);
 	// Latest received-but-not-yet-painted frame, and the one currently shown.
 	// Painting is drained on requestAnimationFrame (latest wins; stale frames
 	// are dropped and their blob URLs released) so a browser that can't keep up
@@ -434,6 +452,7 @@ export function SimulatorView({
 
 			presentedBlobUrlRef.current = loadedUrl;
 			lastFrameAtRef.current = Date.now();
+			markFramePresented();
 			if (mjpegWatchdogRef.current) clearTimeout(mjpegWatchdogRef.current);
 			mjpegWatchdogRef.current = null;
 			setConnected(true);
@@ -445,7 +464,7 @@ export function SimulatorView({
 				});
 			}
 		},
-		[updateScreenConfig],
+		[markFramePresented, updateScreenConfig],
 	);
 
 	// AVCC (H.264) decode → canvas. Inert unless `useAvcc`. Works in both
@@ -453,14 +472,16 @@ export function SimulatorView({
 	const onAvccFirstFrame = useCallback(() => {
 		if (!avccTransportConnectedRef.current) return;
 		lastFrameAtRef.current = Date.now();
+		markFramePresented();
 		setConnected(true);
 		setError(null);
-	}, []);
+	}, [markFramePresented]);
 	const onPresentedFrameRef = useRef(onPresentedFrame);
 	onPresentedFrameRef.current = onPresentedFrame;
 	const onAvccFrame = useCallback((size: { width: number; height: number }) => {
 		if (!avccTransportConnectedRef.current) return;
 		lastFrameAtRef.current = Date.now();
+		markFramePresented();
 		onPresentedFrameRef.current?.(size);
 		// Re-establish "connected" if the relay staleness watchdog tripped during
 		// the decoder's startup buffering gap (keyframe + several deltas can land
@@ -470,7 +491,7 @@ export function SimulatorView({
 			setConnected(true);
 			setError(null);
 		}
-	}, []);
+	}, [markFramePresented]);
 	const onAvccSimulatorFrameTiming = useCallback(
 		(timing: SimulatorFrameTiming) => {
 			if (typeof document !== "undefined" && document.hidden) return;
@@ -1109,6 +1130,7 @@ export function SimulatorView({
 				...streamImageStyle,
 				transform: `${streamImageStyle.transform ?? ""} scale(${CANVAS_SEAM_OVERSHOOT})`,
 			};
+	const surfaceState = streamSurfaceState(connected, hasPresentedFrame);
 
 	return (
 		<div
@@ -1156,6 +1178,7 @@ export function SimulatorView({
 						}
 						data-display-orientation={presentationOrientation}
 						data-rotation-degrees={presentationRotationDegrees}
+						data-stream-surface-state={surfaceState}
 						style={
 							hasPresentationPlane
 								? ({
@@ -1187,6 +1210,13 @@ export function SimulatorView({
 							/>
 						)}
 						{presentationOverlay}
+						{surfaceState === "placeholder" ? <StreamPlaceholder /> : null}
+						{surfaceState === "retained-frame" ? (
+							<div
+								data-agentsims-stream-dimmed="true"
+								style={unavailableStreamOverlayStyle}
+							/>
+						) : null}
 					</div>
 					{/* Interactive overlay — captures all pointer events */}
 					<div
@@ -1664,6 +1694,13 @@ const slowOverlayStyle: React.CSSProperties = {
 	background: "rgba(0,0,0,0.7)",
 	borderRadius: 6,
 	padding: "4px 12px",
+	pointerEvents: "none",
+};
+
+const unavailableStreamOverlayStyle: React.CSSProperties = {
+	position: "absolute",
+	inset: 0,
+	background: "rgba(0,0,0,0.8)",
 	pointerEvents: "none",
 };
 

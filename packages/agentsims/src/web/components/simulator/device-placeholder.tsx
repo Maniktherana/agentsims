@@ -12,6 +12,7 @@ import {
 	restoredSimulatorFrameWidth,
 	readSimulatorResizeScale,
 } from "../../simulator/resize/simulator-resize";
+import { StreamPlaceholder } from "./stream-placeholder";
 
 // Shown in the main view when the selected device isn't streaming yet: a static
 // device frame, the device name + runtime, and a Start button that boots/streams
@@ -77,7 +78,7 @@ export function DevicePlaceholder({
 			>
 				{activeFrame ? (
 					<div className="absolute inset-0 pointer-events-none">
-						<DeviceFrame chrome={activeFrame} screen={<PlaceholderScreen />} />
+						<DeviceFrame chrome={activeFrame} screen={<StreamPlaceholder />} />
 					</div>
 				) : (
 					<div
@@ -90,7 +91,7 @@ export function DevicePlaceholder({
 							boxShadow: "inset 0 0 0 1px rgba(255,255,255,.2)",
 						}}
 					>
-						<PlaceholderScreen />
+						<StreamPlaceholder />
 					</div>
 				)}
 			</div>
@@ -128,11 +129,5 @@ export function DevicePlaceholder({
 				{busy ? busyLabel : actionLabel}
 			</button>
 		</div>
-	);
-}
-
-function PlaceholderScreen() {
-	return (
-		<div className="absolute inset-0 bg-[linear-gradient(145deg,#6fa8e6_0%,#5b93d6_55%,#5188cf_100%)]" />
 	);
 }

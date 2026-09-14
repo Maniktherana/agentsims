@@ -39,7 +39,7 @@ describe("presented stream liveness", () => {
 		).text();
 
 		expect(source).toMatch(
-			/lastFrameAtRef\.current = 0;\s*avccTransportConnectedRef\.current = false;\s*setConnected\(false\);\s*}, \[url, useAvcc\]\);/,
+			/lastFrameAtRef\.current = 0;\s*avccTransportConnectedRef\.current = false;\s*hasPresentedFrameRef\.current = false;\s*setHasPresentedFrame\(false\);\s*setConnected\(false\);\s*}, \[url, useAvcc\]\);/,
 		);
 	});
 });
