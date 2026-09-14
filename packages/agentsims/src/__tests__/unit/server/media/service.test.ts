@@ -15,6 +15,24 @@ describe("makeMediaRouting", () => {
 				calls.push({ apply: { device, action, publicPort } });
 				return { ok: true, apply: "live" };
 			},
+			async listWebcams(device) {
+				calls.push({ listWebcams: device });
+				return {
+					device,
+					platform: "ios",
+					webcams: [],
+					faceRequired: false,
+					apply: "app-relaunch",
+				};
+			},
+			async selectWebcam(device, selection) {
+				calls.push({ selectWebcam: { device, selection } });
+				return { ok: true, apply: "app-relaunch" };
+			},
+			async stopCamera(device) {
+				calls.push({ stopCamera: device });
+				return { ok: true, apply: "live" };
+			},
 		});
 
 		expect(await Effect.runPromise(commands.read("ios-device"))).toBe(state);
@@ -27,6 +45,27 @@ describe("makeMediaRouting", () => {
 				),
 			),
 		).toEqual({ ok: true, apply: "live" });
+		expect(await Effect.runPromise(commands.listWebcams("ios-device"))).toEqual(
+			{
+				device: "ios-device",
+				platform: "ios",
+				webcams: [],
+				faceRequired: false,
+				apply: "app-relaunch",
+			},
+		);
+		expect(
+			await Effect.runPromise(
+				commands.selectWebcam("ios-device", {
+					platform: "ios",
+					webcamId: "camera-1",
+				}),
+			),
+		).toEqual({ ok: true, apply: "app-relaunch" });
+		expect(await Effect.runPromise(commands.stopCamera("ios-device"))).toEqual({
+			ok: true,
+			apply: "live",
+		});
 		expect(calls).toEqual([
 			{ read: "ios-device" },
 			{
@@ -36,6 +75,14 @@ describe("makeMediaRouting", () => {
 					publicPort: 3200,
 				},
 			},
+			{ listWebcams: "ios-device" },
+			{
+				selectWebcam: {
+					device: "ios-device",
+					selection: { platform: "ios", webcamId: "camera-1" },
+				},
+			},
+			{ stopCamera: "ios-device" },
 		]);
 	});
 });

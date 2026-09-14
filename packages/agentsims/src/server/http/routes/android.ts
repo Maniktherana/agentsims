@@ -41,6 +41,16 @@ const requestContext = Effect.gen(function* () {
 	}
 	return { request, url, device };
 });
+const logFilter = (url: URL) => ({
+	level: (url.searchParams.get("level") ?? undefined) as
+		| AndroidLogLevel
+		| undefined,
+	query: url.searchParams.get("query")?.slice(0, 4096),
+	package: url.searchParams.get("package") ?? undefined,
+	pid: url.searchParams.has("pid")
+		? Number(url.searchParams.get("pid"))
+		: undefined,
+});
 export const androidRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(
 		"/android/state",
@@ -129,6 +139,23 @@ export const androidRoutes = HttpRouter.empty.pipe(
 		),
 	),
 	HttpRouter.get(
+		"/android/logs/snapshot",
+		commandResponse(
+			Effect.gen(function* () {
+				const { device, url } = yield* requestContext;
+				const limit = url.searchParams.has("limit")
+					? Number(url.searchParams.get("limit"))
+					: 100;
+				const lines = yield* (yield* AndroidLogs).snapshot(
+					device,
+					logFilter(url),
+					limit,
+				);
+				return { lines };
+			}),
+		),
+	),
+	HttpRouter.get(
 		"/android/logs",
 		Effect.gen(function* () {
 			const context = yield* Effect.either(requestContext);
@@ -140,29 +167,18 @@ export const androidRoutes = HttpRouter.empty.pipe(
 			const { device, url } = context.right;
 			const logs = yield* AndroidLogs;
 			const encoder = new TextEncoder();
-			const updates = logs
-				.stream(device, {
-					level: (url.searchParams.get("level") ?? undefined) as
-						| AndroidLogLevel
-						| undefined,
-					query: url.searchParams.get("query")?.slice(0, 4096),
-					package: url.searchParams.get("package") ?? undefined,
-					pid: url.searchParams.has("pid")
-						? Number(url.searchParams.get("pid"))
-						: undefined,
-				})
-				.pipe(
-					Stream.map((event) =>
-						encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-					),
-					Stream.catchAll((error) =>
-						Stream.succeed(
-							encoder.encode(
-								`event: failure\ndata: ${JSON.stringify({ error: error.message })}\n\n`,
-							),
+			const updates = logs.stream(device, logFilter(url)).pipe(
+				Stream.map((event) =>
+					encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+				),
+				Stream.catchAll((error) =>
+					Stream.succeed(
+						encoder.encode(
+							`event: failure\ndata: ${JSON.stringify({ error: error.message })}\n\n`,
 						),
 					),
-				);
+				),
+			);
 			const heartbeat = Stream.repeatEffect(
 				Effect.sleep("15 seconds").pipe(
 					Effect.as(encoder.encode(": keepalive\n\n")),

@@ -1,19 +1,34 @@
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useState,
-	type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Check, ShieldCheck, X } from "lucide-react";
+import type { PermissionName } from "../../../../core/tools/permissions";
 import { ReloadIcon } from "../../icons/index";
-import { execOnHost, shellEscape } from "../../../simulator/input/exec";
 import { CollapsibleSection } from "../../ui/collapsible-section";
+import { listAppPermissions, mutateAppPermissions } from "./permissions-client";
 import {
 	PERMISSION_SERVICES,
 	type PermAction,
 	type PermState,
 } from "../../../media/permissions";
+
+export function permissionStateFromList(result: {
+	tcc: Record<string, number>;
+	location: { Authorization: number } | null;
+	notifications: { allowsNotifications: boolean } | null;
+}): PermState {
+	const state: PermState = {};
+	for (const [permission, value] of Object.entries(result.tcc))
+		state[permission] = value > 0 ? "grant" : "revoke";
+	if (result.notifications)
+		state.notifications = result.notifications.allowsNotifications
+			? "grant"
+			: "revoke";
+	if (result.location) {
+		state.location = result.location.Authorization > 1 ? "grant" : "revoke";
+		state["location-always"] =
+			result.location.Authorization === 4 ? "grant" : "revoke";
+	}
+	return state;
+}
 
 export function AppPermissionsTool({
 	udid,
@@ -27,25 +42,24 @@ export function AppPermissionsTool({
 	const [error, setError] = useState<string | null>(null);
 	const [open, setOpen] = useState(false);
 
-	// The `agentsims permissions` subcommand handles the stores `simctl privacy`
-	// can't (push notifications via BulletinBoard, location's `i<bundleId>:`
-	// clients.plist keys), so the UI drives it instead of calling simctl directly.
-	const cliPrefix = useMemo(() => {
-		const bin =
-			typeof window === "undefined"
-				? undefined
-				: window.__SIM_PREVIEW__?.agentsimsBin;
-		if (!bin) return "agentsims";
-		if (bin.endsWith(".ts")) return `bun ${shellEscape(bin)}`;
-		if (bin.endsWith(".js")) return `node ${shellEscape(bin)}`;
-		return shellEscape(bin);
-	}, []);
-
-	// Reset assumed state whenever the foreground app changes.
 	useEffect(() => {
 		setState({});
 		setError(null);
-	}, [bundleId]);
+		if (!bundleId) return;
+		let active = true;
+		void listAppPermissions(udid, bundleId)
+			.then((result) => {
+				if (!active) return;
+				setState(permissionStateFromList(result));
+			})
+			.catch((cause: unknown) => {
+				if (active)
+					setError(cause instanceof Error ? cause.message : String(cause));
+			});
+		return () => {
+			active = false;
+		};
+	}, [udid, bundleId]);
 
 	const apply = useCallback(
 		async (service: string, action: PermAction) => {
@@ -54,25 +68,33 @@ export function AppPermissionsTool({
 			setPending(key);
 			setError(null);
 			try {
-				const res = await execOnHost(
-					`${cliPrefix} permissions ${action} ${service} ${shellEscape(bundleId)} -d ${shellEscape(udid)}`,
+				const permission = (
+					service === "location-always" ? "location" : service
+				) as PermissionName;
+				await mutateAppPermissions(
+					udid,
+					action === "reset"
+						? { operation: action, bundleId, permission }
+						: {
+								operation: action,
+								bundleId,
+								permission,
+								...(service === "location-always" && action === "grant"
+									? { value: "always" as const }
+									: {}),
+							},
 				);
-				if (res.exitCode !== 0) {
-					setError(
-						res.stderr.trim() ||
-							`agentsims permissions failed (exit ${res.exitCode})`,
-					);
-					return;
-				}
 				setState((s) => ({
 					...s,
 					[service]: action === "reset" ? undefined : action,
 				}));
+			} catch (cause) {
+				setError(cause instanceof Error ? cause.message : String(cause));
 			} finally {
 				setPending(null);
 			}
 		},
-		[cliPrefix, udid, bundleId],
+		[udid, bundleId],
 	);
 
 	const resetAll = useCallback(async () => {
@@ -80,21 +102,14 @@ export function AppPermissionsTool({
 		setPending("__all__");
 		setError(null);
 		try {
-			const res = await execOnHost(
-				`${cliPrefix} permissions reset all ${shellEscape(bundleId)} -d ${shellEscape(udid)}`,
-			);
-			if (res.exitCode !== 0) {
-				setError(
-					res.stderr.trim() ||
-						`agentsims permissions failed (exit ${res.exitCode})`,
-				);
-				return;
-			}
+			await mutateAppPermissions(udid, { operation: "reset", bundleId });
 			setState({});
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
 			setPending(null);
 		}
-	}, [cliPrefix, udid, bundleId]);
+	}, [udid, bundleId]);
 
 	if (!bundleId) {
 		return <AppPermissionsLoading />;

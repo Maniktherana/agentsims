@@ -11,9 +11,10 @@ test("public device and app commands use bounded HTTP requests", async () => {
 		port: 0,
 		async fetch(request) {
 			const url = new URL(request.url);
+			const text = await request.text();
 			requests.push({
 				path: url.pathname + url.search,
-				body: await request.json(),
+				body: text ? JSON.parse(text) : null,
 			});
 			return Response.json({ ok: true });
 		},
@@ -24,6 +25,17 @@ test("public device and app commands use bounded HTTP requests", async () => {
 			["act", '{"type":"tap","x":0.2,"y":0.7}', "-d", "android:emulator-5554"],
 			["devices", "boot", "android:emulator-5554"],
 			["app", "launch", "com.example.app", "-d", "ios-device"],
+			["camera", "webcam", "camera-1", "-d", "ios-device"],
+			[
+				"permissions",
+				"grant",
+				"camera",
+				"-d",
+				"ios-device",
+				"--app",
+				"com.example.app",
+			],
+			["logs", "-d", "android:emulator-5554", "--level", "e", "--limit", "25"],
 		]) {
 			await program().parseAsync([...args, "--url", server.url.origin], {
 				from: "user",
@@ -39,6 +51,22 @@ test("public device and app commands use bounded HTTP requests", async () => {
 				path: "/device/ios-device/app",
 				body: { operation: "launch", value: "com.example.app" },
 			},
+			{
+				path: "/media/camera/webcam?device=ios-device",
+				body: { platform: "ios", webcamId: "camera-1" },
+			},
+			{
+				path: "/device/ios-device/permissions",
+				body: {
+					operation: "grant",
+					bundleId: "com.example.app",
+					permission: "camera",
+				},
+			},
+			{
+				path: "/android/logs/snapshot?device=android%3Aemulator-5554&limit=25&level=E",
+				body: null,
+			},
 		]);
 	} finally {
 		output.mockRestore();
@@ -51,8 +79,6 @@ test("legacy public commands are removed", () => {
 		.commands.filter((command) => !command.hidden)
 		.map((command) => command.name());
 	for (const removed of [
-		"camera",
-		"permissions",
 		"ui",
 		"android",
 		"device",
@@ -71,6 +97,8 @@ test("legacy public commands are removed", () => {
 		"observe",
 		"act",
 		"app",
+		"camera",
+		"permissions",
 		"doctor",
 	])
 		expect(names).toContain(current);

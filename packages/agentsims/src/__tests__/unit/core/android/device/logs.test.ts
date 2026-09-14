@@ -143,3 +143,79 @@ test("logcat restarts after exit and scope close cancels a pending reconnect", a
 	await Bun.sleep(100);
 	expect(starts).toBe(2);
 });
+
+test("log snapshot is finite, bounded, filtered, and shares an active process", async () => {
+	let starts = 0;
+	let releases = 0;
+	const executor = makeExecutor(() => {
+		starts++;
+		return Effect.acquireRelease(
+			Effect.succeed({
+				stdout: Stream.concat(
+					Stream.make(line("ignore"), line("match-one"), line("match-two")),
+					Stream.never,
+				),
+				stderr: Stream.empty,
+				exitCode: Effect.never,
+			} as Process),
+			() =>
+				Effect.sync(() => {
+					releases++;
+				}),
+		);
+	});
+	const result = await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const logs = yield* AndroidLogs;
+				const follower = yield* logs
+					.stream("emulator-5554")
+					.pipe(Stream.runDrain, Effect.forkScoped);
+				yield* Effect.sleep("140 millis");
+				const snapshot = yield* logs.snapshot(
+					"android:emulator-5554",
+					{ query: "match", pid: 123, level: "I" },
+					1,
+				);
+				expect(starts).toBe(1);
+				yield* Fiber.interrupt(follower);
+				return snapshot;
+			}),
+		).pipe(
+			Effect.provide(
+				AndroidLogsLive.pipe(
+					Layer.provide(
+						Layer.succeed(CommandExecutor.CommandExecutor, executor),
+					),
+				),
+			),
+		),
+	);
+	expect(result.map((entry) => entry.message)).toEqual(["match-two"]);
+	expect(releases).toBe(1);
+});
+
+test("log snapshot rejects an unbounded line limit before starting logcat", async () => {
+	let starts = 0;
+	const executor = makeExecutor(() => {
+		starts++;
+		return Effect.die("logcat must not start");
+	});
+	const result = await Effect.runPromise(
+		Effect.either(
+			Effect.gen(function* () {
+				return yield* (yield* AndroidLogs).snapshot("emulator-5554", {}, 2001);
+			}).pipe(
+				Effect.provide(
+					AndroidLogsLive.pipe(
+						Layer.provide(
+							Layer.succeed(CommandExecutor.CommandExecutor, executor),
+						),
+					),
+				),
+			),
+		),
+	);
+	expect(result._tag).toBe("Left");
+	expect(starts).toBe(0);
+});

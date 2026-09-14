@@ -2,6 +2,14 @@ export type CommandClientOptions = {
 	origin?: string;
 };
 
+export type DeviceLogOptions = {
+	limit?: number;
+	level?: string;
+	query?: string;
+	package?: string;
+	pid?: number;
+};
+
 export class ApplicationCommandClient {
 	private readonly origin: string;
 
@@ -41,6 +49,38 @@ export class ApplicationCommandClient {
 		});
 	}
 
+	async listWebcams(deviceId: string): Promise<unknown> {
+		return this.request(
+			`/media/camera/webcams?device=${encodeURIComponent(deviceId)}`,
+		);
+	}
+
+	async selectWebcam(
+		deviceId: string,
+		webcamId: string,
+		face?: "front" | "back",
+	): Promise<unknown> {
+		const android = deviceId.startsWith("android:");
+		return this.request(
+			`/media/camera/webcam?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				body: JSON.stringify(
+					android
+						? { platform: "android", face, webcamId }
+						: { platform: "ios", webcamId },
+				),
+			},
+		);
+	}
+
+	async stopCamera(deviceId: string): Promise<unknown> {
+		return this.request(
+			`/media/camera/stop?device=${encodeURIComponent(deviceId)}`,
+			{ method: "POST", body: "{}" },
+		);
+	}
+
 	async status(): Promise<unknown> {
 		return this.request("/status");
 	}
@@ -77,6 +117,32 @@ export class ApplicationCommandClient {
 				...(value === undefined ? {} : { value }),
 			}),
 		});
+	}
+
+	async listPermissions(deviceId: string, bundleId: string): Promise<unknown> {
+		return this.request(
+			`/device/${encodeURIComponent(deviceId)}/permissions?bundleId=${encodeURIComponent(bundleId)}`,
+		);
+	}
+
+	async mutatePermissions(deviceId: string, input: unknown): Promise<unknown> {
+		return this.request(`/device/${encodeURIComponent(deviceId)}/permissions`, {
+			method: "POST",
+			body: JSON.stringify(input),
+		});
+	}
+
+	async deviceLogs(
+		deviceId: string,
+		options: DeviceLogOptions = {},
+	): Promise<unknown> {
+		const query = new URLSearchParams({ device: deviceId });
+		if (options.limit !== undefined) query.set("limit", String(options.limit));
+		if (options.level) query.set("level", options.level);
+		if (options.query) query.set("query", options.query);
+		if (options.package) query.set("package", options.package);
+		if (options.pid !== undefined) query.set("pid", String(options.pid));
+		return this.request(`/android/logs/snapshot?${query}`);
 	}
 
 	async android(

@@ -81,10 +81,13 @@ agentsims start [--detach] [--host <address>] [--port <port>] [--codec <codec>]
 agentsims stop
 agentsims status
 agentsims logs [--follow]
+agentsims logs --device <android-device> [--limit <count>] [--level <level>]
 agentsims devices [list|boot|shutdown] [device]
 agentsims observe --device <device>
 agentsims act --device <device> <json>
+agentsims camera --device <device> [webcams|webcam|stop] [webcam]
 agentsims app --device <device> <operation> [value]
+agentsims permissions --device <ios-device> --app <bundle-id> <operation> [permission]
 agentsims doctor [--platform android|ios]
 ```
 
@@ -149,8 +152,43 @@ npx agentsims app stop com.example.app --device android:emulator-5554
 npx agentsims app uninstall com.example.app --device android:emulator-5554
 ```
 
-The browser contains the additional platform tools for permissions, media,
-camera input, location, Android conditions, logs, and emulator snapshots.
+### Test camera and permission behavior
+
+List host webcams before you select one. Android webcam routes require a camera
+face and take effect after an emulator restart. Agentsims does not restart the
+emulator automatically.
+
+```sh
+npx agentsims camera webcams --device <device-id>
+npx agentsims camera webcam <webcam-id> --device <ios-device-id>
+npx agentsims camera webcam webcam0 --face back \
+  --device android:emulator-5554
+npx agentsims camera stop --device <ios-device-id>
+```
+
+iOS Simulator permissions support `list`, `grant`, `revoke`, and `reset`:
+
+```sh
+npx agentsims permissions list --device <ios-device-id> \
+  --app com.example.app
+npx agentsims permissions revoke camera --device <ios-device-id> \
+  --app com.example.app
+npx agentsims permissions grant camera --device <ios-device-id> \
+  --app com.example.app
+npx agentsims permissions reset --device <ios-device-id> \
+  --app com.example.app
+```
+
+Read a bounded Android log snapshot when visible evidence is not enough:
+
+```sh
+npx agentsims logs --device android:emulator-5554 --limit 100
+npx agentsims logs --device android:emulator-5554 \
+  --app com.example.app --level E --query "camera"
+```
+
+The browser contains additional controls for media, location, Android device
+conditions, live Android logs, and emulator snapshots.
 
 ## React Native and Expo
 

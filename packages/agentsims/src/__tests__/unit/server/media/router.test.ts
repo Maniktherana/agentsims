@@ -12,6 +12,7 @@ import {
 } from "../../../../core/android/device/media";
 import {
 	buildDeviceMediaState,
+	CameraWebcamSelectionSchema,
 	mediaDeviceFromRequestUrl,
 } from "../../../../core/tools/media";
 import {
@@ -56,6 +57,36 @@ function androidStatus(serial = "emulator-5554"): AndroidStatus {
 }
 
 describe("media routing model", () => {
+	test("accepts only bounded webcam selections and requires an Android face", () => {
+		expect(
+			CameraWebcamSelectionSchema.safeParse({
+				platform: "android",
+				face: "front",
+				webcamId: "webcam0",
+			}).success,
+		).toBe(true);
+		expect(
+			CameraWebcamSelectionSchema.safeParse({
+				platform: "android",
+				webcamId: "webcam0",
+			}).success,
+		).toBe(false);
+		expect(
+			CameraWebcamSelectionSchema.safeParse({
+				platform: "ios",
+				webcamId: "camera-1",
+				path: "/tmp/video.mov",
+			}).success,
+		).toBe(false);
+		expect(
+			CameraWebcamSelectionSchema.safeParse({
+				platform: "android",
+				face: "back",
+				webcamId: "imagefile:/tmp/camera.png",
+			}).success,
+		).toBe(false);
+	});
+
 	test("targets media requests to the device named by the panel URL", () => {
 		expect(mediaDeviceFromRequestUrl("/media?device=IOS-UDID")).toBe(
 			"IOS-UDID",

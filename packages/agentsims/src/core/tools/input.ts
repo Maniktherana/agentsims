@@ -32,6 +32,19 @@ const HID_BUTTON_CODES: Record<string, { page: number; usage: number }> = {
 	"left-side-button": { page: 65281, usage: 512 },
 };
 
+export const DEVICE_BUTTONS = [
+	"home",
+	"power",
+	"volume-up",
+	"volume-down",
+	"back",
+	"app-switch",
+	"action",
+	"side-button",
+	"digital-crown",
+	"left-side-button",
+] as const;
+
 const coordinate = (name: string) =>
 	z
 		.number({ error: `${name} must be a number between 0 and 1` })
@@ -60,7 +73,7 @@ export const DeviceActionSchema = z.discriminatedUnion("type", [
 		durationMs: duration.optional(),
 	}),
 	z.object({ type: z.literal("type"), text: z.string() }),
-	z.object({ type: z.literal("button"), button: z.string().min(1) }),
+	z.object({ type: z.literal("button"), button: z.enum(DEVICE_BUTTONS) }),
 	z.object({ type: z.literal("rotate"), orientation: z.enum(orientations) }),
 ]);
 export type DeviceAction = z.infer<typeof DeviceActionSchema>;

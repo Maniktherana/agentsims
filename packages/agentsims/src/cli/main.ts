@@ -5,7 +5,11 @@ import { Command, InvalidArgumentError } from "commander";
 import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
-import { parseDeviceAction } from "../core/tools/input";
+import { DEVICE_BUTTONS, parseDeviceAction } from "../core/tools/input";
+import {
+	BundleIdSchema,
+	PermissionNameSchema,
+} from "../core/tools/permissions";
 import { ApplicationCommandClient } from "./application-command-client";
 import {
 	formatHostDiagnostics,
@@ -53,6 +57,26 @@ const port = (value: string) => {
 const codec = (value: string): LocalServerOptions["codec"] => {
 	if (value === "auto" || value === "h264" || value === "mjpeg") return value;
 	throw new InvalidArgumentError("Codec must be auto, h264, or mjpeg.");
+};
+const integer =
+	(name: string, minimum: number, maximum: number) =>
+	(value: string): number => {
+		const parsed = Number(value);
+		if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum)
+			throw new InvalidArgumentError(
+				`${name} must be an integer between ${minimum} and ${maximum}.`,
+			);
+		return parsed;
+	};
+const logLevel = (value: string) => {
+	const parsed = value.toUpperCase();
+	if (!/^[VDIWEF]$/.test(parsed))
+		throw new InvalidArgumentError("Log level must be V, D, I, W, E, or F.");
+	return parsed;
+};
+const cameraFace = (value: string): "front" | "back" => {
+	if (value === "front" || value === "back") return value;
+	throw new InvalidArgumentError("Camera face must be front or back.");
 };
 type ServerFlags = {
 	host: string;
@@ -118,26 +142,71 @@ export function createProgram(): Command {
 	program
 		.command("logs")
 		.option("-f, --follow", "Follow server output")
-		.action(async ({ follow }: { follow?: boolean }) => {
-			if (!existsSync(localServerLogFile)) return;
-			if (!follow) {
-				process.stdout.write(readFileSync(localServerLogFile, "utf8"));
-				return;
-			}
-			const child = Bun.spawn(["tail", "-f", localServerLogFile], {
-				stdout: "inherit",
-				stderr: "inherit",
-			});
-			const stop = () => child.kill();
-			process.once("SIGINT", stop);
-			process.once("SIGTERM", stop);
-			try {
-				await child.exited;
-			} finally {
-				process.off("SIGINT", stop);
-				process.off("SIGTERM", stop);
-			}
-		});
+		.option("-d, --device <id>", "Read recent logs from an Android device")
+		.option("--url <url>")
+		.option(
+			"--limit <count>",
+			"Maximum device log lines",
+			integer("Log limit", 1, 2000),
+			100,
+		)
+		.option("--level <level>", "Minimum Android log level", logLevel)
+		.option("--query <text>", "Filter device logs by text")
+		.option("--app <package>", "Filter device logs by app package")
+		.option(
+			"--pid <pid>",
+			"Filter device logs by process ID",
+			integer("PID", 1, 2_147_483_647),
+		)
+		.action(
+			async (flags: {
+				follow?: boolean;
+				device?: string;
+				url?: string;
+				limit: number;
+				level?: string;
+				query?: string;
+				app?: string;
+				pid?: number;
+			}) => {
+				if (flags.device) {
+					if (flags.follow)
+						throw new Error(
+							"--follow is not supported with device log snapshots.",
+						);
+					json(
+						await client(flags.url).deviceLogs(flags.device, {
+							limit: flags.limit,
+							level: flags.level,
+							query: flags.query,
+							package: flags.app,
+							pid: flags.pid,
+						}),
+					);
+					return;
+				}
+				if (flags.url || flags.level || flags.query || flags.app || flags.pid)
+					throw new Error("Device log filters require --device.");
+				if (!existsSync(localServerLogFile)) return;
+				if (!flags.follow) {
+					process.stdout.write(readFileSync(localServerLogFile, "utf8"));
+					return;
+				}
+				const child = Bun.spawn(["tail", "-f", localServerLogFile], {
+					stdout: "inherit",
+					stderr: "inherit",
+				});
+				const stop = () => child.kill();
+				process.once("SIGINT", stop);
+				process.once("SIGTERM", stop);
+				try {
+					await child.exited;
+				} finally {
+					process.off("SIGINT", stop);
+					process.off("SIGTERM", stop);
+				}
+			},
+		);
 	const devices = program
 		.command("devices [operation]")
 		.description("List, boot, or shut down devices")
@@ -177,6 +246,9 @@ export function createProgram(): Command {
 		);
 	program
 		.command("act <json>")
+		.description(
+			`Send one bounded input action. Buttons: ${DEVICE_BUTTONS.join(", ")}`,
+		)
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
 		.action(async (input: string, flags: { device: string; url?: string }) =>
@@ -185,6 +257,48 @@ export function createProgram(): Command {
 					parseDeviceAction(input),
 				]),
 			),
+		);
+	program
+		.command("camera [operation] [webcam]")
+		.description("List, select, or stop a host webcam for a device")
+		.requiredOption("-d, --device <id>")
+		.option("--url <url>")
+		.option("--face <face>", "Android camera face", cameraFace)
+		.action(
+			async (
+				operation = "webcams",
+				webcam: string | undefined,
+				flags: {
+					device: string;
+					url?: string;
+					face?: "front" | "back";
+				},
+			) => {
+				const api = client(flags.url);
+				if (operation === "webcams") {
+					if (webcam) throw new Error("webcams does not accept a webcam ID.");
+					json(await api.listWebcams(flags.device));
+					return;
+				}
+				if (operation === "webcam") {
+					if (!webcam)
+						throw new Error("webcam requires an ID from camera webcams.");
+					const android = flags.device.startsWith("android:");
+					if (android && !flags.face)
+						throw new Error("Android webcam selection requires --face.");
+					if (!android && flags.face)
+						throw new Error("--face is available only for Android emulators.");
+					json(await api.selectWebcam(flags.device, webcam, flags.face));
+					return;
+				}
+				if (operation === "stop") {
+					if (webcam || flags.face)
+						throw new Error("camera stop does not accept a webcam or face.");
+					json(await api.stopCamera(flags.device));
+					return;
+				}
+				throw new Error("Camera operation must be webcams, webcam, or stop.");
+			},
 		);
 	program
 		.command("app <operation> [value]")
@@ -208,6 +322,56 @@ export function createProgram(): Command {
 				if (operation !== "list" && !value)
 					throw new Error(`${operation} requires an app id or path.`);
 				json(await client(flags.url).app(flags.device, operation, value));
+			},
+		);
+	program
+		.command("permissions <operation> [permission]")
+		.description("List, grant, revoke, or reset iOS Simulator app permissions")
+		.requiredOption("-d, --device <id>")
+		.requiredOption("-a, --app <bundle-id>")
+		.option("--value <value>", "Permission-specific grant value")
+		.option("--url <url>")
+		.action(
+			async (
+				operation: string,
+				permission: string | undefined,
+				flags: { device: string; app: string; value?: string; url?: string },
+			) => {
+				const bundleId = BundleIdSchema.safeParse(flags.app);
+				if (!bundleId.success)
+					throw new Error("App must be a valid bundle identifier.");
+				const api = client(flags.url);
+				if (operation === "list") {
+					if (permission || flags.value)
+						throw new Error(
+							"permissions list does not accept a permission or value.",
+						);
+					json(await api.listPermissions(flags.device, bundleId.data));
+					return;
+				}
+				if (!["grant", "revoke", "reset"].includes(operation))
+					throw new Error(
+						"Permission operation must be list, grant, revoke, or reset.",
+					);
+				if (!permission && operation !== "reset")
+					throw new Error(`${operation} requires a permission.`);
+				const parsedPermission = permission
+					? PermissionNameSchema.safeParse(permission)
+					: undefined;
+				if (parsedPermission && !parsedPermission.success)
+					throw new Error("Unknown permission name.");
+				if (flags.value && operation !== "grant")
+					throw new Error("--value is available only with grant.");
+				json(
+					await api.mutatePermissions(flags.device, {
+						operation,
+						bundleId: bundleId.data,
+						...(parsedPermission?.success
+							? { permission: parsedPermission.data }
+							: {}),
+						...(flags.value ? { value: flags.value } : {}),
+					}),
+				);
 			},
 		);
 	program

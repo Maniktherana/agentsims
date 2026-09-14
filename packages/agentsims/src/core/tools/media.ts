@@ -44,6 +44,7 @@ import {
 	attachOrSwitchIosCameraSource,
 	getIosCameraStatus,
 	listIosWebcams,
+	stopIosCameraInjection,
 	type IosCameraStatus,
 } from "../ios/camera";
 
@@ -147,6 +148,34 @@ export interface MediaRouteResult {
 	ok: true;
 	apply: Exclude<MediaApplyMode, "unsupported">;
 	device?: string;
+}
+
+export const CameraWebcamSelectionSchema = z.discriminatedUnion("platform", [
+	z
+		.object({
+			platform: z.literal("ios"),
+			webcamId: z.string().min(1).max(256),
+		})
+		.strict(),
+	z
+		.object({
+			platform: z.literal("android"),
+			face: z.enum(["front", "back"]),
+			webcamId: z
+				.string()
+				.max(32)
+				.regex(/^webcam\d+$/),
+		})
+		.strict(),
+]);
+export type CameraWebcamSelection = z.infer<typeof CameraWebcamSelectionSchema>;
+
+export interface CameraWebcamChoices {
+	device: string;
+	platform: "ios" | "android";
+	webcams: Array<{ id: string; label: string }>;
+	faceRequired: boolean;
+	apply: "app-relaunch" | "device-restart";
 }
 
 export interface StoredMediaRoute {
@@ -611,6 +640,101 @@ export class MediaRouter {
 		);
 	}
 
+	async listWebcams(device: string): Promise<CameraWebcamChoices> {
+		const serial = androidSerialFromStateId(device);
+		if (!serial) {
+			if (process.platform !== "darwin")
+				throw new CommandUnavailable({
+					message: "iOS camera controls require a macOS server with Xcode.",
+				});
+			return {
+				device,
+				platform: "ios",
+				webcams: (await listIosWebcams()).map(({ id, label }) => ({
+					id,
+					label,
+				})),
+				faceRequired: false,
+				apply: "app-relaunch",
+			};
+		}
+		if (!/^emulator-\d+$/.test(serial))
+			throw new Error(
+				"Webcam selection is only available for Android emulators",
+			);
+		return {
+			device,
+			platform: "android",
+			webcams: (await listAndroidWebcams()).map(({ id, name }) => ({
+				id,
+				label: name,
+			})),
+			faceRequired: true,
+			apply: "device-restart",
+		};
+	}
+
+	async selectWebcam(
+		device: string,
+		selection: CameraWebcamSelection,
+	): Promise<MediaRouteResult> {
+		const serial = androidSerialFromStateId(device);
+		if (!serial) {
+			if (selection.platform !== "ios")
+				throw new Error("The selected device is an iOS simulator");
+			const webcams = await listIosWebcams();
+			if (!webcams.some(({ id }) => id === selection.webcamId))
+				throw new Error("The selected webcam is not available");
+			const apply = await attachOrSwitchIosCameraSource(
+				device,
+				"webcam",
+				selection.webcamId,
+			);
+			return { ok: true, apply };
+		}
+		if (selection.platform !== "android")
+			throw new Error("The selected device is an Android emulator");
+		if (!/^emulator-\d+$/.test(serial))
+			throw new Error(
+				"Webcam selection is only available for Android emulators",
+			);
+		const webcams = await listAndroidWebcams();
+		if (!webcams.some(({ id }) => id === selection.webcamId))
+			throw new Error("The selected webcam is not available");
+		const status = await getAndroidStatus(serial);
+		if (!status.avdName)
+			throw new Error("The running emulator has no AVD name");
+		const routeKey = androidAvdStateId(status.avdName);
+		const current = getStoredMediaRoute(routeKey);
+		updateStoredMediaRoute(
+			routeKey,
+			selection.face === "front"
+				? {
+						androidCameraFront: selection.webcamId,
+						androidCameraBack: current.androidCameraBack ?? status.camera.back,
+					}
+				: {
+						androidCameraFront:
+							current.androidCameraFront ?? status.camera.front,
+						androidCameraBack: selection.webcamId,
+					},
+		);
+		return { ok: true, apply: "device-restart" };
+	}
+
+	async stopCamera(device: string): Promise<MediaRouteResult> {
+		if (androidSerialFromStateId(device))
+			throw new Error(
+				"Camera injection stop is only available for iOS simulators",
+			);
+		if (process.platform !== "darwin")
+			throw new CommandUnavailable({
+				message: "iOS camera controls require a macOS server with Xcode.",
+			});
+		await stopIosCameraInjection(device);
+		return { ok: true, apply: "live" };
+	}
+
 	async apply(
 		device: string,
 		body: MediaRouteAction,
@@ -807,7 +931,10 @@ export class MediaRouter {
 	}
 }
 
-export type MediaOperations = Pick<MediaRouter, "read" | "apply">;
+export type MediaOperations = Pick<
+	MediaRouter,
+	"read" | "apply" | "listWebcams" | "selectWebcam" | "stopCamera"
+>;
 
 export function makeMediaRouting(operations: MediaOperations) {
 	return {
@@ -819,6 +946,21 @@ export function makeMediaRouting(operations: MediaOperations) {
 		apply: (device: string, action: MediaRouteAction, port: number) =>
 			Effect.tryPromise({
 				try: () => operations.apply(device, action, port),
+				catch: commandFailure,
+			}),
+		listWebcams: (device: string) =>
+			Effect.tryPromise({
+				try: () => operations.listWebcams(device),
+				catch: commandFailure,
+			}),
+		selectWebcam: (device: string, selection: CameraWebcamSelection) =>
+			Effect.tryPromise({
+				try: () => operations.selectWebcam(device, selection),
+				catch: commandFailure,
+			}),
+		stopCamera: (device: string) =>
+			Effect.tryPromise({
+				try: () => operations.stopCamera(device),
 				catch: commandFailure,
 			}),
 	};

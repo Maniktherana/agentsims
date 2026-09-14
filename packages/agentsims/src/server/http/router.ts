@@ -8,6 +8,7 @@ import { deviceAssetRoutes } from "./routes/device-assets";
 import { devtoolsRoutes } from "./routes/browser-devtools";
 import { helperRoutes } from "./routes/helpers";
 import { previewRoutes } from "./routes/preview";
+import { permissionRoutes } from "./routes/permissions";
 
 const routes = HttpRouter.concatAll(
 	commandRoutes,
@@ -19,6 +20,7 @@ const routes = HttpRouter.concatAll(
 	devtoolsRoutes,
 	helperRoutes,
 	previewRoutes,
+	permissionRoutes,
 );
 
 /** Build the route table once per server. Legacy command paths remain available. */

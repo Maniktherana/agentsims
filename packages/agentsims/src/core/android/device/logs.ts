@@ -1,6 +1,10 @@
 import { Command, CommandExecutor } from "@effect/platform";
 import { Context, Effect, Fiber, Layer, PubSub, Stream } from "effect";
-import type { AndroidLogEvent, AndroidLogFilter } from "../contracts";
+import type {
+	AndroidLogEvent,
+	AndroidLogFilter,
+	AndroidLogLine,
+} from "../contracts";
 import {
 	androidLogMatches,
 	AndroidLogBuffer,
@@ -29,6 +33,11 @@ export type AndroidLogsService = {
 		device: string,
 		filter?: AndroidLogFilter,
 	): Stream.Stream<AndroidLogEvent, ApplicationCommandError>;
+	snapshot(
+		device: string,
+		filter?: AndroidLogFilter,
+		limit?: number,
+	): Effect.Effect<AndroidLogLine[], ApplicationCommandError>;
 };
 export class AndroidLogs extends Context.Tag("@agentsims/AndroidLogs")<
 	AndroidLogs,
@@ -127,6 +136,59 @@ export const AndroidLogsLive = Layer.scoped(
 					yield* PubSub.shutdown(entry.updates);
 				}),
 			);
+		const prepare = (device: string, filter: AndroidLogFilter) =>
+			Effect.gen(function* () {
+				const serial = yield* Effect.try({
+					try: () => androidToolSerial(device),
+					catch: commandFailure,
+				});
+				if (
+					filter.package &&
+					!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$/.test(filter.package)
+				)
+					return yield* Effect.fail(
+						new InvalidCommandInput({
+							message: "Invalid Android package name",
+						}),
+					);
+				if (filter.level && !/^[VDIWEF]$/.test(filter.level))
+					return yield* Effect.fail(
+						new InvalidCommandInput({ message: "Invalid log level" }),
+					);
+				if (
+					filter.pid !== undefined &&
+					(!Number.isInteger(filter.pid) || filter.pid < 1)
+				)
+					return yield* Effect.fail(
+						new InvalidCommandInput({
+							message: "PID must be a positive integer",
+						}),
+					);
+				let pids = new Set<number>();
+				if (filter.package) {
+					const packageName = filter.package;
+					const refresh = androidShell(run, serial, "pidof", packageName).pipe(
+						Effect.match({
+							onFailure: () => {
+								pids = new Set();
+							},
+							onSuccess: (value) => {
+								pids = new Set(
+									value
+										.split(/\s+/)
+										.map(Number)
+										.filter((pid) => pid > 0),
+								);
+							},
+						}),
+					);
+					yield* refresh;
+					yield* Effect.forever(
+						Effect.sleep("2 seconds").pipe(Effect.zipRight(refresh)),
+					).pipe(Effect.forkScoped);
+				}
+				return { serial, pids: () => pids };
+			});
 		yield* Effect.addFinalizer(() =>
 			Effect.forEach(
 				entries.values(),
@@ -138,67 +200,37 @@ export const AndroidLogsLive = Layer.scoped(
 			).pipe(Effect.tap(() => Effect.sync(() => entries.clear()))),
 		);
 		return AndroidLogs.of({
+			snapshot: (device, filter = {}, limit = 100) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						if (!Number.isInteger(limit) || limit < 1 || limit > 2000)
+							return yield* Effect.fail(
+								new InvalidCommandInput({
+									message: "Log limit must be an integer from 1 to 2000",
+								}),
+							);
+						const prepared = yield* prepare(device, filter);
+						const entry = yield* Effect.acquireRelease(
+							acquire(prepared.serial),
+							() => release(prepared.serial),
+						);
+						// Give a newly started logcat process time to emit its bounded history.
+						yield* Effect.sleep("250 millis");
+						return entry.buffer
+							.read()
+							.filter((line) =>
+								androidLogMatches(line, filter, prepared.pids()),
+							)
+							.slice(-limit);
+					}),
+				),
 			stream: (device, filter = {}) =>
 				Stream.unwrapScoped(
 					Effect.gen(function* () {
-						const serial = yield* Effect.try({
-							try: () => androidToolSerial(device),
-							catch: commandFailure,
-						});
-						if (
-							filter.package &&
-							!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$/.test(
-								filter.package,
-							)
-						)
-							return yield* Effect.fail(
-								new InvalidCommandInput({
-									message: "Invalid Android package name",
-								}),
-							);
-						if (filter.level && !/^[VDIWEF]$/.test(filter.level))
-							return yield* Effect.fail(
-								new InvalidCommandInput({ message: "Invalid log level" }),
-							);
-						if (
-							filter.pid !== undefined &&
-							(!Number.isInteger(filter.pid) || filter.pid < 1)
-						)
-							return yield* Effect.fail(
-								new InvalidCommandInput({
-									message: "PID must be a positive integer",
-								}),
-							);
-						let pids = new Set<number>();
-						if (filter.package) {
-							const packageName = filter.package;
-							const refresh = androidShell(
-								run,
-								serial,
-								"pidof",
-								packageName,
-							).pipe(
-								Effect.match({
-									onFailure: () => {
-										pids = new Set();
-									},
-									onSuccess: (value) => {
-										pids = new Set(
-											value
-												.split(/\s+/)
-												.map(Number)
-												.filter((pid) => pid > 0),
-										);
-									},
-								}),
-							);
-							yield* refresh;
-							yield* Effect.forever(
-								Effect.sleep("2 seconds").pipe(Effect.zipRight(refresh)),
-							).pipe(Effect.forkScoped);
-						}
-						const entry = yield* Effect.acquireRelease(acquire(serial), () =>
-							release(serial),
+						const prepared = yield* prepare(device, filter);
+						const entry = yield* Effect.acquireRelease(
+							acquire(prepared.serial),
+							() => release(prepared.serial),
 						);
 						const queue = yield* PubSub.subscribe(entry.updates);
 						const initial = entry.buffer.read();
@@ -206,7 +238,7 @@ export const AndroidLogsLive = Layer.scoped(
 						return Stream.succeed<AndroidLogEvent>({
 							type: "lines",
 							lines: initial.filter((line) =>
-								androidLogMatches(line, filter, pids),
+								androidLogMatches(line, filter, prepared.pids()),
 							),
 						}).pipe(
 							Stream.concat(
@@ -216,7 +248,7 @@ export const AndroidLogsLive = Layer.scoped(
 										const lines = event.lines.filter(
 											(line) =>
 												line.id > lastId &&
-												androidLogMatches(line, filter, pids),
+												androidLogMatches(line, filter, prepared.pids()),
 										);
 										lastId = Math.max(lastId, event.lines.at(-1)?.id ?? 0);
 										return { type: "lines", lines };

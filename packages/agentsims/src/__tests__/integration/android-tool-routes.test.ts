@@ -12,6 +12,7 @@ function handler() {
 	const calls: { serial: string; args: readonly string[] }[] = [];
 	let installedPath: string | undefined;
 	let releasedLogs = 0;
+	let snapshotRequest: unknown;
 	const commands = makeAndroidTools({
 		run: (serial, args) =>
 			Effect.sync(() => {
@@ -33,6 +34,21 @@ function handler() {
 	const route = androidRoutes.pipe(
 		Effect.provideService(AndroidTools, commands),
 		Effect.provideService(AndroidLogs, {
+			snapshot: (device, filter, limit) =>
+				Effect.sync(() => {
+					snapshotRequest = { device, filter, limit };
+					return [
+						{
+							id: 7,
+							time: "09-06 12:34:56.789",
+							pid: 123,
+							tid: 456,
+							level: "E" as const,
+							tag: "App",
+							message: "failure",
+						},
+					];
+				}),
 			stream: () =>
 				Stream.unwrapScoped(
 					Effect.acquireRelease(
@@ -61,6 +77,9 @@ function handler() {
 		},
 		get releasedLogs() {
 			return releasedLogs;
+		},
+		get snapshotRequest() {
+			return snapshotRequest;
 		},
 	};
 }
@@ -185,6 +204,30 @@ test("canceling log SSE releases its subscriber", async () => {
 	await reader.cancel();
 	await Bun.sleep(10);
 	expect(app.releasedLogs).toBe(1);
+});
+
+test("Android log snapshot returns bounded JSON and forwards filters", async () => {
+	const app = handler();
+	const response = await app.fetch(
+		new Request(
+			"http://localhost/android/logs/snapshot?device=android%3Aemulator-5554&limit=25&level=E&query=fail&package=com.example.app&pid=123",
+		),
+	);
+	expect(response.status).toBe(200);
+	expect(response.headers.get("Content-Type")).toContain("application/json");
+	expect(await response.json()).toMatchObject({
+		lines: [{ id: 7, level: "E", message: "failure" }],
+	});
+	expect(app.snapshotRequest).toEqual({
+		device: "android:emulator-5554",
+		filter: {
+			level: "E",
+			query: "fail",
+			package: "com.example.app",
+			pid: 123,
+		},
+		limit: 25,
+	});
 });
 
 test("Android state route returns structured unknown values and rejects missing devices", async () => {

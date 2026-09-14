@@ -5,6 +5,7 @@ import {
 	sendHelperCommand,
 	attachCamera,
 	isHelperAlive,
+	stopExistingHelper,
 } from "./camera-helper";
 import { axFrontmostAsync } from "./stream/native";
 import { hostCommandText } from "../host";
@@ -113,4 +114,9 @@ export async function listIosWebcams(): Promise<HostAudioDevice[]> {
 		const [id, label] = line.split("\t");
 		return id && label ? [{ id, label }] : [];
 	});
+}
+
+/** Stops only the camera helper recorded for this simulator by Agentsims. */
+export async function stopIosCameraInjection(udid: string): Promise<void> {
+	await stopExistingHelper(udid);
 }

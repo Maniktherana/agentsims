@@ -1,13 +1,16 @@
 {
+	"$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
 	"name": "agentsims",
-	"owner": { "name": "Manik" },
+	"description": "Build and verify iOS and Android apps with Agentsims",
+	"owner": { "name": "Manik Rana" },
 	"plugins": [
 		{
 			"name": "agentsims",
-			"description": "Inspect and control iOS simulators and Android devices through the CLI.",
+			"description": "Build, debug, and verify native and cross-platform mobile apps on iOS and Android devices.",
 			"source": "./",
 			"strict": false,
-			"skills": ["./skills/agentsims"]
+			"skills": ["./skills/building-mobile-apps"],
+			"category": "development"
 		}
 	]
 }

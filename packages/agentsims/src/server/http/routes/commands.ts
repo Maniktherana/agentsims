@@ -5,7 +5,10 @@ import {
 	CommandNotFound,
 	InvalidCommandInput,
 } from "../../../core/tools/errors";
-import { MediaRouteActionSchema } from "../../../core/tools/media";
+import {
+	CameraWebcamSelectionSchema,
+	MediaRouteActionSchema,
+} from "../../../core/tools/media";
 import { Devices } from "../../../core/tools/devices/devices";
 import {
 	DeviceLifecycleService,
@@ -182,6 +185,42 @@ export const commandRoutes = HttpRouter.empty.pipe(
 					yield* requestedMediaDevice,
 					action,
 					config.port,
+				);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/media/camera/webcams",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* MediaRouting).listWebcams(
+					yield* requestedMediaDevice,
+				);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/media/camera/webcam",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request } = yield* requestContext;
+				const selection = yield* decodeInput(
+					CameraWebcamSelectionSchema,
+					yield* requestJson(request),
+				);
+				return yield* (yield* MediaRouting).selectWebcam(
+					yield* requestedMediaDevice,
+					selection,
+				);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/media/camera/stop",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* MediaRouting).stopCamera(
+					yield* requestedMediaDevice,
 				);
 			}),
 		),

@@ -3,7 +3,35 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
 	AppPermissionsLoading,
 	AppPermissionsTool,
+	permissionStateFromList,
 } from "../../../../../../web/components/dock/settings/app-permissions-tool";
+
+describe("permissionStateFromList", () => {
+	test("distinguishes denied, while-in-use, and always location states", () => {
+		const state = (Authorization: number) =>
+			permissionStateFromList({
+				tcc: { camera: 0, photos: 3 },
+				location: { Authorization },
+				notifications: { allowsNotifications: true },
+			});
+
+		expect(state(1)).toMatchObject({
+			camera: "revoke",
+			photos: "grant",
+			location: "revoke",
+			"location-always": "revoke",
+			notifications: "grant",
+		});
+		expect(state(2)).toMatchObject({
+			location: "grant",
+			"location-always": "revoke",
+		});
+		expect(state(4)).toMatchObject({
+			location: "grant",
+			"location-always": "grant",
+		});
+	});
+});
 
 describe("AppPermissionsLoading", () => {
 	test("uses the collapsed permissions row footprint with a loading indicator", () => {

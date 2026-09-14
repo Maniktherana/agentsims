@@ -1,0 +1,122 @@
+{
+	"skill_name": "building-mobile-apps",
+	"evals": [
+		{
+			"id": 1,
+			"name": "swiftui-navigation-flow",
+			"prompt": "Add a SwiftUI detail screen from this existing list and verify that back navigation preserves the list state.",
+			"expected_behavior": [
+				"Inspects the existing navigation and state ownership before editing",
+				"Uses the project's deployment target and native SwiftUI navigation APIs",
+				"Builds and launches with the project's existing Xcode workflow",
+				"Uses Agentsims to observe, open a detail, navigate back, and inspect the resulting list state",
+				"Does not treat a successful build as runtime proof"
+			],
+			"files": []
+		},
+		{
+			"id": 2,
+			"name": "react-native-shared-form",
+			"prompt": "Fix this React Native sign-up form so validation and keyboard dismissal work on iOS and Android.",
+			"expected_behavior": [
+				"Preserves the project's form, navigation, and state patterns",
+				"Tests asymmetric valid and invalid inputs rather than only app launch",
+				"Uses the exact Agentsims device IDs and fresh observations for input targeting",
+				"Exercises the changed flow on both iOS and Android when both are available",
+				"Reports either cross-platform evidence or the unavailable platform as unverified"
+			],
+			"files": []
+		},
+		{
+			"id": 3,
+			"name": "android-accessibility",
+			"prompt": "Make this Jetpack Compose icon button accessible and confirm the fix on the running emulator.",
+			"expected_behavior": [
+				"Uses native Compose semantics and follows nearby component patterns",
+				"Rebuilds and launches the changed app before device verification",
+				"Correlates the Agentsims screenshot with the accessibility element frame",
+				"Checks label, role, enabled state, and Android visibility instead of only tapping the button",
+				"Refreshes the tree after the fix and observes the resulting screen after interaction"
+			],
+			"files": []
+		},
+		{
+			"id": 4,
+			"name": "no-device-fallback",
+			"prompt": "Refactor this mobile data service. No simulator or emulator is available in this environment.",
+			"expected_behavior": [
+				"Does not start unrelated device setup for a non-UI refactor",
+				"Preserves behavior and follows the project's existing service boundary",
+				"Runs focused tests and repository-required checks",
+				"Does not claim runtime verification",
+				"States only material device behavior that remains unverified"
+			],
+			"files": []
+		},
+		{
+			"id": 5,
+			"name": "react-native-source-inspection",
+			"prompt": "A React Native checkout button has the wrong accessibility label. Use the running iOS app to find the source and fix it.",
+			"expected_behavior": [
+				"Finds the element from a fresh screenshot and accessibility snapshot",
+				"Inspects the element label, role, value, frame, and test or native identifiers",
+				"Uses React Native source confidence and match reason before claiming an exact source location",
+				"Does not present a host element owner name as the native node's exact component identity",
+				"Rebuilds and confirms the corrected label in a fresh accessibility snapshot"
+			],
+			"files": []
+		},
+		{
+			"id": 6,
+			"name": "ios-webcam-injection",
+			"prompt": "Use the available Mac webcam to verify that this iOS camera app renders a live preview in Simulator.",
+			"expected_behavior": [
+				"Builds and launches the camera app before configuring the camera",
+				"Uses the public Agentsims camera command and does not inject an arbitrary image or video file",
+				"Lists available webcams before selecting one for the intended foreground app",
+				"Observes the app and verifies the live preview instead of trusting source-selection success",
+				"Stops only task-owned camera injection and notes that stopping the helper can terminate attached apps"
+			],
+			"files": []
+		},
+		{
+			"id": 7,
+			"name": "hardware-volume-buttons",
+			"prompt": "Verify that this media screen responds correctly to volume-up and volume-down on both available platforms.",
+			"expected_behavior": [
+				"Uses the public act command with button actions instead of pixel coordinates",
+				"Uses only volume-up and volume-down names supported by both selected platforms",
+				"Observes before and after each button press",
+				"Checks the app's resulting volume state instead of trusting command success",
+				"Reports either cross-platform evidence or an unavailable platform as unverified"
+			],
+			"files": []
+		},
+		{
+			"id": 8,
+			"name": "device-condition-recovery",
+			"prompt": "Confirm that this Android app shows its offline recovery state under a slow disconnected network and returns to normal afterward.",
+			"expected_behavior": [
+				"Checks the selected device's reported network-control capabilities",
+				"Records the initial network state and changes conditions through the Agentsims browser",
+				"Exercises and observes both the offline state and successful recovery",
+				"Does not treat a control toast or lack of a crash as proof",
+				"Restores the initial network state after the scenario"
+			],
+			"files": []
+		},
+		{
+			"id": 9,
+			"name": "ios-permission-denial",
+			"prompt": "Verify that the iOS app explains camera denial and recovers after camera access is allowed.",
+			"expected_behavior": [
+				"Targets the foreground app and records its initial camera permission state",
+				"Uses the public Agentsims permissions command with the exact device ID and app bundle ID",
+				"Observes the denied state and verifies its accessibility semantics",
+				"Allows camera access and verifies the app's recovery path",
+				"Restores the initial permission state when the test owns the change"
+			],
+			"files": []
+		}
+	]
+}

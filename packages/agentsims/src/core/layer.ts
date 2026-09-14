@@ -25,6 +25,7 @@ import { foregroundAppsLayer } from "./tools/devices/foreground-apps";
 import { deviceStateStoreLayer, STATE_DIR } from "./tools/devices/state";
 import { ShellExecLive } from "./tools/host-commands";
 import { AppsLive } from "./tools/apps";
+import { PermissionOperationsLive } from "./tools/permissions";
 import { mediaRoutingLayer } from "./tools/media";
 import { AxStreamersLive } from "./tools/observe/accessibility";
 import { ScreenshotOperationsLive } from "./tools/observe/screenshots";
@@ -85,6 +86,7 @@ export function coreServicesLayer(basePath: string) {
 		ShellExecLive,
 		androidTools,
 		AppsLive.pipe(Layer.provide(androidTools)),
+		PermissionOperationsLive,
 		AndroidLogsLive,
 	);
 }

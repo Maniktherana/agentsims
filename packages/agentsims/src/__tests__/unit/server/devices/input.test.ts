@@ -92,6 +92,12 @@ describe("makeDeviceActions", () => {
 				durationMs: 60_000,
 			}),
 		).toMatchObject({ durationMs: 5_000 });
+		expect(parseDeviceAction('{"type":"button","button":"volume-up"}')).toEqual(
+			{ type: "button", button: "volume-up" },
+		);
+		expect(() =>
+			parseDeviceAction('{"type":"button","button":"volume-louder"}'),
+		).toThrow();
 	});
 });
 
