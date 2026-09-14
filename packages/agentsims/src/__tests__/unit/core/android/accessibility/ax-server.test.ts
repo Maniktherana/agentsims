@@ -152,7 +152,7 @@ describe("persistent Android AX server", () => {
 		expect(snapshot.elements).toHaveLength(2);
 	});
 
-	test("falls back to the stock UIAutomator dump when the helper is unavailable", async () => {
+	test("reports helper failure without starting a competing UIAutomator", async () => {
 		let fallbacks = 0;
 		const snapshot = await collectAndroidAxSnapshot("emulator-5554", {
 			readFastXml: async () => {
@@ -164,11 +164,9 @@ describe("persistent Android AX server", () => {
 			},
 		});
 
-		expect(fallbacks).toBe(1);
-		expect(snapshot.elements.at(-1)?.label).toBe("Ask Vartalaap");
-		expect(snapshot.errors?.[0]).toContain(
-			"Fast Android AX unavailable; using stock UIAutomator",
-		);
+		expect(fallbacks).toBe(0);
+		expect(snapshot.elements).toHaveLength(0);
+		expect(snapshot.errors).toEqual(["hidden API unavailable"]);
 	});
 
 	test("closes cached AX clients with the service Layer", async () => {

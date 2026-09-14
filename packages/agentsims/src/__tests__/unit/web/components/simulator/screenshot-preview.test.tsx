@@ -189,7 +189,7 @@ describe("device screenshot feedback", () => {
 		}
 	});
 
-	test("shows clipboard failures without turning them into a download", () => {
+	test("keeps error messages out of the screenshot thumbnail", () => {
 		const html = renderToStaticMarkup(
 			<ScreenshotPreviewOverlay
 				deviceId="ios:phone"
@@ -218,8 +218,9 @@ describe("device screenshot feedback", () => {
 			/>,
 		);
 
-		expect(html).toContain('role="alert"');
-		expect(html).toContain("Clipboard permission denied");
+		expect(html).not.toContain('role="alert"');
+		expect(html).not.toContain("Clipboard permission denied");
+		expect(html).toContain('aria-label="Copy image"');
 	});
 
 	test("writes a PNG ClipboardItem through the async clipboard API", async () => {

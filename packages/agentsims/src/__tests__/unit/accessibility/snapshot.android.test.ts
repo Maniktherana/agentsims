@@ -198,7 +198,7 @@ describe("collectAndroidAxSnapshot", () => {
 		expect(modes).toEqual(["settled"]);
 	});
 
-	test("falls back once to stock UIAutomator without weakening the requested mode", async () => {
+	test("preserves the requested mode without starting a competing UIAutomator", async () => {
 		const calls: string[] = [];
 		const result = await collectAndroidAxSnapshot("emulator-5554", {
 			mode: "settled",
@@ -212,10 +212,8 @@ describe("collectAndroidAxSnapshot", () => {
 			},
 		});
 
-		expect(calls).toEqual(["fast:settled", "fallback"]);
-		expect(result.errors).toEqual([
-			"Fast Android AX unavailable; using stock UIAutomator: hidden API unavailable",
-		]);
-		expect(result.elements).toHaveLength(1);
+		expect(calls).toEqual(["fast:settled"]);
+		expect(result.errors).toEqual(["hidden API unavailable"]);
+		expect(result.elements).toHaveLength(0);
 	});
 });

@@ -49,7 +49,7 @@ describe("global CSS panel variables", () => {
 			/\.agentsims-screenshot-preview:is\(:hover, :focus-within\)\s+\.agentsims-screenshot-preview-controls\s*\{[^}]*opacity: 1;[^}]*pointer-events: auto;/s,
 		);
 		expect(globalCss).toMatch(
-			/\.agentsims-screenshot-preview:is\(:hover, :focus-within\)\s+\.agentsims-screenshot-preview-image img\s*\{[^}]*filter: blur\(2px\) brightness\(0\.65\);/s,
+			/\.agentsims-screenshot-preview:is\(:hover, :focus-within\)\s+\.agentsims-screenshot-preview-image\s+img\s*\{[^}]*filter: blur\(2px\) brightness\(0\.65\);/s,
 		);
 		expect(globalCss).toMatch(
 			/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.agentsims-screenshot-preview-image img,[\s\S]*\.agentsims-screenshot-preview-controls\s*\{\s*transition: none;/,
