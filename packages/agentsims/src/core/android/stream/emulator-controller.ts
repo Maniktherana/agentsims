@@ -227,6 +227,10 @@ function parseIni(path: string): Map<string, string> {
 	);
 }
 
+export class AndroidEmulatorControllerUnavailableError extends Error {
+	readonly name = "AndroidEmulatorControllerUnavailableError";
+}
+
 // Match the emulator's ConfigDirs discovery rules on Linux and WSL.
 export function linuxControllerDirectory(
 	env: Record<string, string | undefined> = process.env,
@@ -249,14 +253,22 @@ export function linuxControllerDirectory(
 	return join(root, "avd/running");
 }
 
-function controllerMetadata(serial: string): ControllerMetadata {
+export function controllerMetadata(
+	serial: string,
+	running = process.platform === "linux"
+		? linuxControllerDirectory()
+		: join(homedir(), "Library/Caches/TemporaryItems/avd/running"),
+): ControllerMetadata {
 	const serialPort = serial.match(/^emulator-(\d+)$/)?.[1];
 	if (!serialPort) throw new Error(`${serial} is not an Android emulator`);
-	const running =
-		process.platform === "linux"
-			? linuxControllerDirectory()
-			: join(homedir(), "Library/Caches/TemporaryItems/avd/running");
-	for (const name of readdirSync(running)) {
+	let names: string[];
+	try {
+		names = readdirSync(running);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		names = [];
+	}
+	for (const name of names) {
 		const match = name.match(/^pid_(\d+)\.ini$/);
 		if (!match) continue;
 		const values = parseIni(join(running, name));
@@ -266,7 +278,9 @@ function controllerMetadata(serial: string): ControllerMetadata {
 		if (!port || !token) break;
 		return { pid: Number(match[1]), port, token };
 	}
-	throw new Error(`No emulator gRPC controller found for ${serial}`);
+	throw new AndroidEmulatorControllerUnavailableError(
+		`Native Android streaming cannot authenticate ${serial}. Restart the emulator to recreate its controller credentials. Expected metadata in ${running}`,
+	);
 }
 
 function targetDimensions(

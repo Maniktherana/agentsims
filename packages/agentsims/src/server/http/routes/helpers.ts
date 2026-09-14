@@ -14,6 +14,7 @@ import {
 	IosSessions,
 	type IosSessionsService,
 } from "../../../core/ios/session";
+import { logRuntime } from "../../../core/logging";
 import { ServerConfig } from "../../runtime/config";
 import { HidSocketAdapter } from "../../websocket/hid-socket";
 import { bytes, json, requestSource } from "./shared";
@@ -66,7 +67,8 @@ function subscriptionResponse(
 	});
 }
 
-function androidAvccResponse(
+export function androidAvccResponse(
+	serial: string,
 	attach: (
 		sink: import("../../../core/android/stream/transport").AvccSubscriberSink,
 	) => Promise<() => void>,
@@ -122,7 +124,14 @@ function androidAvccResponse(
 				unsubscribe = stop;
 				if (closed) stop();
 			},
-			(error) => writer.abort(error),
+			(error) => {
+				logRuntime(
+					`android:${serial}`,
+					`stream.avcc failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+				closed = true;
+				return writer.close();
+			},
 		)
 		.catch(() => {});
 	return new Response(stream.readable, {
@@ -165,7 +174,9 @@ async function response(
 			const session = await Effect.runPromise(androidSessions.get(serial));
 			switch (endpoint) {
 				case "stream.avcc":
-					return androidAvccResponse((sink) => session.attachAvccSink(sink));
+					return androidAvccResponse(serial, (sink) =>
+						session.attachAvccSink(sink),
+					);
 				case "stream.mjpeg":
 					return json({ error: "Android MJPEG streaming is disabled" }, 410);
 				case "screenshot.png":
@@ -189,6 +200,10 @@ async function response(
 					return new Response("No agentsims device endpoint", { status: 404 });
 			}
 		} catch (error) {
+			logRuntime(
+				`android:${serial}`,
+				`${endpoint} failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return json(
 				{ error: error instanceof Error ? error.message : String(error) },
 				503,

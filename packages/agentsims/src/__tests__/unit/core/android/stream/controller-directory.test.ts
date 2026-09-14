@@ -1,5 +1,26 @@
 import { expect, test } from "bun:test";
-import { linuxControllerDirectory } from "../../../../../core/android/stream/emulator-controller";
+import {
+	AndroidEmulatorControllerUnavailableError,
+	controllerMetadata,
+	linuxControllerDirectory,
+} from "../../../../../core/android/stream/emulator-controller";
+
+test("a missing controller directory produces a useful transport error", () => {
+	expect(() =>
+		controllerMetadata(
+			"emulator-5554",
+			"/directory-that-does-not-exist/avd/running",
+		),
+	).toThrow(AndroidEmulatorControllerUnavailableError);
+	expect(() =>
+		controllerMetadata(
+			"emulator-5554",
+			"/directory-that-does-not-exist/avd/running",
+		),
+	).toThrow(
+		"Native Android streaming cannot authenticate emulator-5554. Restart the emulator to recreate its controller credentials. Expected metadata in /directory-that-does-not-exist/avd/running",
+	);
+});
 
 test("Linux and WSL use XDG discovery even before the directory exists", () => {
 	expect(
