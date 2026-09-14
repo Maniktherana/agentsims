@@ -1,4 +1,0 @@
-interface:
-  display_name: "Craft Interfaces"
-  short_description: "Design, critique, tune, and refine interfaces"
-  default_prompt: "Use $craft-interfaces to audit and refine this interface with deliberate visual, interaction, and motion decisions."
