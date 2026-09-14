@@ -38,26 +38,35 @@ npx agentsims doctor
 
 ## React Native source inspection
 
-Run from your app project:
+Install Agentsims in the app project. Then wrap the final Metro config in
+`metro.config.js`:
 
-```sh
-npx agentsims setup --dry-run
-npx agentsims setup
+```js
+const { getDefaultConfig } = require("expo/metro-config");
+const { withAgentsims } = require("agentsims/metro");
+
+const config = getDefaultConfig(__dirname);
+
+module.exports = withAgentsims(config);
 ```
 
-The setup command connects accessibility nodes to component names and source locations through Metro.
-It shows the changes and asks before it writes them. Restart Metro and reload your app afterward.
+This integration connects accessibility nodes to component names and source
+locations. Restart Metro and reload your app after you change the config.
+
+Set `preview: true` in the second argument to start Agentsims when you first
+open `/.sim` on the Metro server.
 
 ## CLI
 
 With the workspace running:
 
 ```sh
-npx agentsims --list
+npx agentsims devices list
 npx agentsims observe --device android:emulator-5554
-npx agentsims tap 0.5 0.7 --device android:emulator-5554
+npx agentsims act --device android:emulator-5554 \
+  '{"type":"tap","x":0.5,"y":0.7}'
 ```
 
 Use the device ID from the list. Tap coordinates range from `0` to `1`.
 
-[CLI reference](https://github.com/Maniktherana/agentsims/blob/main/docs/cli.md) · [Source](https://github.com/Maniktherana/agentsims)
+[Full guide](https://github.com/Maniktherana/agentsims#readme) · [Source](https://github.com/Maniktherana/agentsims)

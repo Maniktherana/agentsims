@@ -59,6 +59,7 @@ test("legacy public commands are removed", () => {
 		"tap",
 		"button",
 		"ca-debug",
+		"setup",
 	])
 		expect(names).not.toContain(removed);
 	for (const current of [
@@ -71,7 +72,6 @@ test("legacy public commands are removed", () => {
 		"act",
 		"app",
 		"doctor",
-		"setup",
 	])
 		expect(names).toContain(current);
 });

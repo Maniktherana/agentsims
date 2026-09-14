@@ -7,7 +7,6 @@ import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
 import { parseDeviceAction } from "../core/tools/input";
 import { ApplicationCommandClient } from "./application-command-client";
-import { addSetupCommand } from "./setup-command";
 import {
 	formatHostDiagnostics,
 	hostDiagnosticsFor,
@@ -235,7 +234,6 @@ export function createProgram(): Command {
 				if (!report.ok) process.exitCode = 1;
 			},
 		);
-	addSetupCommand(program);
 	return program;
 }
 

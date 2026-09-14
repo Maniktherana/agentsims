@@ -190,6 +190,8 @@ try {
 	const help = await npmExec("--help");
 	if (!help.stdout.includes("start") || !help.stdout.includes("status"))
 		throw new Error("Packaged CLI help is incomplete.");
+	if (/^\s+setup(?:\s|\[)/m.test(help.stdout))
+		throw new Error("Packaged CLI still includes the removed setup command.");
 	let detached = false;
 	try {
 		const started = await npmExec(
