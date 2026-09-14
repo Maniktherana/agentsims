@@ -119,7 +119,7 @@ for (const [entry, naming, runtime, format] of [
 		target: runtime,
 		format,
 		naming,
-		minify: true,
+		minify: entry !== "cli/main",
 		define,
 	});
 	if (!result.success)
@@ -135,7 +135,7 @@ writeFileSync(
 const executable = await Bun.build({
 	entrypoints: [resolve(root, "src/cli/main.ts")],
 	target: "bun",
-	minify: true,
+	minify: false,
 	define: { ...define, __AGENTSIMS_STANDALONE__: "true" },
 	compile: {
 		target: runtimeCompileTarget(target),
