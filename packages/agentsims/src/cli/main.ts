@@ -1,5 +1,14 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Command, InvalidArgumentError } from "commander";
 import { BunContext } from "@effect/platform-bun";
@@ -19,6 +28,26 @@ import {
 	PermissionNameSchema,
 } from "../core/tools/permissions";
 import { ApplicationCommandClient } from "./application-command-client";
+import {
+	emptyDeviceMessage,
+	filterDeviceRows,
+	formatDeviceDetail,
+	formatDeviceTable,
+	type DeviceListFilter,
+	type DeviceListRow,
+} from "./device-list";
+import {
+	observationFileName,
+	renderObservation,
+	shotsToPrune,
+	type Observation,
+} from "./observe-output";
+import {
+	renderAppList,
+	renderPermissionList,
+	renderServerStatus,
+	renderWebcamList,
+} from "./render";
 import {
 	formatHostDiagnostics,
 	hostDiagnosticsFor,
@@ -52,6 +81,44 @@ function version(): string {
 const json = (value: unknown): void => {
 	process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 };
+function writeObservationScreenshot(
+	observation: Observation,
+	device: string,
+	out?: string,
+): string | null {
+	const base64 = observation.screenshot?.contentBase64;
+	if (!base64) return null;
+	if (out) {
+		mkdirSync(dirname(out), { recursive: true });
+		writeFileSync(out, Buffer.from(base64, "base64"));
+		return out;
+	}
+	const directory = join(tmpdir(), "agentsims", "screenshots");
+	mkdirSync(directory, { recursive: true });
+	const target = join(
+		directory,
+		observationFileName(device, observation.screenshot?.mimeType, new Date()),
+	);
+	writeFileSync(target, Buffer.from(base64, "base64"));
+	pruneScreenshots(directory);
+	return target;
+}
+
+/** Never let an agent loop fill the disk with screenshots it already read. */
+function pruneScreenshots(directory: string): void {
+	try {
+		const shots = readdirSync(directory)
+			.filter((name) => name.startsWith("observe-"))
+			.map((name) => ({
+				name,
+				modifiedMs: statSync(join(directory, name)).mtimeMs,
+			}));
+		for (const name of shotsToPrune(shots, Date.now()))
+			rmSync(join(directory, name), { force: true });
+	} catch {
+		// Pruning is best effort; never fail an observe over housekeeping.
+	}
+}
 const client = (url?: string) =>
 	new ApplicationCommandClient({ origin: url ?? readLocalServer()?.url });
 const port = (value: string) => {
@@ -164,7 +231,12 @@ export function createProgram(): Command {
 	program
 		.command("status")
 		.description("Show local server status")
-		.action(() => json(readLocalServer() ?? { running: false }));
+		.option("--json", "Print the raw payload")
+		.action((flags: { json?: boolean }) => {
+			const status = readLocalServer() ?? { running: false };
+			if (flags.json) return json(status);
+			process.stdout.write(`${renderServerStatus(status)}\n`);
+		});
 	program
 		.command("logs")
 		.description("Print the output of the detached Agentsims server")
@@ -234,11 +306,48 @@ export function createProgram(): Command {
 		.description("List, boot, or shut down devices");
 	devices
 		.command("list", { isDefault: true })
-		.description("List every known device")
+		.description("List devices (active ones by default)")
 		.option("--url <url>")
-		.action(async (flags: { url?: string }) =>
-			json(await client(flags.url).listDevices()),
+		.option("-a, --all", "Include inactive devices")
+		.option("--inactive", "Show only inactive devices")
+		.option("--json", "Print the raw payload instead of a table")
+		.action(
+			async (flags: {
+				url?: string;
+				all?: boolean;
+				inactive?: boolean;
+				json?: boolean;
+			}) => {
+				const payload = await client(flags.url).listDevices();
+				if (flags.json) return json(payload);
+				const rows = (payload as { devices?: DeviceListRow[] }).devices ?? [];
+				const filter: DeviceListFilter = flags.inactive
+					? "inactive"
+					: flags.all
+						? "all"
+						: "active";
+				const selected = filterDeviceRows(rows, filter);
+				process.stdout.write(
+					`${formatDeviceTable(selected, emptyDeviceMessage(filter, rows.length))}\n`,
+				);
+			},
 		);
+	devices
+		.command("show <device>")
+		.description("Show one device")
+		.option("--url <url>")
+		.option("--json", "Print the raw payload")
+		.action(async (device: string, flags: { url?: string; json?: boolean }) => {
+			const payload = await client(flags.url).listDevices();
+			const rows = (payload as { devices?: DeviceListRow[] }).devices ?? [];
+			const match = rows.find((row) => row.device === device);
+			if (!match)
+				throw new Error(
+					`device ${device} not found. Run \`agentsims devices --all\` to list device IDs.`,
+				);
+			if (flags.json) return json(match);
+			process.stdout.write(`${formatDeviceDetail(match)}\n`);
+		});
 	devices
 		.command("boot <device>")
 		.description("Boot a simulator or emulator")
@@ -344,11 +453,28 @@ export function createProgram(): Command {
 
 	program
 		.command("observe")
+		.description("Capture a screenshot and the accessibility tree")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
 		.option("--no-ax")
-		.action(async (flags: { device: string; url?: string; ax: boolean }) =>
-			json(await client(flags.url).observeDevice(flags.device, flags.ax)),
+		.option("-o, --out <path>", "Where to write the screenshot")
+		.option("--json", "Print the raw payload, screenshot inline as base64")
+		.action(
+			async (flags: {
+				device: string;
+				url?: string;
+				ax: boolean;
+				out?: string;
+				json?: boolean;
+			}) => {
+				const result = (await client(flags.url).observeDevice(
+					flags.device,
+					flags.ax,
+				)) as Observation;
+				if (flags.json) return json(result);
+				const path = writeObservationScreenshot(result, flags.device, flags.out);
+				process.stdout.write(`${renderObservation(result, path)}\n`);
+			},
 		);
 	program
 		.command("act <json>", { hidden: true })
@@ -371,9 +497,12 @@ export function createProgram(): Command {
 		.description("List the host webcams available to a device")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
-		.action(async (flags: DeviceFlags) =>
-			json(await client(flags.url).listWebcams(flags.device)),
-		);
+		.option("--json", "Print the raw payload")
+		.action(async (flags: DeviceFlags & { json?: boolean }) => {
+			const payload = await client(flags.url).listWebcams(flags.device);
+			if (flags.json) return json(payload);
+			process.stdout.write(`${renderWebcamList(payload)}\n`);
+		});
 	camera
 		.command("use <webcam-id>")
 		.alias("webcam")
@@ -422,9 +551,14 @@ export function createProgram(): Command {
 	const runApp = (flags: DeviceFlags, operation: string, value?: string) =>
 		client(flags.url).app(flags.device, operation, value);
 
-	appCommand("list", "List the apps installed on a device").action(
-		async (flags: DeviceFlags) => json(await runApp(flags, "list")),
-	);
+	appCommand("list", "List the apps installed on a device")
+		.option("-a, --all", "Include system apps")
+		.option("--json", "Print the raw payload")
+		.action(async (flags: DeviceFlags & { all?: boolean; json?: boolean }) => {
+			const payload = await runApp(flags, "list");
+			if (flags.json) return json(payload);
+			process.stdout.write(`${renderAppList(payload, flags.all === true)}\n`);
+		});
 	appCommand("install <path>", "Install an .app or .apk build").action(
 		async (path: string, flags: DeviceFlags) =>
 			json(await runApp(flags, "install", path)),
@@ -474,10 +608,16 @@ export function createProgram(): Command {
 		return resolved;
 	};
 
-	permissionCommand("list", "Show the permission state of an app").action(
-		async (flags: PermissionFlags) =>
-			json(await client(flags.url).listPermissions(flags.device, appId(flags))),
-	);
+	permissionCommand("list", "Show the permission state of an app")
+		.option("--json", "Print the raw payload")
+		.action(async (flags: PermissionFlags & { json?: boolean }) => {
+			const payload = await client(flags.url).listPermissions(
+				flags.device,
+				appId(flags),
+			);
+			if (flags.json) return json(payload);
+			process.stdout.write(`${renderPermissionList(payload)}\n`);
+		});
 	permissionCommand("grant <permission>", "Grant one permission")
 		.option("--value <value>", "iOS grant value, such as always or limited")
 		.action(
