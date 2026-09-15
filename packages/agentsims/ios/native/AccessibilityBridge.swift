@@ -88,6 +88,120 @@ final class AccessibilityBridge: NSObject {
         loaded = true
     }
 
+    /// Hit-test points for the frontmost-app fallback, center-out. Sized to
+    /// the smallest device we support (320×480) so one list fits every screen,
+    /// and clear of the top/bottom bands — the status bar and home indicator
+    /// belong to SpringBoard, not to the app in front of it.
+    private static let frontmostProbePoints: [CGPoint] = [
+        CGPoint(x: 160, y: 240), CGPoint(x: 160, y: 170), CGPoint(x: 160, y: 310),
+        CGPoint(x: 80, y: 240), CGPoint(x: 240, y: 240),
+        CGPoint(x: 80, y: 170), CGPoint(x: 240, y: 310),
+        CGPoint(x: 240, y: 170), CGPoint(x: 80, y: 310),
+    ]
+
+    /// Frontmost app: its application element when the runtime hands one over,
+    /// plus the owning pid.
+    private struct FrontmostApp {
+        let translation: NSObject?
+        let pid: Int32
+    }
+
+    /// Resolve the frontmost application.
+    ///
+    /// `frontmostApplicationWithDisplayId:` is the direct query (idb's path)
+    /// and stays primary — runtimes through iOS 26 answer it. iOS 27 hands
+    /// back an empty AXPTranslatorResponse for it, and its pid-keyed
+    /// replacements go unanswered too, so we hit-test instead: every element
+    /// under a screen point carries the pid of the process that drew it, which
+    /// is the app in front. `translationApplicationObjectForPid:` is still
+    /// worth a try for the application element itself, but the pid alone is
+    /// enough to identify the app. SpringBoard answers like any other process,
+    /// so the home screen reports as SpringBoard, not as "nothing running".
+    private func resolveFrontmost(translator: NSObject, token: String) throws -> FrontmostApp {
+        let frontmostSel = NSSelectorFromString("frontmostApplicationWithDisplayId:bridgeDelegateToken:")
+        typealias FrontmostFunc = @convention(c) (AnyObject, Selector, UInt32, NSString) -> AnyObject?
+        guard let frontmostIMP = translator.method(for: frontmostSel) else {
+            throw AccessibilityError.translatorUnavailable
+        }
+        let frontmost = unsafeBitCast(frontmostIMP, to: FrontmostFunc.self)
+        if let translation = frontmost(translator, frontmostSel, 0, token as NSString) as? NSObject {
+            translation.setValue(token, forKey: "bridgeDelegateToken")
+            return FrontmostApp(translation: translation, pid: Self.pid(of: translation))
+        }
+
+        let pointSel = NSSelectorFromString("objectAtPoint:displayId:bridgeDelegateToken:")
+        guard let pointIMP = translator.method(for: pointSel) else {
+            throw AccessibilityError.noFrontmostApplication
+        }
+        typealias PointFunc = @convention(c) (AnyObject, Selector, CGPoint, UInt32, NSString) -> AnyObject?
+        let objectAtPoint = unsafeBitCast(pointIMP, to: PointFunc.self)
+
+        let appForPidSel = NSSelectorFromString("translationApplicationObjectForPid:")
+        typealias AppForPidFunc = @convention(c) (AnyObject, Selector, Int32) -> AnyObject?
+        let appForPid = translator.method(for: appForPidSel).map {
+            unsafeBitCast($0, to: AppForPidFunc.self)
+        }
+
+        for point in Self.frontmostProbePoints {
+            guard let hit = objectAtPoint(translator, pointSel, point, 0, token as NSString) as? NSObject else {
+                continue
+            }
+            hit.setValue(token, forKey: "bridgeDelegateToken")
+            let pid = Self.pid(of: hit)
+            guard pid > 0 else { continue }
+            let app = appForPid?(translator, appForPidSel, pid) as? NSObject
+            app?.setValue(token, forKey: "bridgeDelegateToken")
+            return FrontmostApp(translation: app, pid: pid)
+        }
+        throw AccessibilityError.noFrontmostApplication
+    }
+
+    /// Screen bounds in points, off the device type's pixel size and scale.
+    private static func screenBounds(device: NSObject) -> NSRect? {
+        guard let type = device.value(forKey: "deviceType") as? NSObject,
+              type.responds(to: NSSelectorFromString("mainScreenSize")),
+              let size = (type.value(forKey: "mainScreenSize") as? NSValue)?.sizeValue,
+              size.width > 0, size.height > 0 else { return nil }
+        var scale: CGFloat = 1
+        if type.responds(to: NSSelectorFromString("mainScreenScale")),
+           let n = type.value(forKey: "mainScreenScale") as? NSNumber, n.doubleValue > 0 {
+            scale = CGFloat(n.doubleValue)
+        }
+        return NSRect(x: 0, y: 0, width: size.width / scale, height: size.height / scale)
+    }
+
+    /// Stand-in root in `serialize`'s shape, for runtimes that don't hand back
+    /// an application element to walk.
+    private static func applicationNode(frame: NSRect) -> [String: Any] {
+        [
+            "frame": [
+                "x": frame.origin.x,
+                "y": frame.origin.y,
+                "width": frame.size.width,
+                "height": frame.size.height,
+            ],
+            "type": "Application",
+            "AXLabel": NSNull(),
+            "AXValue": NSNull(),
+            "AXUniqueId": NSNull(),
+            "role_description": "application",
+            "enabled": true,
+            "children": [[String: Any]](),
+        ]
+    }
+
+    /// Probe with -respondsToSelector: first — the accessors vary by runtime
+    /// and KVC throws NSUnknownKeyException for undefined keys.
+    private static func pid(of translation: NSObject) -> Int32 {
+        for key in ["pid", "processIdentifier", "processID"] {
+            guard translation.responds(to: NSSelectorFromString(key)) else { continue }
+            if let n = translation.value(forKey: key) as? NSNumber, n.int32Value > 0 {
+                return n.int32Value
+            }
+        }
+        return 0
+    }
+
     /// Capture the simulator's accessibility tree and return JSON bytes
     /// matching the `axe describe-ui` flat-array output. Throws on
     /// framework load failure or if the simulator returns no frontmost
@@ -112,19 +226,7 @@ final class AccessibilityBridge: NSObject {
         registerToken(token, device: device)
         defer { unregisterToken(token) }
 
-        // Ask the translator for the frontmost application's translation
-        // object. This blocks while AXPTranslator pumps its delegate
-        // callbacks (which we route to the SimDevice).
-        let frontmostSel = NSSelectorFromString("frontmostApplicationWithDisplayId:bridgeDelegateToken:")
-        typealias FrontmostFunc = @convention(c) (AnyObject, Selector, UInt32, NSString) -> AnyObject?
-        guard let frontmostIMP = translator.method(for: frontmostSel) else {
-            throw AccessibilityError.translatorUnavailable
-        }
-        let frontmost = unsafeBitCast(frontmostIMP, to: FrontmostFunc.self)
-        guard let translation = frontmost(translator, frontmostSel, 0, token as NSString) as? NSObject else {
-            throw AccessibilityError.noFrontmostApplication
-        }
-        translation.setValue(token, forKey: "bridgeDelegateToken")
+        let frontmost = try resolveFrontmost(translator: translator, token: token)
 
         // Convert the translation object to a real AXPMacPlatformElement —
         // an NSAccessibilityElement subclass whose accessibility properties
@@ -135,12 +237,6 @@ final class AccessibilityBridge: NSObject {
             throw AccessibilityError.translatorUnavailable
         }
         let toMacElement = unsafeBitCast(macIMP, to: MacElementFunc.self)
-        guard let rootElement = toMacElement(translator, macElementSel, translation) as? NSObject else {
-            throw AccessibilityError.noFrontmostApplication
-        }
-        if let rootTranslation = rootElement.value(forKey: "translation") as? NSObject {
-            rootTranslation.setValue(token, forKey: "bridgeDelegateToken")
-        }
 
         // 1. Recursive walk from the application element, collecting the
         //    frames we've covered. This catches everything iOS exposes via
@@ -148,21 +244,35 @@ final class AccessibilityBridge: NSObject {
         var coverage = AccessibilityCoverage()
         var visited = Set<ObjectIdentifier>()
         var remainingElements = Self.maxSerializedElements
-        guard var root = serialize(
-            element: rootElement,
-            token: token,
-            coverage: &coverage,
-            visited: &visited,
-            remainingElements: &remainingElements,
-            depth: 0
-        ) else {
-            throw AccessibilityError.noFrontmostApplication
-        }
-        let screenFrame: NSRect
-        if let app = rootElement as? NSAccessibilityElement {
-            screenFrame = app.accessibilityFrame()
+        var root: [String: Any]
+        var screenFrame = Self.screenBounds(device: device) ?? .zero
+
+        if let translation = frontmost.translation,
+           let rootElement = toMacElement(translator, macElementSel, translation) as? NSObject {
+            if let rootTranslation = rootElement.value(forKey: "translation") as? NSObject {
+                rootTranslation.setValue(token, forKey: "bridgeDelegateToken")
+            }
+            guard let walked = serialize(
+                element: rootElement,
+                token: token,
+                coverage: &coverage,
+                visited: &visited,
+                remainingElements: &remainingElements,
+                depth: 0
+            ) else {
+                throw AccessibilityError.noFrontmostApplication
+            }
+            root = walked
+            if let app = rootElement as? NSAccessibilityElement {
+                screenFrame = app.accessibilityFrame()
+            }
         } else {
-            screenFrame = .zero
+            // No application element to descend from (iOS 27) — the grid pass
+            // below becomes the whole tree, under a stand-in root.
+            guard screenFrame.width > 1, screenFrame.height > 1 else {
+                throw AccessibilityError.noFrontmostApplication
+            }
+            root = Self.applicationNode(frame: screenFrame)
         }
 
         // 2. Grid hit-test discovery: many iOS containers (UIScrollView,
@@ -208,41 +318,21 @@ final class AccessibilityBridge: NSObject {
         registerToken(token, device: device)
         defer { unregisterToken(token) }
 
-        let frontmostSel = NSSelectorFromString("frontmostApplicationWithDisplayId:bridgeDelegateToken:")
-        typealias FrontmostFunc = @convention(c) (AnyObject, Selector, UInt32, NSString) -> AnyObject?
-        guard let frontmostIMP = translator.method(for: frontmostSel) else {
-            throw AccessibilityError.translatorUnavailable
-        }
-        let frontmost = unsafeBitCast(frontmostIMP, to: FrontmostFunc.self)
-        guard let translation = frontmost(translator, frontmostSel, 0, token as NSString) as? NSObject else {
-            throw AccessibilityError.noFrontmostApplication
-        }
-        translation.setValue(token, forKey: "bridgeDelegateToken")
-
-        // AXPTranslationObject's accessors vary across simulator runtimes
-        // and throw NSUnknownKeyException for undefined keys, so probe via
-        // -respondsToSelector: before each KVC fetch.
-        func safeValue<T>(_ key: String, as: T.Type) -> T? {
-            guard translation.responds(to: NSSelectorFromString(key)) else { return nil }
-            return translation.value(forKey: key) as? T
-        }
-
-        var pid: Int32 = 0
-        for key in ["pid", "processIdentifier", "processID"] {
-            if let n = safeValue(key, as: NSNumber.self) {
-                pid = n.int32Value
-                if pid > 0 { break }
-            }
-        }
+        let frontmost = try resolveFrontmost(translator: translator, token: token)
+        let pid = frontmost.pid
 
         // Bundle identifier sometimes ships as a property on the translation
         // (newer simulator runtimes) — try first, then fall back to walking
-        // the executable path up to the surrounding `.app/Info.plist`.
+        // the executable path up to the surrounding `.app/Info.plist`. KVC
+        // throws NSUnknownKeyException for undefined keys, so probe first.
         var bundleId: String? = nil
-        for key in ["bundleIdentifier", "processBundleIdentifier", "applicationIdentifier"] {
-            if let s = safeValue(key, as: String.self), !s.isEmpty {
-                bundleId = s
-                break
+        if let translation = frontmost.translation {
+            for key in ["bundleIdentifier", "processBundleIdentifier", "applicationIdentifier"] {
+                guard translation.responds(to: NSSelectorFromString(key)) else { continue }
+                if let value = translation.value(forKey: key) as? String, !value.isEmpty {
+                    bundleId = value
+                    break
+                }
             }
         }
         if bundleId == nil, pid > 0 {

@@ -48,15 +48,21 @@ export function coreServicesLayer(basePath: string) {
 		Effect.gen(function* () {
 			const iosSessions = yield* IosSessions;
 			return {
+				// `/appstate` polls these every 500ms — a rejection has to stay in
+				// the error channel, since a defect kills the SSE stream.
 				readAndroid: (device: string) => {
 					const serial = androidSerialFromStateId(device);
 					return serial
-						? Effect.promise(() => getAndroidForegroundApp(serial))
+						? Effect.tryPromise(() => getAndroidForegroundApp(serial)).pipe(
+								Effect.orElseSucceed(() => null),
+							)
 						: Effect.succeed(null);
 				},
 				readIos: (device: string) =>
 					Effect.flatMap(iosSessions.get(device), (session) =>
-						Effect.promise(() => session.readForeground()),
+						Effect.tryPromise(() => session.readForeground()).pipe(
+							Effect.orElseSucceed(() => null),
+						),
 					).pipe(
 						Effect.catchTag("IosHostUnavailable", () => Effect.succeed(null)),
 					),
