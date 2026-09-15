@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence } from "motion/react";
 import { axElementKey } from "../../accessibility/ax";
 import { useAxSelectionContext, useAxSnapshotContext } from "./provider";
 import type {
@@ -103,86 +104,95 @@ export function AccessibilityInspectorController({
 			: [];
 
 	const panel =
-		state.open && focused
+		typeof document !== "undefined"
 			? createPortal(
-					<div
-						ref={panelPosition.panelRef}
-						data-agentsims-accessibility-panel-host
-						style={panelPosition.style}
-					>
-						<AccessibilityPanel
-							open
-							device={{
-								id: deviceId,
-								name: deviceName ?? deviceId,
-								platform: deviceId.startsWith("android:") ? "android" : "ios",
-								runtime: deviceRuntime,
-								applicationName,
-								connected,
-							}}
-							onClose={() => dispatch({ type: "CLOSE" })}
-							onMovePointerDown={panelPosition.onMovePointerDown}
-							onResizePointerDown={panelPosition.onResizePointerDown}
-							onResizeKeyDown={panelPosition.onResizeKeyDown}
-							headerActions={
-								<AccessibilityHeaderActions
-									selecting={state.picking}
-									onSelectingChange={(picking) => {
-										setHighlightedKey(null);
-										dispatch({ type: "PICKING_CHANGED", picking });
+					<AnimatePresence>
+						{state.open && focused && (
+							<div
+								key={deviceId}
+								ref={panelPosition.panelRef}
+								data-agentsims-accessibility-panel-host
+								style={panelPosition.style}
+							>
+								<AccessibilityPanel
+									open
+									device={{
+										id: deviceId,
+										name: deviceName ?? deviceId,
+										platform: deviceId.startsWith("android:")
+											? "android"
+											: "ios",
+										runtime: deviceRuntime,
+										applicationName,
+										connected,
 									}}
-									allNodesVisible={state.showAllNodes}
-									onAllNodesVisibleChange={(visible) =>
-										dispatch({ type: "ALL_NODES_CHANGED", visible })
+									onClose={() => dispatch({ type: "CLOSE" })}
+									onMovePointerDown={panelPosition.onMovePointerDown}
+									onResizePointerDown={panelPosition.onResizePointerDown}
+									onResizeKeyDown={panelPosition.onResizeKeyDown}
+									headerActions={
+										<AccessibilityHeaderActions
+											selecting={state.picking}
+											onSelectingChange={(picking) => {
+												setHighlightedKey(null);
+												dispatch({ type: "PICKING_CHANGED", picking });
+											}}
+											allNodesVisible={state.showAllNodes}
+											onAllNodesVisibleChange={(visible) =>
+												dispatch({ type: "ALL_NODES_CHANGED", visible })
+											}
+											status={status}
+											elementCount={snapshot?.elements.length}
+											sourceCount={
+												snapshot?.elements.filter((element) => element.source)
+													.length
+											}
+											onRefresh={() => void refresh()}
+											refreshing={refreshing}
+										/>
 									}
-									status={status}
-									elementCount={snapshot?.elements.length}
-									sourceCount={
-										snapshot?.elements.filter((element) => element.source)
-											.length
-									}
-									onRefresh={() => void refresh()}
-									refreshing={refreshing}
-								/>
-							}
-						>
-							<AccessibilityView
-								tree={
-									<AccessibilityTree
-										snapshot={snapshot}
-										selectedKey={selectedKey}
-										highlightedKey={highlightedKey}
-										phoneSelectionRevealToken={state.phoneSelectionRevealToken}
-										selecting={state.picking}
-										onSelectedKeyChange={(key) => {
-											detailInteractionActiveRef.current = false;
-											setDetailsClosed(false);
-											setSelectedKey(key, "tree");
-										}}
-										onHighlightedKeyChange={(key) =>
-											setHighlightedKey(key, "tree")
+								>
+									<AccessibilityView
+										tree={
+											<AccessibilityTree
+												snapshot={snapshot}
+												selectedKey={selectedKey}
+												highlightedKey={highlightedKey}
+												phoneSelectionRevealToken={
+													state.phoneSelectionRevealToken
+												}
+												selecting={state.picking}
+												onSelectedKeyChange={(key) => {
+													detailInteractionActiveRef.current = false;
+													setDetailsClosed(false);
+													setSelectedKey(key, "tree");
+												}}
+												onHighlightedKeyChange={(key) =>
+													setHighlightedKey(key, "tree")
+												}
+											/>
+										}
+										details={
+											selectedElement && !detailsClosed ? (
+												<AccessibilityDetails
+													element={selectedElement}
+													sourceEndpoint={sourceEndpoint}
+													nativeChain={nativeChain}
+													onInteract={() => {
+														detailInteractionActiveRef.current = true;
+													}}
+													onClose={() => {
+														detailInteractionActiveRef.current = false;
+														setDetailsClosed(true);
+													}}
+												/>
+											) : undefined
 										}
 									/>
-								}
-								details={
-									selectedElement && !detailsClosed ? (
-										<AccessibilityDetails
-											element={selectedElement}
-											sourceEndpoint={sourceEndpoint}
-											nativeChain={nativeChain}
-											onInteract={() => {
-												detailInteractionActiveRef.current = true;
-											}}
-											onClose={() => {
-												detailInteractionActiveRef.current = false;
-												setDetailsClosed(true);
-											}}
-										/>
-									) : undefined
-								}
-							/>
-						</AccessibilityPanel>
-					</div>,
+								</AccessibilityPanel>
+							</div>
+						)}
+					</AnimatePresence>,
 					document.body,
 				)
 			: null;

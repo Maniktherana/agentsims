@@ -255,76 +255,14 @@ details.lem-section > summary:hover .lem-chevron {
 		cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.agentsims-accessibility-panel-enter {
-	transform-origin: top center;
-	animation: agentsims-accessibility-panel-in 140ms
-		var(--agentsims-ease-emphasized);
-}
-
-.agentsims-side-panel {
-	transition:
-		transform var(--agentsims-duration-panel) var(--agentsims-ease-emphasized),
-		opacity var(--agentsims-duration-popover) var(--agentsims-ease-standard);
-}
-
-.agentsims-screenshot-flash {
-	opacity: 0.96;
-	transition: none;
-}
-
-.agentsims-screenshot-flash[data-phase="fading"] {
-	opacity: 0;
-	transition: opacity 210ms var(--agentsims-ease-standard);
-}
-
-.agentsims-screenshot-preview {
-	opacity: 1;
-	transform: translate(var(--screenshot-enter-x), var(--screenshot-enter-y))
-		scale(var(--screenshot-enter-scale-x), var(--screenshot-enter-scale-y));
-	transform-origin: top left;
-	transition:
-		transform 260ms var(--agentsims-ease-emphasized),
-		opacity 160ms var(--agentsims-ease-standard);
-}
-
-.agentsims-screenshot-preview[data-phase="visible"] {
-	transform: translate(0, 0) scale(1, 1);
-}
-
-.agentsims-screenshot-preview[data-phase="exit"] {
-	opacity: 0;
-	transform: translateY(4px) scale(0.985);
-}
-
 .agentsims-screenshot-preview-image {
-	box-sizing: border-box;
-	border: 2px solid #fff;
 	box-shadow:
 		0 4px 14px rgba(0, 0, 0, 0.28),
 		0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-.agentsims-screenshot-preview-image img {
-	transition: filter 120ms var(--agentsims-ease-standard);
-}
-
 .agentsims-screenshot-preview-controls {
 	gap: 4px;
-	opacity: 0;
-	pointer-events: none;
-	transition: opacity 120ms var(--agentsims-ease-standard);
-}
-
-.agentsims-screenshot-preview:is(:hover, :focus-within)
-	.agentsims-screenshot-preview-controls {
-	opacity: 1;
-	pointer-events: auto;
-}
-
-.agentsims-screenshot-preview:is(:hover, :focus-within)
-	.agentsims-screenshot-preview-image
-	img {
-	filter: blur(2px) brightness(0.65);
 }
 
 .agentsims-screenshot-preview-controls button:disabled {
@@ -357,24 +295,8 @@ details.lem-section > summary:hover .lem-chevron {
 
 @media (prefers-reduced-motion: reduce) {
 	.agentsims-target-lock-enter,
-	.agentsims-accessibility-tooltip,
-	.agentsims-accessibility-panel-enter {
+	.agentsims-accessibility-tooltip {
 		animation: none;
-	}
-
-	.agentsims-side-panel {
-		transition: none;
-	}
-
-	.agentsims-screenshot-flash,
-	.agentsims-screenshot-preview,
-	.agentsims-screenshot-preview-image img,
-	.agentsims-screenshot-preview-controls {
-		transition: none;
-	}
-
-	.agentsims-screenshot-preview {
-		transform: none;
 	}
 }
 

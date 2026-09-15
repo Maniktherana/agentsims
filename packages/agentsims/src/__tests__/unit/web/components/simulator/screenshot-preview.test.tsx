@@ -8,6 +8,7 @@ import {
 	ScreenshotFlash,
 	copyScreenshotBlob,
 	resolveScreenshotPreviewSidecar,
+	screenshotPreviewSourceTransform,
 } from "../../../../../web/components/simulator/screenshot-preview";
 
 describe("device screenshot feedback", () => {
@@ -58,6 +59,34 @@ describe("device screenshot feedback", () => {
 		expect(placement!.width / placement!.height).toBeCloseTo(2, 8);
 		expect(placement!.top + placement!.height).toBe(660);
 		expect(placement!.left + placement!.width).toBeLessThanOrEqual(586);
+	});
+
+	test("starts exactly over the captured screen even after the canvas has moved", () => {
+		const capturedScreen = {
+			left: 201.25,
+			top: 82.5,
+			width: 301.5,
+			height: 675.3,
+		};
+		const placement = resolveScreenshotPreviewSidecar({
+			screen: { left: 270, top: 100, width: 350, height: 700 },
+			capture: { width: 1080, height: 2424 },
+			viewport: { width: 1400, height: 1000 },
+		})!;
+		const transform = screenshotPreviewSourceTransform(
+			placement,
+			capturedScreen,
+		);
+		expect(placement.left + transform.x).toBe(capturedScreen.left);
+		expect(placement.top + transform.y).toBe(capturedScreen.top);
+		expect(placement.width * transform.scaleX).toBeCloseTo(
+			capturedScreen.width,
+			8,
+		);
+		expect(placement.height * transform.scaleY).toBeCloseTo(
+			capturedScreen.height,
+			8,
+		);
 	});
 
 	test("keeps a tall phone's preview inside the viewport without changing its source geometry", () => {
@@ -114,6 +143,14 @@ describe("device screenshot feedback", () => {
 					phase: "visible",
 					copying: false,
 					error: null,
+					source: {
+						left: 0,
+						top: 0,
+						width: 360,
+						height: 808,
+						borderRadius: "14% 14% 10% 10% / 6% 6% 4% 4%",
+						cornerShape: "round",
+					},
 				}}
 				layout={{
 					side: "right",
@@ -143,6 +180,8 @@ describe("device screenshot feedback", () => {
 		expect(html).toContain("width:120px");
 		expect(html).toContain("height:269px");
 		expect(html).toContain("agentsims-screenshot-preview-image");
+		expect(html).toContain("border-radius:14% 14% 10% 10% / 6% 6% 4% 4%");
+		expect(html).toContain("corner-shape:round");
 		expect(html).toContain('src="blob:shot-2"');
 	});
 
@@ -174,15 +213,13 @@ describe("device screenshot feedback", () => {
 				onDismiss: () => {},
 			}) as ReactPortal & { containerInfo: unknown };
 			expect(portal.containerInfo).toBe(body);
-			const child = portal.children as ReactElement<{
-				className: string;
-				style: Record<string, number | string>;
-			}>;
-			expect(child.props.className).toContain("fixed z-[2147483646]");
-			expect(child.props.style.left).toBe(514);
-			expect(child.props.style.top).toBe(460);
-			expect(child.props.style["--screenshot-enter-x"]).toBe("-314px");
-			expect(child.props.style["--screenshot-enter-y"]).toBe("-400px");
+			const html = renderToStaticMarkup(portal.children as ReactElement);
+			expect(html).toContain("fixed z-[2147483646]");
+			expect(html).toContain("left:514px");
+			expect(html).toContain("top:460px");
+			expect(html).toContain(
+				"translateX(-314px) translateY(-400px) scaleX(3) scaleY(3)",
+			);
 		} finally {
 			if (previous) Object.defineProperty(globalThis, "document", previous);
 			else Reflect.deleteProperty(globalThis, "document");

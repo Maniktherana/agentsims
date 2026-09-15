@@ -10,6 +10,7 @@ import {
 	type ReactNode,
 } from "react";
 import { IconButton } from "../ui/icon-button";
+import { PanelSurface } from "../ui/panel";
 import {
 	FloatingPanelResizeHandle,
 	floatingPanelResizeVisualPhase,
@@ -77,13 +78,13 @@ export function AccessibilityPanel({
 			: "max-h-[440px] min-h-[320px] w-full";
 
 	return (
-		<aside
+		<PanelSurface
 			aria-labelledby={titleId}
 			data-device-id={device.id}
 			data-device-platform={device.platform}
 			data-accessibility-panel
 			data-agentsims-floating-panel
-			className={`agentsims-accessibility-panel-enter relative flex min-w-0 flex-col overflow-visible rounded-[14px] border border-white/[0.1] bg-[var(--agentsims-panel-bg,#181818)] text-white shadow-[0_12px_40px_rgba(0,0,0,0.55)] ${placementClass} ${className}`}
+			className={`relative flex min-w-0 flex-col overflow-visible rounded-[14px] border border-white/[0.1] bg-[var(--agentsims-panel-bg,#181818)] text-white shadow-[0_12px_40px_rgba(0,0,0,0.55)] ${placementClass} ${className}`}
 		>
 			<header
 				data-agentsims-accessibility-panel-header
@@ -159,7 +160,7 @@ export function AccessibilityPanel({
 					ariaLabel="Resize accessibility panel"
 				/>
 			)}
-		</aside>
+		</PanelSurface>
 	);
 }
 

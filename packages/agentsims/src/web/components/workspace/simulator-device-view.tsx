@@ -41,7 +41,11 @@ import {
 	accessibilityInspectorReducer,
 	createAccessibilityInspectorState,
 } from "../../accessibility/state";
-import { DeviceFrame, type FrameButtonPress } from "../simulator/device-frame";
+import {
+	DeviceFrame,
+	deviceFrameScreenRadius,
+	type FrameButtonPress,
+} from "../simulator/device-frame";
 import {
 	ScreenshotPreviewOverlay,
 	ScreenshotFlash,
@@ -757,6 +761,10 @@ export function SimulatorDeviceView({
 	const screenshotPreview = useScreenshotPreview(screenshot.reportCopied);
 	const [screenshotPreviewLayout, setScreenshotPreviewLayout] =
 		useState<ScreenshotPreviewLayout | null>(null);
+	const measuredScreenshotRef = useRef<{
+		id: string;
+		hasVisualPlacement: boolean;
+	} | null>(null);
 	const screenshotRequestRef = useRef<AbortController | null>(null);
 	const capturePresentedSurfaceRef = useRef<
 		(() => RenderedScreenshot | null) | null
@@ -832,9 +840,44 @@ export function SimulatorDeviceView({
 			capturePresentedSurface: () => {
 				const rendered = capturePresentedSurfaceRef.current?.() ?? null;
 				if (!rendered) return null;
+				const screenRect = screenSurfaceRef.current?.getBoundingClientRect();
+				const frameRect = simContainerRef.current?.getBoundingClientRect();
+				const source = screenRect
+					? {
+							left: screenRect.left,
+							top: screenRect.top,
+							width: screenRect.width,
+							height: screenRect.height,
+							borderRadius:
+								useDeviceFrame && chrome
+									? deviceFrameScreenRadius(chrome)
+									: imgBorderRadius,
+							cornerShape: imgCornerShape,
+						}
+					: undefined;
+				// The flash covers the phone body; the captured image starts at its
+				// screen opening. Both use viewport coordinates above the portal.
+				const flashSource =
+					useDeviceFrame && chrome && frameRect
+						? {
+								left:
+									frameRect.left +
+									(chrome.body.x / chrome.frame.width) * frameRect.width,
+								top:
+									frameRect.top +
+									(chrome.body.y / chrome.frame.height) * frameRect.height,
+								width:
+									(chrome.body.width / chrome.frame.width) * frameRect.width,
+								height:
+									(chrome.body.height / chrome.frame.height) * frameRect.height,
+								borderRadius: `${(chrome.outerCornerRadius / chrome.body.width) * 100}% / ${(chrome.outerCornerRadius / chrome.body.height) * 100}%`,
+							}
+						: source;
 				return {
 					id: crypto.randomUUID(),
 					...rendered,
+					source,
+					flashSource,
 					save: (signal: AbortSignal) =>
 						saveCapturedScreenshot(rendered.blob, signal),
 					cancel: () => controller.abort(),
@@ -859,9 +902,13 @@ export function SimulatorDeviceView({
 		});
 	}, [
 		captureDeviceScreenshot,
+		chrome,
+		imgBorderRadius,
+		imgCornerShape,
 		saveCapturedScreenshot,
 		screenshot,
 		screenshotPreview,
+		useDeviceFrame,
 	]);
 
 	useLayoutEffect(() => {
@@ -869,34 +916,42 @@ export function SimulatorDeviceView({
 		const screen = screenSurfaceRef.current;
 		const stack = deviceStackRef.current;
 		if (!preview || !screen || !stack) {
+			measuredScreenshotRef.current = null;
 			setScreenshotPreviewLayout(null);
 			return;
 		}
 
 		let frame: number | null = null;
+		const measure = () => {
+			const screenRect = screen.getBoundingClientRect();
+			const placement = resolveScreenshotPreviewSidecar({
+				screen: screenRect,
+				capture: preview,
+				viewport: { width: window.innerWidth, height: window.innerHeight },
+			});
+			const next = placement;
+			measuredScreenshotRef.current = {
+				id: preview.id,
+				hasVisualPlacement: Boolean(placement),
+			};
+			setScreenshotPreviewLayout((current) => {
+				if (
+					current?.side === next?.side &&
+					current?.left === next?.left &&
+					current?.top === next?.top &&
+					current?.width === next?.width &&
+					current?.height === next?.height
+				) {
+					return current;
+				}
+				return next;
+			});
+		};
 		const refresh = () => {
 			if (frame != null) return;
 			frame = requestAnimationFrame(() => {
 				frame = null;
-				const screenRect = screen.getBoundingClientRect();
-				const placement = resolveScreenshotPreviewSidecar({
-					screen: screenRect,
-					capture: preview,
-					viewport: { width: window.innerWidth, height: window.innerHeight },
-				});
-				const next = placement;
-				setScreenshotPreviewLayout((current) => {
-					if (
-						current?.side === next?.side &&
-						current?.left === next?.left &&
-						current?.top === next?.top &&
-						current?.width === next?.width &&
-						current?.height === next?.height
-					) {
-						return current;
-					}
-					return next;
-				});
+				measure();
 			});
 		};
 		const onGeometry = (event: Event) => {
@@ -912,7 +967,7 @@ export function SimulatorDeviceView({
 		window.addEventListener("resize", refresh);
 		window.addEventListener("scroll", refresh, true);
 		window.addEventListener(WORKSPACE_DEVICE_GEOMETRY_EVENT, onGeometry);
-		refresh();
+		measure();
 		return () => {
 			if (frame != null) cancelAnimationFrame(frame);
 			resizeObserver?.disconnect();
@@ -927,7 +982,11 @@ export function SimulatorDeviceView({
 		screenshotPreview.preview?.width,
 	]);
 	useEffect(() => {
-		if (screenshotPreview.preview) {
+		if (
+			screenshotPreview.preview &&
+			measuredScreenshotRef.current?.id === screenshotPreview.preview.id &&
+			!measuredScreenshotRef.current.hasVisualPlacement
+		) {
 			screenshotPreview.markPreviewReady(
 				screenshotPreview.preview.id,
 				Boolean(screenshotPreviewLayout),
@@ -1425,7 +1484,20 @@ export function SimulatorDeviceView({
 							preview={screenshotPreview.preview}
 							layout={screenshotPreviewLayout}
 							borderRadius={imgBorderRadius}
+							onReady={() => {
+								if (screenshotPreview.preview)
+									screenshotPreview.markPreviewReady(
+										screenshotPreview.preview.id,
+									);
+							}}
+							onExitComplete={() => {
+								if (screenshotPreview.preview)
+									screenshotPreview.finishPreviewExit(
+										screenshotPreview.preview.id,
+									);
+							}}
 							onCopy={() => void screenshotPreview.copyPreview()}
+							onInteractionChange={screenshotPreview.setPreviewInteracting}
 							onDismiss={screenshotPreview.dismissPreview}
 						/>
 					</div>

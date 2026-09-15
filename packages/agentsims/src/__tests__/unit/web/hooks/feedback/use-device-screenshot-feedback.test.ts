@@ -116,6 +116,23 @@ describe("ScreenshotCaptureSession", () => {
 		expect(saves).toBe(0);
 	});
 
+	test("pauses autosave during interaction and resumes the remaining time", async () => {
+		const countdown = new ScreenshotPreviewCountdown();
+		let saves = 0;
+		countdown.ready(() => {
+			saves += 1;
+		}, 80);
+		await Bun.sleep(25);
+		countdown.pause();
+		await Bun.sleep(100);
+		expect(saves).toBe(0);
+		countdown.resume();
+		await Bun.sleep(10);
+		expect(saves).toBe(0);
+		await Bun.sleep(70);
+		expect(saves).toBe(1);
+	});
+
 	test("saves and releases an unplaced preview after the countdown", async () => {
 		const countdown = new ScreenshotPreviewCountdown();
 		const coordinator = new ScreenshotSaveCoordinator();

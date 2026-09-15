@@ -4,7 +4,9 @@ import {
 	copyScreenshotBlob,
 	type ScreenshotFlashState,
 	type ScreenshotPreview,
+	type ScreenshotPreviewSource,
 } from "../../components/simulator/screenshot-preview";
+import { DEVICE_PRESENCE_TRANSITION } from "../../simulator/presence-motion";
 
 export type CapturedScreenshotPreview = {
 	id: string;
@@ -15,12 +17,14 @@ export type CapturedScreenshotPreview = {
 	save: (signal: AbortSignal) => void | Promise<void>;
 	cancel?: () => void;
 	release?: () => void;
+	source?: ScreenshotPreviewSource;
+	flashSource?: ScreenshotPreviewSource;
 };
 
 const FLASH_HOLD_MS = 75;
 const FLASH_FADE_MS = 210;
 export const PREVIEW_READY_COUNTDOWN_MS = 5000;
-export const PREVIEW_EXIT_MS = 160;
+export const PREVIEW_EXIT_MS = DEVICE_PRESENCE_TRANSITION.duration * 1000;
 
 export class ScreenshotCaptureSession {
 	private latestRequest = 0;
@@ -50,21 +54,43 @@ export class ScreenshotCaptureSession {
 
 export class ScreenshotPreviewCountdown {
 	private timer: ReturnType<typeof setTimeout> | null = null;
+	private save: (() => void | Promise<void>) | null = null;
+	private remaining = 0;
+	private deadline = 0;
 
 	ready(
 		save: () => void | Promise<void>,
 		delay = PREVIEW_READY_COUNTDOWN_MS,
 	): void {
 		this.cancel();
+		this.save = save;
+		this.remaining = delay;
+		this.resume();
+	}
+
+	pause(): void {
+		if (this.timer === null) return;
+		clearTimeout(this.timer);
+		this.timer = null;
+		this.remaining = Math.max(0, this.deadline - performance.now());
+	}
+
+	resume(): void {
+		if (this.timer !== null || !this.save) return;
+		this.deadline = performance.now() + this.remaining;
 		this.timer = setTimeout(() => {
 			this.timer = null;
-			void save();
-		}, delay);
+			const save = this.save;
+			this.save = null;
+			void save?.();
+		}, this.remaining);
 	}
 
 	cancel(): void {
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = null;
+		this.save = null;
+		this.remaining = 0;
 	}
 }
 
@@ -232,13 +258,15 @@ export function useScreenshotPreview(onCopied?: () => void) {
 
 	const exitPreview = useCallback(
 		(id: string) => {
+			const current = activePreviewRef.current;
+			if (!current || current.id !== id || current.phase === "exit") return;
 			cancelActiveWork();
 			sessionRef.current?.invalidate();
 			activeRequestIdRef.current = null;
 			readyPreviewIdRef.current = null;
-			setPreview((current) =>
-				current?.id === id ? { ...current, phase: "exit" } : current,
-			);
+			const exiting = { ...current, phase: "exit" as const };
+			activePreviewRef.current = exiting;
+			setPreview(exiting);
 			if (previewRemoveTimerRef.current)
 				clearTimeout(previewRemoveTimerRef.current);
 			previewRemoveTimerRef.current = setTimeout(
@@ -269,7 +297,11 @@ export function useScreenshotPreview(onCopied?: () => void) {
 			readyPreviewIdRef.current = null;
 			visuallyPlacedPreviewIdRef.current = null;
 			setPreview(next);
-			setFlash({ id: `screenshot-flash-${requestId}`, phase: "solid" });
+			setFlash({
+				id: `screenshot-flash-${requestId}`,
+				phase: "solid",
+				source: capture.flashSource ?? capture.source,
+			});
 			flashFadeTimerRef.current = setTimeout(() => {
 				setFlash((current) =>
 					current?.id === `screenshot-flash-${requestId}`
@@ -315,7 +347,7 @@ export function useScreenshotPreview(onCopied?: () => void) {
 	const markPreviewReady = useCallback(
 		(id: string, hasVisualPlacement = true) => {
 			const current = activePreviewRef.current;
-			if (!current || current.id !== id) return;
+			if (!current || current.id !== id || current.phase === "exit") return;
 			visuallyPlacedPreviewIdRef.current = hasVisualPlacement ? id : null;
 			if (readyPreviewIdRef.current === id) return;
 			readyPreviewIdRef.current = id;
@@ -345,6 +377,11 @@ export function useScreenshotPreview(onCopied?: () => void) {
 		if (!id) return;
 		exitPreview(id);
 	}, [exitPreview, preview?.id]);
+
+	const setPreviewInteracting = useCallback((interacting: boolean) => {
+		if (interacting) countdownRef.current?.pause();
+		else countdownRef.current?.resume();
+	}, []);
 
 	const copyPreview = useCallback(async () => {
 		const current = preview;
@@ -414,7 +451,9 @@ export function useScreenshotPreview(onCopied?: () => void) {
 		beginCapture,
 		replaceCapture,
 		markPreviewReady,
+		finishPreviewExit: removePreview,
 		copyPreview,
+		setPreviewInteracting,
 		dismissPreview,
 		reset,
 	};
