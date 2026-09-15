@@ -190,7 +190,6 @@ export async function collectAndroidAxSnapshot(
 		const xml = await readXml(serial);
 		const elements: AxElement[] = [];
 		for (const { attrs, path } of androidXmlNodes(xml)) {
-			if (elements.length >= 500) break;
 			const frame = boundsToRect(attrs.bounds);
 			// Zero-area nodes are often structural accessibility containers. Keep
 			// them in the raw tree so paths remain an exact representation of the

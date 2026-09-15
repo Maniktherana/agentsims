@@ -50,7 +50,7 @@ import org.json.JSONObject;
  * normal traversal a few milliseconds instead of seconds.
  */
 public final class Main {
-  private static final int MAX_NODES = 1000;
+  private static final int MAX_NODES = Integer.MAX_VALUE;
   private static final int MAX_DEPTH = 80;
   private static final long SETTLED_IDLE_MS = 100;
   private static final long SETTLED_TIMEOUT_MS = 2000;
