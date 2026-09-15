@@ -1,5 +1,5 @@
 {
-	"skill_name": "building-mobile-apps",
+	"skill_name": "build-mobile-apps",
 	"evals": [
 		{
 			"id": 1,
@@ -115,6 +115,32 @@
 				"Observes the denied state and verifies its accessibility semantics",
 				"Allows camera access and verifies the app's recovery path",
 				"Restores the initial permission state when the test owns the change"
+			],
+			"files": []
+		},
+		{
+			"id": 10,
+			"name": "observe-payload-handling",
+			"prompt": "Show me what is currently on screen on the booted device.",
+			"expected_behavior": [
+				"Redirects the observe output to a file instead of printing the JSON into the transcript",
+				"Extracts the screenshot from screenshot.contentBase64 and decodes it to a PNG file",
+				"Reads the decoded PNG with an image tool rather than describing the base64",
+				"Queries accessibility.elements with a filter instead of dumping the whole tree",
+				"Does not claim that observe returns a screenshot path"
+			],
+			"files": []
+		},
+		{
+			"id": 11,
+			"name": "accessibility-frame-to-coordinate",
+			"prompt": "Tap the Sign in button on the booted device.",
+			"expected_behavior": [
+				"Observes first and locates the element in the accessibility tree by label or testId",
+				"Converts the pixel frame to a normalized coordinate by dividing the frame centre by accessibility.screen width and height",
+				"Sends act with x and y between 0 and 1, never raw pixel values",
+				"Observes again after the tap and verifies the resulting screen state",
+				"Reports that the target is absent instead of guessing a coordinate when the tree has no match"
 			],
 			"files": []
 		}

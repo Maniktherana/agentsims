@@ -9,7 +9,7 @@
 			"description": "Build, debug, and verify native and cross-platform mobile apps on iOS and Android devices.",
 			"source": "./",
 			"strict": false,
-			"skills": ["./skills/building-mobile-apps"],
+			"skills": ["./skills/build-mobile-apps"],
 			"category": "development"
 		}
 	]

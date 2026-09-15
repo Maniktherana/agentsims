@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Mobile Apps"
+  short_description: "Build and verify iOS and Android apps on a device"
+  default_prompt: "Use $build-mobile-apps to build this mobile feature and prove the result on a device with agentsims."

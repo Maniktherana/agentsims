@@ -265,9 +265,14 @@ remains under the control of its original owner.
 Install the optional **Build Mobile Apps** skill for Codex and Claude Code:
 
 ```sh
-npx skills add Maniktherana/agentsims \
-  --skill building-mobile-apps \
-  --agent codex claude-code
+npx skills add Maniktherana/agentsims
+```
+
+This repository holds one skill, so no `--skill` flag is necessary. To install
+for named agents only, add `--agent`:
+
+```sh
+npx skills add Maniktherana/agentsims --agent codex claude-code
 ```
 
 For a local checkout, replace `Maniktherana/agentsims` with its path. The skill
@@ -283,7 +288,7 @@ Claude Code can install the same skill through the plugin marketplace:
 /plugin install agentsims@agentsims
 ```
 
-See the [skill guide](skills/building-mobile-apps/README.md) for its structure
+See the [skill guide](skills/build-mobile-apps/README.md) for its structure
 and other installation options.
 
 For Codex, add a local environment action named **Agentsims**:

@@ -17,6 +17,10 @@
 
 ### Changed
 
+- The Build Mobile Apps skill is now `skills/build-mobile-apps`. It documents
+  the observe payload, the pixel-to-normalized coordinate conversion, the
+  per-platform button lists, and app permissions on both platforms. Its
+  references are grouped by task instead of by product area.
 - Settings buttons and inputs use shared controls with consistent heights and
   centered content. Status icons use matching strokes and smooth transitions.
   Counters retain stable widths, and lifecycle labels omit ellipses. (`2401b4b`)
