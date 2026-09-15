@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
 import { attachCamera } from "../../../../core/ios/camera-helper";
+import {
+	attachOrSwitchIosCameraSource,
+	type IosCameraStatus,
+} from "../../../../core/ios/camera";
 function host(relaunched = true) {
 	const calls: string[] = [];
 	let environment: NodeJS.ProcessEnv = {};
@@ -100,4 +104,80 @@ test("invalid sources and canceled attachment do not start helpers", async () =>
 		),
 	).rejects.toThrow();
 	expect(system.calls).toEqual([]);
+});
+
+function cameraSourceHost(status: IosCameraStatus) {
+	const calls: unknown[] = [];
+	return {
+		calls,
+		getStatus: async () => status,
+		findFrontmost: async () => {
+			calls.push("frontmost");
+			return "com.example.frontmost";
+		},
+		switchSource: async (...args: unknown[]) => {
+			calls.push({ switch: args });
+		},
+		attach: async (options: Parameters<typeof attachCamera>[0]) => {
+			calls.push({ attach: options });
+		},
+	};
+}
+
+test("source routing attaches a new target app even when another app shares the helper", async () => {
+	const system = cameraSourceHost({
+		alive: true,
+		bundleIds: ["com.example.other"],
+	});
+	expect(
+		await attachOrSwitchIosCameraSource(
+			"simulator", "webcam", "camera-1", "com.example.target", system,
+		),
+	).toBe("app-relaunch");
+	expect(system.calls).toEqual([
+		{
+			attach: {
+				udid: "simulator",
+				bundleId: "com.example.target",
+				webcam: "camera-1",
+				signal: expect.any(AbortSignal),
+			},
+		},
+	]);
+});
+
+test("source routing switches attached targets without relaunching them", async () => {
+	for (const target of [undefined, "com.example.target"]) {
+		const system = cameraSourceHost({
+			alive: true,
+			bundleIds: ["com.example.target"],
+		});
+		expect(
+			await attachOrSwitchIosCameraSource(
+				"simulator", "image", "/tmp/camera.png", target, system,
+			),
+		).toBe("live");
+		expect(system.calls).toEqual([
+			{ switch: ["simulator", "image", "/tmp/camera.png"] },
+		]);
+	}
+});
+
+test("source routing still selects the foreground app when no target is supplied", async () => {
+	const system = cameraSourceHost({ alive: false, bundleIds: [] });
+	expect(
+		await attachOrSwitchIosCameraSource(
+			"simulator", "placeholder", undefined, undefined, system,
+		),
+	).toBe("app-relaunch");
+	expect(system.calls).toEqual([
+		"frontmost",
+		{
+			attach: {
+				udid: "simulator",
+				bundleId: "com.example.frontmost",
+				signal: expect.any(AbortSignal),
+			},
+		},
+	]);
 });

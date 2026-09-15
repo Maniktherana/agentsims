@@ -9,6 +9,10 @@ import {
 	readInjectedBundles,
 	sendHelperCommand,
 } from "../../../../core/ios/camera-helper";
+import {
+	getIosCameraStatus,
+	setIosCameraMirror,
+} from "../../../../core/ios/camera";
 
 test("camera state only returns bundles for the current live helper", () => {
 	const udid = randomUUID();
@@ -57,13 +61,68 @@ async function withHelper(
 		server.listen(files.socket, resolve);
 	});
 	try {
+		mkdirSync(dirname(files.pid), { recursive: true });
+		writeFileSync(files.pid, String(process.pid));
+		writeFileSync(
+			files.bundles,
+			JSON.stringify({ helperPid: process.pid, bundleIds: ["com.example.app"] }),
+		);
 		await body(udid);
 	} finally {
 		for (const socket of sockets) socket.destroy();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		rmSync(files.socket, { force: true });
+		rmSync(files.pid, { force: true });
+		rmSync(files.bundles, { force: true });
 	}
 }
+
+test("camera status exposes helper source, argument, mirror, PID, and attached apps", async () => {
+	await withHelper(
+		(socket, request) => {
+			expect(request).toEqual({ action: "status" });
+			socket.end(
+				JSON.stringify({
+					ok: true,
+					source: "webcam",
+					arg: "camera-1",
+					mirror: "on",
+				}) + "\n",
+			);
+		},
+		async (udid) => {
+			expect(await getIosCameraStatus(udid)).toEqual({
+				alive: true,
+				source: "webcam",
+				arg: "camera-1",
+				mirror: "on",
+				helperPid: process.pid,
+				bundleIds: ["com.example.app"],
+			});
+		},
+	);
+});
+
+test("camera mirror uses the helper setMirror command and reports rejection", async () => {
+	for (const ok of [true, false]) {
+		await withHelper(
+			(socket, request) => {
+				expect(request).toEqual({ action: "setMirror", mode: "off" });
+				socket.end(
+					JSON.stringify({ ok, error: ok ? undefined : "mirror unavailable" }) + "\n",
+				);
+			},
+			async (udid) => {
+				if (ok)
+					await expect(setIosCameraMirror(udid, "off")).resolves.toBeUndefined();
+				else
+					await expect(setIosCameraMirror(udid, "off")).rejects.toThrow(
+						"mirror unavailable",
+					);
+			},
+		);
+	}
+});
 
 test("camera IPC reassembles a split JSON line and closes after the reply", async () => {
 	await withHelper(

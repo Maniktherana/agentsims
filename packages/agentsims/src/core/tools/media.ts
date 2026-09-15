@@ -45,6 +45,7 @@ import {
 	getIosCameraStatus,
 	listIosWebcams,
 	stopIosCameraInjection,
+	setIosCameraMirror,
 	type IosCameraStatus,
 } from "../ios/camera";
 
@@ -68,6 +69,10 @@ export interface DeviceMediaState {
 	camera: {
 		owner: "agentsims-injection" | "android-emulator" | "device";
 		source?: string;
+		arg?: string;
+		mirror?: "on" | "off";
+		helperPid?: number;
+		alive?: boolean;
 		front?: string;
 		back?: string;
 		sourceChoices?: MediaSourceChoice[];
@@ -121,6 +126,11 @@ export const MediaRouteActionSchema = z.discriminatedUnion("action", [
 		source: z.enum(["placeholder", "webcam", "image", "video"]),
 		deviceId: z.string().optional(),
 		path: z.string().optional(),
+		bundleId: z.string().min(1).optional(),
+	}),
+	z.object({
+		action: z.literal("ios-camera-mirror"),
+		mirror: z.enum(["on", "off"]),
 	}),
 	z.object({ action: z.literal("host-audio-input"), deviceId: z.string() }),
 	z.object({ action: z.literal("host-audio-output"), deviceId: z.string() }),
@@ -382,6 +392,10 @@ export function buildDeviceMediaState(
 			camera: {
 				owner: "agentsims-injection",
 				source: cameraSource,
+				arg: iosCameraStatus?.arg,
+				mirror: iosCameraStatus?.mirror,
+				helperPid: iosCameraStatus?.helperPid,
+				alive: iosCameraStatus?.alive ?? false,
 				sourceChoices: injectedSources,
 				frontChoices: [],
 				backChoices: [],
@@ -831,8 +845,18 @@ export class MediaRouter {
 					device,
 					body.source,
 					body.source === "webcam" ? body.deviceId : body.path,
+					body.bundleId,
 				);
 				return { ok: true, apply };
+			}
+
+			case "ios-camera-mirror": {
+				if (serial)
+					throw new Error(
+						"iOS camera injection is only available for iOS simulators",
+					);
+				await setIosCameraMirror(device, body.mirror);
+				return { ok: true, apply: "live" };
 			}
 
 			case "host-audio-input":

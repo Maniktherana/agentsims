@@ -13,6 +13,7 @@ import {
 import {
 	buildDeviceMediaState,
 	CameraWebcamSelectionSchema,
+	MediaRouteActionSchema,
 	mediaDeviceFromRequestUrl,
 } from "../../../../core/tools/media";
 import {
@@ -57,6 +58,56 @@ function androidStatus(serial = "emulator-5554"): AndroidStatus {
 }
 
 describe("media routing model", () => {
+	test("preserves targeted iOS attachment and accepts explicit mirror changes", () => {
+		const source = {
+			action: "ios-camera-source",
+			source: "webcam",
+			deviceId: "camera-1",
+			bundleId: "com.example.foreground",
+		};
+		expect(MediaRouteActionSchema.parse(source)).toEqual(source);
+		expect(
+			MediaRouteActionSchema.parse({
+				action: "ios-camera-mirror",
+				mirror: "on",
+			}),
+		).toEqual({ action: "ios-camera-mirror", mirror: "on" });
+		expect(
+			MediaRouteActionSchema.safeParse({
+				action: "ios-camera-mirror",
+				mirror: "auto",
+			}).success,
+		).toBe(false);
+	});
+
+	test("exposes iOS helper state without changing webcam source identity", () => {
+		const state = buildDeviceMediaState(
+			"IOS-UDID",
+			undefined,
+			[],
+			undefined,
+			undefined,
+			[],
+			{
+				alive: true,
+				helperPid: 123,
+				source: "webcam",
+				arg: "camera-1",
+				mirror: "off",
+				bundleIds: ["com.example.app"],
+			},
+		);
+		expect(state.camera).toMatchObject({
+			source: "camera-1",
+			arg: "camera-1",
+			mirror: "off",
+			helperPid: 123,
+			alive: true,
+			attachedApps: ["com.example.app"],
+			status: "attached",
+		});
+	});
+
 	test("accepts only bounded webcam selections and requires an Android face", () => {
 		expect(
 			CameraWebcamSelectionSchema.safeParse({

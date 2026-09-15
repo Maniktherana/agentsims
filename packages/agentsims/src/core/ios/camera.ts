@@ -6,6 +6,7 @@ import {
 	attachCamera,
 	isHelperAlive,
 	stopExistingHelper,
+	currentHelperPid,
 } from "./camera-helper";
 import { axFrontmostAsync } from "./stream/native";
 import { hostCommandText } from "../host";
@@ -17,6 +18,8 @@ export interface IosCameraStatus {
 	alive: boolean;
 	source?: string;
 	arg?: string;
+	mirror?: "on" | "off";
+	helperPid?: number;
 	bundleIds: string[];
 }
 
@@ -33,13 +36,37 @@ export async function getIosCameraStatus(
 	if (!isHelperAlive(udid)) {
 		return { alive: false, bundleIds: [] };
 	}
-	const reply = await sendHelperCommand(udid, { action: "status" });
+	const reply: Awaited<ReturnType<typeof sendHelperCommand>> & {
+		mirror?: unknown;
+	} = await sendHelperCommand(udid, { action: "status" });
 	return {
 		alive: reply.ok === true,
 		source: typeof reply.source === "string" ? reply.source : undefined,
 		arg: typeof reply.arg === "string" ? reply.arg : undefined,
+		mirror:
+			reply.mirror === "on" || reply.mirror === "off" ? reply.mirror : undefined,
+		helperPid: currentHelperPid(udid) ?? undefined,
 		bundleIds: readInjectedBundles(udid),
 	};
+}
+
+export async function setIosCameraMirror(
+	udid: string,
+	mirror: "on" | "off",
+): Promise<void> {
+	if (!isHelperAlive(udid))
+		throw new Error("iOS camera helper is not attached to an app");
+	const reply = await sendHelperCommand(udid, {
+		action: "setMirror",
+		mode: mirror,
+	});
+	if (reply.ok !== true) {
+		throw new Error(
+			typeof reply.error === "string"
+				? reply.error
+				: "Camera helper did not change the mirror mode",
+		);
+	}
 }
 
 export async function switchIosCameraSource(
@@ -75,23 +102,44 @@ export async function findFrontmostIosAppBundle(udid: string): Promise<string> {
 	return info.bundleId;
 }
 
+interface IosCameraSourceHost {
+	getStatus: typeof getIosCameraStatus;
+	findFrontmost: typeof findFrontmostIosAppBundle;
+	switchSource: typeof switchIosCameraSource;
+	attach: (options: Parameters<typeof attachCamera>[0]) => Promise<unknown>;
+}
+
+const iosCameraSourceHost: IosCameraSourceHost = {
+	getStatus: getIosCameraStatus,
+	findFrontmost: findFrontmostIosAppBundle,
+	switchSource: switchIosCameraSource,
+	attach: attachCamera,
+};
+
 export async function attachOrSwitchIosCameraSource(
 	udid: string,
 	source: IosCameraSource,
 	arg?: string,
+	targetBundleId?: string,
+	host = iosCameraSourceHost,
 ): Promise<"live" | "app-relaunch"> {
-	const status = await getIosCameraStatus(udid).catch(() => ({
+	if ((source === "image" || source === "video") && !arg)
+		throw new Error(`${source} camera source requires a file path`);
+	const status = await host.getStatus(udid).catch((): IosCameraStatus => ({
 		alive: false,
 		bundleIds: [],
 	}));
-	if (status.alive && status.bundleIds.length > 0) {
-		await switchIosCameraSource(udid, source, arg);
+	if (
+		status.alive &&
+		(targetBundleId
+			? status.bundleIds.includes(targetBundleId)
+			: status.bundleIds.length > 0)
+	) {
+		await host.switchSource(udid, source, arg);
 		return "live";
 	}
-	const bundleId = await findFrontmostIosAppBundle(udid);
-	if ((source === "image" || source === "video") && !arg)
-		throw new Error(`${source} camera source requires a file path`);
-	await attachCamera({
+	const bundleId = targetBundleId ?? (await host.findFrontmost(udid));
+	await host.attach({
 		signal: AbortSignal.timeout(30_000),
 		udid,
 		bundleId,
