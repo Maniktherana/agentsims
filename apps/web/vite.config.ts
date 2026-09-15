@@ -10,7 +10,10 @@ export default defineConfig({
 	},
 	plugins: [
 		tanstackStart({
-			spa: { enabled: true },
+			// The landing page has no per-request data, so it ships as static
+			// HTML. The header and the laptop shell are then painted before any
+			// script runs, instead of after the client mounts.
+			prerender: { enabled: true, crawlLinks: true },
 		}),
 		tailwindcss(),
 		viteReact(),
