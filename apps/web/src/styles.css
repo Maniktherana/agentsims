@@ -1,473 +1,227 @@
 @import "tailwindcss";
 @source "./";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme {
-	--color-accent: oklch(0.625 0.205 256);
+	--ease-hero: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-subtle-foreground: var(--subtle-foreground);
+	--color-brand: var(--brand);
+
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
 }
 
 :root {
-	color-scheme: dark;
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	--text-primary: #f4f4f5;
-	--text-secondary: #a1a1aa;
-	--text-muted: #85858f;
-	--hero-ease: cubic-bezier(0.2, 0, 0, 1);
-}
-* {
-	box-sizing: border-box;
-}
-html,
-body {
-	margin: 0;
-	background: #000;
-	-webkit-font-smoothing: antialiased;
-}
-button,
-a {
-	-webkit-tap-highlight-color: transparent;
-}
-button:focus-visible,
-a:focus-visible {
-	outline: 2px solid #38bdf8;
-	outline-offset: 4px;
+	--radius: 0.625rem;
+	--background: oklch(1 0 0);
+	--foreground: oklch(0.141 0.005 285.823);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.141 0.005 285.823);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.141 0.005 285.823);
+	--primary: oklch(0.21 0.006 285.885);
+	--primary-foreground: oklch(0.985 0 0);
+	--secondary: oklch(0.967 0.001 286.375);
+	--secondary-foreground: oklch(0.21 0.006 285.885);
+	--muted: oklch(0.967 0.001 286.375);
+	--muted-foreground: oklch(0.552 0.016 285.938);
+	--accent: oklch(0.967 0.001 286.375);
+	--accent-foreground: oklch(0.21 0.006 285.885);
+	--destructive: oklch(0.577 0.245 27.325);
+	--border: oklch(0.92 0.004 286.32);
+	--input: oklch(0.92 0.004 286.32);
+	--ring: oklch(0.705 0.015 286.067);
+	--subtle-foreground: oklch(0.552 0.016 285.938);
+	--brand: oklch(0.625 0.205 256);
 }
 
-.site-header {
-	display: grid;
-	grid-template-columns: 1fr auto 1fr;
-	align-items: center;
-	min-height: 5.25rem;
-	max-width: 100rem;
-	margin-inline: auto;
-	padding: 1rem clamp(1.25rem, 4vw, 4rem);
-	gap: 1.5rem;
-}
-.header-cta {
-	justify-self: end;
-	height: 2.25rem;
-}
-.site-brand {
-	display: flex;
-	width: fit-content;
-	align-items: center;
-	gap: 0.65rem;
-	font-size: 1rem;
-	font-weight: 600;
-	letter-spacing: -0.025em;
-}
-.site-brand img {
-	width: 2rem;
-	height: 2rem;
-}
-.project-links {
-	display: flex;
-	align-items: center;
-	gap: 1rem;
-	color: var(--text-secondary);
-	font-size: 0.875rem;
-}
-.project-links a {
-	display: inline-flex;
-	min-height: 2.75rem;
-	align-items: center;
-	gap: 0.65rem;
-}
-.skip-link {
-	position: absolute;
-	z-index: 30;
-	inset: 1rem auto auto 1rem;
-	padding: 0.75rem 1rem;
-	background: white;
-	color: black;
-	transform: translateY(-200%);
-}
-.skip-link:focus {
-	transform: none;
+.dark {
+	--background: oklch(0 0 0);
+	--foreground: oklch(0.967 0.001 286.375);
+	--card: #0a0a0b;
+	--card-foreground: oklch(0.92 0.004 286.32);
+	--popover: #181818;
+	--popover-foreground: oklch(0.967 0.001 286.375);
+	--primary: oklch(0.967 0.001 286.375);
+	--primary-foreground: oklch(0.141 0.005 285.823);
+	--secondary: #19191b;
+	--secondary-foreground: oklch(0.967 0.001 286.375);
+	--muted: #19191b;
+	--muted-foreground: oklch(0.705 0.015 286.067);
+	--accent: oklch(1 0 0 / 10%);
+	--accent-foreground: oklch(0.967 0.001 286.375);
+	--destructive: oklch(0.704 0.191 22.216);
+	--border: #303034;
+	--input: #303034;
+	--ring: #38bdf8;
+	--subtle-foreground: #85858f;
+	--brand: oklch(0.625 0.205 256);
 }
 
-.hero-section {
-	position: relative;
-	width: calc(100% - 4rem);
-	max-width: 128rem;
-	margin-inline: auto;
-}
-.hero-content {
-	position: absolute;
-	z-index: 5;
-	inset-block-start: 24%;
-	inset-inline-start: 5.5%;
-	width: 44%;
-}
-.hero-copy h1 {
-	margin-block: 1.5rem 0;
-	font-size: clamp(2.75rem, 4.1vw, 4.5rem);
-	line-height: 1.05;
-	letter-spacing: -0.055em;
-	font-weight: 600;
-}
-.hero-copy h1 span {
-	display: block;
-}
-.hero-eyebrow {
-	margin: 0;
-	font-size: clamp(0.875rem, 1.25vw, 1.25rem);
-	color: var(--text-secondary);
-}
-.hero-description {
-	max-width: 30rem;
-	margin-block: 1.75rem 0;
-	font-size: clamp(1rem, 1.3vw, 1.375rem);
-	line-height: 1.5;
-	color: var(--text-secondary);
-	text-wrap: pretty;
-}
-.hero-actions {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 0.75rem;
-	margin-block-start: 2.25rem;
-}
-.hero-actions > a,
-.hero-actions > button {
-	min-height: 2.5rem;
-	height: auto;
-	padding-block: 0.625rem;
-}
-.hero-note {
-	margin-block: 1.25rem 0;
-	font-size: 0.875rem;
-	color: var(--text-muted);
-}
-.command-pill {
-	gap: 0.75rem;
-	padding-inline: 1.25rem;
-	border: 1px solid #303034;
-	background: linear-gradient(#19191b, #101011);
-	box-shadow: inset 0 1px 0 #ffffff08;
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: 0.8125rem;
-}
-.copy-message {
-	margin-block: 0.75rem 0;
-	color: var(--text-secondary);
-	font-size: 0.875rem;
+@layer base {
+	* {
+		@apply border-border;
+	}
+	html {
+		color-scheme: dark;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	}
+	body {
+		@apply bg-background text-foreground;
+		-webkit-font-smoothing: antialiased;
+	}
+	button,
+	a {
+		-webkit-tap-highlight-color: transparent;
+	}
+	button:focus-visible,
+	a:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 4px;
+	}
 }
 
-.product-stage {
-	position: relative;
-}
-.macbook-display {
-	position: relative;
-	width: 100%;
-	aspect-ratio: 16 / 9;
-	max-height: 58rem;
-	overflow: hidden;
-	container-type: inline-size;
-	isolation: isolate;
-}
-/* Preserve the supplied SVG. Its artwork has 108 units of empty canvas at each side. */
-.macbook-frame {
-	position: absolute;
-	z-index: 1;
-	top: 0;
-	left: -10.794603%;
-	width: 121.53923%;
-	max-width: none;
-	height: auto;
-	pointer-events: none;
-}
+@layer components {
+	.macbook-display {
+		position: relative;
+		width: 100%;
+		aspect-ratio: 16 / 9;
+		max-height: 58rem;
+		overflow: hidden;
+		container-type: inline-size;
+		isolation: isolate;
+	}
+	/* The artwork has 108 units of empty canvas at each side. */
+	.macbook-frame {
+		position: absolute;
+		z-index: 1;
+		top: 0;
+		left: -10.794603%;
+		width: 121.53923%;
+		max-width: none;
+		height: auto;
+		pointer-events: none;
+	}
+	.macbook-display::before {
+		position: absolute;
+		z-index: 0;
+		inset: 1.7991cqw 1.849075% 0 1.7991%;
+		border-radius: 1.6cqw 1.6cqw 0 0;
+		background: #0a0a0b;
+		content: "";
+	}
+	.macbook-display::after {
+		position: absolute;
+		z-index: 2;
+		inset-inline: -1px;
+		bottom: 0;
+		height: 30%;
+		background: linear-gradient(transparent, #000 95%);
+		content: "";
+		pointer-events: none;
+	}
+	/* Screen aperture, relative to the artwork's 1000.5 × 685 bounds. */
+	.workspace-demo {
+		position: absolute;
+		z-index: 4;
+		left: 1.7991%;
+		top: 1.7991cqw;
+		width: 96.351824%;
+		height: calc(100% - 1.7991cqw);
+		overflow: hidden;
+		border-radius: 1.65% 1.65% 0 0 / 2.5% 2.5% 0 0;
+	}
+	.workspace-demo::before {
+		position: absolute;
+		top: 8%;
+		right: 0;
+		bottom: 0;
+		width: 59%;
+		background-image: radial-gradient(circle, #ffffff30 0.9px, transparent 1px);
+		background-size: 24px 24px;
+		mask-image:
+			linear-gradient(to right, transparent, black 24%, black 85%, transparent),
+			linear-gradient(transparent, black 15%, black 72%, transparent 98%);
+		mask-composite: intersect;
+		content: "";
+		pointer-events: none;
+	}
+	.device-island {
+		--agentsims-device-screen-on: oklch(0.58 0.1 245);
+		--agentsims-duration-hover: 110ms;
+		--agentsims-ease-standard: cubic-bezier(0, 0, 0.2, 1);
+	}
 
-.macbook-display::before {
-	position: absolute;
-	z-index: 0;
-	inset: 1.7991cqw 1.849075% 0 1.7991%;
-	border-radius: 1.6cqw 1.6cqw 0 0;
-	background: #0a0a0b;
-	content: "";
-}
-/* Fade the display and hardware. The simulator and dock are above this layer. */
-.macbook-display::after {
-	position: absolute;
-	z-index: 2;
-	inset-inline: -1px;
-	bottom: 0;
-	height: 30%;
-	background: linear-gradient(transparent, #000 95%);
-	content: "";
-	pointer-events: none;
-}
-.workspace-demo {
-	position: absolute;
-	z-index: 4;
-	/* Actual screen aperture, relative to the artwork's 1000.5 × 685 bounds. */
-	left: 1.7991%;
-	top: 1.7991cqw;
-	width: 96.351824%;
-	height: calc(100% - 1.7991cqw);
-	overflow: hidden;
-	border-radius: 1.65% 1.65% 0 0 / 2.5% 2.5% 0 0;
-}
-.workspace-demo::before {
-	position: absolute;
-	top: 8%;
-	right: 0;
-	bottom: 0;
-	width: 59%;
-	background-image: radial-gradient(circle, #ffffff30 0.9px, transparent 1px);
-	background-size: 24px 24px;
-	mask-image:
-		linear-gradient(to right, transparent, black 24%, black 85%, transparent),
-		linear-gradient(transparent, black 15%, black 72%, transparent 98%);
-	mask-composite: intersect;
-	content: "";
-	pointer-events: none;
-}
-.workspace-wordmark {
-	position: absolute;
-	z-index: 2;
-	top: 12%;
-	left: 46%;
-	padding: 0.4rem 0.6rem;
-	border: 1px solid #ffffff0d;
-	border-radius: 6px;
-	background: #151517;
-	color: #a1a1aa;
-	font:
-		600 10px ui-monospace,
-		SFMono-Regular,
-		Menlo,
-		monospace;
-}
-.demo-scene {
-	position: absolute;
-	z-index: 2;
-	top: auto;
-	bottom: 7%;
-	right: 7%;
-	width: min(40%, 36rem);
-	aspect-ratio: 480 / 530;
-	container-type: inline-size;
-	direction: ltr;
-}
-.phone-group {
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 100%;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 5cqw;
-}
-.ios-phone,
-.android-screen {
-	width: 46cqw;
-	flex: none;
-}
-.ios-phone {
-	filter: drop-shadow(0 14px 12px #0008);
-	position: relative;
-	aspect-ratio: 454 / 908;
-}
-.iphone-frame,
-.iphone-button {
-	position: absolute;
-}
-.iphone-frame {
-	z-index: 1;
-	inset-block: 0;
-	left: 1.982%;
-	width: 96.035%;
-	height: 100%;
-}
-.ios-screen-fill {
-	position: absolute;
-	z-index: 2;
-	top: 1.872%;
-	left: 5.727%;
-	width: 88.546%;
-	height: 96.256%;
-	border-radius: 15.174% / 6.979%;
-	background: linear-gradient(155deg, #141c28, #0c1420 52%, #080d14);
-}
-.iphone-button {
-	z-index: 0;
-	width: 3.524%;
-}
-.action-button {
-	top: 17.621%;
-	left: 0.881%;
-	height: 3.744%;
-}
-.volume-up-button {
-	top: 24.339%;
-	left: 0.881%;
-	height: 7.048%;
-}
-.volume-down-button {
-	top: 33.04%;
-	left: 0.881%;
-	height: 7.048%;
-}
-.power-button {
-	top: 28.855%;
-	left: 95.154%;
-	height: 11.123%;
-}
-.android-screen {
-	position: relative;
-	width: 42.5cqw;
-	/* Pixel_10 AVD: 1080 × 2424, with the circular display cutout. */
-	aspect-ratio: 1080 / 2424;
-	border-radius: 14% / 6.24%;
-	background: linear-gradient(155deg, #141c28, #0c1420 52%, #080d14);
-	box-shadow:
-		inset 0 1px 0 #ffffff12,
-		inset 0 0 0 1px #ffffff24,
-		0 14px 24px #0008;
-}
-.android-screen-image {
-	position: absolute;
-	inset: 1px;
-	width: calc(100% - 2px);
-	height: calc(100% - 2px);
-	border-radius: inherit;
-	object-fit: cover;
-	pointer-events: none;
-}
-.android-camera {
-	z-index: 1;
-	position: absolute;
-	top: 1.8%;
-	left: 50%;
-	width: 7.7%;
-	aspect-ratio: 1;
-	transform: translateX(-50%);
-	border-radius: 50%;
-	background: #000;
-}
-.phone-resize-handle {
-	position: absolute;
-	z-index: 4;
-	transform-origin: right bottom;
-	pointer-events: none;
-}
-.device-island {
-	--agentsims-device-screen-on: oklch(0.58 0.1 245);
-	--agentsims-duration-hover: 110ms;
-	--agentsims-ease-standard: cubic-bezier(0, 0, 0.2, 1);
-	position: absolute;
-	z-index: 6;
-	left: 50%;
-	bottom: 0;
-	width: 96px;
-	height: 50px;
-	transform-origin: center bottom;
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-.device-island > [data-agentsims-floating-panel] {
-	position: absolute;
-	bottom: 0;
-	left: 50%;
-	transform: translateX(-50%);
-	max-width: none;
-}
-.device-name-pill {
-	position: absolute;
-	width: 220px;
-	bottom: calc(100% + 2cqw);
-	left: 50%;
-	transform-origin: center bottom;
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	padding: 6px 10px;
-	border: 1px solid #ffffff17;
-	border-radius: 10px;
-	background: #181818;
-	white-space: nowrap;
-}
-.dock-title {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	min-height: 44px;
-	flex-shrink: 0;
-	padding-inline: 12px;
-	border-bottom: 0;
-	color: #e4e4e7;
-	font-size: 12px;
-	font-weight: 600;
-}
-.dock-title small {
-	color: #a1a1aa;
-	font-size: 10px;
-}
-.demo-pointer {
-	position: absolute;
-	z-index: 8;
-	left: 0;
-	top: 0;
-	width: 5cqw;
-	aspect-ratio: 1;
-	filter: drop-shadow(0 2px 2px #0008);
-	pointer-events: none;
-}
-.demo-caption {
-	position: relative;
-	z-index: 5;
-	min-height: 3rem;
-	display: flex;
-	justify-content: center;
-	margin-block: 0.5rem 1.5rem;
-}
-.demo-replay {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.5rem;
-	min-height: 2.75rem;
-	padding-inline: 0.75rem;
-	border-radius: 0.5rem;
-	color: var(--text-muted);
-	font-size: 0.75rem;
-	cursor: pointer;
-}
-.demo-replay svg {
-	width: 0.875rem;
-	height: 0.875rem;
-}
-.safari-toolbar {
-	display: none;
-}
+	@media (prefers-reduced-motion: no-preference) {
+		.device-island .agentsims-device-status-spin {
+			animation: agentsims-device-status-spin 900ms linear infinite;
+		}
+		.device-island .agentsims-device-status-breathe {
+			animation: agentsims-device-status-breathe 1.15s
+				var(--agentsims-ease-standard) infinite;
+		}
+		.demo-scene[data-playing="false"] .agentsims-device-status-spin,
+		.demo-scene[data-playing="false"] .agentsims-device-status-breathe {
+			animation-play-state: paused;
+		}
+	}
 
-@media (hover: hover) {
-	.project-links a:hover,
-	.demo-replay:hover {
-		color: var(--text-primary);
-	}
-}
-@media (prefers-reduced-motion: no-preference) {
-	/* The product's lifecycle indicators, used only during device transitions. */
-	.device-island .agentsims-device-status-spin {
-		animation: agentsims-device-status-spin 900ms linear infinite;
-	}
-	.device-island .agentsims-device-status-breathe {
-		animation: agentsims-device-status-breathe 1.15s
-			var(--agentsims-ease-standard) infinite;
-	}
-	.demo-scene[data-playing="false"] .agentsims-device-status-spin,
-	.demo-scene[data-playing="false"] .agentsims-device-status-breathe {
-		animation-play-state: paused;
-	}
-	.button-press {
-		transition:
-			transform 150ms var(--hero-ease),
-			background-color 150ms ease,
-			color 150ms ease;
-	}
-	.button-press:active {
-		transform: scale(0.96);
+	@media (width < 80rem) {
+		.macbook-frame {
+			display: none;
+		}
+		.macbook-display {
+			aspect-ratio: auto;
+			max-height: none;
+			border-radius: 0.875rem 0.875rem 0 0;
+			background: linear-gradient(#0a0a0b 58%, #000 98%);
+		}
+		.macbook-display::before {
+			z-index: 6;
+			inset: 0;
+			border: 1px solid #333337;
+			border-radius: inherit;
+			background: transparent;
+			pointer-events: none;
+			mask-image: linear-gradient(black 58%, transparent 98%);
+		}
+		.macbook-display::after {
+			display: none;
+		}
+		.workspace-demo::before {
+			inset: 0;
+			width: 100%;
+			mask-image: radial-gradient(
+				ellipse at 50% 42%,
+				black 15%,
+				transparent 72%
+			);
+			background-size: 18px 18px;
+		}
 	}
 }
 
@@ -486,205 +240,5 @@ a:focus-visible {
 	50% {
 		opacity: 0.9;
 		transform: scale(1);
-	}
-}
-
-/* Stack once the copy and a useful two-device demo no longer fit side by side. */
-@media (max-width: 70rem) {
-	.hero-section {
-		width: 100%;
-	}
-	.hero-content {
-		position: relative;
-		inset: auto;
-		width: auto;
-		max-width: 42rem;
-		margin-inline: auto;
-		padding: 3rem 1.5rem 0;
-	}
-	.hero-copy h1 {
-		font-size: clamp(2.5rem, 7vw, 4.25rem);
-		letter-spacing: -0.045em;
-	}
-	.hero-eyebrow {
-		font-size: 1rem;
-	}
-	.hero-description {
-		font-size: 1.125rem;
-		max-width: 31rem;
-	}
-	.hero-actions {
-		margin-block-start: 2rem;
-	}
-	.product-stage {
-		width: calc(100% - 3rem);
-		max-width: 44rem;
-		margin: 3.5rem auto 0;
-	}
-	.macbook-display {
-		aspect-ratio: auto;
-		max-height: none;
-		border: 1px solid #333337;
-		border-radius: 0.875rem;
-		overflow: hidden;
-		background: #0a0a0b;
-	}
-	.macbook-frame {
-		display: none;
-	}
-	.macbook-display {
-		border: 0;
-		border-radius: 0.875rem 0.875rem 0 0;
-		background: linear-gradient(#0a0a0b 58%, #000 98%);
-	}
-	.macbook-display::before {
-		display: block;
-		z-index: 6;
-		inset: 0;
-		border: 1px solid #333337;
-		border-radius: inherit;
-		background: transparent;
-		pointer-events: none;
-		/* Fade the lower 40% of the browser frame, under the phones and dock. */
-		mask-image: linear-gradient(black 58%, transparent 98%);
-	}
-	.macbook-display::after {
-		display: none;
-	}
-	.safari-toolbar {
-		position: relative;
-		z-index: 1;
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		min-height: 2.5rem;
-		padding: 0.5rem 0.75rem;
-		border-bottom: 0;
-		background: #1c1c1e;
-	}
-	.safari-lights {
-		display: flex;
-		gap: 0.3rem;
-	}
-	.safari-lights i {
-		width: 0.375rem;
-		height: 0.375rem;
-		border-radius: 50%;
-		background: #55555a;
-	}
-	.safari-address {
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		gap: 0.3rem;
-		flex: 1;
-		padding: 0.3rem;
-		border-radius: 0.3rem;
-		background: #2c2c2f;
-		color: #b4b4bd;
-		font-size: 0.5625rem;
-	}
-	.safari-address svg {
-		width: 0.5rem;
-		height: 0.5rem;
-	}
-	.safari-tabs {
-		color: #a1a1aa;
-		font-size: 1rem;
-	}
-	.workspace-demo {
-		position: relative;
-		inset: auto;
-		width: 100%;
-		height: auto;
-		border-radius: 0;
-		padding: 2.75rem 1.5rem 2.5rem;
-	}
-	.workspace-demo::before {
-		inset: 0;
-		width: 100%;
-		mask-image: radial-gradient(ellipse at 50% 42%, black 15%, transparent 72%);
-		background-size: 18px 18px;
-	}
-	.workspace-wordmark {
-		display: none;
-	}
-	.demo-scene {
-		position: relative;
-		inset: auto;
-		width: 100%;
-		max-width: 28rem;
-		margin-inline: auto;
-	}
-	.demo-caption {
-		margin-block-start: 0.375rem;
-	}
-}
-@media (max-width: 38rem) {
-	.site-header {
-		min-height: 4.75rem;
-		grid-template-columns: 1fr auto auto;
-		padding-inline: 1.25rem;
-		gap: 1rem;
-	}
-	.project-links {
-		display: flex;
-	}
-	.project-links span {
-		display: none;
-	}
-	.header-cta {
-		padding-inline: 0.875rem;
-		font-size: 0.8125rem;
-	}
-	.site-brand {
-		font-size: 1rem;
-	}
-	.hero-content {
-		padding: 1rem 1.25rem 0;
-	}
-	.hero-copy h1 {
-		margin-block-start: 1.5rem;
-		font-size: clamp(2.5rem, 10.5vw, 3.75rem);
-	}
-	.hero-copy h1 span {
-		display: inline;
-	}
-	.hero-copy h1 span + span::before {
-		content: " ";
-	}
-	.hero-eyebrow {
-		max-width: 19rem;
-		line-height: 1.5;
-	}
-	.hero-description {
-		margin-block-start: 1.5rem;
-		font-size: 1.0625rem;
-		line-height: 1.5;
-	}
-	.hero-actions {
-		flex-direction: column;
-		align-items: stretch;
-		margin-block-start: 2rem;
-	}
-	.hero-actions > a,
-	.hero-actions > button {
-		width: 100%;
-		min-height: 2.75rem;
-	}
-	.command-pill {
-		border-radius: 0.875rem;
-	}
-	.hero-note {
-		text-align: center;
-		font-size: 0.8125rem;
-	}
-	.product-stage {
-		width: calc(100% - 2.5rem);
-		margin-block-start: 1.5rem;
-	}
-	.workspace-demo {
-		padding-inline: 1rem;
-		padding-block-end: 2.5rem;
 	}
 }

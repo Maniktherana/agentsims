@@ -21,7 +21,7 @@ export function DemoDock({
 }) {
 	return (
 		<div
-			className="device-island"
+			className="device-island absolute bottom-0 left-1/2 z-[6] h-[50px] w-[96px] origin-bottom"
 			style={{ transform: "translateX(-50%)", zoom: scale }}
 		>
 			<WorkspaceDockSurface
@@ -55,7 +55,7 @@ export function DemoDock({
 							transition={ISLAND_PANEL_TRANSITION}
 							className="absolute inset-0 flex min-h-0 flex-col text-white/90"
 						>
-							<div className="dock-title">
+							<div className="flex min-h-11 shrink-0 items-center justify-between px-3 text-xs font-semibold text-card-foreground">
 								<span>Devices</span>
 								<div className="flex items-center gap-1.5">
 									<small>

@@ -21,7 +21,7 @@ export function DemoCursor({
 	);
 	return (
 		<motion.div
-			className="demo-pointer"
+			className="pointer-events-none absolute top-0 left-0 z-[8] aspect-square w-[5cqw] drop-shadow-[0_2px_2px_#0008]"
 			initial={false}
 			animate={target}
 			style={{ originX: 3.58 / 24, originY: 3.58 / 24 }}

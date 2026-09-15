@@ -44,7 +44,7 @@ export function DockIconButton({
 				{badge !== undefined && (
 					<span
 						aria-hidden="true"
-						className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.42)]"
+						className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-brand px-1 text-[9px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.42)]"
 					>
 						<NumberMorph>{badge}</NumberMorph>
 					</span>

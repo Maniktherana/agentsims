@@ -14,7 +14,6 @@ export function useDemoPlayback(sceneRef: RefObject<HTMLDivElement | null>) {
 		phase: "boot",
 		step: 0,
 	});
-	const [paused, setPaused] = useState(false);
 	const [pageVisible, setPageVisible] = useState(true);
 	const frame = reducedMotion
 		? REDUCED_MOTION_FRAME
@@ -23,7 +22,7 @@ export function useDemoPlayback(sceneRef: RefObject<HTMLDivElement | null>) {
 		frame: null,
 		remaining: 0,
 	});
-	const playing = inView && pageVisible && !paused && !reducedMotion;
+	const playing = inView && pageVisible && !reducedMotion;
 	useEffect(() => {
 		const updateVisibility = () => setPageVisible(!document.hidden);
 		updateVisibility();
@@ -57,9 +56,7 @@ export function useDemoPlayback(sceneRef: RefObject<HTMLDivElement | null>) {
 	return {
 		frame,
 		phase: playback.phase,
-		paused,
 		playing,
 		reducedMotion,
-		togglePaused: () => setPaused((value) => !value),
 	};
 }

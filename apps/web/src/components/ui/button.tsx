@@ -1,15 +1,17 @@
-import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
+export const pressable =
+	"motion-safe:transition-[transform,background-color,color] motion-safe:duration-150 motion-safe:ease-hero motion-safe:active:scale-96";
+
 const buttonVariants = cva(
-	"button-press inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium outline-none disabled:pointer-events-none disabled:opacity-50",
+	`${pressable} inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium outline-none disabled:pointer-events-none disabled:opacity-50`,
 	{
 		variants: {
 			variant: {
-				default: "bg-zinc-100 text-zinc-950 hover:bg-zinc-200",
-				ghost: "text-zinc-100 hover:bg-white/10",
+				default: "bg-primary text-primary-foreground hover:bg-primary/90",
+				ghost: "text-foreground hover:bg-accent hover:text-accent-foreground",
 			},
 			size: {
 				default: "h-10 px-4 py-2",
@@ -20,25 +22,17 @@ const buttonVariants = cva(
 	},
 );
 
-export interface ButtonProps
-	extends
-		React.ButtonHTMLAttributes<HTMLButtonElement>,
-		VariantProps<typeof buttonVariants> {
-	asChild?: boolean;
-}
+export type ButtonProps = Omit<ButtonPrimitive.Props, "className"> &
+	VariantProps<typeof buttonVariants> & { className?: string };
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-	({ className, variant, size, asChild = false, ...props }, ref) => {
-		const Comp = asChild ? Slot : "button";
-		return (
-			<Comp
-				ref={ref}
-				className={cn(buttonVariants({ variant, size, className }))}
-				{...props}
-			/>
-		);
-	},
-);
-Button.displayName = "Button";
+export function Button({ className, variant, size, ...props }: ButtonProps) {
+	return (
+		<ButtonPrimitive
+			data-slot="button"
+			className={cn(buttonVariants({ variant, size, className }))}
+			{...props}
+		/>
+	);
+}
 
 export { buttonVariants };

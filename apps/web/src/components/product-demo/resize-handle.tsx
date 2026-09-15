@@ -20,7 +20,7 @@ export function ResizeHandle({
 	const { size, path } = OUTLINES[android ? "android" : "iphone"];
 	return (
 		<div
-			className="phone-resize-handle"
+			className="pointer-events-none absolute z-[4] origin-bottom-right"
 			style={{
 				right: -14 * scale,
 				bottom: -14 * scale,

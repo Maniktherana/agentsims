@@ -8,7 +8,7 @@
  * Pixel → close. Hold the iPhone-only workspace, then repeat the boot phase.
  *
  * The dock and device visuals use the landing demo components.
- * Reduced motion shows both devices. Pause retains the current frame's time.
+ * Reduced motion shows both devices.
  */
 export type AndroidPhase =
 	| "available"
