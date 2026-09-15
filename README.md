@@ -70,7 +70,7 @@ Run it in the background:
 
 ```sh
 npx agentsims start --detach
-npx agentsims status
+npx agentsims status [--json]
 npx agentsims logs --follow
 npx agentsims stop
 ```
@@ -80,11 +80,11 @@ The CLI supports these command groups:
 ```text
 agentsims start [--detach] [--host <address>] [--port <port>] [--codec <codec>]
 agentsims stop
-agentsims status
+agentsims status [--json]
 agentsims logs [--follow]
 agentsims device-logs --device <android-device> [--limit <count>] [--level <level>]
-agentsims devices [list|boot <device>|shutdown <device>]
-agentsims observe --device <device>
+agentsims devices [list [--all|--inactive|--json]|show <device>|boot <device>|shutdown <device>]
+agentsims observe --device <device> [-o <path>] [--no-ax] [--json]
 agentsims tap <x> <y> --device <device>
 agentsims swipe <x1> <y1> <x2> <y2> [--duration <ms>] --device <device>
 agentsims text <text> --device <device>
@@ -92,7 +92,7 @@ agentsims button <name> --device <device>
 agentsims rotate <orientation> --device <device>
 agentsims gesture <phase> <x> <y> --device <device>
 agentsims camera [list|use <webcam>|stop] --device <device>
-agentsims app [list|install <path>|launch|stop|uninstall <app-id>] --device <device>
+agentsims app [list [--all]|install <path>|launch|stop|uninstall <app-id>] --device <device>
 agentsims permissions [list|grant|revoke|reset <permission>] --device <device> --app <app-id>
 agentsims doctor [--platform android|ios]
 ```
@@ -107,19 +107,33 @@ npx agentsims devices boot android-avd:Pixel_9
 npx agentsims devices shutdown android:emulator-5554
 ```
 
+`devices list` shows streaming and booted devices; add `--all` for the full
+catalog, `--inactive` for the rest, or `--json` for the raw payload.
+
 Use the exact ID from `devices list`. A physical Android device uses an ID such
 as `android:R5CR20ABC`. Add `--url <workspace-url>` when the workspace does not
 use the default local address.
 
 ### Observe and control a device
 
-`observe` saves a PNG and prints JSON with its path, screen details, and
-accessibility data:
+`observe` saves the screenshot and prints its path, the screen size, and the
+accessibility tree:
 
 ```sh
 npx agentsims observe --device android:emulator-5554
-npx agentsims observe --device android:emulator-5554 --no-ax
 ```
+
+```text
+screen    /tmp/agentsims/observe-android_emulator-5554-2026-09-15T17-29-52-324Z.png  1080×2424 portrait
+elements  20
+
+Application  [0,0 402×874]
+  StaticText  "10:59 PM"  [50,22 48×22]
+  Button  "Settings"  [306,389 68×91]
+```
+
+Use `-o <path>` to choose where the screenshot lands, `--no-ax` for the picture
+alone, and `--json` for the full payload with the screenshot inline as base64.
 
 Tap coordinates use values from `0` to `1`:
 

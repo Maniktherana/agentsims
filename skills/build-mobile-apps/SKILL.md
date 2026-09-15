@@ -72,15 +72,16 @@ Look for a running workspace first:
 npx agentsims status
 ```
 
-The command prints JSON. A running workspace looks like this:
+A running workspace looks like this:
 
-```json
-{ "pid": 93542, "workspaces": [
-  { "pid": 93542, "port": 3200, "device": "android:emulator-5554",
-    "url": "http://127.0.0.1:3200" } ] }
+```text
+url    http://127.0.0.1:3200
+pid    93542
+since  2026-09-15T17:13:15.593Z
+logs   /var/folders/.../agentsims/local-server.log
 ```
 
-Reuse that `url`. If no workspace runs, start one that this task owns:
+Reuse that `url`. Add `--json` for the machine-readable record. If no workspace runs, start one that this task owns:
 
 ```sh
 npx agentsims start --detach
@@ -95,16 +96,17 @@ Do not assume port 3200. If the workspace uses another address, add
 npx agentsims devices list
 ```
 
-Filter the JSON for devices that are ready:
-
-```sh
-npx agentsims devices list \
-  | jq -r '.devices[] | select(.state=="Booted") | "\(.device)\t\(.name)"'
-```
+This lists only the devices you can use — no filtering needed:
 
 ```text
-android:emulator-5554	Pixel 10
+DEVICE                                STATUS     RUNTIME     NAME
+android:emulator-5554                 streaming  Android-17  Pixel 10
+CAFD4AC3-AFE0-4CAC-A7B0-D8573B5C6117  booted     iOS-27-0    iPhone 17
 ```
+
+`STATUS` is `streaming` (attached to the workspace, ready to drive), `booted`
+(running, not attached), or `shutdown`. Add `--all` to include shutdown devices,
+or `--json` for the full payload.
 
 Device ID formats:
 
@@ -115,7 +117,7 @@ Device ID formats:
 | `android:R5CR20ABC` | a connected physical Android device |
 | `android-avd:Pixel_Tablet` | an Android AVD that is not booted |
 
-`state` is `Booted` or `Shutdown`. Boot a device only when the task needs it:
+Boot a device only when the task needs it:
 
 ```sh
 npx agentsims devices boot android-avd:Pixel_Tablet
@@ -123,29 +125,31 @@ npx agentsims devices boot android-avd:Pixel_Tablet
 
 Never substitute a different device without a word to the user.
 
-## CAUTION: one observe call returns about 2 MB
+## Observe the screen
 
-`npx agentsims observe` prints the screenshot as inline base64 in the JSON. It
-does not write a file and it does not return a path. A measured call on a
-1080x2424 emulator returned 1,881,175 bytes, and 1,860,600 of those bytes were
-the base64 screenshot.
-
-Never print that JSON into the transcript. Always write it to a file first, then
-read the small parts:
+`observe` writes the screenshot to a file and prints its path with the
+accessibility tree. Read the image from that path with an image tool.
 
 ```sh
-npx agentsims observe -d "$DEVICE" > /tmp/obs.json
-jq -r '.screenshot.contentBase64' /tmp/obs.json | base64 -d > /tmp/screen.png
-jq '.accessibility.elements[] | select(.label != "")' /tmp/obs.json
+npx agentsims observe -d "$DEVICE"
 ```
 
-Then open `/tmp/screen.png` with an image tool. Add `--no-ax` when the task
-needs the picture alone.
+```text
+screen    /tmp/agentsims/observe-android_emulator-5554-2026-09-15T17-29-52-324Z.png  1080×2424 portrait
+elements  20
 
-These examples use `jq` because it is short. agentsims does not need it. If the
-host has no `jq`, use `python3` or any other tool that reads JSON.
-[references/observe.md](references/observe.md) gives the full payload shape, a
-`python3` equivalent for each recipe, and the coordinate conversion.
+Application  [0,0 402×874]
+  StaticText  "10:59 PM"  [50,22 48×22]
+  Button  "Settings"  [306,389 68×91]
+```
+
+Frames are `[x,y width×height]` in the element coordinate space. Use `-o <path>`
+to choose where the screenshot lands, and `--no-ax` for the picture alone.
+
+`--json` prints the full payload with the screenshot inline as base64. It runs
+to hundreds of kilobytes, so redirect it to a file rather than into the
+transcript. [references/observe.md](references/observe.md) gives the payload
+shape and the coordinate conversion.
 
 ## The verification loop
 
@@ -193,16 +197,18 @@ structural change when that is practical.
 
 ## Command reference
 
-Every device command takes `-d <device-id>`. Every command prints JSON.
+Every device command takes `-d <device-id>`. Commands print readable output;
+add `--json` to any of them for the raw payload.
 
 | Goal | Command |
 |---|---|
 | Diagnose the host | `npx agentsims doctor [--platform ios\|android]` |
-| Show workspace status | `npx agentsims status` |
+| Show workspace status | `npx agentsims status [--json]` |
 | Start an owned workspace | `npx agentsims start --detach` |
-| List devices | `npx agentsims devices list` |
+| List devices | `npx agentsims devices list [--all\|--inactive\|--json]` |
+| Show one device | `npx agentsims devices show <device-id>` |
 | Boot or shut down | `npx agentsims devices boot\|shutdown <device-id>` |
-| Screenshot and a11y tree | `npx agentsims observe -d <id> [--no-ax]` |
+| Screenshot and a11y tree | `npx agentsims observe -d <id> [-o <path>] [--no-ax]` |
 | Tap a point | `npx agentsims tap <x> <y> -d <id>` |
 | Swipe | `npx agentsims swipe <x1> <y1> <x2> <y2> -d <id>` |
 | Type into the focused field | `npx agentsims text "<text>" -d <id>` |
@@ -219,7 +225,8 @@ Run `npx agentsims <command> --help` for the installed version's exact flags.
 
 ## Anti-patterns
 
-- **Do not print the observe JSON.** It is about 2 MB. Write it to a file.
+- **Do not print `observe --json`.** It carries the screenshot as base64.
+  Plain `observe` already gives you the path and the tree.
 - **Do not send pixel coordinates.** The server answers
   `x must be a number between 0 and 1`. Divide the frame by the screen size.
 - **Do not reuse old coordinates.** Observe again after navigation, rotation,
