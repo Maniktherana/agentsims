@@ -417,12 +417,10 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 						),
 						window.location,
 					);
-					if (next) {
-						setConfigsByDevice((previous) =>
-							setPreviewConfigForDevice(previous, deviceId, next),
-						);
-					}
-					if (next && selectedUdidRef.current === deviceId) {
+					setConfigsByDevice((previous) =>
+						setPreviewConfigForDevice(previous, deviceId, next),
+					);
+					if (selectedUdidRef.current === deviceId) {
 						setConfig((previous) => {
 							if (previewConfigKey(previous) === previewConfigKey(next))
 								return previous;

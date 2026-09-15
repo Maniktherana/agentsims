@@ -103,11 +103,18 @@ const previewHandler = Effect.gen(function* () {
 const sseEncoder = new TextEncoder();
 const ssePollSchedule = Schedule.spaced("500 millis");
 
-function pollingSse(values: Effect.Effect<Option.Option<string>>) {
+/** `reportAbsence` sends `data: null` when the value goes away, for routes
+ *  where that is a transition the client must act on rather than "nothing yet". */
+function pollingSse(
+	values: Effect.Effect<Option.Option<string>>,
+	reportAbsence = false,
+) {
 	const updates = Stream.repeatEffectWithSchedule(values, ssePollSchedule).pipe(
-		Stream.filterMap((value) => value),
+		reportAbsence
+			? Stream.map(Option.getOrNull)
+			: Stream.filterMap((value) => value),
 		Stream.changes,
-		Stream.map((value) => sseEncoder.encode(`data: ${value}\n\n`)),
+		Stream.map((value) => sseEncoder.encode(`data: ${value ?? "null"}\n\n`)),
 	);
 	return HttpServerResponse.stream(
 		Stream.succeed(sseEncoder.encode(":\n\n")).pipe(Stream.concat(updates)),
@@ -159,6 +166,7 @@ export const previewRoutes = HttpRouter.empty.pipe(
 						),
 					),
 				),
+				true,
 			);
 		}),
 	),

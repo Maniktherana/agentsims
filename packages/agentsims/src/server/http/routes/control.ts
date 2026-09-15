@@ -12,6 +12,7 @@ import {
 	normalizeUiValue,
 	setUiOption,
 } from "../../../core/ios/settings";
+import { describeError, logRuntime } from "../../../core/logging";
 import { ScreenshotOperations } from "../../../core/tools/observe/screenshots";
 import { ServerConfig, type ServerConfigValue } from "../../runtime/config";
 import {
@@ -102,7 +103,9 @@ function execSocket(
 							try {
 								const response = await fetch(new URL(path, source.url), {
 									signal: controller.signal,
-								});
+									// An idle SSE route is normal; only `unsub` ends it.
+									timeout: false,
+								} as RequestInit);
 								const reader = response.body?.getReader();
 								if (!reader) return;
 								const decoder = new TextDecoder();
@@ -122,7 +125,10 @@ function execSocket(
 										error instanceof DOMException && error.name === "AbortError"
 									)
 								) {
-									console.warn("[agentsims:server] SSE relay failed", error);
+									logRuntime(
+										"server",
+										`SSE relay for ${path} failed: ${describeError(error)}`,
+									);
 								}
 							}
 							subscriptions.delete(sub);
