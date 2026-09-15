@@ -25,3 +25,21 @@ export const debugState = (formatter: unknown, ...args: unknown[]): void => {
 export const debugMw = (formatter: unknown, ...args: unknown[]): void => {
 	middleware(formatter, ...args);
 };
+
+export function describeError(error: unknown): string {
+	if (
+		typeof error === "object" &&
+		error !== null &&
+		"message" in error &&
+		typeof error.message === "string"
+	) {
+		const name =
+			"name" in error && typeof error.name === "string" && error.name !== "Error"
+				? error.name
+				: null;
+		return name && !error.message.startsWith(name)
+			? `${name}: ${error.message}`
+			: error.message;
+	}
+	return String(error);
+}

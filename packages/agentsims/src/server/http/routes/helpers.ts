@@ -14,7 +14,7 @@ import {
 	IosSessions,
 	type IosSessionsService,
 } from "../../../core/ios/session";
-import { logRuntime } from "../../../core/logging";
+import { describeError, logRuntime } from "../../../core/logging";
 import { ServerConfig } from "../../runtime/config";
 import { HidSocketAdapter } from "../../websocket/hid-socket";
 import { bytes, json, requestSource } from "./shared";
@@ -125,10 +125,7 @@ export function androidAvccResponse(
 				if (closed) stop();
 			},
 			(error) => {
-				logRuntime(
-					`android:${serial}`,
-					`stream.avcc failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
+				logDeviceFailure(`android:${serial}`, "stream.avcc", error);
 				closed = true;
 				return writer.close();
 			},
@@ -140,6 +137,37 @@ export function androidAvccResponse(
 			"Cache-Control": "no-store",
 		},
 	});
+}
+
+/** Log a failure when it starts and when it ends, never once per retry. */
+const recentFailures = new Map<string, { message: string; repeats: number }>();
+
+export function logDeviceFailure(
+	scope: string,
+	endpoint: string,
+	error: unknown,
+): string {
+	const message = describeError(error);
+	const key = `${scope}/${endpoint}`;
+	const previous = recentFailures.get(key);
+	if (previous?.message === message) {
+		previous.repeats += 1;
+		return message;
+	}
+	recentFailures.set(key, { message, repeats: 0 });
+	logRuntime(scope, `${endpoint} failed: ${message}`);
+	return message;
+}
+
+export function clearDeviceFailure(scope: string, endpoint: string): void {
+	const key = `${scope}/${endpoint}`;
+	const previous = recentFailures.get(key);
+	if (!previous) return;
+	recentFailures.delete(key);
+	logRuntime(
+		scope,
+		`${endpoint} recovered after ${previous.repeats + 1} failures`,
+	);
 }
 
 function target(
@@ -172,6 +200,7 @@ async function response(
 	if (serial) {
 		try {
 			const session = await Effect.runPromise(androidSessions.get(serial));
+			clearDeviceFailure(`android:${serial}`, endpoint);
 			switch (endpoint) {
 				case "stream.avcc":
 					return androidAvccResponse(serial, (sink) =>
@@ -200,14 +229,8 @@ async function response(
 					return new Response("No agentsims device endpoint", { status: 404 });
 			}
 		} catch (error) {
-			logRuntime(
-				`android:${serial}`,
-				`${endpoint} failed: ${error instanceof Error ? error.message : String(error)}`,
-			);
-			return json(
-				{ error: error instanceof Error ? error.message : String(error) },
-				503,
-			);
+			const message = logDeviceFailure(`android:${serial}`, endpoint, error);
+			return json({ error: message }, 503);
 		}
 	}
 	try {

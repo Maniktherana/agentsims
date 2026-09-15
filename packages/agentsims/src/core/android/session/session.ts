@@ -1043,7 +1043,11 @@ export const AndroidSessionsLive = Layer.scoped(
 			(value) => Effect.promise(() => value.closeAll()),
 		);
 		return AndroidSessions.of({
-			get: (serial) => Effect.tryPromise(() => registry.get(serial)),
+			get: (serial) =>
+				Effect.tryPromise({
+					try: () => registry.get(serial),
+					catch: (error) => error,
+				}),
 			close: (serial) => Effect.promise(() => registry.close(serial)),
 		});
 	}),
