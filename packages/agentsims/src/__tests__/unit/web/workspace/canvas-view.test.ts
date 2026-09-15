@@ -33,3 +33,18 @@ test("recenter can move either way beyond original scroll bounds", () => {
 	).toEqual({ x: -2550, y: -3650 });
 	expect(canvasCenterDelta([], viewport)).toBeNull();
 });
+
+test("recenter anchors the active device when other devices are far away", () => {
+	const devices = [
+		{ deviceId: "ios", left: -1000, top: -500, right: -700, bottom: 100 },
+		{ deviceId: "android", left: 9000, top: 10000, right: 9400, bottom: 10800 },
+	];
+	expect(canvasCenterDelta(devices, viewport, "ios")).toEqual({
+		x: 1350,
+		y: 600,
+	});
+	expect(canvasCenterDelta(devices, viewport, "android")).toEqual({
+		x: -8700,
+		y: -10000,
+	});
+});

@@ -1,3 +1,4 @@
+import { DeviceCanvasShadow } from "./device-canvas-shadow";
 import { previewDeviceEndpoint } from "../../workspace/preview-config";
 import {
 	useCallback,
@@ -994,6 +995,13 @@ export function SimulatorDeviceView({
 						if (event.currentTarget.contains(event.target as Node)) onFocus?.();
 					}}
 				>
+					{embedded && (
+						<DeviceCanvasShadow
+							frame={simContainerRef}
+							chrome={useDeviceFrame ? chrome : null}
+							borderRadius={imgBorderRadius}
+						/>
+					)}
 					<div
 						ref={deviceStackRef}
 						className="relative flex flex-col items-center gap-3 min-w-0 [&:fullscreen]:justify-center [&:fullscreen]:bg-page [&:fullscreen]:p-4"

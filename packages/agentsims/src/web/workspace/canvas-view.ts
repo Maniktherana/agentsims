@@ -1,4 +1,5 @@
 export interface CanvasRect {
+	deviceId?: string;
 	left: number;
 	top: number;
 	right: number;
@@ -30,18 +31,23 @@ export function canvasCenterDelta(
 		width: number;
 		height: number;
 	},
+	anchorDeviceId?: string | null,
 ): { x: number; y: number } | null {
 	if (!devices.length) return null;
+	const anchor = anchorDeviceId
+		? devices.find((rect) => rect.deviceId === anchorDeviceId)
+		: undefined;
+	const bounds = anchor ? [anchor] : devices;
 	return {
 		x:
 			(viewport.width -
-				Math.min(...devices.map((rect) => rect.left)) -
-				Math.max(...devices.map((rect) => rect.right))) /
+				Math.min(...bounds.map((rect) => rect.left)) -
+				Math.max(...bounds.map((rect) => rect.right))) /
 			2,
 		y:
 			(viewport.height -
-				Math.min(...devices.map((rect) => rect.top)) -
-				Math.max(...devices.map((rect) => rect.bottom))) /
+				Math.min(...bounds.map((rect) => rect.top)) -
+				Math.max(...bounds.map((rect) => rect.bottom))) /
 			2,
 	};
 }

@@ -1,4 +1,10 @@
 import { Columns3, Focus } from "lucide-react";
+import {
+	AnimatePresence,
+	motion,
+	useIsPresent,
+	useReducedMotion,
+} from "motion/react";
 import { IconButton } from "../ui/icon-button";
 import { useCanvasPan } from "../../hooks/workspace/use-canvas-pan";
 import { canvasViewOffset } from "../../workspace/canvas-view";
@@ -17,9 +23,14 @@ import {
 	WORKSPACE_DEVICE_GEOMETRY_EVENT,
 } from "../../workspace/layout-events";
 import {
+	arrangeWorkspaceDevicePositions,
 	reserveWorkspaceDevicePosition,
 	type WorkspaceDevicePosition,
 } from "../../workspace/device-position";
+import {
+	DEVICE_PRESENCE_HIDDEN_SCALE,
+	DEVICE_PRESENCE_TRANSITION,
+} from "../../simulator/presence-motion";
 import type { GridDevice } from "../../workspace/grid";
 import type { PreviewConfig } from "../../workspace/workspace-state";
 import type {
@@ -49,9 +60,10 @@ function DraggableDevice({
 	onOffsetCommit,
 	onFocus,
 	children,
-	singleDevice: _singleDevice,
 	layoutRevision,
 	added,
+	anchorDeviceId,
+	onPlaced,
 	positions,
 	visibleDeviceIds,
 }: {
@@ -61,13 +73,18 @@ function DraggableDevice({
 	onOffsetCommit: () => void;
 	onFocus: (deviceId: string) => void;
 	children: ReactNode;
-	singleDevice: boolean;
 	layoutRevision: string;
 	added: boolean;
+	anchorDeviceId: string | null;
+	onPlaced: (deviceId: string) => void;
 	positions: Map<string, WorkspaceDevicePosition>;
 	visibleDeviceIds: readonly string[];
 }) {
 	const ref = useRef<HTMLDivElement | null>(null);
+	const present = useIsPresent();
+	const reducedMotion = useReducedMotion();
+	const placementPending = useRef(added);
+	const placementAnchor = useRef(anchorDeviceId);
 	const [dragging, setDragging] = useState(false);
 	const [layoutCorrecting, setLayoutCorrecting] = useState(false);
 	const dragRef = useRef<{
@@ -87,21 +104,31 @@ function DraggableDevice({
 		const rect = element.getBoundingClientRect();
 		const parent = scroll.getBoundingClientRect();
 		const view = canvasViewOffset(scroll);
+		const transform = new DOMMatrixReadOnly(
+			getComputedStyle(element).transform,
+		);
+		const targetTransform = new DOMMatrixReadOnly(element.style.transform);
+		// Store the committed drag target, not an intermediate transition frame.
+		const x = targetTransform.m41 - transform.m41;
+		const y = targetTransform.m42 - transform.m42;
 		return {
-			left: rect.left - parent.left + scroll.scrollLeft - view.x,
-			top: rect.top - parent.top + scroll.scrollTop - view.y,
-			right: rect.right - parent.left + scroll.scrollLeft - view.x,
+			left: rect.left - parent.left + scroll.scrollLeft - view.x + x,
+			top: rect.top - parent.top + scroll.scrollTop - view.y + y,
+			right: rect.right - parent.left + scroll.scrollLeft - view.x + x,
+			bottom: rect.bottom - parent.top + scroll.scrollTop - view.y + y,
 		};
 	};
 	useLayoutEffect(() => {
+		if (!present) return;
 		const current = worldRect();
-		if (!current) return;
+		if (!current || current.right <= current.left) return;
 		const desired = reserveWorkspaceDevicePosition(
 			positions,
 			visibleDeviceIds,
 			deviceId,
 			current,
-			added,
+			placementPending.current,
+			placementAnchor.current,
 		);
 		const next = {
 			x: offset.x + desired.left - current.left,
@@ -115,8 +142,13 @@ function DraggableDevice({
 			setLayoutCorrecting(true);
 			onOffsetChange(deviceId, next);
 		}
-	}, [layoutRevision]);
+		if (placementPending.current) {
+			placementPending.current = false;
+			onPlaced(deviceId);
+		}
+	}, [layoutRevision, present]);
 	useLayoutEffect(() => {
+		if (!present) return;
 		if (correctingRef.current) {
 			correctingRef.current = false;
 			return;
@@ -124,10 +156,10 @@ function DraggableDevice({
 		const rect = worldRect();
 		if (rect) positions.set(deviceId, rect);
 		if (layoutCorrecting) onOffsetCommit();
-	}, [deviceId, offset.x, offset.y, layoutRevision, positions]);
+	}, [deviceId, offset.x, offset.y, layoutRevision, positions, present]);
 	useLayoutEffect(() => {
 		const element = ref.current;
-		if (!element) return;
+		if (!element || !present) return;
 		const record = () => {
 			if (correctingRef.current || layoutCorrecting) return;
 			const rect = worldRect();
@@ -142,7 +174,7 @@ function DraggableDevice({
 			for (const sibling of row.children) observer.observe(sibling);
 		}
 		return () => observer.disconnect();
-	}, [deviceId, layoutRevision, positions, layoutCorrecting]);
+	}, [deviceId, layoutRevision, positions, layoutCorrecting, present]);
 
 	useEffect(() => {
 		if (!layoutCorrecting) return;
@@ -212,9 +244,12 @@ function DraggableDevice({
 		<div
 			ref={ref}
 			data-workspace-device={deviceId}
-			className="relative shrink-0"
+			data-device-present={present}
+			aria-hidden={!present || undefined}
+			className="relative z-[1] shrink-0"
 			style={{
 				width: "max-content",
+				pointerEvents: present ? undefined : "none",
 				transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
 				transition:
 					dragging || layoutCorrecting
@@ -222,11 +257,28 @@ function DraggableDevice({
 						: "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
 			}}
 			onPointerDownCapture={onPointerDown}
+			onFocusCapture={(event) => {
+				if (event.currentTarget.contains(event.target as Node))
+					onFocus(deviceId);
+			}}
 			onPointerMove={onPointerMove}
 			onPointerUp={finishDrag}
 			onPointerCancel={finishDrag}
 		>
-			{children}
+			<motion.div
+				initial={{
+					opacity: 0,
+					scale: reducedMotion ? 1 : DEVICE_PRESENCE_HIDDEN_SCALE,
+				}}
+				animate={{ opacity: 1, scale: 1 }}
+				exit={{
+					opacity: 0,
+					scale: reducedMotion ? 1 : DEVICE_PRESENCE_HIDDEN_SCALE,
+				}}
+				transition={DEVICE_PRESENCE_TRANSITION}
+			>
+				{children}
+			</motion.div>
 		</div>
 	);
 }
@@ -267,29 +319,62 @@ export function WorkspaceCanvas({
 	renderDevice: (context: WorkspaceDeviceRenderContext) => ReactNode;
 }) {
 	const canvasRef = useRef<HTMLDivElement | null>(null);
+	const renderedDeviceIds = visibleDeviceIds.filter(
+		(id) => configsByDevice[id] || fallbackConfig?.device === id,
+	);
+	const previousVisibleRef = useRef(new Set(renderedDeviceIds));
+	const lastActiveDeviceRef = useRef(
+		focusedDeviceId ?? renderedDeviceIds[0] ?? null,
+	);
+	const activeDeviceId = renderedDeviceIds.includes(focusedDeviceId ?? "")
+		? focusedDeviceId
+		: renderedDeviceIds.includes(lastActiveDeviceRef.current ?? "")
+			? lastActiveDeviceRef.current
+			: (renderedDeviceIds[0] ?? null);
+	const [exitRevision, setExitRevision] = useState(0);
+	const [emptyReady, setEmptyReady] = useState(visibleDeviceIds.length === 0);
+	const layoutRevision = `${renderedDeviceIds.join("|")}:${exitRevision}`;
 	const canvasPan = useCanvasPan(
 		canvasRef,
-		visibleDeviceIds.join("|"),
+		layoutRevision,
 		initialPan,
 		onPanCommit,
+		activeDeviceId,
 	);
 	const positionsRef = useRef(new Map<string, WorkspaceDevicePosition>());
-	const knownDevicesRef = useRef(new Set(visibleDeviceIds));
 	useLayoutEffect(() => {
-		for (const id of visibleDeviceIds) knownDevicesRef.current.add(id);
-	}, [visibleDeviceIds.join("|")]);
+		if (renderedDeviceIds.length > 0) setEmptyReady(false);
+		else if (previousVisibleRef.current.size === 0) setEmptyReady(true);
+		previousVisibleRef.current = new Set(renderedDeviceIds);
+		if (activeDeviceId) lastActiveDeviceRef.current = activeDeviceId;
+	}, [layoutRevision, activeDeviceId]);
 	const [offsets, setOffsets] =
 		useState<WorkspaceDeviceOffsets>(initialOffsets);
 	const offsetsRef = useRef(offsets);
+	const persistFrameRef = useRef<number | null>(null);
+	const recenterFrameRef = useRef<number | null>(null);
 	offsetsRef.current = offsets;
 	useEffect(() => {
 		offsetsRef.current = initialOffsets;
 		setOffsets(initialOffsets);
 	}, [initialOffsets]);
+	useEffect(
+		() => () => {
+			if (persistFrameRef.current !== null)
+				cancelAnimationFrame(persistFrameRef.current);
+			if (recenterFrameRef.current !== null)
+				cancelAnimationFrame(recenterFrameRef.current);
+		},
+		[],
+	);
 
 	useEffect(() => {
 		const reset = () => {
+			if (persistFrameRef.current !== null)
+				cancelAnimationFrame(persistFrameRef.current);
+			persistFrameRef.current = null;
 			positionsRef.current.clear();
+			offsetsRef.current = {};
 			setOffsets({});
 			onOffsetsCommit({});
 		};
@@ -309,24 +394,51 @@ export function WorkspaceCanvas({
 		[],
 	);
 	const persistOffsets = useCallback(() => {
-		onOffsetsCommit(offsetsRef.current);
+		if (persistFrameRef.current !== null)
+			cancelAnimationFrame(persistFrameRef.current);
+		// All placement corrections in one render produce one URL snapshot.
+		persistFrameRef.current = requestAnimationFrame(() => {
+			persistFrameRef.current = null;
+			onOffsetsCommit(offsetsRef.current);
+		});
 	}, [onOffsetsCommit]);
+	const recenterOnDevice = useCallback(
+		(deviceId: string) => {
+			if (recenterFrameRef.current !== null)
+				cancelAnimationFrame(recenterFrameRef.current);
+			recenterFrameRef.current = requestAnimationFrame(() => {
+				recenterFrameRef.current = null;
+				canvasPan.recenter(deviceId);
+			});
+		},
+		[canvasPan.recenter],
+	);
 	const arrangeDevices = useCallback(() => {
-		for (const deviceId of visibleDeviceIds) {
-			positionsRef.current.delete(deviceId);
-		}
+		const arranged = arrangeWorkspaceDevicePositions(
+			positionsRef.current,
+			renderedDeviceIds,
+			activeDeviceId,
+		);
 		const next = { ...offsetsRef.current };
-		for (const deviceId of visibleDeviceIds) delete next[deviceId];
+		for (const [deviceId, desired] of arranged) {
+			const current = positionsRef.current.get(deviceId)!;
+			const offset = next[deviceId] ?? { x: 0, y: 0 };
+			next[deviceId] = {
+				x: offset.x + desired.left - current.left,
+				y: offset.y + desired.top - current.top,
+			};
+			positionsRef.current.set(deviceId, desired);
+		}
 		offsetsRef.current = next;
 		setOffsets(next);
-		onOffsetsCommit(next);
-		requestAnimationFrame(canvasPan.recenter);
-	}, [canvasPan.recenter, onOffsetsCommit, visibleDeviceIds]);
+		persistOffsets();
+		if (activeDeviceId) recenterOnDevice(activeDeviceId);
+	}, [activeDeviceId, persistOffsets, recenterOnDevice, renderedDeviceIds]);
 
-	if (visibleDeviceIds.length === 0) {
-		return (
+	const emptyWorkspace =
+		visibleDeviceIds.length === 0 && emptyReady ? (
 			<div
-				className="h-screen flex flex-col items-center justify-center gap-3 bg-page font-system box-border"
+				className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-page font-system box-border"
 				style={WORKSPACE_PADDING}
 			>
 				{selectedDevice && !selectedDevice.helper ? (
@@ -337,7 +449,7 @@ export function WorkspaceCanvas({
 						chrome={selectedDevice.chrome ?? null}
 						placeholderAsset={selectedDevice.placeholderAsset ?? null}
 						busy={!!starting[selectedDevice.device]}
-						busyLabel="Starting…"
+						busyLabel="Starting"
 						actionLabel={
 							selectedDevice.state === "Booted" ? "Connect" : "Start"
 						}
@@ -356,10 +468,8 @@ export function WorkspaceCanvas({
 					/>
 				)}
 			</div>
-		);
-	}
+		) : null;
 
-	const singleDevice = visibleDeviceIds.length === 1;
 	return (
 		<>
 			<div
@@ -381,73 +491,86 @@ export function WorkspaceCanvas({
 			>
 				<div
 					data-agentsims-canvas-content
-					className="min-h-full w-max min-w-full"
+					className="relative isolate min-h-full w-max min-w-full"
 					style={{
 						transform: "translate(0px, 0px)",
 					}}
 				>
 					<div
+						data-agentsims-phone-shadows
+						aria-hidden="true"
+						className="pointer-events-none absolute inset-0 z-0"
+					/>
+					<div
 						data-agentsims-centered-device-row
 						className="flex min-h-[calc(100dvh-48px)] w-max min-w-full items-center justify-center gap-5 px-2"
 					>
-						{visibleDeviceIds.map((deviceId) => {
-							const device =
-								devices?.find((candidate) => candidate.device === deviceId) ??
-								null;
-							const config =
-								configsByDevice[deviceId] ??
-								(fallbackConfig?.device === deviceId ? fallbackConfig : null);
-							const focused = focusedDeviceId === deviceId;
-							return (
-								<DraggableDevice
-									key={deviceId}
-									deviceId={deviceId}
-									offset={offsets[deviceId] ?? { x: 0, y: 0 }}
-									onOffsetChange={updateOffset}
-									onOffsetCommit={persistOffsets}
-									onFocus={onFocus}
-									singleDevice={singleDevice}
-									layoutRevision={visibleDeviceIds.join("|")}
-									added={
-										knownDevicesRef.current.size > 0 &&
-										!knownDevicesRef.current.has(deviceId) &&
-										!initialOffsets[deviceId]
-									}
-									positions={positionsRef.current}
-									visibleDeviceIds={visibleDeviceIds}
-								>
-									{config
-										? renderDevice({ deviceId, device, config, focused })
-										: null}
-								</DraggableDevice>
-							);
-						})}
+						<AnimatePresence
+							initial={false}
+							onExitComplete={() => {
+								setExitRevision((value) => value + 1);
+								if (renderedDeviceIds.length === 0) setEmptyReady(true);
+							}}
+						>
+							{renderedDeviceIds.map((deviceId) => {
+								const device =
+									devices?.find((candidate) => candidate.device === deviceId) ??
+									null;
+								const config =
+									configsByDevice[deviceId] ??
+									(fallbackConfig?.device === deviceId ? fallbackConfig : null);
+								const focused = focusedDeviceId === deviceId;
+								return (
+									<DraggableDevice
+										key={deviceId}
+										deviceId={deviceId}
+										offset={offsets[deviceId] ?? { x: 0, y: 0 }}
+										onOffsetChange={updateOffset}
+										onOffsetCommit={persistOffsets}
+										onFocus={onFocus}
+										layoutRevision={layoutRevision}
+										added={!previousVisibleRef.current.has(deviceId)}
+										anchorDeviceId={lastActiveDeviceRef.current}
+										onPlaced={recenterOnDevice}
+										positions={positionsRef.current}
+										visibleDeviceIds={renderedDeviceIds}
+									>
+										{config
+											? renderDevice({ deviceId, device, config, focused })
+											: null}
+									</DraggableDevice>
+								);
+							})}
+						</AnimatePresence>
 					</div>
 				</div>
+				{emptyWorkspace}
 			</div>
-			<div
-				role="toolbar"
-				aria-label="Canvas view"
-				className="fixed bottom-3 left-3 z-40 flex gap-1 rounded-[10px] border border-white/[0.1] bg-[#181818] p-1 shadow-[0_4px_14px_rgba(0,0,0,0.2)]"
-			>
-				<IconButton
-					label="Arrange devices"
-					tooltip="Arrange visible devices side by side"
-					onClick={arrangeDevices}
-					size="toolbar"
-					surface="toolbar"
+			{visibleDeviceIds.length > 0 && (
+				<div
+					role="toolbar"
+					aria-label="Canvas view"
+					className="fixed bottom-3 left-3 z-40 flex gap-1 rounded-[10px] border border-white/[0.1] bg-[#181818] p-1 shadow-[0_18px_56px_rgba(0,0,0,0.5)]"
 				>
-					<Columns3 size={17} />
-				</IconButton>
-				<IconButton
-					label="Recenter canvas"
-					onClick={canvasPan.recenter}
-					size="toolbar"
-					surface="toolbar"
-				>
-					<Focus size={17} />
-				</IconButton>
-			</div>
+					<IconButton
+						label="Arrange devices"
+						tooltip="Arrange visible devices side by side"
+						onClick={arrangeDevices}
+						size="toolbar"
+						surface="toolbar"
+					>
+						<Columns3 size={17} />
+					</IconButton>
+					<IconButton
+						label="Recenter canvas"
+						onClick={() => canvasPan.recenter()}
+						size="toolbar"
+						surface="toolbar"
+					>
+						<Focus size={17} />
+					</IconButton>
+				</div>
+			)}
 		</>
 	);
 }

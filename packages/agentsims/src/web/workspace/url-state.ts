@@ -12,6 +12,23 @@ export type CanvasPan = { x: number; y: number };
 export type WorkspaceDeviceOffset = { x: number; y: number };
 export type WorkspaceDeviceOffsets = Record<string, WorkspaceDeviceOffset>;
 
+/** URL state is a committed snapshot, with stable keys and subpixel precision. */
+export function normalizeWorkspaceDeviceOffsets(
+	positions: WorkspaceDeviceOffsets,
+): WorkspaceDeviceOffsets {
+	return Object.fromEntries(
+		Object.keys(positions)
+			.sort()
+			.flatMap((id) => {
+				const offset = positions[id]!;
+				if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) return [];
+				const x = Math.round(offset.x * 100) / 100;
+				const y = Math.round(offset.y * 100) / 100;
+				return x === 0 && y === 0 ? [] : [[id, { x, y }]];
+			}),
+	);
+}
+
 export function nextWorkspacePanel(
 	current: WorkspacePanel | null,
 	panel: WorkspacePanel,
@@ -87,10 +104,13 @@ export const deviceOffsetsParser = createParser<WorkspaceDeviceOffsets>({
 		}
 	},
 	serialize(value) {
-		return JSON.stringify(value);
+		return JSON.stringify(normalizeWorkspaceDeviceOffsets(value));
 	},
 	eq(a, b) {
-		return JSON.stringify(a) === JSON.stringify(b);
+		return (
+			JSON.stringify(normalizeWorkspaceDeviceOffsets(a)) ===
+			JSON.stringify(normalizeWorkspaceDeviceOffsets(b))
+		);
 	},
 });
 
@@ -142,7 +162,12 @@ export function useWorkspaceUrlState() {
 				panX: Math.abs(x) < 0.01 ? null : Math.round(x * 100) / 100,
 				panY: Math.abs(y) < 0.01 ? null : Math.round(y * 100) / 100,
 			}),
-		setPositions: (positions: WorkspaceDeviceOffsets) =>
-			setState({ positions: Object.keys(positions).length ? positions : null }),
+		setPositions: (positions: WorkspaceDeviceOffsets) => {
+			const snapshot = normalizeWorkspaceDeviceOffsets(positions);
+			if (deviceOffsetsParser.eq!(snapshot, state.positions ?? {})) return;
+			return setState({
+				positions: Object.keys(snapshot).length ? snapshot : null,
+			});
+		},
 	};
 }

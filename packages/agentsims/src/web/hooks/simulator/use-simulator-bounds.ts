@@ -27,7 +27,7 @@ export function useSimulatorBounds(
 				children
 					.filter((child) => child !== frameElement)
 					.reduce(
-						(sum, child) => sum + child.getBoundingClientRect().height,
+						(sum, child) => sum + (child as HTMLElement).offsetHeight,
 						0,
 					) +
 				Math.max(0, children.length - 1) * parseFloat(stackStyle.rowGap || "0");

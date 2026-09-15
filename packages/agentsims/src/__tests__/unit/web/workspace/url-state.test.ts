@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
 	devicesParser,
+	deviceOffsetsParser,
+	normalizeWorkspaceDeviceOffsets,
 	finiteFloatParser,
 	nextWorkspacePanel,
 } from "../../../../web/workspace/url-state";
@@ -43,5 +45,26 @@ describe("workspace URL panel", () => {
 	test("a close only clears its matching active panel", () => {
 		expect(nextWorkspacePanel("devices", "tools", false)).toBe("devices");
 		expect(nextWorkspacePanel("tools", "tools", false)).toBeNull();
+	});
+});
+
+describe("workspace position snapshots", () => {
+	test("equivalent maps do not depend on device insertion order", () => {
+		expect(
+			deviceOffsetsParser.eq!(
+				{ android: { x: 30, y: 50 }, ios: { x: 100, y: 10 } },
+				{ ios: { x: 100, y: 10 }, android: { x: 30, y: 50 } },
+			),
+		).toBe(true);
+	});
+
+	test("drops defaults and limits committed coordinates to hundredths", () => {
+		expect(
+			normalizeWorkspaceDeviceOffsets({
+				ios: { x: 25.678123, y: -40.12778 },
+				android: { x: 0.001, y: -0.001 },
+				invalid: { x: Infinity, y: 20 },
+			}),
+		).toEqual({ ios: { x: 25.68, y: -40.13 } });
 	});
 });

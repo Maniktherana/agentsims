@@ -71,6 +71,7 @@ export function useCanvasPan(
 	visibleRevision: string,
 	initialPan: CanvasPan,
 	onPanCommit: (pan: CanvasPan) => void,
+	focusedDeviceId: string | null,
 ) {
 	const [panning, setPanning] = useState(false);
 	const pointer = useRef<{
@@ -102,7 +103,7 @@ export function useCanvasPan(
 		if (!element) return;
 		const current = canvasViewOffset(element);
 		moveView(element, initialPan.x - current.x, initialPan.y - current.y);
-	}, [canvas, initialPan.x, initialPan.y, visibleRevision]);
+	}, [canvas, initialPan.x, initialPan.y]);
 	useEffect(
 		() => () => {
 			if (commitTimer.current) clearTimeout(commitTimer.current);
@@ -251,34 +252,44 @@ export function useCanvasPan(
 		element.addEventListener("wheel", wheel, { capture: true, passive: false });
 		return () => element.removeEventListener("wheel", wheel, true);
 	}, [canvas, commit, rememberScroll, visibleRevision]);
-	const recenter = () => {
-		const element = canvas.current;
-		if (!element) return;
-		const origin = element.getBoundingClientRect();
-		const rects = Array.from(
-			element.querySelectorAll<HTMLElement>("[data-workspace-device]"),
-			(device) => {
-				const rect = device.getBoundingClientRect();
-				const x = -origin.left - element.clientLeft;
-				const y = -origin.top - element.clientTop;
-				return {
-					left: rect.left + x,
-					top: rect.top + y,
-					right: rect.right + x,
-					bottom: rect.bottom + y,
-				};
-			},
-		);
-		const delta = canvasCenterDelta(rects, {
-			width: element.clientWidth,
-			height: element.clientHeight,
-		});
-		if (delta) {
-			animateView(element, delta.x, delta.y);
-			rememberScroll();
-			commit(320);
-		}
-	};
+	const recenter = useCallback(
+		(deviceId = focusedDeviceId) => {
+			const element = canvas.current;
+			if (!element) return;
+			const origin = element.getBoundingClientRect();
+			const rects = Array.from(
+				element.querySelectorAll<HTMLElement>(
+					"[data-workspace-device][data-device-present=true]",
+				),
+				(device) => {
+					const rect = device.getBoundingClientRect();
+					const x = -origin.left - element.clientLeft;
+					const y = -origin.top - element.clientTop;
+					return {
+						deviceId: device.dataset.workspaceDevice,
+						left: rect.left + x,
+						top: rect.top + y,
+						right: rect.right + x,
+						bottom: rect.bottom + y,
+					};
+				},
+			);
+			const delta = canvasCenterDelta(
+				rects,
+				{
+					width: element.clientWidth,
+					height: element.clientHeight,
+				},
+				deviceId,
+			);
+			if (delta) {
+				animateView(element, delta.x, delta.y);
+				rememberScroll();
+				commit(320);
+			}
+		},
+		[canvas, commit, focusedDeviceId, rememberScroll],
+	);
 	return {
 		panning,
 		recenter,

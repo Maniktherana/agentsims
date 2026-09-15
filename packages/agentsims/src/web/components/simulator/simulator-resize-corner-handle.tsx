@@ -31,6 +31,17 @@ import {
 const RESIZE_HANDLE_LIT_SHADOW =
 	"drop-shadow(0 0.5px 1px rgba(0,0,0,0.1)) drop-shadow(0 2px 5px rgba(0,0,0,0.13))";
 
+/** Keep the hit area outside the corner's diagonal, with room towards the canvas. */
+export const RESIZE_CORNER_TARGET_STYLE: CSSProperties = {
+	right: -30,
+	bottom: -30,
+	width: 76,
+	height: 76,
+	padding: 16,
+	boxSizing: "border-box",
+	clipPath: "polygon(100% 4px, 100% 100%, 4px 100%)",
+};
+
 type SimulatorResizeCornerSvgProps = {
 	arc: SimulatorResizeArc;
 	phase: ResizeVisualPhase;
@@ -261,6 +272,7 @@ export function SimulatorResizeCornerHandle({
 				outline: "none",
 				zIndex: 25,
 				WebkitTapHighlightColor: "transparent",
+				...RESIZE_CORNER_TARGET_STYLE,
 			}}
 		>
 			<SimulatorResizeCornerAffordance

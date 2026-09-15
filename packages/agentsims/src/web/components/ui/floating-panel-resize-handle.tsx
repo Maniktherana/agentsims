@@ -8,7 +8,10 @@ import {
 } from "react";
 import { simulatorResizeCornerArc } from "../../simulator/index";
 import type { ResizeVisualPhase } from "../../simulator/resize/simulator-resize";
-import { SimulatorResizeCornerAffordance } from "../simulator/simulator-resize-corner-handle";
+import {
+	SimulatorResizeCornerAffordance,
+	RESIZE_CORNER_TARGET_STYLE,
+} from "../simulator/simulator-resize-corner-handle";
 
 export function floatingPanelResizeVisualPhase(
 	dragging: boolean,
@@ -109,6 +112,7 @@ export function FloatingPanelResizeHandle({
 				pointerEvents: "auto",
 				outline: "none",
 				WebkitTapHighlightColor: "transparent",
+				...RESIZE_CORNER_TARGET_STYLE,
 			}}
 		>
 			<SimulatorResizeCornerAffordance
