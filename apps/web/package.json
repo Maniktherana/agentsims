@@ -1,0 +1,34 @@
+{
+	"name": "@agentsims/web",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"typecheck": "tsc --noEmit",
+		"lint": "oxlint src -D no-empty --deny-warnings"
+	},
+	"dependencies": {
+		"@radix-ui/react-slot": "^1.3.3",
+		"@tanstack/react-router": "^1.170.36",
+		"@tanstack/react-start": "^1.168.54",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
+		"lucide-react": "^1.46.0",
+		"motion": "^13.2.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0",
+		"tailwind-merge": "^3.7.0",
+		"torph": "^0.1.3"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.3.2",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"@vitejs/plugin-react": "^6.0.3",
+		"oxlint": "^1.74.0",
+		"tailwindcss": "^4.3.2",
+		"typescript": "^5.7.0",
+		"vite": "^8.3.0"
+	}
+}
