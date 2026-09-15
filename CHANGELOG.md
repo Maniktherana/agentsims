@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-09-15
+
+### Added
+
+- **Standalone landing page.** The responsive site contains a simulator demo
+  with separate boot and shutdown sequences, curved cursor movement, and iOS
+  and Android screenshots. Its components stay inside `apps/web`. (`e0ea0b0`)
+
+### Changed
+
+- Settings buttons and inputs use shared controls with consistent heights and
+  centered content. Status icons use matching strokes and smooth transitions.
+  Counters retain stable widths, and lifecycle labels omit ellipses. (`2401b4b`)
+- Screenshots flash the phone, pause over the source screen, then move into
+  the preview. Previews keep the screen's corners and fade out after dismissal.
+  Hover or keyboard focus pauses automatic saving. (`1d0f050`)
+- Accessibility and DevTools panels use short scale and fade transitions.
+  Device entry and exit use a brief reveal with the same effects.
+  (`1d0f050`, `d68beb4`)
+
+### Fixed
+
+- Device settings, foreground apps, accessibility, and DevTools routes stay
+  scoped to their device. Dock refresh reloads the open panel's data without
+  resetting the canvas. (`a969466`)
+- Settings controls remain in place and stay disabled during loading. Removed
+  the duplicate chevron from the location selector. (`a969466`)
+- iOS camera settings use the device media API. Camera status includes the
+  active source and mirror mode. Source changes attach to the requested app
+  when that app does not have an active attachment. (`09832ed`, `a969466`)
+- New devices appear beside the active device. Arrangement and recentering use
+  that device as the anchor. Focus follows device interaction, and the URL
+  stores stable position snapshots. (`d68beb4`)
+- Rapid device visibility changes retain accurate stream state. Retry restarts
+  MJPEG streams and resets H.264 fallback state. (`a969466`)
+- iOS devices prefer H.264 by default. MJPEG streams report their frame rate,
+  and zero FPS uses the same neutral color as other values.
+  (`a969466`, `2401b4b`)
+- Android accessibility selection receives pointer input instead of passing
+  that input through to the simulator. (`a969466`)
+- Phone shadows stay below all devices. Canvas controls and the brand label
+  also have shadows. Resize hit targets stay outside device and panel corners.
+  (`d68beb4`, `a969466`)
+
+### Internal
+
+- macOS builds verify the native module for the host architecture and verify
+  both architectures of universal helper executables. (`40dd8c2`)
+
 ## 2026-09-14
 
 ### Added
