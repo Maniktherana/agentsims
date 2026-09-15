@@ -1,3 +1,5 @@
+import { NumberMorph } from "../ui/number-morph";
+import { TextMorph } from "torph/react";
 import { appendAndroidLogLines } from "../../android/log-buffer";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -20,7 +22,7 @@ export function AndroidLogsPanel({
 	basePath: string;
 }) {
 	const [rows, setRows] = useState<AndroidLogLine[]>([]);
-	const [status, setStatus] = useState("Connecting…");
+	const [status, setStatus] = useState("Connecting");
 	const [paused, setPaused] = useState(false);
 	const [follow, setFollow] = useState(true);
 	const [filter, setFilter] = useState({
@@ -39,7 +41,7 @@ export function AndroidLogsPanel({
 	useEffect(() => {
 		pending.current = [];
 		setRows([]);
-		setStatus("Connecting…");
+		setStatus("Connecting");
 		const query = new URLSearchParams();
 		for (const [key, value] of Object.entries(applied))
 			if (value) query.set(key, value);
@@ -55,10 +57,10 @@ export function AndroidLogsPanel({
 				setStatus(
 					event.state === "connected"
 						? "Connected"
-						: (event.message ?? "Reconnecting…"),
+						: (event.message ?? "Reconnecting").replace(/…|\.{3}/g, ""),
 				);
 		};
-		source.onerror = () => setStatus("Connection lost. Reconnecting…");
+		source.onerror = () => setStatus("Connection lost. Reconnecting");
 		source.addEventListener("failure", (event) => {
 			setStatus(JSON.parse((event as MessageEvent).data).error);
 			source.close();
@@ -124,7 +126,7 @@ export function AndroidLogsPanel({
 						Level
 						<Select
 							label="Log level"
-							className="min-w-0 rounded border border-current/15 bg-transparent px-2 py-1.5"
+							className="h-8 min-w-0 rounded border border-current/15 bg-transparent px-2"
 							value={filter.level}
 							onChange={(level) => setFilter({ ...filter, level })}
 							options={[
@@ -194,7 +196,8 @@ export function AndroidLogsPanel({
 					Follow
 				</label>
 				<span className="ms-auto min-w-0 break-words opacity-60" role="status">
-					{status} · {rows.length} lines
+					<TextMorph>{status}</TextMorph> ·{" "}
+					<NumberMorph>{rows.length}</NumberMorph> lines
 				</span>
 			</div>
 			<div

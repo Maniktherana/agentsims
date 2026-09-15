@@ -1,3 +1,4 @@
+import { NumberMorph } from "./number-morph";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
@@ -102,7 +103,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
 							aria-hidden="true"
 							className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.42)]"
 						>
-							{badge}
+							<NumberMorph>{badge}</NumberMorph>
 						</span>
 					)}
 					{draft && (

@@ -6,6 +6,8 @@ import {
 	runtimeVersion,
 } from "../../../workspace/grid";
 import { IconButton } from "../../ui/icon-button";
+import { IconSwap } from "../../ui/state-transitions";
+import { TextMorph } from "torph/react";
 import { DeviceGlyph } from "./device-glyph";
 
 export type DeviceLifecyclePhase =
@@ -19,10 +21,10 @@ export function deviceLifecycleStatus(
 	phase: DeviceLifecyclePhase,
 	runtime: string,
 ): string {
-	if (phase === "shutting-down") return "Shutting down…";
+	if (phase === "shutting-down") return "Shutting down";
 	if (phase === "streaming") return `Streaming · ${runtime}`;
-	if (phase === "booting") return `Booting… · ${runtime}`;
-	if (phase === "connecting") return `Connecting… · ${runtime}`;
+	if (phase === "booting") return `Booting · ${runtime}`;
+	if (phase === "connecting") return `Connecting · ${runtime}`;
 	return `Available · ${runtime}`;
 }
 
@@ -61,23 +63,25 @@ function DeviceStatusGlyph({ phase }: { phase: DeviceLifecyclePhase }) {
 						: "text-amber-300/80"
 			}`}
 		>
-			{phase === "booting" ? (
-				<RotateCcw
-					size={12}
-					strokeWidth={2}
-					className="agentsims-device-status-spin"
-				/>
-			) : phase === "connecting" ? (
-				<LoaderCircle
-					size={14}
-					strokeWidth={2.5}
-					className="agentsims-device-status-spin"
-				/>
-			) : phase === "shutting-down" ? (
-				<span className="agentsims-device-status-breathe size-2.5 rounded-full border border-current" />
-			) : (
-				<span className="size-1.5 rounded-full bg-current" />
-			)}
+			<IconSwap state={phase}>
+				{phase === "booting" ? (
+					<RotateCcw
+						size={14}
+						strokeWidth={2}
+						className="agentsims-device-status-spin"
+					/>
+				) : phase === "connecting" ? (
+					<LoaderCircle
+						size={14}
+						strokeWidth={2}
+						className="agentsims-device-status-spin"
+					/>
+				) : phase === "shutting-down" ? (
+					<span className="agentsims-device-status-breathe size-2.5 rounded-full border border-current" />
+				) : (
+					<span className="size-1.5 rounded-full bg-current" />
+				)}
+			</IconSwap>
 		</span>
 	);
 }
@@ -183,7 +187,7 @@ export function DeviceRow({
 										: "text-white/45"
 						}`}
 					>
-						{status}
+						<TextMorph>{status}</TextMorph>
 					</div>
 				)}
 			</div>
@@ -212,16 +216,18 @@ export function DeviceRow({
 								onVisibleChange?.(!visible);
 							}}
 						>
-							{visible ? (
-								<Eye size={14} strokeWidth={2} />
-							) : (
-								<EyeOff size={14} strokeWidth={2} />
-							)}
+							<IconSwap state={visible ? "visible" : "hidden"}>
+								{visible ? (
+									<Eye size={14} strokeWidth={2} />
+								) : (
+									<EyeOff size={14} strokeWidth={2} />
+								)}
+							</IconSwap>
 						</IconButton>
 						{canShutdown && (
 							<IconButton
 								label="Shut down device"
-								tooltip={shuttingDown ? "Shutting down…" : "Shut down"}
+								tooltip={shuttingDown ? "Shutting down" : "Shut down"}
 								tone="danger"
 								surface="toolbar"
 								size="row"
@@ -250,7 +256,7 @@ export function DeviceRow({
 						{canShutdown && (
 							<button
 								type="button"
-								title={shuttingDown ? "Shutting down…" : "Shut down device"}
+								title={shuttingDown ? "Shutting down" : "Shut down device"}
 								aria-label="Shut down device"
 								onClick={(e) => {
 									e.preventDefault();

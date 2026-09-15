@@ -1,9 +1,11 @@
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { TextMorph } from "torph/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Save } from "lucide-react";
 import type { AndroidSavedState } from "../../../core/android/contracts";
 import { runAndroidTool } from "../../android/tools-client";
 import { CollapsibleSection } from "../ui/collapsible-section";
-import { toolButtonClass, toolInputClass } from "./tool-fields";
 import type { AndroidControlAction } from "./android-controls-panel";
 
 type Props = {
@@ -97,8 +99,7 @@ export function AndroidSavedStates({
 			>
 				<label className="flex min-w-32 flex-1 flex-col gap-1 text-[11px] text-white/60">
 					Snapshot name
-					<input
-						className={toolInputClass}
+					<Input
 						name="state-name"
 						placeholder="signed-in"
 						value={name}
@@ -108,13 +109,12 @@ export function AndroidSavedStates({
 						required
 					/>
 				</label>
-				<button
-					className={toolButtonClass}
+				<Button
 					type="submit"
 					disabled={busy || !name.trim()}
 				>
 					Save snapshot
-				</button>
+				</Button>
 			</form>
 			<p className="text-[10px] text-white/45">
 				Use letters, numbers, dots, dashes, or underscores. Restore replaces the
@@ -122,20 +122,21 @@ export function AndroidSavedStates({
 			</p>
 			<div className="flex items-center justify-between gap-2">
 				<span className="text-[11px] text-white/50" role="status">
-					{loading
-						? "Loading snapshots…"
-						: states
-							? `${states.length} ${states.length === 1 ? "snapshot" : "snapshots"}`
-							: ""}
+					<TextMorph>
+						{loading
+							? "Loading snapshots"
+							: states
+								? `${states.length} ${states.length === 1 ? "snapshot" : "snapshots"}`
+								: ""}
+					</TextMorph>
 				</span>
-				<button
-					className={toolButtonClass}
+				<Button
 					type="button"
 					disabled={busy || loading}
 					onClick={() => void refresh()}
 				>
 					Refresh
-				</button>
+				</Button>
 			</div>
 			{error && (
 				<p
@@ -191,24 +192,22 @@ export function SavedStateList({
 						</p>
 					</div>
 					<div className="flex shrink-0 gap-1.5">
-						<button
-							className={toolButtonClass}
+						<Button
 							type="button"
 							disabled={busy}
 							aria-label={`Restore ${state.name}`}
 							onClick={() => onRestore(state.name)}
 						>
 							Restore
-						</button>
-						<button
-							className={toolButtonClass}
+						</Button>
+						<Button
 							type="button"
 							disabled={busy}
 							aria-label={`Delete ${state.name}`}
 							onClick={() => onDelete(state.name)}
 						>
 							Delete
-						</button>
+						</Button>
 					</div>
 				</li>
 			))}

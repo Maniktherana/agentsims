@@ -23,7 +23,7 @@ export function DevicePlaceholder({
 	chrome,
 	placeholderAsset,
 	busy,
-	busyLabel = "Starting…",
+	busyLabel = "Starting",
 	actionLabel = "Start",
 	error,
 	onStart,

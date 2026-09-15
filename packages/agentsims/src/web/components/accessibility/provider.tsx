@@ -235,7 +235,7 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 
 	return {
 		snapshot,
-		status: refreshing ? "Refreshing AX…" : status,
+		status: refreshing ? "Refreshing AX" : status,
 		refreshing,
 		refresh,
 		sourceEndpoint: endpoint ? axSourceEndpoint(endpoint) : undefined,

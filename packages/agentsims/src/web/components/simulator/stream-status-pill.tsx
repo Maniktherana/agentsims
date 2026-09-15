@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { LoaderCircle, RotateCcw } from "lucide-react";
+import { TextMorph } from "torph/react";
 import {
 	EMPTY_SIMULATOR_FRAME_RATE,
 	type SimulatorFrameRateStore,
@@ -26,49 +26,31 @@ export function StreamStatusPill({
 			? "Booting"
 			: phase === "shutting-down"
 				? "Shutting down"
-				: (status ?? "Connecting");
+				: (status ?? "Connecting").replace(/…|\.{3}/g, "");
 
 	return (
 		<span
 			data-testid="stream-status-pill"
-			className="inline-flex min-w-[108px] shrink-0 items-center justify-end whitespace-nowrap"
+			className="inline-flex min-w-[108px] shrink-0 items-center justify-end whitespace-nowrap text-[11px] leading-none"
 		>
 			<span className="sr-only" aria-live="polite" aria-atomic="true">
 				{streaming ? "" : lifecycleLabel}
 			</span>
-			{streaming ? (
-				<span
-					data-testid="stream-simulator-fps"
-					className={`min-w-[7ch] text-right font-mono text-[11px] font-medium leading-none tabular-nums ${
-						fps === 0 ? "text-amber-300/70" : "text-white/38"
-					}`}
-				>
-					{fps === null ? "—" : fps} FPS
-				</span>
-			) : (
-				<span
-					aria-hidden="true"
-					data-stream-lifecycle-phase={phase}
-					className="inline-flex w-full items-center justify-end gap-[5px] text-[11px] font-medium leading-none text-white/45"
-				>
-					{phase === "booting" ? (
-						<RotateCcw
-							size={12}
-							strokeWidth={2}
-							className="agentsims-device-status-spin"
-						/>
-					) : phase === "shutting-down" ? (
-						<span className="agentsims-device-status-breathe size-2.5 rounded-full border border-current" />
-					) : (
-						<LoaderCircle
-							size={13}
-							strokeWidth={2.25}
-							className="agentsims-device-status-spin"
-						/>
-					)}
-					{lifecycleLabel}
-				</span>
-			)}
+			<span
+				data-testid={streaming ? "stream-simulator-fps" : undefined}
+				data-stream-lifecycle-phase={streaming ? undefined : phase}
+				className={
+					streaming
+						? "min-w-[7ch] text-right font-mono text-[11px] font-medium leading-none tabular-nums text-white/38"
+						: "text-right text-[11px] font-medium leading-none text-white/45"
+				}
+			>
+				{streaming ? (
+					<TextMorph>{`${fps === null ? "—" : fps} FPS`}</TextMorph>
+				) : (
+					lifecycleLabel
+				)}
+			</span>
 		</span>
 	);
 }

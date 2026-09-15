@@ -17,7 +17,7 @@ export function useUploadToasts() {
 	const add = useCallback((name: string, kind: DropKind): string => {
 		const id = crypto.randomUUID();
 		uploads.current.set(id, { name, kind });
-		notify("loading", `Uploading ${name}…`, { id });
+		notify("loading", `Uploading ${name}`, { id });
 		return id;
 	}, []);
 
@@ -46,8 +46,8 @@ export function useUploadToasts() {
 		notify(
 			"loading",
 			upload.kind === "ipa"
-				? `Installing ${upload.name}…`
-				: `Adding ${upload.name}…`,
+				? `Installing ${upload.name}`
+				: `Adding ${upload.name}`,
 			{ id },
 		);
 	}, []);
@@ -58,9 +58,9 @@ export function useUploadToasts() {
 		const message =
 			progress === null
 				? upload.kind === "ipa"
-					? `Installing ${upload.name}…`
-					: `Adding ${upload.name}…`
-				: `Uploading ${upload.name}… ${Math.round(progress * 100)}%`;
+					? `Installing ${upload.name}`
+					: `Adding ${upload.name}`
+				: `Uploading ${upload.name} ${Math.round(progress * 100)}%`;
 		notify("loading", message, { id });
 	}, []);
 

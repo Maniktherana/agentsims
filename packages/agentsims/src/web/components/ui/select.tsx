@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+import { Button } from "./button";
 
 // Custom <select> replacement in the device-picker dropdown style. Native
 // option popups are drawn by the host browser and ignore the page color
@@ -147,7 +148,9 @@ export function Select({
 
 	return (
 		<>
-			<button
+			<Button
+				variant="plain"
+				size="custom"
 				ref={triggerRef}
 				type="button"
 				aria-label={label}
@@ -157,7 +160,7 @@ export function Select({
 				onClick={() => setOpen((o) => !o)}
 				className={`text-left font-[inherit] cursor-pointer disabled:cursor-default ${className ?? ""}`}
 			>
-				<span className="flex min-w-0 items-center justify-between gap-2">
+				<span className="flex w-full min-w-0 items-center justify-between gap-2">
 					<span className="min-w-0 flex-1 truncate">
 						{selected?.label ?? value}
 					</span>
@@ -170,7 +173,7 @@ export function Select({
 						aria-hidden="true"
 					/>
 				</span>
-			</button>
+			</Button>
 			{open &&
 				pos &&
 				createPortal(

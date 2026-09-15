@@ -1415,7 +1415,7 @@ export function AccessibilityTree({
 		>
 			{elements.length === 0 ? (
 				<div className="grid h-full min-h-32 place-items-center px-5 text-center text-[12px] text-white/38">
-					Waiting for accessibility data…
+					Waiting for accessibility data
 				</div>
 			) : (
 				<>
@@ -1895,7 +1895,7 @@ export function AccessibilitySourceSection({
 		>
 			{sourceState.status === "loading" ? (
 				<div className="grid min-h-32 flex-1 place-items-center text-[11px] text-white/38">
-					Loading source…
+					Loading source
 				</div>
 			) : sourceState.status === "missing" ? (
 				<div className="grid min-h-32 flex-1 place-items-center px-4 text-center text-[11px] text-white/38">

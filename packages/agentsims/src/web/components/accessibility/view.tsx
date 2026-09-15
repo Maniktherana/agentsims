@@ -1,3 +1,5 @@
+import { NumberMorph } from "../ui/number-morph";
+import { IconSwap } from "../ui/state-transitions";
 import {
 	Eye,
 	EyeOff,
@@ -167,11 +169,13 @@ export function AccessibilityHeaderActions({
 					surface="toolbar"
 					onClick={() => onAllNodesVisibleChange(!allNodesVisible)}
 				>
-					{allNodesVisible ? (
-						<Eye size={14} strokeWidth={2} />
-					) : (
-						<EyeOff size={14} strokeWidth={2} />
-					)}
+					<IconSwap state={allNodesVisible ? "visible" : "hidden"}>
+						{allNodesVisible ? (
+							<Eye size={14} strokeWidth={2} />
+						) : (
+							<EyeOff size={14} strokeWidth={2} />
+						)}
+					</IconSwap>
 				</IconButton>
 			)}
 
@@ -180,7 +184,13 @@ export function AccessibilityHeaderActions({
 					className="max-w-20 truncate px-1 text-right text-[10px] tabular-nums text-white/38"
 					aria-live="polite"
 				>
-					{visibleStatus.label}
+					<NumberMorph>{elementCount ?? 0}</NumberMorph>
+					{!!sourceCount && (
+						<>
+							{" "}
+							· <NumberMorph>{sourceCount}</NumberMorph> RN
+						</>
+					)}
 				</span>
 			) : visibleStatus.kind === "loading" ? (
 				<span

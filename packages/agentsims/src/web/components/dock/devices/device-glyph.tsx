@@ -1,3 +1,4 @@
+import { motion, useReducedMotion } from "motion/react";
 import type { DeviceType } from "../../../simulator/index";
 
 const SCREEN_ON_FILL = "var(--agentsims-device-screen-on)";
@@ -13,6 +14,7 @@ export function DeviceGlyph({
 	size?: number;
 	screenOn?: boolean;
 }) {
+	const reducedMotion = useReducedMotion();
 	const common = {
 		width: size,
 		height: size,
@@ -27,18 +29,22 @@ export function DeviceGlyph({
 		case "ipad":
 			return (
 				<svg {...common}>
-					{screenOn && (
-						<rect
-							x="5"
-							y="3"
-							width="15"
-							height="19"
-							rx="1.65"
-							fill={SCREEN_ON_FILL}
-							stroke="none"
-							data-testid="device-glyph-screen-on"
-						/>
-					)}
+					<motion.rect
+						initial={false}
+						animate={{ opacity: screenOn ? 1 : 0 }}
+						transition={{
+							duration: reducedMotion ? 0 : 0.25,
+							ease: "easeInOut",
+						}}
+						x="5"
+						y="3"
+						width="15"
+						height="19"
+						rx="1.65"
+						fill={SCREEN_ON_FILL}
+						stroke="none"
+						data-testid={screenOn ? "device-glyph-screen-on" : undefined}
+					/>
 					<rect x="4" y="2.5" width="16" height="19" rx="2.5" />
 					<line x1="12" y1="18.5" x2="12" y2="18.5" />
 				</svg>
@@ -60,18 +66,22 @@ export function DeviceGlyph({
 		case "android":
 			return (
 				<svg {...common}>
-					{screenOn && (
-						<rect
-							x="6"
-							y="2.75"
-							width="12"
-							height="18.5"
-							rx="2.4"
-							fill={SCREEN_ON_FILL}
-							stroke="none"
-							data-testid="device-glyph-screen-on"
-						/>
-					)}
+					<motion.rect
+						initial={false}
+						animate={{ opacity: screenOn ? 1 : 0 }}
+						transition={{
+							duration: reducedMotion ? 0 : 0.25,
+							ease: "easeInOut",
+						}}
+						x="6"
+						y="2.75"
+						width="12"
+						height="18.5"
+						rx="2.4"
+						fill={SCREEN_ON_FILL}
+						stroke="none"
+						data-testid={screenOn ? "device-glyph-screen-on" : undefined}
+					/>
 					<rect x="6" y="2.5" width="12" height="19" rx="3" />
 					<circle cx="12" cy="5" r="0.85" />
 					<line x1="10.25" y1="18.5" x2="13.75" y2="18.5" />
@@ -80,18 +90,22 @@ export function DeviceGlyph({
 		default:
 			return (
 				<svg {...common}>
-					{screenOn && (
-						<rect
-							x="6"
-							y="3"
-							width="11"
-							height="19"
-							rx="2"
-							fill={SCREEN_ON_FILL}
-							stroke="none"
-							data-testid="device-glyph-screen-on"
-						/>
-					)}
+					<motion.rect
+						initial={false}
+						animate={{ opacity: screenOn ? 1 : 0 }}
+						transition={{
+							duration: reducedMotion ? 0 : 0.25,
+							ease: "easeInOut",
+						}}
+						x="6"
+						y="3"
+						width="11"
+						height="19"
+						rx="2"
+						fill={SCREEN_ON_FILL}
+						stroke="none"
+						data-testid={screenOn ? "device-glyph-screen-on" : undefined}
+					/>
 					<rect x="6.5" y="2.5" width="11" height="19" rx="2.8" />
 					<line x1="10.5" y1="5" x2="13.5" y2="5" />
 				</svg>

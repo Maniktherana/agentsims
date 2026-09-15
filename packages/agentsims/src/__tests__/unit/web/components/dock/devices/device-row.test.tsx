@@ -216,7 +216,7 @@ describe("DeviceRow", () => {
 		expect(html).toContain('data-device-phase="booting"');
 		expect(html).toContain('data-device-status-glyph="booting"');
 		expect(html).toContain("agentsims-device-status-spin");
-		expect(html).toContain("Booting… · iOS 27.0");
+		expect(html).toContain("Booting · iOS 27.0");
 		expect(html).toContain('aria-disabled="true"');
 		expect(html).toContain('aria-busy="true"');
 		expect(html).toContain('tabindex="-1"');
@@ -245,7 +245,7 @@ describe("DeviceRow", () => {
 
 		expect(html).toContain('data-device-phase="connecting"');
 		expect(html).toContain("lucide-loader-circle");
-		expect(html).toContain("Connecting… · iOS 27.0");
+		expect(html).toContain("Connecting · iOS 27.0");
 		expect(html.match(/ disabled=""/g)).toHaveLength(2);
 	});
 
@@ -293,7 +293,7 @@ describe("DeviceRow", () => {
 			/>,
 		);
 
-		expect(html).toContain("Shutting down…");
+		expect(html).toContain("Shutting down");
 		expect(html).not.toContain("Streaming ·");
 		expect(html).not.toContain("text-[#34d399]");
 		expect(html).toContain('data-device-phase="shutting-down"');
