@@ -1,6 +1,12 @@
 import type { PermissionMutation } from "../../../../core/tools/permissions";
 import { simEndpoint } from "../../../preview/sim-endpoint";
 
+export interface AndroidPermissionList {
+	device: string;
+	packageName: string;
+	runtime: { permission: string; granted: boolean; flags: string[] }[];
+}
+
 export interface PermissionList {
 	tcc: Record<string, number>;
 	location: { Authorization: number } | null;
@@ -26,6 +32,15 @@ async function responseJson<T>(response: Response): Promise<T> {
 export async function listAppPermissions(device: string, bundleId: string) {
 	return responseJson<PermissionList>(
 		await fetch(permissionsUrl(device, bundleId)),
+	);
+}
+
+export async function listAndroidAppPermissions(
+	device: string,
+	packageName: string,
+) {
+	return responseJson<AndroidPermissionList>(
+		await fetch(permissionsUrl(device, packageName)),
 	);
 }
 

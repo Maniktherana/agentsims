@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Android app permissions.** `agentsims permissions` now lists, grants,
+  revokes, and resets Android runtime permissions, through the CLI, the HTTP
+  API, and the device Settings panel. The permission name belongs to the
+  platform: iOS names a privacy service, and Android accepts `CAMERA`,
+  `camera`, or `android.permission.CAMERA`. `reset` without a name returns the
+  whole app to its default state and reports the permissions that the system
+  holds fixed.
 - **Standalone landing page.** The responsive site contains a simulator demo
   with separate boot and shutdown sequences, curved cursor movement, and iOS
   and Android screenshots. Its components stay inside `apps/web`. (`e0ea0b0`)
@@ -22,6 +29,11 @@
 
 ### Fixed
 
+- `agentsims permissions` reads device state back after every change. `adb`
+  reports success for a permission that an app does not declare, and changes
+  nothing, so the command now fails with the package and permission name.
+- Android package names with underscores are valid. The permission commands
+  validated every app identifier against the iOS bundle identifier rule.
 - Device settings, foreground apps, accessibility, and DevTools routes stay
   scoped to their device. Dock refresh reloads the open panel's data without
   resetting the canvas. (`a969466`)

@@ -6,7 +6,10 @@ import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
 import { DEVICE_BUTTONS, parseDeviceAction } from "../core/tools/input";
+import { androidSerialFromStateId } from "../core/android/device/identifiers";
+import { normalizeAndroidPermission } from "../core/android/permissions";
 import {
+	AndroidPackageSchema,
 	BundleIdSchema,
 	PermissionNameSchema,
 } from "../core/tools/permissions";
@@ -326,9 +329,9 @@ export function createProgram(): Command {
 		);
 	program
 		.command("permissions <operation> [permission]")
-		.description("List, grant, revoke, or reset iOS Simulator app permissions")
+		.description("List, grant, revoke, or reset app permissions")
 		.requiredOption("-d, --device <id>")
-		.requiredOption("-a, --app <bundle-id>")
+		.requiredOption("-a, --app <app-id>", "Bundle ID or Android package name")
 		.option("--value <value>", "Permission-specific grant value")
 		.option("--url <url>")
 		.action(
@@ -337,16 +340,24 @@ export function createProgram(): Command {
 				permission: string | undefined,
 				flags: { device: string; app: string; value?: string; url?: string },
 			) => {
-				const bundleId = BundleIdSchema.safeParse(flags.app);
-				if (!bundleId.success)
-					throw new Error("App must be a valid bundle identifier.");
+				// iOS names a privacy service. Android names a runtime permission.
+				const android = Boolean(androidSerialFromStateId(flags.device));
+				const appId = (
+					android ? AndroidPackageSchema : BundleIdSchema
+				).safeParse(flags.app);
+				if (!appId.success)
+					throw new Error(
+						android
+							? "App must be a valid Android package name."
+							: "App must be a valid bundle identifier.",
+					);
 				const api = client(flags.url);
 				if (operation === "list") {
 					if (permission || flags.value)
 						throw new Error(
 							"permissions list does not accept a permission or value.",
 						);
-					json(await api.listPermissions(flags.device, bundleId.data));
+					json(await api.listPermissions(flags.device, appId.data));
 					return;
 				}
 				if (!["grant", "revoke", "reset"].includes(operation))
@@ -355,20 +366,22 @@ export function createProgram(): Command {
 					);
 				if (!permission && operation !== "reset")
 					throw new Error(`${operation} requires a permission.`);
-				const parsedPermission = permission
-					? PermissionNameSchema.safeParse(permission)
-					: undefined;
-				if (parsedPermission && !parsedPermission.success)
+				const resolved = permission
+					? android
+						? normalizeAndroidPermission(permission)
+						: (PermissionNameSchema.safeParse(permission).data ?? null)
+					: null;
+				if (permission && !resolved)
 					throw new Error("Unknown permission name.");
 				if (flags.value && operation !== "grant")
 					throw new Error("--value is available only with grant.");
+				if (flags.value && android)
+					throw new Error("--value is available only for iOS simulators.");
 				json(
 					await api.mutatePermissions(flags.device, {
 						operation,
-						bundleId: bundleId.data,
-						...(parsedPermission?.success
-							? { permission: parsedPermission.data }
-							: {}),
+						bundleId: appId.data,
+						...(resolved ? { permission: resolved } : {}),
 						...(flags.value ? { value: flags.value } : {}),
 					}),
 				);

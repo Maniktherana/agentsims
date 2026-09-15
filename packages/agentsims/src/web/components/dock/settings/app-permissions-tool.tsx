@@ -262,7 +262,7 @@ export function AppPermissionsLoading() {
 	);
 }
 
-function PermBtn({
+export function PermBtn({
 	active,
 	pending,
 	onClick,

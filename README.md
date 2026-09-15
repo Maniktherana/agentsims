@@ -21,7 +21,8 @@ devices and can start other simulators and emulators from the device picker.
 - Inspect screenshots and native accessibility trees.
 - Send taps, swipes, text, rotation, and hardware-button input.
 - Install, launch, stop, and uninstall apps.
-- Change iOS appearance, permissions, camera input, and location.
+- Grant, revoke, and reset app permissions on iOS and Android.
+- Change iOS appearance, camera input, and location.
 - Change Android network, battery, locale, density, and emulator snapshots.
 - Connect React Native accessibility nodes to components and source files.
 
@@ -87,7 +88,7 @@ agentsims observe --device <device>
 agentsims act --device <device> <json>
 agentsims camera --device <device> [webcams|webcam|stop] [webcam]
 agentsims app --device <device> <operation> [value]
-agentsims permissions --device <ios-device> --app <bundle-id> <operation> [permission]
+agentsims permissions --device <device> --app <app-id> <operation> [permission]
 agentsims doctor [--platform android|ios]
 ```
 
@@ -166,7 +167,10 @@ npx agentsims camera webcam webcam0 --face back \
 npx agentsims camera stop --device <ios-device-id>
 ```
 
-iOS Simulator permissions support `list`, `grant`, `revoke`, and `reset`:
+App permissions support `list`, `grant`, `revoke`, and `reset` on both
+platforms. `--app` takes an iOS bundle ID or an Android package name.
+
+iOS names a privacy service:
 
 ```sh
 npx agentsims permissions list --device <ios-device-id> \
@@ -178,6 +182,23 @@ npx agentsims permissions grant camera --device <ios-device-id> \
 npx agentsims permissions reset --device <ios-device-id> \
   --app com.example.app
 ```
+
+Android names a runtime permission. `CAMERA`, `camera`, and
+`android.permission.CAMERA` all reach the same permission:
+
+```sh
+npx agentsims permissions list --device android:emulator-5554 \
+  --app com.example.app
+npx agentsims permissions grant CAMERA --device android:emulator-5554 \
+  --app com.example.app
+npx agentsims permissions reset --device android:emulator-5554 \
+  --app com.example.app
+```
+
+`reset` without a permission returns every runtime permission of the app to its
+default state, and reports the permissions that the system or a policy holds
+fixed. The app must declare a runtime permission before Agentsims can change
+it. `--value` applies to iOS only.
 
 Read a bounded Android log snapshot when visible evidence is not enough:
 

@@ -69,8 +69,8 @@ npx agentsims act --device android:emulator-5554 \
 
 Use the device ID from the list. Tap coordinates range from `0` to `1`.
 `observe` includes the native accessibility tree. Agentsims also provides
-bounded commands for hardware buttons, host webcam input, iOS Simulator app
-permissions, and Android log snapshots:
+bounded commands for hardware buttons, host webcam input, app permissions, and
+Android log snapshots:
 
 ```sh
 npx agentsims act --device <device-id> \
@@ -78,6 +78,8 @@ npx agentsims act --device <device-id> \
 npx agentsims camera webcams --device <device-id>
 npx agentsims camera webcam <webcam-id> --device <ios-device-id>
 npx agentsims permissions revoke camera --device <ios-device-id> \
+  --app com.example.app
+npx agentsims permissions revoke CAMERA --device android:emulator-5554 \
   --app com.example.app
 npx agentsims logs --device android:emulator-5554 --app com.example.app
 ```

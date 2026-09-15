@@ -12,6 +12,7 @@ import {
 import { execOnHost } from "../../../simulator/input/exec";
 import { AndroidToolsPanel } from "../../android/android-tools-panel";
 import { simEndpoint } from "../../../preview/sim-endpoint";
+import { AndroidAppPermissionsTool } from "./android-app-permissions-tool";
 import { AndroidDeviceControlsTool } from "./android-device-controls-tool";
 import { AndroidSimulatorSettingsTool } from "./android-simulator-settings-tool";
 import { AppDetectionTool } from "./app-detection-tool";
@@ -107,6 +108,10 @@ export function ToolsPanel({
 										{simulatorRows}
 									</AndroidSimulatorSettingsTool>
 									{mediaAndLocation}
+									<AndroidAppPermissionsTool
+										udid={udid}
+										packageName={currentApp?.bundleId ?? null}
+									/>
 									{deviceSections}
 									<AndroidToolsPanel
 										deviceId={udid}
