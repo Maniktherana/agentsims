@@ -1,3 +1,4 @@
+import { Button } from "../../ui/button";
 import { Monitor, RefreshCw, Smartphone, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { simEndpoint } from "../../../preview/sim-endpoint";
@@ -166,7 +167,9 @@ export function AndroidControlsStatus({
 					<span className="min-w-0">
 						Could not load Android details: {error}
 					</span>
-					<button
+					<Button
+						variant="plain"
+						size="custom"
 						type="button"
 						onClick={onRefresh}
 						className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] bg-white/[0.06] px-2 text-[10px] text-white/70 [transition:background,color,transform] duration-100 hover:bg-white/[0.1] hover:text-white active:scale-[0.97]"
@@ -178,7 +181,7 @@ export function AndroidControlsStatus({
 							className={loading ? "animate-spin" : undefined}
 						/>
 						Retry
-					</button>
+					</Button>
 				</div>
 			)}
 		</div>

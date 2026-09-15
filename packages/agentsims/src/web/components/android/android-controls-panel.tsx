@@ -1,3 +1,5 @@
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { type ReactNode, useState } from "react";
 import {
 	Accessibility,
@@ -25,8 +27,6 @@ import { AndroidSavedStates } from "./android-saved-states";
 import {
 	formString,
 	ToolField,
-	toolButtonClass,
-	toolInputClass,
 } from "./tool-fields";
 
 export type AndroidControlAction = Extract<
@@ -57,8 +57,10 @@ type Props = {
 export function networkSpeedLabel(
 	network: AndroidEnvironmentState["network"] | undefined,
 ): string {
+	if (!network || (network.downloadBps == null && network.uploadBps == null))
+		return "—";
 	const rate = (value: number | null | undefined) => {
-		if (value == null) return "Unknown";
+		if (value == null) return "—";
 		if (value === 0) return "Unlimited";
 		if (value >= 1_000_000)
 			return `${Number((value / 1_000_000).toFixed(2))} Mbps`;
@@ -73,8 +75,7 @@ export function networkSpeedLabel(
 export function networkLatencyLabel(
 	network: AndroidEnvironmentState["network"] | undefined,
 ): string {
-	if (network?.minLatencyMs == null || network.maxLatencyMs == null)
-		return "Current unavailable";
+	if (network?.minLatencyMs == null || network.maxLatencyMs == null) return "—";
 	return network.minLatencyMs === network.maxLatencyMs
 		? `${network.minLatencyMs} ms`
 		: `${network.minLatencyMs}–${network.maxLatencyMs} ms`;
@@ -127,14 +128,7 @@ export function AndroidSimulatorControlRows({
 			).map(([field, label, supported, icon]) => {
 				const checked = state?.network[field];
 				return (
-					<SettingRow
-						key={field}
-						icon={icon}
-						label={label}
-						description={
-							checked == null ? "Current state unavailable" : undefined
-						}
-					>
+					<SettingRow key={field} icon={icon} label={label}>
 						<SettingSwitch
 							label={label}
 							checked={checked ?? false}
@@ -146,14 +140,14 @@ export function AndroidSimulatorControlRows({
 					</SettingRow>
 				);
 			})}
-			{capabilities?.networkConditions && (
+			{(capabilities === null || capabilities.networkConditions) && (
 				<>
 					<SettingRow icon={<Gauge size={14} />} label="Network speed">
 						<SettingSelect
 							label="Network speed"
 							className="max-w-[min(280px,55vw)]!"
 							value="current"
-							disabled={busy || !state}
+							disabled={busy || !capabilities?.networkConditions || !state}
 							options={[
 								{
 									value: "current",
@@ -174,7 +168,7 @@ export function AndroidSimulatorControlRows({
 						<SettingSelect
 							label="Network latency"
 							value="current"
-							disabled={busy || !state}
+							disabled={busy || !capabilities?.networkConditions || !state}
 							options={[
 								{
 									value: "current",
@@ -197,13 +191,7 @@ export function AndroidSimulatorControlRows({
 			<SettingRow
 				icon={<Battery size={14} />}
 				label="Battery percent"
-				description={
-					state?.battery.level == null
-						? "Current state unavailable"
-						: state.battery.simulated
-							? "Simulated"
-							: undefined
-				}
+				description={state?.battery.simulated ? "Simulated" : undefined}
 			>
 				<form
 					className="flex items-center gap-2"
@@ -217,37 +205,29 @@ export function AndroidSimulatorControlRows({
 						});
 					}}
 				>
-					<input
+					<Input
 						aria-label="Battery percent"
 						name="level"
-						className={`${toolInputClass} w-16!`}
+						className="w-16!"
 						type="number"
 						min="0"
 						max="100"
 						required
+						disabled={busy || state?.battery.level == null}
 						value={batteryLevel ?? state?.battery.level ?? ""}
 						placeholder="—"
 						onChange={(event) => setBatteryLevel(event.target.value)}
 					/>
-					<button
+					<Button
 						type="submit"
 						aria-label="Set battery"
-						className={toolButtonClass}
-						disabled={busy}
+						disabled={busy || state?.battery.level == null}
 					>
 						Set
-					</button>
+					</Button>
 				</form>
 			</SettingRow>
-			<SettingRow
-				icon={<BatteryCharging size={14} />}
-				label="Charging"
-				description={
-					state?.battery.charging == null
-						? "Current state unavailable"
-						: undefined
-				}
-			>
+			<SettingRow icon={<BatteryCharging size={14} />} label="Charging">
 				<SettingSwitch
 					label="Charging"
 					checked={state?.battery.charging ?? false}
@@ -299,8 +279,7 @@ export function AndroidControlsPanel({
 					}}
 				>
 					<ToolField label="Display density (DPI)">
-						<input
-							className={toolInputClass}
+						<Input
 							name="dpi"
 							type="number"
 							min="72"
@@ -311,12 +290,11 @@ export function AndroidControlsPanel({
 							onChange={(event) => setDensity(event.target.value)}
 						/>
 					</ToolField>
-					<button type="submit" className={toolButtonClass} disabled={busy}>
+					<Button type="submit" disabled={busy}>
 						Set density
-					</button>
-					<button
+					</Button>
+					<Button
 						type="button"
-						className={toolButtonClass}
 						disabled={busy}
 						onClick={() =>
 							void run({ type: "density", dpi: "reset" }).then((ok) => {
@@ -325,7 +303,7 @@ export function AndroidControlsPanel({
 						}
 					>
 						Reset density
-					</button>
+					</Button>
 				</form>
 				{capabilities?.appLocale && (
 					<form
@@ -341,34 +319,28 @@ export function AndroidControlsPanel({
 						}}
 					>
 						<ToolField label="App package">
-							<input
-								className={toolInputClass}
+							<Input
 								name="package"
 								required
 								placeholder="com.example.app"
 							/>
 						</ToolField>
 						<ToolField label="App language">
-							<input
-								className={toolInputClass}
+							<Input
 								name="locale"
 								placeholder="fr-FR; blank to reset"
 							/>
 						</ToolField>
-						<button type="submit" className={toolButtonClass} disabled={busy}>
+						<Button type="submit" disabled={busy}>
 							Set language
-						</button>
+						</Button>
 					</form>
 				)}
 				<SettingRow
 					icon={<Accessibility size={14} />}
 					label="TalkBack"
 					description={
-						!capabilities?.talkback
-							? "Not installed"
-							: state?.display.talkback == null
-								? "Current state unavailable"
-								: undefined
+						capabilities?.talkback === false ? "Not installed" : undefined
 					}
 				>
 					<SettingSwitch
@@ -398,8 +370,7 @@ export function AndroidControlsPanel({
 						}}
 					>
 						<ToolField label="Phone number">
-							<input
-								className={toolInputClass}
+							<Input
 								name="number"
 								defaultValue="5551234567"
 								required
@@ -419,9 +390,9 @@ export function AndroidControlsPanel({
 								}}
 							/>
 						</ToolField>
-						<button type="submit" className={toolButtonClass} disabled={busy}>
+						<Button type="submit" disabled={busy}>
 							Send call event
-						</button>
+						</Button>
 					</form>
 					<form
 						className="flex flex-wrap items-end gap-2"
@@ -436,19 +407,18 @@ export function AndroidControlsPanel({
 						}}
 					>
 						<ToolField label="Sender">
-							<input
-								className={toolInputClass}
+							<Input
 								name="number"
 								defaultValue="5551234567"
 								required
 							/>
 						</ToolField>
 						<ToolField label="Message">
-							<input className={toolInputClass} name="text" required />
+							<Input name="text" required />
 						</ToolField>
-						<button type="submit" className={toolButtonClass} disabled={busy}>
+						<Button type="submit" disabled={busy}>
 							Send SMS
-						</button>
+						</Button>
 					</form>
 				</ToolSection>
 			)}

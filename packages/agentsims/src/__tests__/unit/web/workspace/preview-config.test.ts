@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { proxyPreviewConfigForBrowser } from "../../../../web/workspace/preview-config";
+import {
+	previewConfigFromGridDevice,
+	previewDeviceEndpoint,
+	proxyPreviewConfigForBrowser,
+} from "../../../../web/workspace/preview-config";
 
 const baseConfig = {
 	pid: 101,
@@ -77,5 +81,58 @@ describe("proxyPreviewConfigForBrowser", () => {
 				{ protocol: "http:", host: "localhost:3210" },
 			)?.streamUrl,
 		).toBe("http://localhost:3210/helper/android%3Aemulator-5554/stream.avcc");
+	});
+});
+
+describe("per-device preview ownership", () => {
+	const android = {
+		device: "android:emulator-5554",
+		name: "Pixel 10",
+		runtime: "Android-17",
+		state: "Booted",
+		helper: {
+			port: 3101,
+			url: "http://localhost:3101",
+			streamUrl: "http://localhost:3101/stream.avcc",
+			wsUrl: "ws://localhost:3101/ws",
+		},
+	};
+	test("a new Android helper cannot inherit iPhone app, accessibility, or DevTools routes", () => {
+		const iphone = {
+			...baseConfig,
+			basePath: "/.sim",
+			appStateEndpoint: "/.sim/appstate?device=IPHONE",
+			axEndpoint: "/.sim/ax?device=IPHONE",
+			devtoolsEndpoint: "/.sim/devtools?device=IPHONE",
+		};
+		const pixel = previewConfigFromGridDevice(android, iphone, "/.sim")!;
+		expect(pixel.device).toBe(android.device);
+		expect(pixel.pid).toBe(0);
+		for (const path of [
+			pixel.appStateEndpoint,
+			pixel.axEndpoint,
+			pixel.devtoolsEndpoint,
+		]) {
+			expect(new URL(path!, "http://host").searchParams.get("device")).toBe(
+				android.device,
+			);
+		}
+		expect(pixel.streamUrl).toBe(android.helper.streamUrl);
+		expect(pixel.execToken).toBe(iphone.execToken);
+		expect(iphone.appStateEndpoint).toBe("/.sim/appstate?device=IPHONE");
+	});
+	test("an empty workspace supplies explicit device routes on first attach", () => {
+		const pixel = previewConfigFromGridDevice(android, undefined, "/")!;
+		expect(pixel.appStateEndpoint).toBe(
+			"/appstate?device=android%3Aemulator-5554",
+		);
+	});
+	test("a custom endpoint keeps its host, mount, and unrelated query values", () => {
+		expect(
+			previewDeviceEndpoint(
+				"https://host.test/custom/app?device=old&mode=full",
+				"NEW",
+			),
+		).toBe("https://host.test/custom/app?device=NEW&mode=full");
 	});
 });

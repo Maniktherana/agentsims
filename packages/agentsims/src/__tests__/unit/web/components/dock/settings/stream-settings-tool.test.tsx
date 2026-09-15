@@ -21,7 +21,7 @@ describe("simulator stream history", () => {
 		);
 
 		expect(html).toContain('data-stream-fps-history=""');
-		expect(html).toContain("60 FPS");
+		expect(html.replace(/<[^>]+>/g, "")).toContain("60 FPS");
 		expect(html).toContain("Recent · 30 sec");
 		expect(html).toContain("frames Agentsims receives from the simulator");
 		expect(html).toContain("not necessarily the app’s actual render rate");

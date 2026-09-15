@@ -1,3 +1,4 @@
+import { NumberMorph } from "../ui/number-morph";
 import {
 	useCallback,
 	useEffect,
@@ -192,7 +193,7 @@ export interface SimulatorViewProps {
 	presentationRotationDegrees?: number;
 	/** Content (for example AX highlights) that must share the video presentation plane. */
 	presentationOverlay?: ReactNode;
-	/** Temporarily suppress input while visual and canonical rotation generations reconcile. */
+	/** Suppress stream pointer input while another interaction owns the surface. */
 	inputDisabled?: boolean;
 	/** Remaps the optimistically rotated visible plane back into canonical display coordinates. */
 	visibleInputOrientation?: SimulatorOrientation;
@@ -395,6 +396,7 @@ export function SimulatorView({
 		}, STARTUP_MS);
 
 		let rafId = 0;
+		let receivedFrameSequence = 0n;
 		const paint = () => {
 			rafId = 0;
 			const next = pendingBlobUrlRef.current;
@@ -414,6 +416,14 @@ export function SimulatorView({
 		};
 
 		const unsubscribe = mjpegSubscribeFrame((blobUrl) => {
+			// MJPEG has no native timing metadata. Count received frames before paint drops.
+			if (typeof document === "undefined" || !document.hidden) {
+				simulatorFrameRate.start();
+				simulatorFrameRate.recordTiming(
+					++receivedFrameSequence,
+					BigInt(Math.round(performance.now() * 1000)),
+				);
+			}
 			// Latest-wins: a frame that arrived since the last paint is now stale —
 			// release it so blob URLs don't accumulate between animation frames.
 			if (pendingBlobUrlRef.current)
@@ -436,7 +446,7 @@ export function SimulatorView({
 			}
 			presentedBlobUrlRef.current = null;
 		};
-	}, [mjpegSubscribeFrame, relayMode, useAvcc]);
+	}, [mjpegSubscribeFrame, relayMode, simulatorFrameRate, useAvcc]);
 
 	const onMjpegPresented = useCallback(
 		(el: HTMLImageElement) => {
@@ -478,20 +488,23 @@ export function SimulatorView({
 	}, [markFramePresented]);
 	const onPresentedFrameRef = useRef(onPresentedFrame);
 	onPresentedFrameRef.current = onPresentedFrame;
-	const onAvccFrame = useCallback((size: { width: number; height: number }) => {
-		if (!avccTransportConnectedRef.current) return;
-		lastFrameAtRef.current = Date.now();
-		markFramePresented();
-		onPresentedFrameRef.current?.(size);
-		// Re-establish "connected" if the relay staleness watchdog tripped during
-		// the decoder's startup buffering gap (keyframe + several deltas can land
-		// before the first frame is emitted). Mirrors the MJPEG relay path; guarded
-		// so it only fires on the false→true transition, not every frame.
-		if (!connectedRef.current) {
-			setConnected(true);
-			setError(null);
-		}
-	}, [markFramePresented]);
+	const onAvccFrame = useCallback(
+		(size: { width: number; height: number }) => {
+			if (!avccTransportConnectedRef.current) return;
+			lastFrameAtRef.current = Date.now();
+			markFramePresented();
+			onPresentedFrameRef.current?.(size);
+			// Re-establish "connected" if the relay staleness watchdog tripped during
+			// the decoder's startup buffering gap (keyframe + several deltas can land
+			// before the first frame is emitted). Mirrors the MJPEG relay path; guarded
+			// so it only fires on the false→true transition, not every frame.
+			if (!connectedRef.current) {
+				setConnected(true);
+				setError(null);
+			}
+		},
+		[markFramePresented],
+	);
 	const onAvccSimulatorFrameTiming = useCallback(
 		(timing: SimulatorFrameTiming) => {
 			if (typeof document !== "undefined" && document.hidden) return;
@@ -752,9 +765,8 @@ export function SimulatorView({
 		};
 	}, [url, relayMode, updateScreenConfig, wsUrlProp]);
 
-	// Keep native simulator-rate visibility and stream staleness device-local.
-	// The interval performs only the liveness check; FPS arrives with AVCC
-	// metadata immediately after native simulator frames.
+	// Keep frame-rate visibility and stream staleness device-local.
+	// The interval checks liveness. FPS uses AVCC timing or received MJPEG frames.
 	useEffect(() => {
 		if (!connected) {
 			simulatorFrameRate.reset();
@@ -1226,6 +1238,7 @@ export function SimulatorView({
 							inset: 0,
 							cursor: FINGER_CURSOR,
 							touchAction: "none",
+							pointerEvents: inputDisabled ? "none" : undefined,
 						}}
 						onPointerDown={(e) => {
 							if (
@@ -1655,7 +1668,7 @@ function LegacyFrameRate({
 	return (
 		<span
 			style={{
-				color: fps === 0 ? "#d6a84b" : "#888",
+				color: "#888",
 				fontSize: 12,
 				fontFamily: "monospace",
 				fontVariantNumeric: "tabular-nums",
@@ -1681,7 +1694,9 @@ function LegacyFrameRate({
 					}}
 				/>
 			)}
-			{fps === null ? "—" : fps} FPS
+			<span>
+				<NumberMorph>{fps === null ? "—" : fps}</NumberMorph> FPS
+			</span>
 		</span>
 	);
 }

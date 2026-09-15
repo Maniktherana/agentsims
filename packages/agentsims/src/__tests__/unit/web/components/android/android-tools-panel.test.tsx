@@ -56,7 +56,7 @@ test("Android control sections follow Location and Simulator contains no nested 
 	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 	Object.defineProperty(globalThis, "window", {
 		configurable: true,
-		value: { location: { pathname: "/" } },
+		value: Object.assign(new EventTarget(), { location: { pathname: "/" } }),
 	});
 	let html: string;
 	try {

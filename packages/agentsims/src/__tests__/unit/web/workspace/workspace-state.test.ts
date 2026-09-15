@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	createWorkspaceSelectionState,
+	setPreviewConfigForDevice,
 	effectiveDeviceId,
 	subscribedWorkspaceDeviceIds,
 	visibleRunningDeviceIds,
@@ -160,4 +161,25 @@ describe("workspace selection state", () => {
 			["ios-1"],
 		);
 	});
+});
+
+test("device config corrections are not ignored when the stream URL is unchanged", () => {
+	const config = {
+		device: "iphone",
+		pid: 1,
+		url: "http://host",
+		port: 1,
+		streamUrl: "http://host/stream",
+		wsUrl: "ws://host/ws",
+		basePath: "",
+		appStateEndpoint: "/appstate?device=android",
+	};
+	const previous = { iphone: config };
+	const corrected = { ...config, appStateEndpoint: "/appstate?device=iphone" };
+	expect(setPreviewConfigForDevice(previous, "iphone", corrected).iphone).toBe(
+		corrected,
+	);
+	expect(setPreviewConfigForDevice(previous, "android", corrected)).toBe(
+		previous,
+	);
 });

@@ -1,3 +1,4 @@
+import { TextMorph } from "torph/react";
 import { Activity } from "lucide-react";
 import { Liveline } from "liveline";
 import { useState, useSyncExternalStore } from "react";
@@ -75,7 +76,7 @@ export function StreamFrameRateHistory({
 					aria-label="Current captured simulator frame rate"
 					className="min-w-[7ch] text-right font-mono text-[11px] font-medium tabular-nums text-white/72"
 				>
-					{fps === null ? "— FPS" : formatFps(fps)}
+					<TextMorph>{`${fps === null ? "—" : Math.round(fps)} FPS`}</TextMorph>
 				</output>
 			</div>
 			<div className="h-[132px] overflow-hidden border-y border-white/[0.06] bg-black/15">

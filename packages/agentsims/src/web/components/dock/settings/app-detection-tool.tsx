@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useSettingsRefresh } from "./settings-refresh";
+import { useEffect, useReducer, useState, type ReactNode } from "react";
 import { AppWindow, ArrowUpRight, Package } from "lucide-react";
 import { type AppDetails, fetchAppDetails } from "../../../media/app-icon";
 import { execOnHost, shellEscape } from "../../../simulator/input/exec";
@@ -91,6 +92,11 @@ export function AppDetectionTool({
 	udid: string;
 	currentApp: { bundleId: string; isReactNative: boolean; pid?: number } | null;
 }) {
+	const [refreshRevision, refreshDetails] = useReducer(
+		(value: number) => value + 1,
+		0,
+	);
+	useSettingsRefresh(refreshDetails);
 	const [details, setDetails] = useState<AppDetails | null>(null);
 	const [open, setOpen] = useState(false);
 	const isAndroid = udid.startsWith("android:");
@@ -102,7 +108,7 @@ export function AppDetectionTool({
 		}
 		const cacheKey = `${udid}:${currentApp.bundleId}`;
 		const cached = appDetectionDetailsCache.get(cacheKey);
-		if (cached) {
+		if (cached && refreshRevision === 0) {
 			setDetails({
 				...cached,
 				pid: currentApp.pid,
@@ -117,7 +123,9 @@ export function AppDetectionTool({
 			pid: currentApp.pid,
 			loading: true,
 		};
-		setDetails(baseDetails);
+		setDetails((current) =>
+			current?.bundleId === baseDetails.bundleId ? current : baseDetails,
+		);
 		fetchAppDetails(udid, currentApp.bundleId).then((extra) => {
 			if (cancelled) return;
 			const nextDetails: AppDetails = {
@@ -135,6 +143,7 @@ export function AppDetectionTool({
 		};
 	}, [
 		udid,
+		refreshRevision,
 		isAndroid,
 		currentApp,
 		currentApp?.bundleId,
@@ -179,7 +188,7 @@ export function AppDetectionTool({
 							details.shortVersion
 								? `${details.shortVersion} (${details.bundleVersion ?? "—"})`
 								: details.loading
-									? "…"
+									? "—"
 									: "—"
 						}
 					/>
@@ -187,13 +196,13 @@ export function AppDetectionTool({
 				{!isAndroid && (
 					<Row
 						label="Min iOS"
-						value={details.minOS ?? (details.loading ? "…" : "—")}
+						value={details.minOS ?? (details.loading ? "—" : "—")}
 					/>
 				)}
 				{!isAndroid && (
 					<Row
 						label="Executable"
-						value={details.executable ?? (details.loading ? "…" : "—")}
+						value={details.executable ?? (details.loading ? "—" : "—")}
 					/>
 				)}
 				<Row
@@ -207,7 +216,7 @@ export function AppDetectionTool({
 				{!isAndroid && (
 					<Row
 						label="App path"
-						value={details.appPath ?? (details.loading ? "…" : "—")}
+						value={details.appPath ?? (details.loading ? "—" : "—")}
 						mono
 						action={
 							details.appPath

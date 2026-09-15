@@ -1,6 +1,6 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Toaster } from "sonner";
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { AgentsimsBrandLink } from "./components/ui/agentsims-brand-link";
 import { resolveDeviceLifecyclePhase } from "./components/dock/devices/device-row";
 import { WorkspaceHeader } from "./components/workspace/workspace-header";
@@ -18,6 +18,9 @@ const DEFAULT_DEVICE_OFFSETS = {};
 export function App() {
 	const urlState = useWorkspaceUrlState();
 	const workspace = useDeviceWorkspace(urlState);
+	const [settingsRevisions, setSettingsRevisions] = useState<
+		Record<string, number>
+	>({});
 	const devicePickerOpen = urlState.panel === "devices";
 	const toolsOpen = urlState.panel === "tools";
 	const devtoolsOpen = urlState.panel === "devtools";
@@ -52,7 +55,7 @@ export function App() {
 	);
 	return (
 		<Tooltip.Provider delay={0} closeDelay={0}>
-			<AgentsimsBrandLink className="fixed left-3 top-3 z-30 bg-[#181818]/90 px-2 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] [border-radius:8px]" />
+			<AgentsimsBrandLink className="fixed left-3 top-3 z-30 bg-[#181818]/90 px-2 border border-white/[0.08] shadow-[0_18px_56px_rgba(0,0,0,0.5)] [border-radius:8px]" />
 			<WorkspaceCanvas
 				visibleDeviceIds={workspace.visibleDeviceIds}
 				devices={workspace.gridDevices}
@@ -88,13 +91,10 @@ export function App() {
 					return (
 						<SimulatorDeviceView
 							config={config}
+							settingsRefreshRevision={settingsRevisions[deviceId] ?? 0}
 							deviceName={device?.name ?? null}
 							deviceRuntime={device?.runtime ?? null}
 							chrome={device?.chrome ?? null}
-							preferMjpeg={
-								workspace.uiStarted.has(config.device) &&
-								!config.device.startsWith("android:")
-							}
 							toolsOpen={deviceId === effectiveSettingsDeviceId && toolsOpen}
 							setToolsOpen={setToolsOpen}
 							devtoolsOpen={focused && devtoolsOpen}
@@ -152,6 +152,13 @@ export function App() {
 					void urlState.setPanel(toolsOpen ? null : "tools");
 				}}
 				hasActiveDevice={workspace.visibleDeviceIds.length > 0}
+				onRefreshDevices={workspace.refreshGrid}
+				onRefreshSettings={(deviceId) =>
+					setSettingsRevisions((current) => ({
+						...current,
+						[deviceId]: (current[deviceId] ?? 0) + 1,
+					}))
+				}
 				onResetLayout={resetWorkspaceLayout}
 			/>
 		</Tooltip.Provider>

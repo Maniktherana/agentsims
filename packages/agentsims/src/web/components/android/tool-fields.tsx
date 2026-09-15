@@ -1,9 +1,5 @@
 import type { ReactNode } from "react";
 
-export const toolInputClass =
-	"min-w-0 rounded-[8px] border border-white/8 bg-white/[0.04] px-2 py-1.5 text-[12px] text-white/90";
-export const toolButtonClass =
-	"cursor-pointer rounded-[8px] border border-white/12 bg-transparent px-2.5 py-1.5 text-[12px] text-white/85 enabled:hover:bg-white/[0.06] disabled:opacity-40";
 export function ToolField({
 	label,
 	children,

@@ -1,3 +1,5 @@
+import { Button } from "../../ui/button";
+import { useSettingsRefresh } from "./settings-refresh";
 import { Smartphone } from "lucide-react";
 import {
 	CircleDot,
@@ -110,10 +112,14 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 		null,
 	);
 	const [pending, setPending] = useState<string | null>(null);
+	const [loading, setLoading] = useState(true);
+	const refreshId = useRef(0);
 	const [error, setError] = useState<string | null>(null);
 
 	const refresh = useCallback(
 		async (signal = lifetime.current!.signal) => {
+			const requestId = ++refreshId.current;
+			setLoading(true);
 			setError(null);
 			try {
 				const value = await runAndroidTool<{
@@ -123,21 +129,27 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 					showTouches: string;
 					pointerLocation: string;
 				}>(basePath, udid, { type: "settings" }, signal);
-				if (signal.aborted) return;
+				if (signal.aborted || requestId !== refreshId.current) return;
 				setSettings(
 					parseAndroidSimulatorSettings({ ...value, nightMode: value.theme }),
 				);
 			} catch (reason) {
 				if (
 					signal.aborted ||
+					requestId !== refreshId.current ||
 					(reason instanceof DOMException && reason.name === "AbortError")
 				)
 					return;
 				setError(reason instanceof Error ? reason.message : String(reason));
+			} finally {
+				if (!signal.aborted && requestId === refreshId.current)
+					setLoading(false);
 			}
 		},
 		[basePath, udid],
 	);
+
+	useSettingsRefresh(() => refresh());
 
 	useEffect(() => {
 		const controller = new AbortController();
@@ -181,7 +193,7 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 	);
 
 	const shown = settings ?? DEFAULT_SETTINGS;
-	const ready = settings !== null;
+	const ready = settings !== null && !loading;
 
 	// Slider changes are latest-wins, matching the iOS control. This prevents a
 	// slow adb response from applying an older font scale after a newer one.
@@ -234,13 +246,15 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 			{error && (
 				<div className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
 					<span className="min-w-0">Android settings unavailable: {error}</span>
-					<button
+					<Button
+						variant="plain"
+						size="custom"
 						type="button"
 						onClick={() => void refresh()}
-						className="min-h-8 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 bg-transparent px-2 text-[11px] text-danger-soft"
+						className="h-8 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 bg-transparent px-2 text-[11px] text-danger-soft"
 					>
 						Retry
-					</button>
+					</Button>
 				</div>
 			)}
 

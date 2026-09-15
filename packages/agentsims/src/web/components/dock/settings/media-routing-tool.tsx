@@ -1,3 +1,6 @@
+import { Button } from "../../ui/button";
+import { useSettingsRefresh } from "./settings-refresh";
+import { TextMorph } from "torph/react";
 import { Camera, Mic, RefreshCw, Volume2 } from "lucide-react";
 import {
 	useCallback,
@@ -70,6 +73,8 @@ export function MediaRoutingTool({
 		},
 		[endpoint],
 	);
+
+	useSettingsRefresh(() => refresh());
 
 	useEffect(() => {
 		const controller = new AbortController();
@@ -262,7 +267,12 @@ export function MediaRoutingSection({
 					data-media-group="camera"
 				>
 					{ios && (
-						<CameraTool udid={udid} bundleId={bundleId ?? null} embedded />
+						<CameraTool
+							key={udid}
+							udid={udid}
+							bundleId={bundleId ?? null}
+							embedded
+						/>
 					)}
 
 					{expectedAndroidEmulator && (
@@ -390,7 +400,9 @@ export function MediaRoutingSection({
 							</SettingRow>
 
 							{cameraDraftDirty && (
-								<button
+								<Button
+									variant="plain"
+									size="custom"
 									type="button"
 									disabled={pending !== null}
 									onClick={() =>
@@ -406,13 +418,15 @@ export function MediaRoutingSection({
 									className="flex h-8 items-center justify-center gap-1.5 rounded-[8px] bg-white/[0.09] px-2 text-[11px] font-semibold text-white/82 [transition:background,scale] duration-150 hover:bg-white/[0.13] active:scale-[0.98] disabled:opacity-50"
 								>
 									Apply camera changes
-								</button>
+								</Button>
 							)}
 						</>
 					)}
 
 					{restartRequired && (
-						<button
+						<Button
+							variant="plain"
+							size="custom"
 							type="button"
 							disabled={pending !== null}
 							onClick={() => onApply({ action: "restart-device" }, "restart")}
@@ -424,7 +438,7 @@ export function MediaRoutingSection({
 								className={pending === "restart" ? "animate-spin" : undefined}
 							/>
 							Restart emulator
-						</button>
+						</Button>
 					)}
 
 					{error && <MediaError message={error} />}
@@ -845,7 +859,9 @@ function MicrophoneTestRow({
 						style={{ transform: `scaleX(${level})` }}
 					/>
 				</span>
-				<button
+				<Button
+					variant="plain"
+					size="custom"
 					type="button"
 					aria-pressed={testing}
 					disabled={disabled || starting}
@@ -858,8 +874,10 @@ function MicrophoneTestRow({
 					}
 					className="h-8 shrink-0 rounded-[7px] bg-white/[0.07] px-2 text-[10px] font-semibold text-white/78 transition-[background-color,transform] duration-100 hover:bg-white/[0.11] active:scale-[0.96] disabled:opacity-45"
 				>
-					{starting ? "Starting" : testing ? "Stop" : "Test"}
-				</button>
+					<TextMorph>
+						{starting ? "Starting" : testing ? "Stop" : "Test"}
+					</TextMorph>
+				</Button>
 			</div>
 		</SettingRow>
 	);
@@ -877,7 +895,9 @@ function TinyAction({
 	onClick: () => void;
 }) {
 	return (
-		<button
+		<Button
+			variant="plain"
+			size="custom"
 			type="button"
 			disabled={disabled}
 			title={title}
@@ -885,7 +905,7 @@ function TinyAction({
 			className="flex h-6 items-center justify-center rounded-[6px] border-0 bg-white/[0.055] px-1 text-[10px] font-medium text-white/70 hover:bg-white/[0.09] hover:text-white/90 disabled:opacity-40"
 		>
 			{label}
-		</button>
+		</Button>
 	);
 }
 

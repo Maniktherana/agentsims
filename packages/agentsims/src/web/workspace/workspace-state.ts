@@ -214,7 +214,15 @@ export function effectiveDeviceId(
 
 export function previewConfigKey(config: PreviewConfig | null): string {
 	return config
-		? `${config.device}:${config.pid}:${config.streamUrl}:${config.wsUrl}`
+		? JSON.stringify([
+				config.device,
+				config.pid,
+				config.streamUrl,
+				config.wsUrl,
+				config.appStateEndpoint,
+				config.axEndpoint,
+				config.devtoolsEndpoint,
+			])
 		: "";
 }
 
@@ -223,6 +231,7 @@ export function setPreviewConfigForDevice(
 	deviceId: string,
 	config: PreviewConfig | null,
 ): Record<string, PreviewConfig | null> {
+	if (config && config.device !== deviceId) return configs;
 	if (previewConfigKey(configs[deviceId] ?? null) === previewConfigKey(config))
 		return configs;
 	const next = { ...configs };

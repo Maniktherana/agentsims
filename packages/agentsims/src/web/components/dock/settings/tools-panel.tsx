@@ -1,3 +1,4 @@
+import { SettingsRefreshContext } from "./settings-refresh";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
@@ -42,6 +43,7 @@ export function ToolsPanel({
 	width,
 	dock = false,
 	settingsPosition = 0,
+	refreshRevision = 0,
 }: {
 	open: boolean;
 	onClose: () => void;
@@ -57,6 +59,7 @@ export function ToolsPanel({
 	width: number;
 	dock?: boolean;
 	settingsPosition?: -1 | 0 | 1;
+	refreshRevision?: number;
 }) {
 	const isAndroid = udid.startsWith("android:");
 	const supportsLocation = !isAndroid || /^android:emulator-\d+$/.test(udid);
@@ -81,7 +84,7 @@ export function ToolsPanel({
 	);
 
 	const content = (
-		<>
+		<SettingsRefreshContext value={refreshRevision}>
 			{!dockHost && (
 				<PanelHeader>
 					<PanelTitle>Settings</PanelTitle>
@@ -133,7 +136,7 @@ export function ToolsPanel({
 					/>
 				</div>
 			)}
-		</>
+		</SettingsRefreshContext>
 	);
 
 	if (dockHost) {

@@ -1,3 +1,4 @@
+import { previewDeviceEndpoint } from "../../workspace/preview-config";
 import {
 	useCallback,
 	useEffect,
@@ -26,8 +27,10 @@ import {
 	GripVertical,
 	ListTree,
 	Menu,
+	RotateCcw,
 	Upload,
 } from "lucide-react";
+import { IconButton } from "../ui/icon-button";
 import { ReloadIcon } from "../icons/index";
 import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
 import { AccessibilityInspectorController } from "../accessibility/controller";
@@ -114,7 +117,7 @@ export interface SimulatorDeviceViewProps {
 	deviceName: string | null;
 	deviceRuntime: string | null;
 	chrome: DeviceFrameDescriptor | null;
-	preferMjpeg: boolean;
+	settingsRefreshRevision?: number;
 	toolsOpen: boolean;
 	setToolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
 	devtoolsOpen: boolean;
@@ -137,7 +140,7 @@ export function SimulatorDeviceView({
 	deviceName,
 	deviceRuntime,
 	chrome,
-	preferMjpeg,
+	settingsRefreshRevision = 0,
 	toolsOpen,
 	setToolsOpen,
 	devtoolsOpen,
@@ -289,19 +292,21 @@ export function SimulatorDeviceView({
 		: !serverForcesMjpeg &&
 			avcc.supported &&
 			!avccFallback.fellBack &&
-			!preferMjpeg &&
 			!forceMjpeg &&
 			codecPreference !== "mjpeg";
 	const videoCodec = isAndroidDevice ? "avcc" : useAvccVideo ? "avcc" : "mjpeg";
 	const mjpeg = useMjpegStream(
 		useAvccVideo || isAndroidDevice ? null : config.streamUrl,
+		streamRetry,
 	);
 
 	// Re-arm AVCC whenever the target stream changes (device switch / reconnect).
 	useEffect(() => {
-		setStreamingRef.current(false);
 		dispatchAvccFallback("reset");
 	}, [config.streamUrl]);
+	// The mounted stream owns its status, including an interrupted exit/reveal.
+	// Hiding a device does not disconnect it until the exit has actually finished.
+	useEffect(() => () => setStreamingRef.current(false), [config.device]);
 	// `streaming` flips true on the first painted AVCC frame (JPEG seed decodes
 	// sub-second on a healthy helper), which cancels the fallback.
 	useEffect(() => {
@@ -586,17 +591,25 @@ export function SimulatorDeviceView({
 		useResizableWidth("agentsims:tools-panel-width", PANEL_WIDTH, 240, 720);
 
 	useEffect(() => {
+		let active = true;
 		const es = openHostEventStream(
-			config.appStateEndpoint ?? simEndpoint("appstate"),
+			previewDeviceEndpoint(
+				config.appStateEndpoint ?? simEndpoint("appstate"),
+				config.device,
+			),
 		);
 		es.onmessage = (event) => {
+			if (!active) return;
 			const next = decodeForegroundAppEvent(event.data);
 			if (!next) return;
 			currentAppCache.set(config.device, next);
 			setCurrentApp(next);
 		};
-		return () => es.close();
-	}, [config.appStateEndpoint, config.device]);
+		return () => {
+			active = false;
+			es.close();
+		};
+	}, [config.appStateEndpoint, config.device, settingsRefreshRevision]);
 
 	// Cmd+R to reload the RN/Expo bundle.
 	const sendReactNativeReload = useCallback(async () => {
@@ -1037,18 +1050,21 @@ export function SimulatorDeviceView({
 								status={streamStatus}
 							/>
 							{!streaming && lifecyclePhase !== "shutting-down" ? (
-								<button
-									type="button"
-									aria-label="Retry stream"
-									title="Retry stream"
+								<IconButton
+									surface="toolbar"
+									size="row"
+									label="Retry stream"
+									style={{ width: 16, height: 16 }}
 									onClick={(event) => {
 										event.stopPropagation();
+										setStreamStatus("Opening stream");
+										dispatchAvccFallback("reset");
 										retryStream();
 									}}
-									className="inline-flex size-4 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+									className="!size-4 !min-h-0 !min-w-0 !border-transparent !p-0"
 								>
-									<ReloadIcon />
-								</button>
+									<RotateCcw size={13} strokeWidth={2} />
+								</IconButton>
 							) : null}
 						</SimulatorToolbar>
 						<div
@@ -1130,7 +1146,11 @@ export function SimulatorDeviceView({
 										relayInputCoordinates={isAndroidDevice ? "display" : "raw"}
 										onScreenConfigChange={onScreenConfigChange}
 										onPresentedFrame={onPresentedFrame}
-										inputDisabled={false}
+										inputDisabled={
+											isAndroidDevice &&
+											accessibilityOpen &&
+											accessibilitySelecting
+										}
 										presentationPlaneStyle={
 											isAndroidDevice ? effectivePlane.planeStyle : undefined
 										}
@@ -1404,6 +1424,7 @@ export function SimulatorDeviceView({
 
 					{(embedded || panelsEnabled) && (
 						<ToolsPanel
+							refreshRevision={settingsRefreshRevision}
 							open={toolsOpen}
 							onClose={() => setToolsOpen(false)}
 							udid={config.device}

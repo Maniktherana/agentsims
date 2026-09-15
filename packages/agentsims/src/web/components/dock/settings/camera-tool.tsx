@@ -1,3 +1,5 @@
+import { IconSwap } from "../../ui/state-transitions";
+import { TextMorph } from "torph/react";
 import { Camera } from "lucide-react";
 import {
 	useCallback,
@@ -9,10 +11,14 @@ import {
 } from "react";
 import { FlipHorizontal2, Images, X } from "lucide-react";
 import { PlayGlyph, StopGlyph, ReloadIcon } from "../../icons/index";
-import { execOnHost, shellEscape } from "../../../simulator/input/exec";
+import { execOnHost } from "../../../simulator/input/exec";
+import { createCameraClient } from "../../../dock/settings/camera-client";
 import { fileExtension, uploadFileToTmp } from "../../../media/drop";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { SettingRow, SettingSelect } from "./simulator-settings-tool";
+import { SettingSwitch } from "../../ui/setting-switch";
+import { Button } from "../../ui/button";
+import { useSettingsRefresh } from "./settings-refresh";
 
 export type CamSource = "placeholder" | "image" | "video" | "webcam";
 type CameraSourceMode = "placeholder" | "media" | "webcam";
@@ -54,21 +60,6 @@ export function selectCameraPrimaryKind(input: {
 	if (input.source === "placeholder") return "play";
 	if (input.bundleId && !input.foregroundIsInjected) return "attach";
 	return "stop";
-}
-
-export function parseWebcamListOutput(stdout: string): CamWebcam[] {
-	return stdout
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.flatMap((line) => {
-			const tab = line.indexOf("\t");
-			if (tab <= 0) return [];
-			const id = line.slice(0, tab).trim();
-			const name = line.slice(tab + 1).trim();
-			if (!id || !name) return [];
-			return [{ id, name }];
-		});
 }
 
 const VIDEO_EXTENSIONS = new Set([
@@ -177,7 +168,7 @@ export function CameraMediaPreview({
 	sourceKind,
 }: CameraMediaPreviewProps) {
 	if (mode === "uploading") {
-		return <span className="text-[11px] text-white/55">Uploading…</span>;
+		return <span className="text-[11px] text-white/55">Uploading</span>;
 	}
 	if (mode === "file") {
 		return (
@@ -255,6 +246,8 @@ export function CameraTool({
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const [webcams, setWebcams] = useState<CamWebcam[]>([]);
 	const [webcamLoading, setWebcamLoading] = useState(false);
+	const webcamsRequested = useRef(false);
+	const webcamRequestPending = useRef(false);
 	const [webcamId, setWebcamId] = useState<string>("");
 	const [mirror, setMirror] = useState<CamMirror>("off");
 	const [pendingPrimary, setPendingPrimary] = useState<
@@ -263,7 +256,9 @@ export function CameraTool({
 	const [pendingAux, setPendingAux] = useState<"mirror" | "switch" | null>(
 		null,
 	);
-	const isBusy = pendingPrimary !== null || pendingAux !== null;
+	const [cameraLoading, setCameraLoading] = useState(true);
+	const isBusy =
+		cameraLoading || pendingPrimary !== null || pendingAux !== null;
 	const [error, setError] = useState<string | null>(null);
 	const [warning, setWarning] = useState<string | null>(null);
 	const [, setStatus] = useState<string | null>(null);
@@ -280,30 +275,8 @@ export function CameraTool({
 	const appliedMirrorRef = useRef<CamMirror>("off");
 	const autoOpenedForInjectionRef = useRef(false);
 
-	const cliPrefix = useMemo(() => {
-		const bin = window.__SIM_PREVIEW__?.agentsimsBin;
-		if (!bin) return "agentsims";
-		if (bin.endsWith(".ts")) return `bun ${shellEscape(bin)}`;
-		if (bin.endsWith(".js")) return `node ${shellEscape(bin)}`;
-		return shellEscape(bin);
-	}, []);
-
-	const fetchCameraStatus = useCallback(async () => {
-		const res = await execOnHost(`${cliPrefix} camera status -d ${udid}`);
-		if (res.exitCode !== 0) return null;
-		try {
-			return JSON.parse(res.stdout.trim()) as {
-				alive?: boolean;
-				source?: string;
-				arg?: string;
-				mirror?: string;
-				helperPid?: number;
-				bundleIds?: string[];
-			};
-		} catch {
-			return null;
-		}
-	}, [cliPrefix, udid]);
+	const camera = useMemo(() => createCameraClient(udid), [udid]);
+	const fetchCameraStatus = useCallback(() => camera.status(), [camera]);
 
 	const refreshWebcamsRef = useRef<() => Promise<void>>(async () => {});
 	const bundleIdRef = useRef<string | null>(bundleId);
@@ -311,11 +284,21 @@ export function CameraTool({
 		bundleIdRef.current = bundleId;
 	}, [bundleId]);
 
-	useEffect(() => {
-		let cancelled = false;
-		void (async () => {
+	const statusRead = useRef(0);
+	const refreshCamera = useCallback(async () => {
+		const requestId = ++statusRead.current;
+		setCameraLoading(true);
+		setError(null);
+		try {
 			const reply = await fetchCameraStatus();
-			if (cancelled || !reply || !reply.alive) return;
+			if (requestId !== statusRead.current) return;
+			if (!reply.alive) {
+				setInjected(false);
+				setInjectedBundleIds(new Set());
+				setAttachedHelperPid(null);
+				setPillState("ready");
+				return;
+			}
 			skipNextAutoSwapRef.current = true;
 			const replySource = reply.source;
 			if (
@@ -361,13 +344,27 @@ export function CameraTool({
 			setStatus(
 				`Reattached → ${replySource ?? "running helper"}${reply.arg ? ` (${reply.arg})` : ""}`,
 			);
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [udid, fetchCameraStatus]);
+		} catch (reason) {
+			if (requestId === statusRead.current)
+				setError(
+					reason instanceof Error
+						? reason.message
+						: "Could not read camera settings",
+				);
+		} finally {
+			if (requestId === statusRead.current) setCameraLoading(false);
+		}
+	}, [fetchCameraStatus]);
 
 	useEffect(() => {
+		void refreshCamera();
+		return () => {
+			statusRead.current++;
+		};
+	}, [refreshCamera]);
+
+	useEffect(() => {
+		if (!injected) return;
 		let cancelled = false;
 		let inFlight = false;
 		let timer: ReturnType<typeof setInterval> | null = null;
@@ -428,6 +425,13 @@ export function CameraTool({
 						return new Set(next);
 					});
 				}
+			} catch (reason) {
+				if (!cancelled)
+					setError(
+						reason instanceof Error
+							? reason.message
+							: "Could not read camera settings",
+					);
 			} finally {
 				inFlight = false;
 			}
@@ -460,33 +464,45 @@ export function CameraTool({
 	]);
 
 	const refreshWebcams = useCallback(async () => {
+		if (webcamRequestPending.current) return;
+		webcamsRequested.current = true;
+		webcamRequestPending.current = true;
 		setWebcamLoading(true);
 		setError(null);
 		try {
-			const res = await execOnHost(`${cliPrefix} camera --list-webcams`);
-			if (res.exitCode !== 0) {
-				setError(
-					res.stderr.trim() || `--list-webcams failed (${res.exitCode})`,
-				);
-				return;
-			}
-			const list = parseWebcamListOutput(res.stdout);
+			const list = await camera.webcams();
 			setWebcams(list);
-			if (list.length > 0 && !webcamId) setWebcamId(list[0]!.id);
+			setWebcamId((current) =>
+				list.some((webcam) => webcam.id === current)
+					? current
+					: (list[0]?.id ?? ""),
+			);
+		} catch (reason) {
+			setError(
+				reason instanceof Error ? reason.message : "Could not load webcams",
+			);
 		} finally {
+			webcamRequestPending.current = false;
 			setWebcamLoading(false);
 		}
-	}, [webcamId, cliPrefix]);
+	}, [camera]);
+
+	useSettingsRefresh(() =>
+		Promise.all([
+			refreshCamera(),
+			...(sourceMode === "webcam" ? [refreshWebcams()] : []),
+		]),
+	);
 
 	useEffect(() => {
 		refreshWebcamsRef.current = refreshWebcams;
 	}, [refreshWebcams]);
 
 	useEffect(() => {
-		if (source === "webcam" && webcams.length === 0 && !webcamLoading) {
+		if (source === "webcam" && !webcamsRequested.current) {
 			void refreshWebcams();
 		}
-	}, [source, webcams.length, webcamLoading, refreshWebcams]);
+	}, [source, refreshWebcams]);
 
 	const reportSourceError = useCallback(
 		(rawMessage: string) => {
@@ -508,116 +524,60 @@ export function CameraTool({
 			nextFilePath: string,
 		): Promise<boolean> => {
 			const isFile = nextSource === "image" || nextSource === "video";
-			const argv = ["camera", "switch", isFile ? "file" : nextSource];
-			if (nextSource === "webcam" && nextWebcamId)
-				argv.push(shellEscape(nextWebcamId));
-			if (isFile) {
-				if (!nextFilePath.trim()) {
-					setError("Drop a file into the panel or pick another source.");
-					return false;
-				}
-				argv.push(shellEscape(nextFilePath.trim()));
+			if (isFile && !nextFilePath.trim()) {
+				setError("Choose an image or video file.");
+				return false;
 			}
-			argv.push("-d", udid, "--quiet");
-			const res = await execOnHost(`${cliPrefix} ${argv.join(" ")}`);
-			if (res.exitCode !== 0) {
+			try {
+				await camera.source(
+					nextSource,
+					isFile ? nextFilePath.trim() : nextWebcamId,
+				);
+				lastFileIsHeicRef.current = false;
+				return true;
+			} catch (reason) {
 				reportSourceError(
-					res.stderr.trim() ||
-						res.stdout.trim() ||
-						`switch failed (${res.exitCode})`,
+					reason instanceof Error
+						? reason.message
+						: "Could not change camera source",
 				);
 				return false;
 			}
-			lastFileIsHeicRef.current = false;
-			try {
-				const json = JSON.parse(res.stdout.trim()) as {
-					source?: string;
-					arg?: string;
-				};
-				setStatus(
-					`Switched → ${json.source ?? nextSource}${json.arg ? ` (${json.arg})` : ""}`,
-				);
-			} catch {
-				setStatus(`Switched → ${nextSource}`);
-			}
-			return true;
 		},
-		[udid, cliPrefix, reportSourceError],
+		[camera, reportSourceError],
 	);
 
 	const inject = useCallback(async () => {
 		if (!bundleId) return;
 		setPendingPrimary("inject");
 		setError(null);
-		setStatus(null);
 		try {
-			const flags: string[] = [
-				"camera",
-				shellEscape(bundleId),
-				"-d",
-				udid,
-				"--quiet",
-			];
-			if (source === "image" || source === "video") {
-				if (!filePath.trim()) {
-					setError("Drop a file into the panel or pick another source.");
-					return;
-				}
-				flags.push("--file", shellEscape(filePath.trim()));
-			} else if (source === "webcam") {
-				if (webcamId) flags.push("--webcam", shellEscape(webcamId));
-				else flags.push("--webcam");
-			}
-			flags.push(`--mirror`, mirror);
-			const res = await execOnHost(`${cliPrefix} ${flags.join(" ")}`);
-			if (res.exitCode !== 0) {
-				reportSourceError(
-					res.stderr.trim() ||
-						res.stdout.trim() ||
-						`inject failed (${res.exitCode})`,
-				);
+			const isFile = source === "image" || source === "video";
+			if (isFile && !filePath.trim()) {
+				setError("Choose an image or video file.");
 				return;
 			}
-			lastFileIsHeicRef.current = false;
-			let helperPid: number | null = null;
-			try {
-				const json = JSON.parse(res.stdout.trim()) as {
-					source?: string;
-					pid?: number;
-					helperPid?: number;
-					hotSwapped?: boolean;
-					helperRelaunched?: boolean;
-				};
-				helperPid = json.helperPid ?? null;
-				const verb = json.helperRelaunched === false ? "Attached" : "Injected";
-				const pidStr = json.pid ? ` pid ${json.pid}` : "";
-				const helper = json.helperPid ? `, helper pid ${json.helperPid}` : "";
-				setStatus(
-					`${verb} ${json.source ?? source} into ${bundleId}${pidStr}${helper}`,
-				);
-			} catch {
-				setStatus(res.stdout.trim() || "Injected.");
-			}
-			setInjected(true);
-			setPillState(source === "placeholder" ? "ready" : "active");
-			setAttachedHelperPid(helperPid);
-			setInjectedBundleIds((prev) =>
-				prev.has(bundleId) ? prev : new Set(prev).add(bundleId),
+			await camera.source(
+				source,
+				isFile ? filePath.trim() : webcamId,
+				bundleId,
 			);
-			appliedMirrorRef.current = mirror;
+			if (mirror !== "off") await camera.mirror(mirror);
+			const reply = await camera.status();
+			lastFileIsHeicRef.current = false;
+			setInjected(reply.alive);
+			setPillState(source === "placeholder" ? "ready" : "active");
+			setAttachedHelperPid(reply.helperPid ?? null);
+			setInjectedBundleIds(new Set(reply.bundleIds));
+			appliedMirrorRef.current = reply.mirror === "on" ? "on" : "off";
+		} catch (reason) {
+			reportSourceError(
+				reason instanceof Error ? reason.message : "Could not start camera",
+			);
 		} finally {
 			setPendingPrimary(null);
 		}
-	}, [
-		bundleId,
-		udid,
-		source,
-		filePath,
-		webcamId,
-		mirror,
-		cliPrefix,
-		reportSourceError,
-	]);
+	}, [bundleId, camera, source, filePath, webcamId, mirror, reportSourceError]);
 
 	const autoSwapKey = injected
 		? `${source}::${source === "webcam" ? webcamId : ""}::${source === "image" || source === "video" ? filePath : ""}`
@@ -670,20 +630,19 @@ export function CameraTool({
 			setPendingAux("mirror");
 			setError(null);
 			try {
-				const res = await execOnHost(
-					`${cliPrefix} camera mirror ${target} -d ${udid} --quiet`,
-				);
+				await camera.mirror(target);
 				if (cancelled) return;
-				if (res.exitCode !== 0) {
-					setError(
-						res.stderr.trim() ||
-							res.stdout.trim() ||
-							`mirror failed (${res.exitCode})`,
-					);
-					return;
-				}
 				appliedMirrorRef.current = target;
 				setStatus(`Mirror → ${target}`);
+			} catch (reason) {
+				if (!cancelled) {
+					setMirror(appliedMirrorRef.current);
+					setError(
+						reason instanceof Error
+							? reason.message
+							: "Could not change camera mirror",
+					);
+				}
 			} finally {
 				if (!cancelled) setPendingAux(null);
 			}
@@ -698,22 +657,20 @@ export function CameraTool({
 		setPendingPrimary("stop");
 		setError(null);
 		try {
-			const res = await execOnHost(
-				`${cliPrefix} camera --stop-webcam -d ${udid}`,
-			);
-			if (res.exitCode !== 0) {
-				setError(res.stderr.trim() || `stop-webcam failed (${res.exitCode})`);
-				return;
-			}
-			setStatus("Camera helper stopped.");
+			await camera.stop();
 			setInjected(false);
 			setPillState("ready");
 			setInjectedBundleIds(new Set());
+			setAttachedHelperPid(null);
 			appliedMirrorRef.current = "off";
+		} catch (reason) {
+			setError(
+				reason instanceof Error ? reason.message : "Could not stop camera",
+			);
 		} finally {
 			setPendingPrimary(null);
 		}
-	}, [udid, cliPrefix]);
+	}, [camera]);
 
 	const handleSourceFile = useCallback(async (file: File) => {
 		const isHeic = isHeicLikeFile({ type: file.type, name: file.name });
@@ -809,7 +766,7 @@ export function CameraTool({
 	const toggleMirror = useCallback(() => {
 		setMirror((m) => (m === "on" ? "off" : "on"));
 	}, []);
-	const mirrorDisabled = !injected || source === "placeholder";
+	const mirrorDisabled = isBusy || !injected || source === "placeholder";
 
 	const onDragEnter = useCallback((e: DragEvent) => {
 		e.preventDefault();
@@ -842,29 +799,31 @@ export function CameraTool({
 	} =
 		primaryKind === "stop"
 			? {
-					label: pendingPrimary === "stop" ? "Stopping…" : "Stop Camera",
+					label: pendingPrimary === "stop" ? "Stopping" : "Stop Camera",
 					onClick: stopHelper,
 					kind: "stop",
 				}
 			: primaryKind === "attach"
 				? {
-						label: pendingPrimary === "inject" ? "Adding…" : "Add to App",
+						label: pendingPrimary === "inject" ? "Adding" : "Add to App",
 						onClick: inject,
 						kind: "attach",
 					}
 				: {
-						label: pendingPrimary === "inject" ? "Starting…" : "Start Camera",
+						label: pendingPrimary === "inject" ? "Starting" : "Start Camera",
 						onClick: inject,
 						kind: "play",
 					};
 	const sourceReady =
 		sourceMode === "placeholder" ||
 		(sourceMode === "media" && filePath.trim().length > 0) ||
-		(sourceMode === "webcam" && webcamId.length > 0);
+		(sourceMode === "webcam" &&
+			!webcamLoading &&
+			webcams.some((webcam) => webcam.id === webcamId));
 	const primaryDisabled =
 		primaryKind === "stop"
-			? uploading || pendingPrimary !== null
-			: !bundleId || !sourceReady || uploading || pendingPrimary !== null;
+			? uploading || isBusy
+			: !bundleId || !sourceReady || uploading || isBusy;
 
 	const showWebcam = sourceMode === "webcam";
 	const showFile = sourceMode === "media" && !!droppedFileName;
@@ -887,11 +846,6 @@ export function CameraTool({
 			onDrop={onDrop}
 			className="flex flex-col gap-2.5"
 		>
-			<p className="m-0 text-[10px] leading-[1.5] text-white/45">
-				Select what the foreground app should receive, then start its camera
-				feed. Source changes apply live while it is running.
-			</p>
-
 			<input
 				ref={fileInputRef}
 				type="file"
@@ -944,14 +898,16 @@ export function CameraTool({
 					label="Media file"
 					description={droppedFileName ?? "Image or video"}
 				>
-					<button
+					<Button
+						variant="plain"
+						size="custom"
 						type="button"
 						onClick={openFilePicker}
 						disabled={uploading || isBusy}
 						className="h-6 rounded-[7px] border border-white/10 bg-white/[0.06] px-2 text-[11px] font-medium text-white/80 hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
 					>
-						{droppedFileName ? "Replace…" : "Choose File…"}
-					</button>
+						{droppedFileName ? "Replace" : "Choose File"}
+					</Button>
 				</SettingRow>
 			)}
 
@@ -959,7 +915,7 @@ export function CameraTool({
 				<SettingRow
 					icon={<Images size={14} strokeWidth={2} />}
 					label="Webcam"
-					description={webcamLoading ? "Finding cameras" : "Mac video input"}
+					description="Mac video input"
 				>
 					<div className="flex w-[150px] items-center justify-end gap-1">
 						<SettingSelect
@@ -974,7 +930,7 @@ export function CameraTool({
 									: [
 											{
 												value: "",
-												label: webcamLoading ? "Loading…" : "No cameras",
+												label: webcamLoading ? "Loading" : "No cameras",
 											},
 										]
 							}
@@ -987,7 +943,9 @@ export function CameraTool({
 								if (webcam) selectWebcam(webcam);
 							}}
 						/>
-						<button
+						<Button
+							variant="plain"
+							size="custom"
 							type="button"
 							onClick={() => void refreshWebcams()}
 							disabled={webcamLoading}
@@ -996,7 +954,7 @@ export function CameraTool({
 							title="Refresh webcams"
 						>
 							<ReloadIcon size={13} strokeWidth={2} />
-						</button>
+						</Button>
 					</div>
 				</SettingRow>
 			)}
@@ -1024,7 +982,9 @@ export function CameraTool({
 					/>
 
 					{showFile && !uploading && (
-						<button
+						<Button
+							variant="plain"
+							size="custom"
 							data-clear-media
 							onClick={(event) => {
 								event.stopPropagation();
@@ -1035,7 +995,7 @@ export function CameraTool({
 							title="Use test pattern"
 						>
 							<X size={14} strokeWidth={2} />
-						</button>
+						</Button>
 					)}
 				</div>
 			)}
@@ -1046,16 +1006,25 @@ export function CameraTool({
 				</div>
 			)}
 
-			<div className="flex items-stretch gap-1.5">
-				<button
+			<SettingRow
+				icon={<FlipHorizontal2 size={14} strokeWidth={2} />}
+				label="Mirror"
+			>
+				<SettingSwitch
+					label="Mirror"
+					checked={mirror === "on"}
+					disabled={mirrorDisabled}
+					onChange={toggleMirror}
+				/>
+			</SettingRow>
+
+			<div className="flex items-stretch">
+				<Button
+					variant="plain"
+					size="custom"
 					onClick={primary.onClick}
 					disabled={primaryDisabled}
-					className={[
-						"flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer disabled:opacity-50 min-h-[36px]",
-						primary.kind === "stop"
-							? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]"
-							: "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]",
-					].join(" ")}
+					className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] border-0 bg-white/[0.09] px-2 text-[11px] font-semibold text-white/82 hover:bg-white/[0.13] disabled:opacity-50"
 					title={
 						primary.kind === "stop"
 							? "Stop the camera helper and terminate injected apps"
@@ -1070,33 +1039,11 @@ export function CameraTool({
 					aria-pressed={primary.kind === "stop"}
 					aria-label={primary.label}
 				>
-					{primary.kind === "stop" ? <StopGlyph /> : <PlayGlyph />}
-					<span>{primary.label}</span>
-				</button>
-
-				<button
-					type="button"
-					onClick={toggleMirror}
-					disabled={mirrorDisabled}
-					className={`flex items-center justify-center w-10 min-h-[36px] border rounded-[7px] font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97] ${
-						mirror === "on"
-							? "bg-white border-white text-[#0a0a0c] cursor-pointer enabled:hover:bg-white/[0.88] enabled:hover:border-white/[0.88] enabled:hover:text-[#0a0a0c]"
-							: "bg-white/[0.04] border-white/8 text-white/85 cursor-pointer enabled:hover:bg-white/[0.09] enabled:hover:border-[rgba(255,255,255,0.18)] enabled:hover:text-white"
-					}`}
-					aria-label={`Mirror: ${mirror} — tap to toggle`}
-					title={
-						mirrorDisabled
-							? "Mirror toggle available once a source is streaming"
-							: `Mirror: ${mirror} — click to toggle`
-					}
-					aria-pressed={mirror === "on"}
-				>
-					<FlipHorizontal2
-						size={20}
-						strokeWidth={2}
-						fill={mirror === "on" ? "currentColor" : "none"}
-					/>
-				</button>
+					<IconSwap state={primary.kind === "stop" ? "stop" : "play"}>
+						{primary.kind === "stop" ? <StopGlyph /> : <PlayGlyph />}
+					</IconSwap>
+					<TextMorph>{primary.label}</TextMorph>
+				</Button>
 			</div>
 
 			{warning && <CameraInlineBanner kind="warning" message={warning} />}

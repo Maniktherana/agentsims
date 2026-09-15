@@ -8,7 +8,10 @@ import {
 } from "react";
 import { useGridDevices } from "./use-grid-devices";
 import { openHostEventStream } from "../../simulator/input/exec";
-import { proxyPreviewConfigForBrowser } from "../../workspace/preview-config";
+import {
+	previewConfigFromGridDevice,
+	proxyPreviewConfigForBrowser,
+} from "../../workspace/preview-config";
 import { simEndpoint, streamConfigFrom } from "../../preview/sim-endpoint";
 import {
 	createWorkspaceSelectionState,
@@ -21,7 +24,6 @@ import {
 } from "../../workspace/workspace-state";
 import { DeviceAutoAttachGuard } from "../../workspace/device-auto-attach-guard";
 import type { useWorkspaceUrlState } from "../../workspace/url-state";
-import type { GridDevice } from "../../workspace/grid";
 
 type WorkspaceUrlState = ReturnType<typeof useWorkspaceUrlState>;
 
@@ -51,21 +53,6 @@ function setInjectedPreviewConfig(config: PreviewConfig | null): void {
 	if (!window.__SIM_PREVIEW__) return;
 	const { basePath, execToken } = window.__SIM_PREVIEW__;
 	window.__SIM_PREVIEW__ = { basePath, execToken } as Window["__SIM_PREVIEW__"];
-}
-
-function previewConfigFromGridDevice(device: GridDevice): PreviewConfig | null {
-	if (!device.helper) return null;
-	const injected = window.__SIM_PREVIEW__;
-	return {
-		...injected,
-		device: device.device,
-		pid: injected?.pid ?? 0,
-		port: device.helper.port,
-		url: device.helper.url,
-		streamUrl: device.helper.streamUrl,
-		wsUrl: device.helper.wsUrl,
-		basePath: injected?.basePath ?? (simEndpoint("").replace(/\/$/, "") || "/"),
-	};
 }
 
 export function reconcileStreamingDeviceVisibility(
@@ -122,7 +109,6 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 	const [actionErrors, setActionErrors] = useState<
 		Record<string, string | null>
 	>({});
-	const [uiStarted, setUiStarted] = useState<Set<string>>(() => new Set());
 	const autoAttachGuardRef = useRef(new DeviceAutoAttachGuard());
 
 	const [endpoints] = useState(() => {
@@ -164,9 +150,9 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 	const visibleDeviceIdKey = visibleDeviceIds.join("|");
 	useEffect(() => {
 		setStreamingByDevice((current) =>
-			reconcileStreamingDeviceVisibility(current, visibleDeviceIds),
+			reconcileStreamingDeviceVisibility(current, availableDeviceIds),
 		);
-	}, [visibleDeviceIdKey]);
+	}, [availableDeviceIds]);
 	const selectedUdid = urlState.focus ?? selection.selectedDeviceId;
 	const selectedUdidRef = useRef(selectedUdid);
 	selectedUdidRef.current = selectedUdid;
@@ -241,7 +227,15 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 			let next = previous;
 			for (const device of devices) {
 				if (next[device.device]) continue;
-				const derived = previewConfigFromGridDevice(device);
+				const derived = proxyPreviewConfigForBrowser(
+					previewConfigFromGridDevice(
+						device,
+						window.__SIM_PREVIEW__,
+						window.__SIM_PREVIEW__?.basePath ??
+							(simEndpoint("").replace(/\/$/, "") || "/"),
+					),
+					window.location,
+				);
 				if (derived)
 					next = setPreviewConfigForDevice(next, device.device, derived);
 			}
@@ -303,12 +297,6 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 					requestedDeviceId: deviceId,
 					resolvedDeviceId,
 					focus: focusDevice,
-				});
-				setUiStarted((current) => {
-					if (current.has(resolvedDeviceId)) return current;
-					const next = new Set(current);
-					next.add(resolvedDeviceId);
-					return next;
 				});
 				await waitForHelper(resolvedDeviceId);
 				return resolvedDeviceId;
@@ -524,6 +512,7 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 		loadMoreGrid: grid.loadMore,
 		loadAllGrid: grid.loadAll,
 		resetGridPage: grid.resetPage,
+		refreshGrid: grid.refresh,
 		selectDevice,
 		setDeviceVisible,
 		startDevice,
@@ -531,6 +520,5 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 		starting,
 		shuttingDown,
 		actionErrors,
-		uiStarted,
 	};
 }

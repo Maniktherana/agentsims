@@ -1,3 +1,5 @@
+import { Button } from "../../ui/button";
+import { useSettingsRefresh } from "./settings-refresh";
 import { Smartphone } from "lucide-react";
 import {
 	useCallback,
@@ -252,7 +254,7 @@ export function SettingSelect({
 			options={options}
 			disabled={disabled}
 			onChange={onChange}
-			className={`min-w-0 max-w-[150px] rounded-[8px] border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[12px] text-white/90 disabled:text-white/40 ${className}`}
+			className={`h-6 min-w-0 max-w-[150px] rounded-[8px] border border-white/10 bg-white/[0.06] px-2 py-0 text-[12px] leading-none text-white/90 disabled:text-white/40 ${className}`}
 		/>
 	);
 }
@@ -413,20 +415,31 @@ export function SimulatorSettingsTool({
 	const [pending, setPending] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const supported = isIosRuntime(runtime);
+	const refreshRequest = useRef<AbortController | null>(null);
 
 	// Hydration can fail outright (server restarted under the tab, control
 	// socket unreachable) or stall — both must land in the error state with a
 	// Retry, never an eternal disabled section.
 	const refresh = useCallback(async () => {
+		refreshRequest.current?.abort();
+		const controller = new AbortController();
+		refreshRequest.current = controller;
 		setError(null);
 		try {
 			const status = await hostUiRequest(
 				{ device: udid },
-				{ signal: AbortSignal.timeout(15_000) },
+				{
+					signal: AbortSignal.any([
+						controller.signal,
+						AbortSignal.timeout(15_000),
+					]),
+				},
 			);
+			if (controller.signal.aborted) return;
 			if (status) setState(status);
 			else setError("Unexpected simulator-settings reply");
 		} catch (e) {
+			if (controller.signal.aborted) return;
 			setError(
 				e instanceof DOMException && e.name === "TimeoutError"
 					? "Timed out reading simulator settings"
@@ -437,12 +450,15 @@ export function SimulatorSettingsTool({
 		}
 	}, [udid]);
 
+	useSettingsRefresh(() => (supported ? refresh() : undefined));
+
 	useEffect(() => {
 		setState(null);
 		// The in-sim helper can't run on non-iOS runtimes; skip the round-trip
 		// (it would spawn an iOS binary inside e.g. a watchOS sim and abort).
 		if (!supported) return;
 		void refresh();
+		return () => refreshRequest.current?.abort();
 	}, [refresh, supported]);
 
 	const apply = useCallback(
@@ -536,13 +552,15 @@ export function SimulatorSettingsTool({
 					{error && (
 						<div className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
 							<span className="min-w-0">{error}</span>
-							<button
+							<Button
+								variant="plain"
+								size="custom"
 								type="button"
 								onClick={() => void refresh()}
-								className="min-h-8 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 bg-transparent px-2 text-[11px] text-danger-soft"
+								className="h-8 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 bg-transparent px-2 text-[11px] text-danger-soft"
 							>
 								Retry
-							</button>
+							</Button>
 						</div>
 					)}
 

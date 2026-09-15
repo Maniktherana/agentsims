@@ -154,7 +154,7 @@ describe("WorkspaceHeader", () => {
 			{},
 			{},
 		);
-		expect(booting.announcement).toBe("Pixel 10: Booting… · Android 17");
+		expect(booting.announcement).toBe("Pixel 10: Booting · Android 17");
 
 		const settledDevice = { ...bootingDevice, state: "Shutdown" };
 		const settled = reconcileDevicePhaseAnnouncements(
@@ -192,7 +192,7 @@ describe("WorkspaceHeader", () => {
 			streamingByDevice: { "ios-one": false, "ios-stale-helper": false },
 		});
 
-		expect(html).toContain('aria-label="iPhone 16, Connecting… · iOS 26.5"');
+		expect(html).toContain('aria-label="iPhone 16, Connecting · iOS 26.5"');
 		expect(html).toContain('aria-label="Stale helper, Streaming · iOS 26.5"');
 	});
 

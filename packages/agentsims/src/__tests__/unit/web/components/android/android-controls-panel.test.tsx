@@ -80,16 +80,43 @@ test("network switches reflect real device state and use the existing dropdown c
 	expect(html).not.toContain("<pre");
 });
 
-test("unknown network values remain visibly unavailable instead of an assumed preset", () => {
+test("loading controls stay disabled without unavailable descriptions or assumed presets", () => {
 	const html = renderControls(null);
-	expect(html).toContain("Current state unavailable");
+	expect(html).not.toContain("Current state unavailable");
 	expect(html).toMatch(
 		/role="switch" aria-checked="false" aria-label="Wi-Fi" disabled=""/,
 	);
-	expect(networkSpeedLabel(undefined)).toBe("↓ Unknown · ↑ Unknown");
-	expect(networkLatencyLabel(undefined)).toBe("Current unavailable");
+	expect(
+		html.match(/<input[^>]*aria-label="Battery percent"[^>]*>/)?.[0],
+	).toContain(' disabled=""');
+	expect(
+		html.match(/<button[^>]*aria-label="Set battery"[^>]*>/)?.[0],
+	).toContain(' disabled=""');
+	expect(networkSpeedLabel(undefined)).toBe("—");
+	expect(networkLatencyLabel(undefined)).toBe("—");
 	expect(networkSpeedLabel(state.network)).toBe("↓ 1.25 Mbps · ↑ 750 kbps");
 	expect(networkLatencyLabel(state.network)).toBe("20–40 ms");
+});
+
+test("loading capabilities and refresh keep the same simulator control rows", () => {
+	const renderRows = (loading: boolean, loaded: boolean) =>
+		renderToStaticMarkup(
+			<AndroidSimulatorControlRows
+				capabilities={loaded ? capabilities : null}
+				state={loaded ? state : null}
+				busy={loading}
+				run={async () => true}
+			/>,
+		);
+	const ready = renderRows(false, true);
+	for (const pending of [renderRows(true, false), renderRows(true, true)]) {
+		expect(pending.match(/data-setting-row="[^"]+"/g)).toEqual(
+			ready.match(/data-setting-row="[^"]+"/g),
+		);
+		const controls = pending.match(/<(?:button|input)\b[^>]*>/g) ?? [];
+		expect(controls).toHaveLength(8);
+		for (const control of controls) expect(control).toContain('disabled=""');
+	}
 });
 
 test("saved states show readable metadata and direct per-state actions", () => {

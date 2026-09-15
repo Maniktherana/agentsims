@@ -1,3 +1,4 @@
+import { NumberMorph } from "../ui/number-morph";
 import {
 	useEffect,
 	useLayoutEffect,
@@ -118,6 +119,8 @@ export function WorkspaceHeader({
 	onToggleTools,
 	hasActiveDevice,
 	onResetLayout,
+	onRefreshDevices,
+	onRefreshSettings,
 }: {
 	pickerOpen: boolean;
 	onPickerOpenChange: (open: boolean) => void;
@@ -142,6 +145,8 @@ export function WorkspaceHeader({
 	onToggleTools: () => void;
 	hasActiveDevice: boolean;
 	onResetLayout: () => void;
+	onRefreshDevices?: () => void;
+	onRefreshSettings?: (deviceId: string) => void;
 }) {
 	const viewport = useWorkspaceViewport();
 	const [query, setQuery] = useState("");
@@ -403,11 +408,11 @@ export function WorkspaceHeader({
 										</span>
 										<div className="flex items-center gap-1.5">
 											<span className="text-[10px] tabular-nums text-white/35">
-												{visibleCount} shown
+												<NumberMorph>{visibleCount}</NumberMorph> shown
 											</span>
 											<PanelIconButton
-												label="Reset canvas positions"
-												onClick={onResetLayout}
+												label="Refresh devices"
+												onClick={() => onRefreshDevices?.()}
 											>
 												<RotateCcw size={14} strokeWidth={2} />
 											</PanelIconButton>
@@ -477,8 +482,11 @@ export function WorkspaceHeader({
 										</Tabs>
 
 										<PanelIconButton
-											label="Reset canvas positions"
-											onClick={onResetLayout}
+											label="Refresh settings"
+											onClick={() => {
+												if (settingsDeviceId)
+													onRefreshSettings?.(settingsDeviceId);
+											}}
 										>
 											<RotateCcw size={14} strokeWidth={2} />
 										</PanelIconButton>
@@ -731,7 +739,8 @@ function DevicePickerContent({
 						)}
 						{!query && hasMore && (
 							<div className="px-2 py-2 text-center text-[10px] tabular-nums text-white/30">
-								{devices?.length ?? 0} of {total}
+								<NumberMorph>{devices?.length ?? 0}</NumberMorph> of{" "}
+								<NumberMorph>{total}</NumberMorph>
 							</div>
 						)}
 					</>

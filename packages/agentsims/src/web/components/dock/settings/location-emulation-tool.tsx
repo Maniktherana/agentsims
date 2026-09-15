@@ -1,3 +1,8 @@
+import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
+import { NumberMorph } from "../../ui/number-morph";
+import { IconSwap } from "../../ui/state-transitions";
+import { TextMorph } from "torph/react";
 import { MapPin } from "lucide-react";
 // Location emulation panel + lightweight 3D trail viz.
 //
@@ -29,7 +34,6 @@ import {
 } from "../../../dock/settings/trails";
 import {
 	ArrowGlyph,
-	Chevron,
 	CycleGlyph,
 	DriveGlyph,
 	FastForwardGlyph,
@@ -394,7 +398,7 @@ export function LocationEmulationTool({
 								}}
 							/>
 							<span className="min-w-0 overflow-hidden text-ellipsis">
-								{headerMetric}
+								<NumberMorph>{headerMetric}</NumberMorph>
 							</span>
 							{!playing && (
 								<span data-location-status-total className="shrink-0">
@@ -418,14 +422,8 @@ export function LocationEmulationTool({
 							value: t.id,
 							label: t.name,
 						}))}
-						className="w-full rounded-[8px] border border-white/8 bg-white/[0.04] py-1.5 pl-2 pr-[26px] text-[12px] text-white/90 [transition:background_0.12s,border-color_0.12s] hover:border-[rgba(255,255,255,0.16)] hover:bg-white/[0.07] focus:border-[rgba(255,255,255,0.24)] focus:bg-white/[0.08] focus:outline-none"
+						className="h-8 w-full rounded-[8px] border border-white/8 bg-white/[0.04] py-0 px-2 leading-none text-[12px] text-white/90 [transition:background_0.12s,border-color_0.12s] hover:border-[rgba(255,255,255,0.16)] hover:bg-white/[0.07] focus:border-[rgba(255,255,255,0.24)] focus:bg-white/[0.08] focus:outline-none"
 					/>
-					<span
-						className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
-						aria-hidden="true"
-					>
-						<Chevron open={false} />
-					</span>
 				</div>
 				<div className="text-[10px] text-white/45">{trail.description}</div>
 			</div>
@@ -442,26 +440,32 @@ export function LocationEmulationTool({
 			</div>
 
 			<div className="flex gap-1.5">
-				<button
+				<Button
+					variant="plain"
+					size="custom"
 					type="button"
 					onClick={onPlayPause}
-					className={`flex-1 flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border-none px-2.5 py-2 font-[inherit] text-[12px] font-semibold ${playing ? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]" : "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]"}`}
+					className={`flex-1 flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border-none h-9 px-2.5 font-[inherit] text-[12px] font-semibold ${playing ? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]" : "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]"}`}
 					aria-pressed={playing}
 					title={playing ? "Pause" : "Play"}
 				>
-					{playing ? <PauseGlyph /> : <PlayGlyph />}
-					<span>{playing ? "Pause" : "Play"}</span>
-				</button>
-				<button
+					<IconSwap state={playing ? "pause" : "play"}>
+						{playing ? <PauseGlyph /> : <PlayGlyph />}
+					</IconSwap>
+					<TextMorph>{playing ? "Pause" : "Play"}</TextMorph>
+				</Button>
+				<Button
+					variant="plain"
+					size="custom"
 					type="button"
 					onClick={onStop}
-					className="flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-white/12 bg-transparent px-3 py-2 font-[inherit] text-[12px] font-medium text-white/85 enabled:hover:border-white/20 enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+					className="flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-white/12 bg-transparent h-9 px-3 font-[inherit] text-[12px] font-medium text-white/85 enabled:hover:border-white/20 enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
 					disabled={playback.status === "idle" && playback.arc === 0}
 					title="Stop and clear simulated location"
 				>
 					<StopGlyph />
 					<span>Stop</span>
-				</button>
+				</Button>
 			</div>
 
 			<div className="flex flex-row items-stretch gap-1.5">
@@ -478,7 +482,9 @@ export function LocationEmulationTool({
 						]}
 					/>
 				</div>
-				<button
+				<Button
+					variant="plain"
+					size="custom"
 					type="button"
 					onClick={() => {
 						const idx = SPEED_MULTIPLIERS.indexOf(multiplier);
@@ -496,7 +502,7 @@ export function LocationEmulationTool({
 							{multiplier}×
 						</span>
 					)}
-				</button>
+				</Button>
 			</div>
 
 			{udid.startsWith("android:") && (
@@ -538,7 +544,7 @@ export function LocationEmulationTool({
 							className="flex min-w-24 flex-1 flex-col gap-1 text-[10px] text-white/45"
 						>
 							{label}
-							<input
+							<Input
 								name={name}
 								type="number"
 								min={min}
@@ -546,17 +552,18 @@ export function LocationEmulationTool({
 								step="any"
 								defaultValue={value}
 								required
-								className="min-w-0 rounded-[8px] border border-white/8 bg-white/[0.04] px-2 py-1.5 text-[12px] text-white/90"
 							/>
 						</label>
 					))}
-					<button
+					<Button
+						variant="plain"
+						size="custom"
 						type="submit"
 						disabled={settingLocation}
-						className="cursor-pointer rounded-[8px] border border-white/12 bg-transparent px-3 py-1.5 text-[12px] text-white/85 enabled:hover:bg-white/[0.06] disabled:opacity-40"
+						className="cursor-pointer rounded-[8px] border border-white/12 bg-transparent h-8 px-3 text-[12px] text-white/85 enabled:hover:bg-white/[0.06] disabled:opacity-40"
 					>
 						Set location
-					</button>
+					</Button>
 				</form>
 			)}
 
@@ -584,7 +591,7 @@ const Stat = memo(function Stat({
 				{label}
 			</div>
 			<div className="text-[12px] font-mono text-white overflow-hidden text-ellipsis whitespace-nowrap">
-				{value}
+				<NumberMorph>{value}</NumberMorph>
 			</div>
 		</div>
 	);

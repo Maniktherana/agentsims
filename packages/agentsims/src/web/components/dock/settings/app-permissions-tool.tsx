@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Button } from "../../ui/button";
+import { useSettingsRefresh } from "./settings-refresh";
+import {
+	useCallback,
+	useEffect,
+	useReducer,
+	useState,
+	type ReactNode,
+} from "react";
 import { Check, ShieldCheck, X } from "lucide-react";
 import type { PermissionName } from "../../../../core/tools/permissions";
 import { ReloadIcon } from "../../icons/index";
@@ -37,6 +45,11 @@ export function AppPermissionsTool({
 	udid: string;
 	bundleId: string | null;
 }) {
+	const [refreshRevision, refreshPermissions] = useReducer(
+		(value: number) => value + 1,
+		0,
+	);
+	useSettingsRefresh(refreshPermissions);
 	const [state, setState] = useState<PermState>({});
 	const [pending, setPending] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -44,6 +57,9 @@ export function AppPermissionsTool({
 
 	useEffect(() => {
 		setState({});
+	}, [udid, bundleId]);
+
+	useEffect(() => {
 		setError(null);
 		if (!bundleId) return;
 		let active = true;
@@ -59,7 +75,7 @@ export function AppPermissionsTool({
 		return () => {
 			active = false;
 		};
-	}, [udid, bundleId]);
+	}, [udid, bundleId, refreshRevision]);
 
 	const apply = useCallback(
 		async (service: string, action: PermAction) => {
@@ -161,7 +177,7 @@ export function AppPermissionsTool({
 									{label}
 								</span>
 								<div
-									className="flex gap-0.5 bg-white/[0.04] border border-white/8 rounded-md p-0.5"
+									className="flex h-7 shrink-0 items-center gap-0.5 bg-white/[0.04] border border-white/8 rounded-md p-0.5"
 									role="group"
 									aria-label={label}
 								>
@@ -200,14 +216,16 @@ export function AppPermissionsTool({
 			</div>
 
 			<div className="flex justify-end">
-				<button
+				<Button
+					variant="plain"
+					size="custom"
 					onClick={resetAll}
 					disabled={pending === "__all__"}
-					className="bg-transparent border border-white/12 text-white/70 text-[10px] px-2 py-[3px] rounded-[5px] cursor-pointer uppercase tracking-[0.04em]"
+					className="bg-transparent border border-white/12 text-white/70 h-6 text-[10px] px-2 rounded-[5px] cursor-pointer uppercase tracking-[0.04em]"
 					title="agentsims permissions reset all"
 				>
-					{pending === "__all__" ? "…" : "Reset all"}
-				</button>
+					{pending === "__all__" ? "Resetting" : "Reset all"}
+				</Button>
 			</div>
 		</CollapsibleSection>
 	);
@@ -266,7 +284,9 @@ function PermBtn({
 				? "#f87171"
 				: "var(--agentsims-accent)";
 	return (
-		<button
+		<Button
+			variant="plain"
+			size="custom"
 			onClick={onClick}
 			disabled={pending}
 			title={title}
@@ -279,6 +299,6 @@ function PermBtn({
 			}}
 		>
 			{children}
-		</button>
+		</Button>
 	);
 }

@@ -39,7 +39,7 @@ describe("ToolsPanel", () => {
 		);
 		Object.defineProperty(globalThis, "window", {
 			configurable: true,
-			value: { location: { pathname: "/" } },
+			value: Object.assign(new EventTarget(), { location: { pathname: "/" } }),
 		});
 		let html: string;
 		try {

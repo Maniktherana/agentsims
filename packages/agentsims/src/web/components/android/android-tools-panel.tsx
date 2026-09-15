@@ -1,5 +1,8 @@
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notify } from "../ui/toast";
+import { useSettingsRefresh } from "../dock/settings/settings-refresh";
 import { Package, ScrollText } from "lucide-react";
 import type { AndroidInstalledApp } from "../../../core/android/contracts";
 import {
@@ -9,12 +12,7 @@ import {
 import { CollapsibleSection } from "../ui/collapsible-section";
 import { SettingSwitch } from "../ui/setting-switch";
 import { AndroidLogsPanel } from "./android-logs-panel";
-import {
-	ToolField,
-	ToolSection,
-	toolButtonClass,
-	toolInputClass,
-} from "./tool-fields";
+import { ToolField, ToolSection } from "./tool-fields";
 
 type Props = { deviceId: string; basePath: string; active?: boolean };
 export function AndroidToolsPanel(props: Props) {
@@ -63,6 +61,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 				setError(cause instanceof Error ? cause.message : String(cause));
 		}
 	}, [basePath, deviceId]);
+	useSettingsRefresh(() => (active && open ? refresh() : undefined));
 	useEffect(() => {
 		if (!active || !open) return;
 		void refresh();
@@ -152,20 +151,19 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 		>
 			<ToolSection title="Installed apps">
 				<div className="flex gap-2">
-					<input
+					<Input
 						aria-label="Search installed apps"
 						placeholder="Search apps"
-						className={`${toolInputClass} flex-1`}
+						className="flex-1"
 						value={query}
 						onChange={(event) => setQuery(event.target.value)}
 					/>
-					<button
-						className={toolButtonClass}
+					<Button
 						disabled={!!busy}
 						onClick={() => void refresh()}
 					>
 						Refresh
-					</button>
+					</Button>
 				</div>
 				<div className="flex items-center justify-between text-xs text-white/65">
 					<span>Include system apps</span>
@@ -181,7 +179,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 					</p>
 				) : !apps ? (
 					<p role="status" className="text-xs text-white/55">
-						Loading installed apps…
+						Loading installed apps
 					</p>
 				) : !visible?.length ? (
 					<p className="text-xs text-white/55">
@@ -220,8 +218,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 					<div className="space-y-2 border-t border-white/8 pt-2">
 						<div className="flex items-start justify-between gap-2">
 							<p className="break-all text-xs text-white/75">{selected}</p>
-							<button
-								className={toolButtonClass}
+							<Button
 								disabled={!!busy}
 								onClick={() => {
 									setSelected("");
@@ -229,7 +226,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 								}}
 							>
 								Deselect
-							</button>
+							</Button>
 						</div>
 						<div className="flex flex-wrap gap-2">
 							{(
@@ -240,9 +237,8 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 									["uninstall", "Uninstall"],
 								] as const
 							).map(([operation, label]) => (
-								<button
+								<Button
 									key={operation}
-									className={toolButtonClass}
 									disabled={!!busy}
 									onClick={() =>
 										operation === "clear" || operation === "uninstall"
@@ -251,7 +247,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 									}
 								>
 									{label}
-								</button>
+								</Button>
 							))}
 						</div>
 						{confirm && (
@@ -266,18 +262,16 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 										: "This removes the selected app and its saved data."}
 								</p>
 								<div className="flex gap-2">
-									<button
-										className={toolButtonClass}
+									<Button
 										onClick={() => runApp(confirm)}
 									>
 										{confirm === "clear" ? "Clear app data" : "Uninstall app"}
-									</button>
-									<button
-										className={toolButtonClass}
+									</Button>
+									<Button
 										onClick={() => setConfirm(null)}
 									>
 										Cancel
-									</button>
+									</Button>
 								</div>
 							</div>
 						)}
@@ -286,17 +280,15 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 			</ToolSection>
 			<ToolSection title="Install an APK">
 				<ToolField label="APK file">
-					<input
+					<Input
 						ref={fileInput}
 						type="file"
 						accept=".apk,application/vnd.android.package-archive"
 						disabled={!!busy}
-						className={toolInputClass}
 						onChange={(event) => setApk(event.target.files?.[0] ?? null)}
 					/>
 				</ToolField>
-				<button
-					className={toolButtonClass}
+				<Button
 					disabled={!apk || !!busy}
 					onClick={() => {
 						if (!apk) return;
@@ -322,7 +314,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 					}}
 				>
 					Install APK
-				</button>
+				</Button>
 			</ToolSection>
 			<ToolSection title="Open a link">
 				<form
@@ -344,17 +336,16 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 					}}
 				>
 					<ToolField label="Link">
-						<input
-							className={toolInputClass}
+						<Input
 							value={link}
 							onChange={(event) => setLink(event.target.value)}
 							placeholder="myapp://screen"
 							required
 						/>
 					</ToolField>
-					<button className={toolButtonClass} disabled={!!busy}>
+					<Button type="submit" disabled={!!busy}>
 						Open link
-					</button>
+					</Button>
 				</form>
 				<p className="text-xs text-white/50">
 					{selected
@@ -367,9 +358,8 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 					role="status"
 					className="flex items-center gap-2 text-xs text-white/60"
 				>
-					{busy}…
-					<button
-						className={toolButtonClass}
+					{busy}
+					<Button
 						onClick={() => {
 							pending.current?.abort();
 							pending.current = null;
@@ -377,7 +367,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 						}}
 					>
 						Cancel
-					</button>
+					</Button>
 				</div>
 			)}
 		</CollapsibleSection>

@@ -13,7 +13,6 @@ import {
 	isHeicLikeFile,
 	isOversizedCameraVideo,
 	nextCameraPillState,
-	parseWebcamListOutput,
 	selectCameraPrimaryKind,
 } from "../../../../../../web/components/dock/settings/camera-tool";
 
@@ -125,45 +124,6 @@ describe("selectCameraPrimaryKind", () => {
 				foregroundIsInjected: true,
 			}),
 		).toBe("stop");
-	});
-});
-
-describe("parseWebcamListOutput", () => {
-	test("returns empty list for empty stdout", () => {
-		expect(parseWebcamListOutput("")).toEqual([]);
-	});
-
-	test("parses id\\tname rows from the helper", () => {
-		const stdout = [
-			"FA-CAM-1\tC505 HD Webcam",
-			"BUILT-IN-001\tMacBook Pro Camera",
-		].join("\n");
-		expect(parseWebcamListOutput(stdout)).toEqual([
-			{ id: "FA-CAM-1", name: "C505 HD Webcam" },
-			{ id: "BUILT-IN-001", name: "MacBook Pro Camera" },
-		]);
-	});
-
-	test("ignores build noise interleaved with camera rows", () => {
-		const stdout = [
-			"Built: /tmp/serve-sim-camera-helper",
-			"/tmp/serve-sim-camera-helper: Mach-O universal binary with 2 architectures",
-			"Mach-O 64-bit executable x86_64",
-			"Mach-O 64-bit executable arm64",
-			"FA-CAM-1\tC505 HD Webcam",
-			"BUILT-IN-001\tMacBook Pro Camera",
-		].join("\n");
-		expect(parseWebcamListOutput(stdout)).toEqual([
-			{ id: "FA-CAM-1", name: "C505 HD Webcam" },
-			{ id: "BUILT-IN-001", name: "MacBook Pro Camera" },
-		]);
-	});
-
-	test("drops malformed rows with empty id or name", () => {
-		const stdout = ["\tname-only", "id-only\t", "good\tCamera"].join("\n");
-		expect(parseWebcamListOutput(stdout)).toEqual([
-			{ id: "good", name: "Camera" },
-		]);
 	});
 });
 

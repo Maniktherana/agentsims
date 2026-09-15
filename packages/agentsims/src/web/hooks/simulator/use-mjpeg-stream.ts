@@ -11,7 +11,7 @@ import { createMjpegFrameParser } from "../../simulator/stream/mjpeg-frame-parse
  * Screen config (dimensions / orientation) is no longer polled here — it
  * arrives over the input WebSocket — so this hook only deals with frame bytes.
  */
-export function useMjpegStream(streamUrl: string | null) {
+export function useMjpegStream(streamUrl: string | null, retryRevision = 0) {
 	const subscribersRef = useRef<Set<(blobUrl: string) => void>>(new Set());
 
 	const subscribeFrame = useCallback((cb: (blobUrl: string) => void) => {
@@ -80,7 +80,7 @@ export function useMjpegStream(streamUrl: string | null) {
 			if (retryTimer) clearTimeout(retryTimer);
 			controller.abort();
 		};
-	}, [streamUrl]);
+	}, [streamUrl, retryRevision]);
 
 	return { subscribeFrame, frame: null };
 }
