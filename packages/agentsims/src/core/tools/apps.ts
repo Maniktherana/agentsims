@@ -103,7 +103,7 @@ export const AppsLive = Layer.effect(
 							message: "iOS app operations require a macOS server with Xcode.",
 						}),
 					);
-				const operation =
+				const operation: Effect.Effect<unknown, ApplicationCommandError> =
 					input.operation === "list"
 						? Effect.tryPromise({
 								try: () => listApps(device),

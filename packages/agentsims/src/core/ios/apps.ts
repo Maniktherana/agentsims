@@ -1,5 +1,12 @@
-import { hostCommandText } from "../host";
+import { hostCommandText, hostCommandTextWithInput } from "../host";
 import { readFile } from "node:fs/promises";
+
+export type InstalledApp = {
+	bundleId: string;
+	name: string;
+	version: string | null;
+	system: boolean;
+};
 
 export type AppDetails = {
 	bundleId: string;
@@ -72,15 +79,45 @@ export async function appDetails(
 	};
 }
 
-export async function listApps(udid: string): Promise<unknown> {
-	const output = await hostCommandText(
-		"xcrun",
-		"simctl",
-		"listapps",
-		"--json",
-		udid,
+type ListedApp = {
+	CFBundleIdentifier?: string;
+	CFBundleDisplayName?: string;
+	CFBundleName?: string;
+	CFBundleShortVersionString?: string;
+	ApplicationType?: string;
+};
+
+/**
+ * `simctl listapps` prints an old-style plist and has never accepted `--json`
+ * (only `simctl list` does), so convert with `plutil` rather than parse it here.
+ * `plutil` also accepts JSON input, so a runtime that returns JSON still works.
+ */
+export async function listApps(udid: string): Promise<InstalledApp[]> {
+	const plist = await hostCommandText("xcrun", "simctl", "listapps", udid);
+	const output = await hostCommandTextWithInput(
+		plist,
+		"plutil",
+		"-convert",
+		"json",
+		"-r",
+		"-o",
+		"-",
+		"-",
 	);
-	return JSON.parse(output) as unknown;
+	const raw = JSON.parse(output) as Record<string, ListedApp>;
+	return Object.entries(raw)
+		.map(([key, app]) => ({
+			bundleId: app.CFBundleIdentifier ?? key,
+			name: app.CFBundleDisplayName ?? app.CFBundleName ?? key,
+			version: app.CFBundleShortVersionString ?? null,
+			system: app.ApplicationType !== "User",
+		}))
+		.sort(
+			(a, b) =>
+				Number(a.system) - Number(b.system) ||
+				a.name.localeCompare(b.name) ||
+				a.bundleId.localeCompare(b.bundleId),
+		);
 }
 
 export function launchApp(udid: string, bundleId: string): Promise<string> {

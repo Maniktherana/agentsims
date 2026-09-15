@@ -93,26 +93,46 @@ export function captureHostCommand(
 		: capture.pipe(Effect.timeout(options.timeoutMs));
 }
 
-export const commandText = (command: string, ...args: string[]) =>
+const runCommandText = (command: Command.Command, name: string) =>
 	Effect.gen(function* () {
 		const result = yield* captureHostCommand(
 			yield* CommandExecutor.CommandExecutor,
-			Command.make(command, ...args),
+			command,
 		);
 		if (result.exitCode !== 0)
 			return yield* Effect.fail(
 				new Error(
 					result.stderr.trim() ||
 						result.stdout.trim() ||
-						`${command} exited with status ${result.exitCode}`,
+						`${name} exited with status ${result.exitCode}`,
 				),
 			);
 		return result.stdout;
 	});
 
+export const commandText = (command: string, ...args: string[]) =>
+	runCommandText(Command.make(command, ...args), command);
+
 export const hostCommandText = (command: string, ...args: string[]) =>
 	Effect.runPromise(
 		commandText(command, ...args).pipe(Effect.provide(BunContext.layer)),
+	);
+
+/**
+ * Run a command with `input` on stdin. Kept separate from a shell pipeline so a
+ * failure in the producing command surfaces its own message, not the consumer's
+ * complaint about empty input.
+ */
+export const hostCommandTextWithInput = (
+	input: string,
+	command: string,
+	...args: string[]
+) =>
+	Effect.runPromise(
+		runCommandText(
+			Command.make(command, ...args).pipe(Command.feed(input)),
+			command,
+		).pipe(Effect.provide(BunContext.layer)),
 	);
 
 export const hostSleep = (milliseconds: number): Promise<void> =>
