@@ -4,6 +4,7 @@ import { NumberMorph } from "../../ui/number-morph";
 import { DeviceList } from "./device-list";
 import { DockIconButton } from "./icon-button";
 import type { DemoDevices } from "./devices";
+import { INTRO_FADE } from "../../intro/use-intro";
 import {
 	WorkspaceDockSurface,
 	ISLAND_PANEL_TRANSITION,
@@ -11,18 +12,23 @@ import {
 } from "./surface";
 
 export function DemoDock({
+	visible,
 	expanded,
 	scale,
 	devices,
 }: {
+	visible: boolean;
 	expanded: boolean;
 	scale: number;
 	devices: DemoDevices;
 }) {
 	return (
-		<div
+		<motion.div
 			className="device-island absolute bottom-0 left-1/2 z-[6] h-[50px] w-[96px] origin-bottom"
 			style={{ transform: "translateX(-50%)", zoom: scale }}
+			initial={{ opacity: 0 }}
+			animate={{ opacity: visible ? 1 : 0 }}
+			transition={INTRO_FADE}
 		>
 			<WorkspaceDockSurface
 				expanded={expanded}
@@ -71,6 +77,6 @@ export function DemoDock({
 					)}
 				</AnimatePresence>
 			</WorkspaceDockSurface>
-		</div>
+		</motion.div>
 	);
 }

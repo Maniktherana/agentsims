@@ -8,17 +8,24 @@ import { DemoPhones } from "./phones";
 import { DOCK_SCALE, SURFACE } from "./motion";
 import { useCursorTargets } from "./use-cursor-targets";
 import { useDemoPlayback } from "./use-playback";
+import type { Intro } from "../intro/use-intro";
 
-export function ProductDemo() {
+export function ProductDemo({ intro }: { intro: Intro }) {
 	const sceneRef = useRef<HTMLDivElement>(null);
-	const { frame, phase, playing, reducedMotion } = useDemoPlayback(sceneRef);
+	const { frame, phase, playing, reducedMotion } = useDemoPlayback(
+		sceneRef,
+		intro.reached("running"),
+	);
 	const { sceneScale, target } = useCursorTargets(sceneRef, frame, phase);
 	const devices = demoDevices(frame.android);
 	const scale = sceneScale * DOCK_SCALE;
 	return (
 		<MotionConfig reducedMotion="user" transition={SURFACE.spring}>
 			<div className="relative max-xl:mx-auto max-xl:mt-14 max-xl:w-[calc(100%-3rem)] max-xl:max-w-2xl max-sm:mt-6 max-sm:w-[calc(100%-2.5rem)]">
-				<BrowserFrame>
+				<BrowserFrame
+					lit={intro.reached("screen")}
+					chrome={intro.reached("workspace")}
+				>
 					<div
 						className="demo-scene @container absolute right-[7%] bottom-[7%] z-[2] aspect-[480/530] w-[min(40%,36rem)] [direction:ltr] max-xl:relative max-xl:inset-auto max-xl:mx-auto max-xl:w-full max-xl:max-w-md"
 						ref={sceneRef}
@@ -27,11 +34,17 @@ export function ProductDemo() {
 						data-playing={playing}
 					>
 						<DemoPhones
+							iphoneVisible={intro.reached("workspace")}
 							androidVisible={devices.androidVisible}
 							androidStreaming={frame.android === "streaming"}
 							scale={scale}
 						/>
-						<DemoDock expanded={!!frame.dock} scale={scale} devices={devices} />
+						<DemoDock
+							visible={intro.reached("workspace")}
+							expanded={!!frame.dock}
+							scale={scale}
+							devices={devices}
+						/>
 						<DemoCursor
 							target={target}
 							visible={!!frame.pointer}

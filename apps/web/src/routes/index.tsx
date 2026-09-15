@@ -2,6 +2,8 @@ import { IconSwap } from "../components/ui/icon-swap";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ProductDemo } from "../components/product-demo";
+import { StaggerLine, StaggerReveal } from "../components/intro/stagger-reveal";
+import { useIntro } from "../components/intro/use-intro";
 import { Button, buttonVariants, pressable } from "../components/ui/button";
 import { cn } from "../lib/utils";
 
@@ -58,6 +60,7 @@ function CopyIconSwap({ copied }: { copied: boolean }) {
 }
 
 function HomePage() {
+	const intro = useIntro();
 	const [copied, setCopied] = useState(false);
 	const [copyError, setCopyError] = useState(false);
 	const copyResetTimer = useRef<number | null>(null);
@@ -134,20 +137,23 @@ function HomePage() {
 
 			<main id="main">
 				<section className="relative mx-auto w-[calc(100%-4rem)] max-w-[128rem] max-xl:w-full">
-					<div className="absolute top-[24%] left-[5.5%] z-[5] w-[44%] max-xl:relative max-xl:inset-auto max-xl:mx-auto max-xl:w-auto max-xl:max-w-2xl max-xl:px-6 max-xl:pt-12 max-sm:px-5 max-sm:pt-4">
-						<p className="m-0 text-[clamp(0.875rem,1.25vw,1.25rem)] text-muted-foreground max-xl:text-base max-sm:max-w-xs max-sm:leading-normal">
+					<StaggerReveal
+						show={intro.reached("copy")}
+						className="absolute top-[24%] left-[5.5%] z-[5] w-[44%] max-xl:relative max-xl:inset-auto max-xl:mx-auto max-xl:w-auto max-xl:max-w-2xl max-xl:px-6 max-xl:pt-12 max-sm:px-5 max-sm:pt-4"
+					>
+						<StaggerLine as="p" className="m-0 text-[clamp(0.875rem,1.25vw,1.25rem)] text-muted-foreground max-xl:text-base max-sm:max-w-xs max-sm:leading-normal">
 							Simulator workspace <span>for iOS and Android</span>
-						</p>
-						<h1 className="mt-6 mb-0 text-[clamp(2.75rem,4.1vw,4.5rem)] leading-[1.05] font-semibold tracking-[-0.055em] max-xl:text-[clamp(2.5rem,7vw,4.25rem)] max-xl:tracking-[-0.045em] max-sm:text-[clamp(2.5rem,10.5vw,3.75rem)]">
+						</StaggerLine>
+						<StaggerLine as="h1" className="mt-6 mb-0 text-[clamp(2.75rem,4.1vw,4.5rem)] leading-[1.05] font-semibold tracking-[-0.055em] max-xl:text-[clamp(2.5rem,7vw,4.25rem)] max-xl:tracking-[-0.045em] max-sm:text-[clamp(2.5rem,10.5vw,3.75rem)]">
 							<span className="block max-sm:inline">Mobile simulators,</span>{" "}
 							<span className="block max-sm:inline">in your browser.</span>
-						</h1>
-						<p className="mt-7 mb-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground max-xl:text-lg max-sm:mt-6 max-sm:text-[1.0625rem]">
+						</StaggerLine>
+						<StaggerLine as="p" className="mt-7 mb-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground max-xl:text-lg max-sm:mt-6 max-sm:text-[1.0625rem]">
 							Control iOS simulators and Android devices from one local
 							workspace.
-						</p>
+						</StaggerLine>
 
-						<div className="mt-9 flex flex-wrap items-center gap-3 max-xl:mt-8 max-sm:flex-col max-sm:items-stretch">
+						<StaggerLine className="mt-9 flex flex-wrap items-center gap-3 max-xl:mt-8 max-sm:flex-col max-sm:items-stretch">
 							<a
 								href={repositoryUrl}
 								className={cn(
@@ -188,7 +194,7 @@ function HomePage() {
 									{copied ? "Copied" : ""}
 								</span>
 							</Button>
-						</div>
+						</StaggerLine>
 
 						{copyError && (
 							<p
@@ -198,11 +204,14 @@ function HomePage() {
 								Copy failed. Select and copy <code>npx agentsims</code>.
 							</p>
 						)}
-						<p className="mt-5 mb-0 text-sm text-subtle-foreground max-sm:text-center max-sm:text-[0.8125rem]">
+						<StaggerLine
+							as="p"
+							className="mt-5 mb-0 text-sm text-subtle-foreground max-sm:text-center max-sm:text-[0.8125rem]"
+						>
 							Open source · iOS and Android
-						</p>
-					</div>
-					<ProductDemo />
+						</StaggerLine>
+					</StaggerReveal>
+					<ProductDemo intro={intro} />
 				</section>
 			</main>
 		</div>

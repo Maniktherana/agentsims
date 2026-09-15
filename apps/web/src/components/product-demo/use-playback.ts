@@ -7,7 +7,10 @@ import {
 	type DemoFrame,
 } from "./storyboard";
 
-export function useDemoPlayback(sceneRef: RefObject<HTMLDivElement | null>) {
+export function useDemoPlayback(
+	sceneRef: RefObject<HTMLDivElement | null>,
+	started: boolean,
+) {
 	const inView = useInView(sceneRef, { amount: 0.5 });
 	const reducedMotion = useReducedMotion();
 	const [playback, setPlayback] = useState<DemoPlayback>({
@@ -22,7 +25,7 @@ export function useDemoPlayback(sceneRef: RefObject<HTMLDivElement | null>) {
 		frame: null,
 		remaining: 0,
 	});
-	const playing = inView && pageVisible && !reducedMotion;
+	const playing = started && inView && pageVisible && !reducedMotion;
 	useEffect(() => {
 		const updateVisibility = () => setPageVisible(!document.hidden);
 		updateVisibility();

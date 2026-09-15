@@ -7,6 +7,14 @@
 	--ease-hero: cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* The laptop screen fills from black. Registering the property is what lets
+   it transition, and `inherits` is what lets ::before read the animated value. */
+@property --screen-lit {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 0;
+}
+
 @theme inline {
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
@@ -107,6 +115,7 @@
 
 @layer components {
 	.macbook-display {
+		--screen-lit: 0;
 		position: relative;
 		width: 100%;
 		aspect-ratio: 16 / 9;
@@ -114,6 +123,10 @@
 		overflow: hidden;
 		container-type: inline-size;
 		isolation: isolate;
+		transition: --screen-lit 900ms var(--ease-hero);
+	}
+	.macbook-display[data-screen="lit"] {
+		--screen-lit: 1;
 	}
 	/* The artwork has 108 units of empty canvas at each side. */
 	.macbook-frame {
@@ -131,7 +144,12 @@
 		z-index: 0;
 		inset: 1.7991cqw 1.849075% 0 1.7991%;
 		border-radius: 1.6cqw 1.6cqw 0 0;
-		background: #0a0a0b;
+		background:
+			linear-gradient(
+				rgb(13 13 14 / var(--screen-lit)),
+				rgb(10 10 11 / var(--screen-lit)) 42%
+			),
+			#000;
 		content: "";
 	}
 	.macbook-display::after {
@@ -168,7 +186,12 @@
 			linear-gradient(transparent, black 15%, black 72%, transparent 98%);
 		mask-composite: intersect;
 		content: "";
+		opacity: 0;
+		transition: opacity 700ms var(--ease-hero);
 		pointer-events: none;
+	}
+	.workspace-demo[data-chrome="shown"]::before {
+		opacity: 1;
 	}
 	.device-island {
 		--agentsims-device-screen-on: oklch(0.58 0.1 245);
@@ -198,7 +221,13 @@
 			aspect-ratio: auto;
 			max-height: none;
 			border-radius: 0.875rem 0.875rem 0 0;
-			background: linear-gradient(#0a0a0b 58%, #000 98%);
+			background:
+				linear-gradient(
+					rgb(13 13 14 / var(--screen-lit)),
+					rgb(10 10 11 / var(--screen-lit)) 32%,
+					rgb(0 0 0 / var(--screen-lit)) 98%
+				),
+				#000;
 		}
 		.macbook-display::before {
 			z-index: 6;
@@ -222,6 +251,13 @@
 			);
 			background-size: 18px 18px;
 		}
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.macbook-display,
+	.workspace-demo::before {
+		transition: none;
 	}
 }
 

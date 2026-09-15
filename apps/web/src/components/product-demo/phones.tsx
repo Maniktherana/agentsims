@@ -2,15 +2,18 @@ import { GripVertical } from "lucide-react";
 import { motion } from "motion/react";
 import { ResizeHandle } from "./resize-handle";
 import { SURFACE } from "./motion";
+import { INTRO_ENTRANCE } from "../intro/use-intro";
 import { cn } from "../../lib/utils";
 
 const IPHONE_BUTTON = "absolute z-0 left-[0.881%] w-[3.524%]";
 
 export function DemoPhones({
+	iphoneVisible,
 	androidVisible,
 	androidStreaming,
 	scale,
 }: {
+	iphoneVisible: boolean;
 	androidVisible: boolean;
 	androidStreaming: boolean;
 	scale: number;
@@ -20,7 +23,20 @@ export function DemoPhones({
 			<motion.div
 				className="relative w-[46cqw] flex-none aspect-[454/908] drop-shadow-[0_14px_12px_#0008]"
 				initial={false}
-				animate={{ x: androidVisible ? "0%" : "51.63%" }}
+				animate={{
+					x: androidVisible ? "0%" : "51.63%",
+					opacity: iphoneVisible ? 1 : 0,
+					y: iphoneVisible ? 0 : SURFACE.enterY,
+					scale: iphoneVisible ? 1 : SURFACE.enterScale,
+				}}
+				// The intro entrance eases in slowly; the storyboard's slide keeps
+				// the shared spring, so only the first appearance is softened.
+				transition={{
+					x: SURFACE.spring,
+					opacity: INTRO_ENTRANCE,
+					y: INTRO_ENTRANCE,
+					scale: INTRO_ENTRANCE,
+				}}
 			>
 				<DeviceNamePill name="iPhone 17" scale={scale} />
 				<ResizeHandle android={false} scale={scale} />
