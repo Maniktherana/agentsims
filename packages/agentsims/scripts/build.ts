@@ -163,7 +163,7 @@ run(
 	resolve(dist, "types"),
 );
 
-// Each native build runs on its actual host. Apple helpers retain both Mac architectures.
+// Each native build runs on its actual host. Spawned Apple helpers retain both Mac architectures.
 const androidJar = resolve(dist, "android/agentsims-ax-server.jar");
 mkdirSync(dirname(androidJar), { recursive: true });
 if (process.env.AGENTSIMS_ANDROID_AX_JAR)
@@ -177,13 +177,12 @@ if (process.platform === "darwin") {
 		["native", "native", "agentsims-native.node"],
 	] as const) {
 		run("bash", `ios/${source}/build.sh`, resolve(dist, output));
-		run(
-			"lipo",
-			resolve(dist, output, artifact),
-			"-verify_arch",
-			"x86_64",
-			"arm64",
-		);
+		const architectures =
+			source === "native"
+				? [process.arch === "x64" ? "x86_64" : "arm64"]
+				: ["x86_64", "arm64"];
+		for (const architecture of architectures)
+			run("lipo", resolve(dist, output, artifact), "-verify_arch", architecture);
 	}
 }
 
