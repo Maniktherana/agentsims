@@ -15,7 +15,7 @@ const INPUT_BUTTON = 0x04;
 const INPUT_KEY = 0x06;
 const INPUT_ROTATE = 0x07;
 
-const orientations = [
+export const DEVICE_ORIENTATIONS = [
 	"portrait",
 	"portrait_upside_down",
 	"landscape_left",
@@ -31,6 +31,8 @@ const HID_BUTTON_CODES: Record<string, { page: number; usage: number }> = {
 	"digital-crown": { page: 12, usage: 64 },
 	"left-side-button": { page: 65281, usage: 512 },
 };
+
+export const GESTURE_PHASES = ["begin", "move", "end", "cancel"] as const;
 
 export const DEVICE_BUTTONS = [
 	"home",
@@ -60,7 +62,7 @@ export const DeviceActionSchema = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("tap"), x: coordinate("x"), y: coordinate("y") }),
 	z.object({
 		type: z.literal("gesture"),
-		phase: z.enum(["begin", "move", "end", "cancel"]),
+		phase: z.enum(GESTURE_PHASES),
 		x: coordinate("x"),
 		y: coordinate("y"),
 	}),
@@ -74,7 +76,7 @@ export const DeviceActionSchema = z.discriminatedUnion("type", [
 	}),
 	z.object({ type: z.literal("type"), text: z.string() }),
 	z.object({ type: z.literal("button"), button: z.enum(DEVICE_BUTTONS) }),
-	z.object({ type: z.literal("rotate"), orientation: z.enum(orientations) }),
+	z.object({ type: z.literal("rotate"), orientation: z.enum(DEVICE_ORIENTATIONS) }),
 ]);
 export type DeviceAction = z.infer<typeof DeviceActionSchema>;
 

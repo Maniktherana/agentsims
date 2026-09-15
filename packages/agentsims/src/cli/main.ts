@@ -5,7 +5,12 @@ import { Command, InvalidArgumentError } from "commander";
 import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
-import { DEVICE_BUTTONS, parseDeviceAction } from "../core/tools/input";
+import {
+	DEVICE_BUTTONS,
+	DEVICE_ORIENTATIONS,
+	GESTURE_PHASES,
+	parseDeviceAction,
+} from "../core/tools/input";
 import { androidSerialFromStateId } from "../core/android/device/identifiers";
 import { normalizeAndroidPermission } from "../core/android/permissions";
 import {
@@ -77,10 +82,28 @@ const logLevel = (value: string) => {
 		throw new InvalidArgumentError("Log level must be V, D, I, W, E, or F.");
 	return parsed;
 };
+const coordinate =
+	(name: string) =>
+	(value: string): number => {
+		const parsed = Number(value);
+		if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1)
+			throw new InvalidArgumentError(
+				`${name} must be a number between 0 and 1.`,
+			);
+		return parsed;
+	};
+const oneOf =
+	<T extends string>(name: string, values: readonly T[]) =>
+	(value: string): T => {
+		if ((values as readonly string[]).includes(value)) return value as T;
+		throw new InvalidArgumentError(`${name} must be one of: ${values.join(", ")}.`);
+	};
 const cameraFace = (value: string): "front" | "back" => {
 	if (value === "front" || value === "back") return value;
 	throw new InvalidArgumentError("Camera face must be front or back.");
 };
+type DeviceFlags = { device: string; url?: string };
+type PermissionFlags = DeviceFlags & { app: string };
 type ServerFlags = {
 	host: string;
 	port: number;
@@ -144,101 +167,181 @@ export function createProgram(): Command {
 		.action(() => json(readLocalServer() ?? { running: false }));
 	program
 		.command("logs")
+		.description("Print the output of the detached Agentsims server")
 		.option("-f, --follow", "Follow server output")
-		.option("-d, --device <id>", "Read recent logs from an Android device")
+		.action(async (flags: { follow?: boolean }) => {
+			if (!existsSync(localServerLogFile)) return;
+			if (!flags.follow) {
+				process.stdout.write(readFileSync(localServerLogFile, "utf8"));
+				return;
+			}
+			const child = Bun.spawn(["tail", "-f", localServerLogFile], {
+				stdout: "inherit",
+				stderr: "inherit",
+			});
+			const stop = () => child.kill();
+			process.once("SIGINT", stop);
+			process.once("SIGTERM", stop);
+			try {
+				await child.exited;
+			} finally {
+				process.off("SIGINT", stop);
+				process.off("SIGTERM", stop);
+			}
+		});
+	program
+		.command("device-logs")
+		.alias("logcat")
+		.description("Read a recent log snapshot from an Android device")
+		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
 		.option(
 			"--limit <count>",
-			"Maximum device log lines",
+			"Maximum log lines",
 			integer("Log limit", 1, 2000),
 			100,
 		)
-		.option("--level <level>", "Minimum Android log level", logLevel)
-		.option("--query <text>", "Filter device logs by text")
-		.option("--app <package>", "Filter device logs by app package")
+		.option("--level <level>", "Minimum log level: V, D, I, W, E, or F", logLevel)
+		.option("--query <text>", "Keep lines that contain this text")
+		.option("--app <package>", "Keep lines from this app package")
 		.option(
 			"--pid <pid>",
-			"Filter device logs by process ID",
+			"Keep lines from this process ID",
 			integer("PID", 1, 2_147_483_647),
 		)
 		.action(
-			async (flags: {
-				follow?: boolean;
-				device?: string;
-				url?: string;
-				limit: number;
-				level?: string;
-				query?: string;
-				app?: string;
-				pid?: number;
-			}) => {
-				if (flags.device) {
-					if (flags.follow)
-						throw new Error(
-							"--follow is not supported with device log snapshots.",
-						);
-					json(
-						await client(flags.url).deviceLogs(flags.device, {
-							limit: flags.limit,
-							level: flags.level,
-							query: flags.query,
-							package: flags.app,
-							pid: flags.pid,
-						}),
-					);
-					return;
-				}
-				if (flags.url || flags.level || flags.query || flags.app || flags.pid)
-					throw new Error("Device log filters require --device.");
-				if (!existsSync(localServerLogFile)) return;
-				if (!flags.follow) {
-					process.stdout.write(readFileSync(localServerLogFile, "utf8"));
-					return;
-				}
-				const child = Bun.spawn(["tail", "-f", localServerLogFile], {
-					stdout: "inherit",
-					stderr: "inherit",
-				});
-				const stop = () => child.kill();
-				process.once("SIGINT", stop);
-				process.once("SIGTERM", stop);
-				try {
-					await child.exited;
-				} finally {
-					process.off("SIGINT", stop);
-					process.off("SIGTERM", stop);
-				}
-			},
+			async (
+				flags: DeviceFlags & {
+					limit: number;
+					level?: string;
+					query?: string;
+					app?: string;
+					pid?: number;
+				},
+			) =>
+				json(
+					await client(flags.url).deviceLogs(flags.device, {
+						limit: flags.limit,
+						level: flags.level,
+						query: flags.query,
+						package: flags.app,
+						pid: flags.pid,
+					}),
+				),
 		);
 	const devices = program
-		.command("devices [operation]")
-		.description("List, boot, or shut down devices")
-		.argument("[device]")
+		.command("devices")
+		.description("List, boot, or shut down devices");
+	devices
+		.command("list", { isDefault: true })
+		.description("List every known device")
 		.option("--url <url>")
+		.action(async (flags: { url?: string }) =>
+			json(await client(flags.url).listDevices()),
+		);
+	devices
+		.command("boot <device>")
+		.description("Boot a simulator or emulator")
+		.option("--url <url>")
+		.action(async (device: string, flags: { url?: string }) =>
+			json(await client(flags.url).startDevice(device)),
+		);
+	devices
+		.command("shutdown <device>")
+		.description("Shut down a simulator or emulator")
+		.option("--url <url>")
+		.action(async (device: string, flags: { url?: string }) =>
+			json(await client(flags.url).shutdownDevice(device)),
+		);
+	const deviceCommand = (name: string, description: string) =>
+		program
+			.command(name)
+			.description(description)
+			.requiredOption("-d, --device <id>")
+			.option("--url <url>");
+	const send = (flags: { device: string; url?: string }, action: unknown) =>
+		client(flags.url).actDevice(flags.device, [action]);
+
+	deviceCommand("tap <x> <y>", "Tap a point, in screen fractions from 0 to 1")
+		.action(async (x: string, y: string, flags: DeviceFlags) =>
+			json(
+				await send(flags, {
+					type: "tap",
+					x: coordinate("x")(x),
+					y: coordinate("y")(y),
+				}),
+			),
+		);
+	deviceCommand(
+		"swipe <x1> <y1> <x2> <y2>",
+		"Swipe between two points, in screen fractions from 0 to 1",
+	)
+		.option(
+			"--duration <ms>",
+			"Swipe duration in milliseconds",
+			integer("Duration", 1, 5_000),
+		)
 		.action(
 			async (
-				operation = "list",
-				device: string | undefined,
-				flags: { url?: string },
-			) => {
-				const api = client(flags.url);
-				if (operation === "list") {
-					json(await api.listDevices());
-					return;
-				}
-				if (!device) throw new Error("Device is required.");
-				if (operation === "boot") {
-					json(await api.startDevice(device));
-					return;
-				}
-				if (operation === "shutdown") {
-					json(await api.shutdownDevice(device));
-					return;
-				}
-				throw new Error("Operation must be list, boot, or shutdown.");
-			},
+				x1: string,
+				y1: string,
+				x2: string,
+				y2: string,
+				flags: DeviceFlags & { duration?: number },
+			) =>
+				json(
+					await send(flags, {
+						type: "swipe",
+						x1: coordinate("x1")(x1),
+						y1: coordinate("y1")(y1),
+						x2: coordinate("x2")(x2),
+						y2: coordinate("y2")(y2),
+						...(flags.duration === undefined
+							? {}
+							: { durationMs: flags.duration }),
+					}),
+				),
 		);
-	void devices;
+	deviceCommand("text <text>", "Type text into the focused field").action(
+		async (text: string, flags: DeviceFlags) =>
+			json(await send(flags, { type: "type", text })),
+	);
+	deviceCommand(
+		"button <name>",
+		`Press a hardware button: ${DEVICE_BUTTONS.join(", ")}`,
+	).action(async (name: string, flags: DeviceFlags) =>
+		json(
+			await send(flags, {
+				type: "button",
+				button: oneOf("Button", DEVICE_BUTTONS)(name),
+			}),
+		),
+	);
+	deviceCommand(
+		"rotate <orientation>",
+		`Rotate the device: ${DEVICE_ORIENTATIONS.join(", ")}`,
+	).action(async (orientation: string, flags: DeviceFlags) =>
+		json(
+			await send(flags, {
+				type: "rotate",
+				orientation: oneOf("Orientation", DEVICE_ORIENTATIONS)(orientation),
+			}),
+		),
+	);
+	deviceCommand(
+		"gesture <phase> <x> <y>",
+		`One phase of a held touch: ${GESTURE_PHASES.join(", ")}`,
+	).action(async (phase: string, x: string, y: string, flags: DeviceFlags) =>
+		json(
+			await send(flags, {
+				type: "gesture",
+				phase: oneOf("Phase", GESTURE_PHASES)(phase),
+				x: coordinate("x")(x),
+				y: coordinate("y")(y),
+			}),
+		),
+	);
+
 	program
 		.command("observe")
 		.requiredOption("-d, --device <id>")
@@ -248,10 +351,8 @@ export function createProgram(): Command {
 			json(await client(flags.url).observeDevice(flags.device, flags.ax)),
 		);
 	program
-		.command("act <json>")
-		.description(
-			`Send one bounded input action. Buttons: ${DEVICE_BUTTONS.join(", ")}`,
-		)
+		.command("act <json>", { hidden: true })
+		.description("Send one input action as JSON. Prefer tap, swipe, and text.")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
 		.action(async (input: string, flags: { device: string; url?: string }) =>
@@ -261,132 +362,165 @@ export function createProgram(): Command {
 				]),
 			),
 		);
-	program
-		.command("camera [operation] [webcam]")
-		.description("List, select, or stop a host webcam for a device")
+	const camera = program
+		.command("camera")
+		.description("Use a host webcam as the device camera");
+	camera
+		.command("list", { isDefault: true })
+		.alias("webcams")
+		.description("List the host webcams available to a device")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
-		.option("--face <face>", "Android camera face", cameraFace)
+		.action(async (flags: DeviceFlags) =>
+			json(await client(flags.url).listWebcams(flags.device)),
+		);
+	camera
+		.command("use <webcam-id>")
+		.alias("webcam")
+		.description("Send a host webcam to the device camera")
+		.requiredOption("-d, --device <id>")
+		.option("--url <url>")
+		.option(
+			"--face <face>",
+			"Android camera to replace: front or back",
+			cameraFace,
+		)
 		.action(
 			async (
-				operation = "webcams",
-				webcam: string | undefined,
-				flags: {
-					device: string;
-					url?: string;
-					face?: "front" | "back";
-				},
+				webcam: string,
+				flags: DeviceFlags & { face?: "front" | "back" },
 			) => {
-				const api = client(flags.url);
-				if (operation === "webcams") {
-					if (webcam) throw new Error("webcams does not accept a webcam ID.");
-					json(await api.listWebcams(flags.device));
-					return;
-				}
-				if (operation === "webcam") {
-					if (!webcam)
-						throw new Error("webcam requires an ID from camera webcams.");
-					const android = flags.device.startsWith("android:");
-					if (android && !flags.face)
-						throw new Error("Android webcam selection requires --face.");
-					if (!android && flags.face)
-						throw new Error("--face is available only for Android emulators.");
-					json(await api.selectWebcam(flags.device, webcam, flags.face));
-					return;
-				}
-				if (operation === "stop") {
-					if (webcam || flags.face)
-						throw new Error("camera stop does not accept a webcam or face.");
-					json(await api.stopCamera(flags.device));
-					return;
-				}
-				throw new Error("Camera operation must be webcams, webcam, or stop.");
+				const android = flags.device.startsWith("android:");
+				if (android && !flags.face)
+					throw new Error("Android webcam selection requires --face.");
+				if (!android && flags.face)
+					throw new Error("--face is available only for Android emulators.");
+				json(
+					await client(flags.url).selectWebcam(
+						flags.device,
+						webcam,
+						flags.face,
+					),
+				);
 			},
 		);
-	program
-		.command("app <operation> [value]")
-		.description("Run a bounded app operation")
+	camera
+		.command("stop")
+		.description("Stop webcam input for a device")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
-		.action(
-			async (
-				operation: string,
-				value: string | undefined,
-				flags: { device: string; url?: string },
-			) => {
-				if (
-					!["list", "launch", "stop", "install", "uninstall"].includes(
-						operation,
-					)
-				)
-					throw new Error(
-						"Operation must be list, launch, stop, install, or uninstall.",
-					);
-				if (operation !== "list" && !value)
-					throw new Error(`${operation} requires an app id or path.`);
-				json(await client(flags.url).app(flags.device, operation, value));
-			},
+		.action(async (flags: DeviceFlags) =>
+			json(await client(flags.url).stopCamera(flags.device)),
 		);
-	program
-		.command("permissions <operation> [permission]")
-		.description("List, grant, revoke, or reset app permissions")
-		.requiredOption("-d, --device <id>")
-		.requiredOption("-a, --app <app-id>", "Bundle ID or Android package name")
-		.option("--value <value>", "Permission-specific grant value")
-		.option("--url <url>")
+	const app = program.command("app").description("Manage apps on a device");
+	const appCommand = (name: string, description: string) =>
+		app
+			.command(name)
+			.description(description)
+			.requiredOption("-d, --device <id>")
+			.option("--url <url>");
+	const runApp = (flags: DeviceFlags, operation: string, value?: string) =>
+		client(flags.url).app(flags.device, operation, value);
+
+	appCommand("list", "List the apps installed on a device").action(
+		async (flags: DeviceFlags) => json(await runApp(flags, "list")),
+	);
+	appCommand("install <path>", "Install an .app or .apk build").action(
+		async (path: string, flags: DeviceFlags) =>
+			json(await runApp(flags, "install", path)),
+	);
+	appCommand("launch <app-id>", "Launch an installed app").action(
+		async (appId: string, flags: DeviceFlags) =>
+			json(await runApp(flags, "launch", appId)),
+	);
+	appCommand("stop <app-id>", "Stop a running app").action(
+		async (appId: string, flags: DeviceFlags) =>
+			json(await runApp(flags, "stop", appId)),
+	);
+	appCommand("uninstall <app-id>", "Remove an installed app").action(
+		async (appId: string, flags: DeviceFlags) =>
+			json(await runApp(flags, "uninstall", appId)),
+	);
+	const permissions = program
+		.command("permissions")
+		.description("List, grant, revoke, or reset app permissions");
+	const permissionCommand = (name: string, description: string) =>
+		permissions
+			.command(name)
+			.description(description)
+			.requiredOption("-d, --device <id>")
+			.requiredOption("-a, --app <app-id>", "Bundle ID or Android package name")
+			.option("--url <url>");
+
+	// iOS names a privacy service. Android names a runtime permission.
+	const appId = (flags: PermissionFlags): string => {
+		const android = Boolean(androidSerialFromStateId(flags.device));
+		const parsed = (
+			android ? AndroidPackageSchema : BundleIdSchema
+		).safeParse(flags.app);
+		if (!parsed.success)
+			throw new Error(
+				android
+					? "App must be a valid Android package name."
+					: "App must be a valid bundle identifier.",
+			);
+		return parsed.data;
+	};
+	const permissionName = (flags: PermissionFlags, name: string): string => {
+		const resolved = androidSerialFromStateId(flags.device)
+			? normalizeAndroidPermission(name)
+			: (PermissionNameSchema.safeParse(name).data ?? null);
+		if (!resolved) throw new Error("Unknown permission name.");
+		return resolved;
+	};
+
+	permissionCommand("list", "Show the permission state of an app").action(
+		async (flags: PermissionFlags) =>
+			json(await client(flags.url).listPermissions(flags.device, appId(flags))),
+	);
+	permissionCommand("grant <permission>", "Grant one permission")
+		.option("--value <value>", "iOS grant value, such as always or limited")
 		.action(
 			async (
-				operation: string,
-				permission: string | undefined,
-				flags: { device: string; app: string; value?: string; url?: string },
+				permission: string,
+				flags: PermissionFlags & { value?: string },
 			) => {
-				// iOS names a privacy service. Android names a runtime permission.
-				const android = Boolean(androidSerialFromStateId(flags.device));
-				const appId = (
-					android ? AndroidPackageSchema : BundleIdSchema
-				).safeParse(flags.app);
-				if (!appId.success)
-					throw new Error(
-						android
-							? "App must be a valid Android package name."
-							: "App must be a valid bundle identifier.",
-					);
-				const api = client(flags.url);
-				if (operation === "list") {
-					if (permission || flags.value)
-						throw new Error(
-							"permissions list does not accept a permission or value.",
-						);
-					json(await api.listPermissions(flags.device, appId.data));
-					return;
-				}
-				if (!["grant", "revoke", "reset"].includes(operation))
-					throw new Error(
-						"Permission operation must be list, grant, revoke, or reset.",
-					);
-				if (!permission && operation !== "reset")
-					throw new Error(`${operation} requires a permission.`);
-				const resolved = permission
-					? android
-						? normalizeAndroidPermission(permission)
-						: (PermissionNameSchema.safeParse(permission).data ?? null)
-					: null;
-				if (permission && !resolved)
-					throw new Error("Unknown permission name.");
-				if (flags.value && operation !== "grant")
-					throw new Error("--value is available only with grant.");
-				if (flags.value && android)
+				if (flags.value && androidSerialFromStateId(flags.device))
 					throw new Error("--value is available only for iOS simulators.");
 				json(
-					await api.mutatePermissions(flags.device, {
-						operation,
-						bundleId: appId.data,
-						...(resolved ? { permission: resolved } : {}),
+					await client(flags.url).mutatePermissions(flags.device, {
+						operation: "grant",
+						bundleId: appId(flags),
+						permission: permissionName(flags, permission),
 						...(flags.value ? { value: flags.value } : {}),
 					}),
 				);
 			},
 		);
+	permissionCommand("revoke <permission>", "Revoke one permission").action(
+		async (permission: string, flags: PermissionFlags) =>
+			json(
+				await client(flags.url).mutatePermissions(flags.device, {
+					operation: "revoke",
+					bundleId: appId(flags),
+					permission: permissionName(flags, permission),
+				}),
+			),
+	);
+	permissionCommand(
+		"reset [permission]",
+		"Reset one permission, or the whole app when no name is given",
+	).action(async (permission: string | undefined, flags: PermissionFlags) =>
+		json(
+			await client(flags.url).mutatePermissions(flags.device, {
+				operation: "reset",
+				bundleId: appId(flags),
+				...(permission
+					? { permission: permissionName(flags, permission) }
+					: {}),
+			}),
+		),
+	);
 	program
 		.command("doctor")
 		.option("--platform <platform>", "android or ios")

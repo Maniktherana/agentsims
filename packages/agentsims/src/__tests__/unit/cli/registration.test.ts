@@ -22,7 +22,7 @@ test("public device and app commands use bounded HTTP requests", async () => {
 	const output = spyOn(process.stdout, "write").mockReturnValue(true);
 	try {
 		for (const args of [
-			["act", '{"type":"tap","x":0.2,"y":0.7}', "-d", "android:emulator-5554"],
+			["tap", "0.2", "0.7", "-d", "android:emulator-5554"],
 			["devices", "boot", "android:emulator-5554"],
 			["app", "launch", "com.example.app", "-d", "ios-device"],
 			["camera", "webcam", "camera-1", "-d", "ios-device"],
@@ -35,7 +35,7 @@ test("public device and app commands use bounded HTTP requests", async () => {
 				"--app",
 				"com.example.app",
 			],
-			["logs", "-d", "android:emulator-5554", "--level", "e", "--limit", "25"],
+			["device-logs", "-d", "android:emulator-5554", "--level", "e", "--limit", "25"],
 		]) {
 			await program().parseAsync([...args, "--url", server.url.origin], {
 				from: "user",
@@ -74,28 +74,34 @@ test("public device and app commands use bounded HTTP requests", async () => {
 	}
 });
 
-test("legacy public commands are removed", () => {
-	const names = program()
-		.commands.filter((command) => !command.hidden)
-		.map((command) => command.name());
-	for (const removed of [
-		"ui",
-		"android",
-		"device",
-		"tap",
-		"button",
-		"ca-debug",
-		"setup",
-	])
+test("the command surface stays explicit", () => {
+	// Read the help text, which is the surface a user actually sees. Commander
+	// keeps its hidden flag private, so the command list includes hidden ones.
+	const help = program().helpInformation();
+	const names = help
+		.slice(help.indexOf("Commands:"))
+		.split("\n")
+		.map((line) => /^ {2}(\S+)/.exec(line)?.[1])
+		.filter((name): name is string => Boolean(name))
+		.map((name) => name.split("|")[0]!);
+	// `act` still accepts a JSON action, but it is hidden in favour of the
+	// named input commands below.
+	for (const removed of ["ui", "android", "device", "ca-debug", "setup", "act"])
 		expect(names).not.toContain(removed);
 	for (const current of [
 		"start",
 		"stop",
 		"status",
 		"logs",
+		"device-logs",
 		"devices",
 		"observe",
-		"act",
+		"tap",
+		"swipe",
+		"text",
+		"button",
+		"rotate",
+		"gesture",
 		"app",
 		"camera",
 		"permissions",

@@ -40,7 +40,7 @@ Device log snapshots are Android only. Use them when the screen does not show
 the cause of a failure.
 
 ```sh
-npx agentsims logs -d android:emulator-5554 --app com.example.app --level E --limit 50
+npx agentsims device-logs -d android:emulator-5554 --app com.example.app --level E --limit 50
 ```
 
 | Flag | Meaning | Default |
@@ -51,12 +51,11 @@ npx agentsims logs -d android:emulator-5554 --app com.example.app --level E --li
 | `--app <package>` | keep lines from this package | no filter |
 | `--pid <pid>` | keep lines from this process | no filter |
 
-Two constraints that the CLI enforces:
+A device snapshot is bounded, not a stream. `logs` and `device-logs` are
+separate commands: `logs` follows the workspace server, `device-logs` reads the
+device.
 
-- `--follow` fails with `-d`. A device snapshot is bounded, not a stream.
-- Every filter above needs `-d`. Without it the command fails.
-
-`npx agentsims logs` with no `-d` prints the detached agentsims server output,
+`npx agentsims logs` prints the detached agentsims server output,
 not device output. Read it when a device does not appear or a stream does not
 start.
 
@@ -136,8 +135,8 @@ reset the permission, stop the app, then launch it again.
 ## Camera input
 
 ```sh
-npx agentsims camera webcams -d <device-id>
-npx agentsims camera webcam <webcam-id> -d <device-id> [--face front|back]
+npx agentsims camera list -d <device-id>
+npx agentsims camera use <webcam-id> -d <device-id> [--face front|back]
 npx agentsims camera stop -d <device-id>
 ```
 

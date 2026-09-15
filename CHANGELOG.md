@@ -17,6 +17,17 @@
 
 ### Changed
 
+- **The CLI takes arguments, not JSON.** `agentsims tap 0.5 0.7`,
+  `swipe`, `text`, `button`, `rotate`, and `gesture` replace
+  `agentsims act '<json>'`, which is now hidden. `devices`, `app`, `camera`,
+  and `permissions` expose real subcommands, so `--help` lists the operations
+  and each one validates its own arguments. `--value` exists only on
+  `permissions grant`.
+- `agentsims logs` follows the workspace server. `agentsims device-logs`, also
+  called `logcat`, reads an Android device snapshot. One command no longer does
+  both.
+- `camera webcams` is `camera list`, and `camera webcam` is `camera use`. The
+  old names still work.
 - The Build Mobile Apps skill is now `skills/build-mobile-apps`. It documents
   the observe payload, the pixel-to-normalized coordinate conversion, the
   per-platform button lists, and app permissions on both platforms. Its

@@ -82,13 +82,18 @@ agentsims start [--detach] [--host <address>] [--port <port>] [--codec <codec>]
 agentsims stop
 agentsims status
 agentsims logs [--follow]
-agentsims logs --device <android-device> [--limit <count>] [--level <level>]
-agentsims devices [list|boot|shutdown] [device]
+agentsims device-logs --device <android-device> [--limit <count>] [--level <level>]
+agentsims devices [list|boot <device>|shutdown <device>]
 agentsims observe --device <device>
-agentsims act --device <device> <json>
-agentsims camera --device <device> [webcams|webcam|stop] [webcam]
-agentsims app --device <device> <operation> [value]
-agentsims permissions --device <device> --app <app-id> <operation> [permission]
+agentsims tap <x> <y> --device <device>
+agentsims swipe <x1> <y1> <x2> <y2> [--duration <ms>] --device <device>
+agentsims text <text> --device <device>
+agentsims button <name> --device <device>
+agentsims rotate <orientation> --device <device>
+agentsims gesture <phase> <x> <y> --device <device>
+agentsims camera [list|use <webcam>|stop] --device <device>
+agentsims app [list|install <path>|launch|stop|uninstall <app-id>] --device <device>
+agentsims permissions [list|grant|revoke|reset <permission>] --device <device> --app <app-id>
 agentsims doctor [--platform android|ios]
 ```
 
@@ -119,17 +124,20 @@ npx agentsims observe --device android:emulator-5554 --no-ax
 Tap coordinates use values from `0` to `1`:
 
 ```sh
-npx agentsims act --device android:emulator-5554 \
-  '{"type":"tap","x":0.5,"y":0.7}'
+npx agentsims tap 0.5 0.7 --device android:emulator-5554
+npx agentsims swipe 0.5 0.8 0.5 0.2 --duration 300 \
+  --device android:emulator-5554
+npx agentsims text "Buy milk" --device android:emulator-5554
+npx agentsims button home --device android:emulator-5554
+npx agentsims rotate landscape_left --device android:emulator-5554
+```
 
-npx agentsims act --device android:emulator-5554 \
-  '{"type":"swipe","x1":0.5,"y1":0.8,"x2":0.5,"y2":0.2,"durationMs":300}'
+Use `gesture` when a touch must stay down across several steps:
 
-npx agentsims act --device android:emulator-5554 \
-  '{"type":"type","text":"Buy milk"}'
-
-npx agentsims act --device android:emulator-5554 \
-  '{"type":"button","button":"home"}'
+```sh
+npx agentsims gesture begin 0.5 0.8 --device android:emulator-5554
+npx agentsims gesture move 0.5 0.5 --device android:emulator-5554
+npx agentsims gesture end 0.5 0.2 --device android:emulator-5554
 ```
 
 For scripts and agents, use this cycle:
@@ -160,9 +168,9 @@ face and take effect after an emulator restart. Agentsims does not restart the
 emulator automatically.
 
 ```sh
-npx agentsims camera webcams --device <device-id>
-npx agentsims camera webcam <webcam-id> --device <ios-device-id>
-npx agentsims camera webcam webcam0 --face back \
+npx agentsims camera list --device <device-id>
+npx agentsims camera use <webcam-id> --device <ios-device-id>
+npx agentsims camera use webcam0 --face back \
   --device android:emulator-5554
 npx agentsims camera stop --device <ios-device-id>
 ```
@@ -203,8 +211,8 @@ it. `--value` applies to iOS only.
 Read a bounded Android log snapshot when visible evidence is not enough:
 
 ```sh
-npx agentsims logs --device android:emulator-5554 --limit 100
-npx agentsims logs --device android:emulator-5554 \
+npx agentsims device-logs --device android:emulator-5554 --limit 100
+npx agentsims device-logs --device android:emulator-5554 \
   --app com.example.app --level E --query "camera"
 ```
 

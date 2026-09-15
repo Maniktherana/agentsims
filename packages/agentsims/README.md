@@ -63,8 +63,7 @@ With the workspace running:
 ```sh
 npx agentsims devices list
 npx agentsims observe --device android:emulator-5554
-npx agentsims act --device android:emulator-5554 \
-  '{"type":"tap","x":0.5,"y":0.7}'
+npx agentsims tap 0.5 0.7 --device android:emulator-5554
 ```
 
 Use the device ID from the list. Tap coordinates range from `0` to `1`.
@@ -73,15 +72,14 @@ bounded commands for hardware buttons, host webcam input, app permissions, and
 Android log snapshots:
 
 ```sh
-npx agentsims act --device <device-id> \
-  '{"type":"button","button":"volume-up"}'
-npx agentsims camera webcams --device <device-id>
-npx agentsims camera webcam <webcam-id> --device <ios-device-id>
+npx agentsims button volume-up --device <device-id>
+npx agentsims camera list --device <device-id>
+npx agentsims camera use <webcam-id> --device <ios-device-id>
 npx agentsims permissions revoke camera --device <ios-device-id> \
   --app com.example.app
 npx agentsims permissions revoke CAMERA --device android:emulator-5554 \
   --app com.example.app
-npx agentsims logs --device android:emulator-5554 --app com.example.app
+npx agentsims device-logs --device android:emulator-5554 --app com.example.app
 ```
 
 Run `npx agentsims <command> --help` for supported operations and options.

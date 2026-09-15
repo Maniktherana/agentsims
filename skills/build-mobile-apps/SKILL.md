@@ -203,11 +203,15 @@ Every device command takes `-d <device-id>`. Every command prints JSON.
 | List devices | `npx agentsims devices list` |
 | Boot or shut down | `npx agentsims devices boot\|shutdown <device-id>` |
 | Screenshot and a11y tree | `npx agentsims observe -d <id> [--no-ax]` |
-| One input action | `npx agentsims act -d <id> '<json>'` |
-| App operations | `npx agentsims app <op> [value] -d <id>` |
-| App permissions | `npx agentsims permissions <op> [name] -d <id> -a <app-id>` |
-| Host webcam | `npx agentsims camera <op> [webcam] -d <id>` |
-| Android device logs | `npx agentsims logs -d <android-id> --limit 100` |
+| Tap a point | `npx agentsims tap <x> <y> -d <id>` |
+| Swipe | `npx agentsims swipe <x1> <y1> <x2> <y2> -d <id>` |
+| Type into the focused field | `npx agentsims text "<text>" -d <id>` |
+| Press a hardware button | `npx agentsims button <name> -d <id>` |
+| Rotate | `npx agentsims rotate <orientation> -d <id>` |
+| Apps | `npx agentsims app <list\|install\|launch\|stop\|uninstall> -d <id>` |
+| App permissions | `npx agentsims permissions <list\|grant\|revoke\|reset> -d <id> -a <app-id>` |
+| Host webcam | `npx agentsims camera <list\|use\|stop> -d <id>` |
+| Android device logs | `npx agentsims device-logs -d <android-id> --limit 100` |
 | Workspace server logs | `npx agentsims logs [--follow]` |
 | Stop an owned workspace | `npx agentsims stop` |
 
@@ -245,7 +249,7 @@ behavior that stays unverified.
 - [references/observe.md](references/observe.md) — read the screen. The payload,
   screenshot extraction, accessibility queries, and the pixel-to-normalized
   conversion. Read this before the first `observe`.
-- [references/input.md](references/input.md) — drive the screen. Every action
-  type and the per-platform button lists. Read this before the first `act`.
+- [references/input.md](references/input.md) — drive the screen. Every input
+  command and the per-platform button lists. Read this before the first `tap`.
 - [references/device-control.md](references/device-control.md) — everything
   occasional: apps, Android logs, app permissions, and camera input.

@@ -167,7 +167,7 @@ for e in a['elements']:
 "
 ```
 
-Send those two numbers to `act`. This captures them and taps in one pass:
+Send those two numbers to `tap`. This captures them and taps in one pass:
 
 ```sh
 read -r X Y < <(jq -r '.accessibility as $a
@@ -175,7 +175,7 @@ read -r X Y < <(jq -r '.accessibility as $a
   | "\((.frame.x + .frame.width/2) / $a.screen.width) \((.frame.y + .frame.height/2) / $a.screen.height)"' \
   /tmp/obs.json | head -1)
 
-npx agentsims act -d "$DEVICE" "{\"type\":\"tap\",\"x\":$X,\"y\":$Y}"
+npx agentsims tap "$X" "$Y" -d "$DEVICE"
 ```
 
 If `$X` is empty, the target is absent from the tree. Report that. Do not tap a
