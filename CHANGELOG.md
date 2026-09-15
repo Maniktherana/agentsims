@@ -1,6 +1,156 @@
 # Changelog
 
-What changed in agentsims, day by day, newest first.
+## 2026-09-14
+
+### Added
+
+- **Device logs from the CLI.** `agentsims logs --device <id>` returns recent
+  Android logs as JSON. Filters select the app, process, severity, and message
+  text. (`4b3734d`)
+- **App permissions from the CLI and HTTP API.** `agentsims permissions` can
+  list, grant, revoke, and reset permissions for an iOS Simulator app. The
+  browser uses the same permission service. (`4b3734d`)
+- **Webcam selection from the CLI.** `agentsims camera` lists and selects host
+  webcams for iOS simulators and Android emulators. Android selection requires
+  a camera face and an emulator restart. `camera stop` stops iOS camera
+  injection. (`4b3734d`)
+
+### Changed
+
+- **Android video no longer needs FFmpeg.** macOS emulators use Apple's
+  VideoToolbox encoder. Linux emulators and physical Android devices use H.264
+  video through ADB. The Rust Android video module is removed. (`e8ef0c5`)
+- **The Build Mobile Apps skill replaces the agentsims skill.** It covers native
+  iOS, native Android, React Native, and Expo workflows, with Agentsims for
+  device inspection and control. (`4b3734d`)
+
+### Removed
+
+- **Configure Metro manually with `withAgentsims`.** `agentsims setup` and
+  automatic Metro configuration are removed. The README contains the setup
+  instructions. (`0ee504a`)
+- Removed the unused `craft-interfaces` skill. (`34a78a3`)
+
+### Fixed
+
+- Video streams and browser control connections recover after a server restart.
+  The toolbar shows the connection state and a retry button. A static H.264
+  screen no longer disables input. (`3cec780`)
+- An unavailable stream keeps its last frame visible with a dark overlay.
+  Before the first frame, the device shows a placeholder. (`c68e3eb`)
+- Browser screenshots now download through the browser instead of saving to the
+  server host. (`b082d75`)
+- Device positions persist in the URL. Devices can move beyond the canvas edges
+  without snapping back. (`f9bcd31`)
+- Unhandled Command shortcuts no longer reach the simulator or open the Android
+  launcher. The multitouch preview clears when the browser loses focus.
+  (`5d30af5`)
+- Concurrent Android accessibility requests share one capture. Failed captures
+  respect the retry delay, and logs report capture availability. (`356c438`)
+- Repeated shutdown signals no longer interrupt session cleanup. Runtime logs
+  use consistent lifecycle messages. (`203a3a8`)
+- Missing Android emulator controller credentials produce a clear stream error
+  with restart instructions. (`4a3256f`)
+- CLI builds preserve readable stack traces. (`1267ff9`)
+- `act` rejects unknown hardware-button names before it sends input.
+  (`4b3734d`)
+
+### Internal
+
+- Updated accessibility and screenshot tests to match current behavior.
+  (`d7a602a`)
+
+## 2026-09-13
+
+### Added
+
+- **Metro can start its own Agentsims process.** With `preview: true`, the first
+  request to `/.sim` starts Agentsims and redirects the browser to it. Metro
+  stops only the process that it starts. (`86754be`)
+- **Workspace state persists in the URL.** Selected devices, focus, open panels,
+  settings, accessibility targets, and canvas position survive a reload.
+  (`672461e`)
+- **App details work across Android and iOS.** The browser reads app metadata
+  through the device API. (`69ce110`)
+- Added an optional agentsims skill, a Claude Code marketplace entry, and editor
+  integration instructions. Skill installation is explicit. (`cdef696`)
+- Added the `craft-interfaces` skill for interface design and review.
+  (`c6e09f1`)
+
+### Changed
+
+- **The workspace starts in the foreground by default.** `start --detach` runs
+  it in the background. `status`, `logs`, and `stop` manage the local server.
+  Managed integrations can read JSON readiness and stop their server by closing
+  its input pipe. (`d05d16c`)
+- **Arrange devices side by side.** The new Arrange devices button replaces the
+  pan-mode toggle. Drag the canvas background or use the middle mouse button
+  to pan. (`46b8e7d`)
+- Android emulator video uses the FFmpeg executable instead of linked FFmpeg
+  libraries. (`1965bd7`)
+
+### Removed
+
+- **Use `devices`, `observe`, `act`, and `app` for device commands.** Legacy
+  commands such as `tap`, `button`, `device`, `android`, and `ui` are removed.
+  The browser retains the platform settings and tools. (`d05d16c`)
+
+### Fixed
+
+- Streaming HTTP responses close correctly when a client disconnects. Logs now
+  report server, session, and capture lifecycle events. (`44b5324`)
+
+### Internal
+
+- Moved platform implementations and common tools into `src/core`. Split Android
+  discovery, input, media, and accessibility into separate modules. CLI and HTTP
+  adapters use the common device services. (`119012e`, `9de7a56`, `d05d16c`)
+- Separated CI checks from manual package publishing. The publish workflow
+  checks runtime packages and publishes the launcher package last. (`0ff5b77`)
+- Normalized component and test formatting. (`9fed21e`)
+
+## 2026-09-07
+
+### Added
+
+- **More Android device controls.** Network and battery controls show the
+  current state. Tools include display density, app locale, and TalkBack
+  controls. (`52f12e4`, `4c9ea69`)
+- **Repeatable Android emulator conditions.** Save and restore named snapshots,
+  change network speed and latency, and simulate calls and SMS messages.
+  (`52f12e4`, `4c9ea69`)
+- **Android app tools and filtered logs.** Install APKs, search installed apps,
+  launch or stop apps, clear app data, uninstall apps, and open links. Device
+  logs appear in the settings panel. (`52f12e4`, `4c9ea69`)
+- **Host diagnostics.** `agentsims doctor` checks platform tools, device
+  connections, simulator runtimes, and emulator acceleration, with repair
+  instructions. Android tools resolve from standard SDK locations as well as
+  environment variables and `PATH`. (`26d327e`)
+
+### Changed
+
+- **npm packages include a platform executable.** The build produces runtime
+  packages for macOS Apple Silicon, macOS Intel, and Linux x64. The Node
+  launcher selects the matching executable, so users do not need a separate
+  Bun installation. (`1c550b8`)
+
+### Fixed
+
+- Screenshot previews and notifications stay above devices and floating panels.
+  Screenshot controls appear on hover or keyboard focus. (`3fa588a`)
+- Canvas movement supports panning and recentering without page scrollbars.
+  Device positions stay in place when the device list changes. (`4c9ea69`)
+
+### Internal
+
+- Cached iOS device profiles, screen masks, and frame images to avoid repeated
+  asset conversion. (`24c916a`)
+- Simplified device services, server setup, and Metro configuration checks.
+  (`26d327e`, `9b24025`)
+- Moved browser component tests into `src/__tests__/unit/web/components`.
+  (`58cf545`)
+- Updated setup, device, and platform documentation, and moved the CLI reference
+  into `docs`. (`8ddd58c`, `1de9acd`, `b36ae3d`)
 
 ## 2026-08-19
 
@@ -129,10 +279,10 @@ published npm package.
   coordinates from 0 to 1. Supported actions are `tap`, `gesture`, `swipe`, `type`,
   `button`, and `rotate`. (`3eef13b`)
 
-  ```bash
-  npx agentsims observe --device android:emulator-5554
-  npx agentsims act '{"type":"tap","x":0.5,"y":0.7}' --device android:emulator-5554
-  ```
+    ```bash
+    npx agentsims observe --device android:emulator-5554
+    npx agentsims act '{"type":"tap","x":0.5,"y":0.7}' --device android:emulator-5554
+    ```
 
 - **Rebuilt accessibility inspection.** The tree is searchable. You can inspect the
   bounds and state of a target, and highlight the matching element on the phone.
