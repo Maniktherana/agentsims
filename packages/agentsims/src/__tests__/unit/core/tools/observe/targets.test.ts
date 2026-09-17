@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { AxSnapshot } from "../../../../../core/tools/observe/accessibility-model";
 import { createSnapshotStore } from "../../../../../core/tools/observe/snapshot-store";
 import {
+	revalidateActionTargets,
 	resolveActionTargets,
 	resolveTarget,
 	resolveTargetNode,
@@ -195,6 +196,147 @@ describe("actionability", () => {
 		expect(() =>
 			resolveTarget(observed().store, DEVICE, { target: "Search results" }),
 		).toThrow("is not actionable");
+	});
+
+	test("keeps a clickable container actionable without redirecting its text child", () => {
+		const item: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.view.ViewGroup", {
+					id: "item-root",
+					testId: "item_root",
+					traits: ["clickable"],
+					frame: { x: 40, y: 200, width: 600, height: 100 },
+				}),
+				axElement("0.0", "android.widget.TextView", {
+					id: "item-label",
+					label: "task.html",
+					frame: { x: 60, y: 220, width: 200, height: 60 },
+				}),
+			],
+		};
+		const { store } = observed(item);
+		expect(resolveTarget(store, DEVICE, { target: "item_root" }).role).toBe(
+			"generic",
+		);
+		expect(() =>
+			resolveTarget(store, DEVICE, { target: "task.html" }),
+		).toThrow('text "task.html"');
+		expect(() =>
+			resolveTarget(store, DEVICE, { target: "task.html" }),
+		).toThrow("is not actionable");
+	});
+
+	test("allows a visible target in a higher non-focused popup", () => {
+		const popup: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.widget.FrameLayout", {
+					id: "base-window",
+					windowId: 262,
+					windowLayer: 0,
+					windowActive: true,
+					windowFocused: true,
+					frame: { x: 0, y: 0, width: 1080, height: 2400 },
+				}),
+				axElement("1", "android.widget.FrameLayout", {
+					id: "popup-window",
+					windowId: 263,
+					windowLayer: 1,
+					windowActive: false,
+					windowFocused: false,
+					frame: { x: 100, y: 500, width: 700, height: 500 },
+				}),
+				axElement("1.0", "android.widget.CheckedTextView", {
+					id: "work",
+					label: "Work",
+					windowId: 263,
+					sourceId: 77,
+					traits: ["clickable", "checkable"],
+					frame: { x: 120, y: 550, width: 640, height: 100 },
+				}),
+			],
+		};
+		expect(resolveTarget(observed(popup).store, DEVICE, { target: "Work" })).toMatchObject({
+			label: "Work",
+			pixels: { x: 440, y: 600 },
+		});
+	});
+
+	test("rejects a lower target covered by a visible higher window", () => {
+		const covered: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.widget.FrameLayout", {
+					id: "base-window",
+					windowId: 262,
+					windowLayer: 0,
+					windowActive: true,
+					windowFocused: true,
+					frame: { x: 0, y: 0, width: 1080, height: 2400 },
+				}),
+				axElement("0.0", "android.widget.Button", {
+					id: "covered",
+					label: "Covered",
+					frame: { x: 200, y: 600, width: 200, height: 100 },
+				}),
+				axElement("1", "android.widget.FrameLayout", {
+					id: "popup-window",
+					windowId: 263,
+					windowLayer: 1,
+					windowActive: false,
+					windowFocused: false,
+					frame: { x: 100, y: 500, width: 700, height: 500 },
+				}),
+			],
+		};
+		expect(() =>
+			resolveTarget(observed(covered).store, DEVICE, { target: "Covered" }),
+		).toThrow("behind the active window");
+	});
+
+	test("revalidates changed window ordering before dispatch", () => {
+		const popup = (popupLayer: number): AxSnapshot => ({
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.widget.FrameLayout", {
+					id: "base-window",
+					windowId: 262,
+					windowLayer: 0,
+					windowActive: true,
+					windowFocused: true,
+					frame: { x: 0, y: 0, width: 1080, height: 2400 },
+				}),
+				axElement("1", "android.widget.FrameLayout", {
+					id: "popup-window",
+					windowId: 263,
+					windowLayer: popupLayer,
+					frame: { x: 100, y: 500, width: 700, height: 500 },
+				}),
+				axElement("1.0", "android.widget.CheckedTextView", {
+					id: "work",
+					label: "Work",
+					windowId: 263,
+					sourceId: 77,
+					traits: ["clickable", "checkable"],
+					frame: { x: 120, y: 550, width: 640, height: 100 },
+				}),
+			],
+		});
+		const { store } = observed(popup(1));
+		const action = resolveActionTargets(store, DEVICE, [
+			{ type: "tap", target: "Work" },
+		]);
+		store.publishObservation(store.beginObservation(DEVICE), {
+			platform: "android",
+			snapshot: popup(-1),
+			screen: SCREEN,
+			app: "com.example.app",
+			all: false,
+		});
+		expect(() => revalidateActionTargets(store, DEVICE, action)).toThrow(
+			"behind the active window",
+		);
 	});
 
 	test("rejects a target behind the active modal window", () => {

@@ -166,18 +166,47 @@ function wrongWindow(
 	const elements = store.normalized(device)?.elements;
 	if (!elements) return false;
 	const roots = elements.filter((element) => !element.path.includes("."));
+	const rootPath = node.path.split(".")[0]!;
+	const targetRoot = roots.find((root) => root.path === rootPath);
+	const target = elements.find((element) => element.path === node.path);
+	if (!targetRoot || !target) return false;
+	const sameWindow = (left: AxElement, right: AxElement): boolean =>
+		left.windowId !== undefined && right.windowId !== undefined
+			? left.windowId === right.windowId
+			: left.path === right.path;
 	const active = roots
 		.filter(
 			(root) => root.windowActive === true || root.windowFocused === true,
 		)
 		.sort((a, b) => (b.windowLayer ?? 0) - (a.windowLayer ?? 0))[0];
-	if (!active) return false;
-	const rootPath = node.path.split(".")[0]!;
-	const targetRoot = roots.find((root) => root.path === rootPath);
-	if (!targetRoot) return false;
-	if (active.windowId !== undefined && targetRoot.windowId !== undefined)
-		return active.windowId !== targetRoot.windowId;
-	return active.path !== targetRoot.path;
+	if (active && !sameWindow(active, targetRoot)) {
+		if (
+			active.windowLayer === undefined ||
+			targetRoot.windowLayer === undefined ||
+			targetRoot.windowLayer <= active.windowLayer
+		)
+			return true;
+	}
+
+	const x = target.frame.x + target.frame.width / 2;
+	const y = target.frame.y + target.frame.height / 2;
+	return roots.some((root) => {
+		if (sameWindow(root, targetRoot) || root.visibleToUser === false) return false;
+		if (root.windowId === undefined || targetRoot.windowId === undefined)
+			return false;
+		const frame = root.frame;
+		const covers =
+			frame.width > 0 &&
+			frame.height > 0 &&
+			x >= frame.x &&
+			x <= frame.x + frame.width &&
+			y >= frame.y &&
+			y <= frame.y + frame.height;
+		if (!covers) return false;
+		if (root.windowLayer === undefined || targetRoot.windowLayer === undefined)
+			return true;
+		return root.windowLayer > targetRoot.windowLayer;
+	});
 }
 
 function requireActionable(

@@ -41,6 +41,7 @@ export const AX_STATES = [
 	"checked",
 	"unchecked",
 	"selected",
+	"clickable",
 	"scrollable",
 	"long-press",
 	"offscreen",
@@ -141,6 +142,7 @@ export function axStatesOf(element: AxElement): AxState[] {
 	if (hasTrait(element, "checked")) states.push("checked");
 	else if (hasTrait(element, "checkable")) states.push("unchecked");
 	if (hasTrait(element, "selected")) states.push("selected");
+	if (hasTrait(element, "clickable")) states.push("clickable");
 	if (hasTrait(element, "scrollable")) states.push("scrollable");
 	if (hasTrait(element, "long press")) states.push("long-press");
 	if (element.visibleToUser === false) states.push("offscreen");

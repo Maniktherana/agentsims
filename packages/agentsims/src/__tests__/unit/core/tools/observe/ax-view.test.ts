@@ -90,6 +90,7 @@ describe("states", () => {
 						"checkable",
 						"checked",
 						"selected",
+						"clickable",
 						"scrollable",
 						"long press",
 					],
@@ -102,6 +103,7 @@ describe("states", () => {
 			"disabled",
 			"checked",
 			"selected",
+			"clickable",
 			"scrollable",
 			"long-press",
 			"offscreen",
@@ -114,6 +116,36 @@ describe("states", () => {
 				axElement("0", "android.widget.CheckBox", { traits: ["checkable"] }),
 			),
 		).toEqual(["unchecked"]);
+	});
+
+	test("a generic clickable node stays and exposes native clickability", () => {
+		const result = view(
+			{
+				screen: { width: 1080, height: 2400 },
+				elements: [
+					axElement("0", "android.view.ViewGroup", {
+						id: "item-root",
+						testId: "item_root",
+						traits: ["clickable"],
+					}),
+					axElement("0.0", "android.widget.TextView", {
+						id: "item-label",
+						label: "task.html",
+					}),
+				],
+			},
+			"android",
+		);
+		expect(result.nodes[0]).toMatchObject({
+			id: "item-root",
+			role: "generic",
+			states: ["clickable"],
+		});
+		expect(result.nodes[0]?.children[0]).toMatchObject({
+			id: "item-label",
+			role: "text",
+			states: [],
+		});
 	});
 
 	test("iOS reports only the states the bridge gives", () => {

@@ -214,16 +214,16 @@ test("AX nodes render refs, hierarchy, frames, and raw roles", () => {
 		rawRole: "android.widget.EditText",
 		label: "Email",
 		value: "a@b.co",
-		states: ["focused"],
+		states: ["focused", "clickable"],
 		testId: "email",
 		box: { x: 10, y: 20, width: 100, height: 40 },
 		children: [],
 	}];
 	expect(renderAxNodes(nodes)).toEqual([
-		'- textbox "Email" [ref=e1] [focused] [testid=email]: a@b.co',
+		'- textbox "Email" [ref=e1] [focused] [clickable] [testid=email]: a@b.co',
 	]);
 	expect(renderAxNodes(nodes, { frames: true, raw: true })).toEqual([
-		'- android.widget.EditText "Email" [ref=e1] [focused] [box=10,20,100,40] [testid=email]: a@b.co',
+		'- android.widget.EditText "Email" [ref=e1] [focused] [clickable] [box=10,20,100,40] [testid=email]: a@b.co',
 	]);
 	expect(renderMatches({ device: "device", snapshot: "o1", query: "missing", nodes: [] }))
 		.toBe('no node matches "missing" in observation o1');
