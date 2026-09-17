@@ -21,6 +21,51 @@ implements the Agent Skills standard. One `SKILL.md` serves all of them.
   location, network, and battery conditions.
 - Verify the result instead of the exit code.
 
+## The device loop
+
+Agents use accessibility first. They open an image only when accessibility is
+insufficient or the task requires visual evidence.
+
+The normal loop uses semantic targets:
+
+```text
+observe -> read the AX tree -> run one semantic action -> read the new AX tree
+```
+
+1. Run `agentsims observe -d <device-id>`.
+2. Read the accessibility tree.
+3. Select a fresh ref or an exact label.
+4. Run one action.
+5. Read the dispatch result and the post-action tree.
+6. Use the new refs for the next action.
+
+`observe` saves a screenshot, but the agent does not have to open it. A clear
+semantic target does not require image inspection.
+
+When pixels are necessary, use the screenshot-assisted loop:
+
+```text
+observe or screenshot -> open artifact.path -> run one coordinate action -> get fresh state
+```
+
+1. Get a current image and capture ID.
+2. Open `artifact.path` with the image tool.
+3. Read the image at its original dimensions.
+4. Select the coordinate from that image.
+5. Run one coordinate action with the matching capture ID.
+6. Get fresh state before another coordinate action.
+
+Open the image in these cases:
+
+- Accessibility does not identify an actionable target.
+- The task depends on color, layout, drawing, or other visual state.
+- An action reports a window change or degraded accessibility.
+- The post-navigation tree appears to show the previous screen.
+- The next action uses pixel or percentage coordinates.
+
+Text input uses field readback instead of image inspection. `--submit` sends
+Return only after the observed text matches the requested text.
+
 ## Install
 
 The skill lives under `skills/build-mobile-apps/`, so the Agent Skills tooling
