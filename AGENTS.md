@@ -6,9 +6,6 @@ These rules apply to the full repository.
 
 Keep changes small and local. Preserve unrelated worktree changes. Do not combine a file move with a behavior change unless the behavior change requires the move.
 
-Read `.plans/BUN_EFFECT_ROADMAP.md` before a change to server runtime,
-Effect services, session lifetime, or distribution.
-
 ## Source Ownership
 
 Place code by runtime and responsibility.
