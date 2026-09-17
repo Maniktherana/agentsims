@@ -14,17 +14,27 @@ observe and action loop is the common path.
 ## Apps
 
 ```sh
-npx agentsims app <operation> [value] -d <device-id>
+agentsims app <operation> [value] -d <device-id>
 ```
 
 The five operations are `list`, `launch`, `stop`, `install`, and `uninstall`.
 Every operation except `list` needs a value: a path for `install`, and a bundle
 ID or package name for the rest.
 
+The following commands are separate examples. Read each result before another
+mutation.
+
 ```sh
-npx agentsims app install ./build/Debug-iphonesimulator/MyApp.app -d "$IOS"
-npx agentsims app launch com.example.app -d "$DEVICE"
-npx agentsims app stop com.example.app -d "$DEVICE"
+agentsims app install ./build/Debug-iphonesimulator/MyApp.app -d "$IOS"
+agentsims app launch com.example.app -d "$DEVICE"
+agentsims app stop com.example.app -d "$DEVICE"
+```
+
+`app list` shows user apps by default. On Android, use `--all` to include system
+apps. Use it to recover or launch an app such as Camera or Clock:
+
+```sh
+agentsims app list --all -d "$ANDROID"
 ```
 
 An install over an existing app keeps the app data. For a clean state,
@@ -40,7 +50,7 @@ Device log snapshots are Android only. Use them when the screen does not show
 the cause of a failure.
 
 ```sh
-npx agentsims device-logs -d android:emulator-5554 --app com.example.app --level E --limit 50
+agentsims device-logs -d android:emulator-5554 --app com.example.app --level E --limit 50
 ```
 
 | Flag | Meaning | Default |
@@ -55,7 +65,7 @@ A device snapshot is bounded, not a stream. `logs` and `device-logs` are
 separate commands: `logs` follows the workspace server, `device-logs` reads the
 device.
 
-`npx agentsims logs` prints the detached agentsims server output,
+`agentsims logs` prints the detached agentsims server output,
 not device output. Read it when a device does not appear or a stream does not
 start.
 
@@ -65,7 +75,7 @@ Both platforms use the same command. The permission name belongs to the
 platform.
 
 ```sh
-npx agentsims permissions <operation> [permission] -d <device-id> -a <app-id>
+agentsims permissions <operation> [permission] -d <device-id> -a <app-id>
 ```
 
 The four operations are `list`, `grant`, `revoke`, and `reset`. `-a` takes an
@@ -76,10 +86,10 @@ iOS bundle ID or an Android package name.
 iOS names a privacy service, such as `camera`, `photos`, or `location`.
 
 ```sh
-npx agentsims permissions list   -d "$IOS" -a com.example.app
-npx agentsims permissions revoke camera -d "$IOS" -a com.example.app
-npx agentsims permissions grant  camera -d "$IOS" -a com.example.app
-npx agentsims permissions reset  -d "$IOS" -a com.example.app
+agentsims permissions list   -d "$IOS" -a com.example.app
+agentsims permissions revoke camera -d "$IOS" -a com.example.app
+agentsims permissions grant  camera -d "$IOS" -a com.example.app
+agentsims permissions reset  -d "$IOS" -a com.example.app
 ```
 
 Rules that the command enforces:
@@ -102,10 +112,10 @@ Android names a runtime permission. `CAMERA`, `camera`, and
 keeps its own namespace.
 
 ```sh
-npx agentsims permissions list -d "$ANDROID" -a com.example.app
-npx agentsims permissions grant CAMERA -d "$ANDROID" -a com.example.app
-npx agentsims permissions revoke android.permission.CAMERA -d "$ANDROID" -a com.example.app
-npx agentsims permissions reset CAMERA -d "$ANDROID" -a com.example.app
+agentsims permissions list -d "$ANDROID" -a com.example.app
+agentsims permissions grant CAMERA -d "$ANDROID" -a com.example.app
+agentsims permissions revoke android.permission.CAMERA -d "$ANDROID" -a com.example.app
+agentsims permissions reset CAMERA -d "$ANDROID" -a com.example.app
 ```
 
 `list` returns the runtime permissions that the app declares, with the grant
@@ -141,9 +151,9 @@ reset the permission, stop the app, then launch it again.
 ## Camera input
 
 ```sh
-npx agentsims camera list -d <device-id>
-npx agentsims camera use <webcam-id> -d <device-id> [--face front|back]
-npx agentsims camera stop -d <device-id>
+agentsims camera list -d <device-id>
+agentsims camera use <webcam-id> -d <device-id> [--face front|back]
+agentsims camera stop -d <device-id>
 ```
 
 List the webcams first. The choices differ by host and by device.
@@ -164,7 +174,7 @@ Stop only a camera that this task started.
 
 Appearance, font scale, locale, location, network speed, battery level,
 VoiceOver, TalkBack, and emulator snapshots live in the browser workspace. Open
-the workspace `url` from `npx agentsims status`, select the device, then open
+the workspace `url` from `agentsims status`, select the device, then open
 its Settings panel. In Claude Code the browser tool is `preview_start`.
 
 Always print the URL in the reply, so that the user can open it directly.

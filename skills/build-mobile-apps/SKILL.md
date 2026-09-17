@@ -28,14 +28,14 @@ Use Node.js 20 or newer. iOS needs macOS, Xcode, and a Simulator runtime.
 Android needs the Android SDK on macOS or Linux.
 
 ```sh
-npx agentsims doctor
-npx agentsims status
+agentsims doctor
+agentsims status
 ```
 
 Reuse a running workspace. Start one only when this task needs it:
 
 ```sh
-npx agentsims start --detach
+agentsims start --detach
 ```
 
 A workspace URL grants access. It does not grant ownership. Stop only a
@@ -45,7 +45,7 @@ the workspace uses another address.
 ## Select one exact device
 
 ```sh
-npx agentsims devices list
+agentsims devices list
 ```
 
 Use the exact ID from the result:
@@ -69,10 +69,14 @@ build → install → launch → observe → act → inspect the result → repe
 1. Run `observe`. It returns accessibility and an image from one bounded
    observation.
 2. Prefer a current ref such as `@e14`. Use an exact label next.
-3. Run one action.
+3. Run one mutation.
 4. Read `dispatch`, `verification`, the post-action tree, and any image.
-5. Observe again only when the returned evidence is not enough or the result is
+5. Choose the next action only after you read that result.
+6. Observe again when the returned evidence is not enough or the result is
    uncertain.
+
+Do not chain mutations from one observation. The first mutation invalidates
+all refs and capture IDs from that observation.
 
 The image is conditional after an action. Agentsims captures it when you ask
 for `--screenshot`, when an action uses a point, when AX fails or is unusable,
@@ -83,8 +87,11 @@ action.
 Use `screenshot` when you need pixels without an accessibility read:
 
 ```sh
-npx agentsims screenshot /tmp/current.png -d "$DEVICE"
+agentsims screenshot /tmp/current.png -d "$DEVICE"
 ```
+
+Before you choose image coordinates, open `artifact.path` with the image tool.
+Use the original image dimensions. A file path alone is not visual evidence.
 
 ## Current-only state
 
@@ -108,16 +115,32 @@ Prefer targets in this order:
 2. An exact label, with `--role` or `--index` when needed.
 3. A point bound to the current capture ID.
 
+The following commands are separate alternatives. Run only one command for the
+current observation.
+
 ```sh
-npx agentsims tap @e14 -d "$DEVICE"
-npx agentsims tap "Sign in" --role button -d "$DEVICE"
-npx agentsims tap 603,1311 --capture c7 -d "$DEVICE"
-npx agentsims swipe 50%,80% 50%,20% --capture c7 --duration 300 -d "$DEVICE"
+agentsims tap @e14 -d "$DEVICE"
+```
+
+```sh
+agentsims tap "Sign in" --role button -d "$DEVICE"
+```
+
+For an image point, get a fresh screenshot and open its `artifact.path` first:
+
+```sh
+agentsims screenshot /tmp/current.png -d "$DEVICE"
+# Open artifact.path with the image tool, then use the reported capture ID.
+agentsims tap 603,1311 --capture c7 -d "$DEVICE"
 ```
 
 Points use image pixels or percentages. A point without `--capture` fails
 before dispatch. Do not derive a point from an accessibility frame. Use its ref.
 Do not guess a point when the target is absent.
+
+`[clickable]` marks a node that accepts a tap. If text is not actionable, use
+the current ref of its enclosing `[clickable]` row or button. If no actionable
+container exists, inspect the image.
 
 ## Dispatch and verification
 
@@ -139,16 +162,20 @@ action can have happened. Agentsims does not retry a mutation automatically.
 
 ## Text input
 
+The following commands are separate examples. Run only one for the current
+state.
+
 ```sh
-npx agentsims type "Buy milk" --into @e14 -d "$DEVICE"
-npx agentsims fill "Buy milk" --into "Task" -d "$DEVICE"
-npx agentsims fill "query" --into @e14 --submit -d "$DEVICE"
+agentsims type "Buy milk" --into @e14 -d "$DEVICE"
+agentsims fill "Buy milk" --into "Task" -d "$DEVICE"
+agentsims fill "query" --into @e14 --submit -d "$DEVICE"
 ```
 
 `type` inserts at the native selection. `fill` replaces the field value.
 Agentsims proves native focus identity before it writes and reads the field back
-before an optional submit. A mismatch suppresses submit. A failed submit can
-report `submit unknown` while the verified text evidence remains valid.
+before an optional submit. Both `verification mismatch` and
+`verification unavailable` suppress `--submit`. A failed submit can report
+`submit unknown` while the verified text evidence remains valid.
 
 Literal newline and carriage-return characters are rejected. Use `--submit`
 for Return. If focus is absent or ambiguous, use a fresh ref or exact label.
@@ -161,24 +188,24 @@ structured output.
 
 | Goal | Command |
 |---|---|
-| Diagnose the host | `npx agentsims doctor [--platform ios\|android]` |
-| List devices | `npx agentsims devices list [--all\|--inactive\|--json]` |
-| Boot or shut down | `npx agentsims devices boot\|shutdown <device-id>` |
-| Observe AX and image | `npx agentsims observe -d <id> [-o <path>]` |
-| Capture only pixels | `npx agentsims screenshot [path] -d <id>` |
-| Find current nodes | `npx agentsims find <text> -d <id>` |
-| Tap | `npx agentsims tap <target> -d <id>` |
-| Swipe | `npx agentsims swipe <from> <to> -d <id>` |
-| Insert text | `npx agentsims type <text> [--into <target>] [--submit] -d <id>` |
-| Replace text | `npx agentsims fill <text> [--into <target>] [--submit] -d <id>` |
-| Press hardware | `npx agentsims press <name> -d <id>` |
-| Rotate | `npx agentsims rotate <orientation> -d <id>` |
-| Manage apps | `npx agentsims app <list\|install\|launch\|stop\|uninstall> -d <id>` |
-| App permissions | `npx agentsims permissions <list\|grant\|revoke\|reset> -d <id> -a <app-id>` |
-| Host webcam | `npx agentsims camera <list\|use\|stop> -d <id>` |
-| Android logs | `npx agentsims device-logs -d <android-id>` |
+| Diagnose the host | `agentsims doctor [--platform ios\|android]` |
+| List devices | `agentsims devices list [--all\|--inactive\|--json]` |
+| Boot or shut down | `agentsims devices boot\|shutdown <device-id>` |
+| Observe AX and image | `agentsims observe -d <id> [-o <path>]` |
+| Capture only pixels | `agentsims screenshot [path] -d <id>` |
+| Find current nodes | `agentsims find <text> -d <id>` |
+| Tap | `agentsims tap <target> -d <id>` |
+| Swipe | `agentsims swipe <from> <to> -d <id>` |
+| Insert text | `agentsims type <text> [--into <target>] [--submit] -d <id>` |
+| Replace text | `agentsims fill <text> [--into <target>] [--submit] -d <id>` |
+| Press hardware | `agentsims press <name> -d <id>` |
+| Rotate | `agentsims rotate <orientation> -d <id>` |
+| Manage apps | `agentsims app <list\|install\|launch\|stop\|uninstall> -d <id>` |
+| App permissions | `agentsims permissions <list\|grant\|revoke\|reset> -d <id> -a <app-id>` |
+| Host webcam | `agentsims camera <list\|use\|stop> -d <id>` |
+| Android logs | `agentsims device-logs -d <android-id>` |
 
-Run `npx agentsims <command> --help` when a flag is uncertain. Do not guess a
+Run `agentsims <command> --help` when a flag is uncertain. Do not guess a
 flag or read all help before it is needed.
 
 Android hardware names are `home`, `power`, `volume-up`, `volume-down`, `back`,
@@ -198,6 +225,7 @@ not support before dispatch.
 | Keyboard or modal covers the target | Use the visible control to close it, then observe again. Android can use `press back`; iOS must use an app control. |
 | `dispatch unknown` | Observe before another action. Do not retry automatically. |
 | `verification mismatch` | Read the observed value. Change the approach before another write. |
+| `verification unavailable` | Read the missing evidence. Do not submit or claim a verified effect. |
 | `device_gone` | Run `devices list`, select a current device, and restart from observe. |
 | Image write error | Keep the AX and action evidence. Select a writable `-o` path or `AGENTSIMS_SCREENSHOT_DIR`. |
 
@@ -214,6 +242,10 @@ Check the property that the task changed. For an accessible icon button, check
 its label and role. For text, require matched readback. For navigation, check
 the new foreground and screen state. For a visual change, inspect the saved
 image. Test a non-default state when it matters.
+
+If an action image exists after navigation, inspect it. If AX still shows the
+previous screen, observe again. Do not press Back only because the first
+post-action tree still shows the previous screen.
 
 For tasks with more than about ten actions, keep a short scratch file with the
 goal, completed steps, current subgoal, and known values. Never store refs in it.

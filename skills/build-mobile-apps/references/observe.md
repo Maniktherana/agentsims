@@ -6,7 +6,7 @@ image. Each channel reports success or failure independently.
 ## Observe AX and pixels together
 
 ```sh
-npx agentsims observe -d "$DEVICE"
+agentsims observe -d "$DEVICE"
 ```
 
 Human output starts with the observation and channel states:
@@ -29,6 +29,9 @@ Use `--frames` to add `[box=x,y,w,h]` in image pixels and `--raw` to show
 the platform class. Use `--all` to include nodes removed by the useful-node
 filter.
 
+Open `artifact.path` with the image tool before you choose image coordinates.
+Use the original image dimensions. A file path alone is not visual evidence.
+
 The default image path uses the system temporary directory. Override its
 directory with `AGENTSIMS_SCREENSHOT_DIR`, or use `-o <path>`. An explicit
 path has the highest priority. Agentsims prunes only files that it created in
@@ -37,7 +40,7 @@ its managed default directory. It does not prune user-selected directories.
 ## Capture pixels only
 
 ```sh
-npx agentsims screenshot /tmp/current.png -d "$DEVICE"
+agentsims screenshot /tmp/current.png -d "$DEVICE"
 ```
 
 `screenshot` does not read accessibility or the foreground application. Use
@@ -52,7 +55,7 @@ time, and observation ID. It does not duplicate the raw platform snapshot.
 Image bytes are not printed. The `artifact` result reports the local file.
 
 ```sh
-npx agentsims observe -d "$DEVICE" --json > /tmp/observation.json
+agentsims observe -d "$DEVICE" --json > /tmp/observation.json
 ```
 
 Important fields:
@@ -78,9 +81,15 @@ A ref belongs to the current observation on one device. A capture ID belongs to
 the current image on one device. Any new observation or input invalidates the
 old IDs. Browser input invalidates CLI IDs on that device too.
 
+The following commands are separate alternatives. Run only one mutation for
+the current observation.
+
 ```sh
-npx agentsims tap @e3 -d "$DEVICE"
-npx agentsims tap 603,1311 --capture c1 -d "$DEVICE"
+agentsims tap @e3 -d "$DEVICE"
+```
+
+```sh
+agentsims tap 603,1311 --capture c1 -d "$DEVICE"
 ```
 
 A stale ID fails before dispatch. Do not copy a ref or capture ID into a later
@@ -99,7 +108,7 @@ Each node can contain:
 | `ref` | current-only CLI target |
 | `role` and `rawRole` | normalized role and platform class |
 | `label` and `value` | current semantic content |
-| `states` | focused, disabled, checked, selected, scrollable, and related state |
+| `states` | focused, disabled, checked, selected, scrollable, clickable, and related state |
 | `box` | image-pixel rectangle |
 | `testId` | app-provided test or native identifier |
 | `children` | nested useful nodes |
@@ -107,11 +116,15 @@ Each node can contain:
 Use `find` for a bounded current search:
 
 ```sh
-npx agentsims find "Sign in" -d "$DEVICE"
+agentsims find "Sign in" -d "$DEVICE"
 ```
 
 If more than one node matches, choose a fresh ref or add `--role` and
 `--index` to the action.
+
+`[clickable]` marks a node that accepts a tap. If text is not actionable, use
+the current ref of its enclosing `[clickable]` row or button. If no actionable
+container exists, inspect the image.
 
 ## When channels disagree
 
@@ -128,6 +141,10 @@ Treat both channels as evidence:
 After an action, Agentsims always reads AX and captures an image only for an
 explicit request or a degraded/changed result. Read `captureReason` in JSON to
 learn why an action image exists.
+
+If an action image exists after navigation, inspect it. If AX still shows the
+previous screen, observe again. Do not press Back only because the first
+post-action tree still shows the previous screen.
 
 ## iOS 27 limitation
 

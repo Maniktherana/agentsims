@@ -13,21 +13,43 @@ A target can be:
 Prefer a ref, then an exact label. Use a point only when accessibility cannot
 name the control.
 
+The following commands are separate alternatives. Run only one command for the
+current observation.
+
 ```sh
-npx agentsims tap @e14 -d "$DEVICE"
-npx agentsims tap "Sign in" --role button -d "$DEVICE"
-npx agentsims tap 603,1311 --capture c7 -d "$DEVICE"
-npx agentsims tap 50%,90% --capture c7 -d "$DEVICE"
+agentsims tap @e14 -d "$DEVICE"
+```
+
+```sh
+agentsims tap "Sign in" --role button -d "$DEVICE"
+```
+
+For an image point, first get a fresh screenshot:
+
+```sh
+agentsims screenshot /tmp/current.png -d "$DEVICE"
+# Open artifact.path with the image tool, then use the reported capture ID.
+agentsims tap 603,1311 --capture c7 -d "$DEVICE"
 ```
 
 Refs and capture IDs are current-only. A new input or observation invalidates
 them. A point without the matching current capture fails before platform input.
 Do not convert an accessibility frame into a point. Use the node ref.
 
+Open `artifact.path` with the image tool before you choose a point. Use the
+original image dimensions. A file path alone is not visual evidence.
+
+Run one mutation. Read its result. Then choose the next action. Do not chain two
+mutations from one observation.
+
+`[clickable]` marks a node that accepts a tap. If text is not actionable, use
+the current ref of its enclosing `[clickable]` row or button. If no actionable
+container exists, inspect the image.
+
 ## tap
 
 ```sh
-npx agentsims tap @e14 -d "$DEVICE"
+agentsims tap @e14 -d "$DEVICE"
 ```
 
 If an exact label matches more than one node, add `--role` or `--index`.
@@ -35,8 +57,12 @@ The index starts at 1 and has no arbitrary upper limit.
 
 ## swipe
 
+Get a fresh screenshot and inspect it before a point-based swipe:
+
 ```sh
-npx agentsims swipe 50%,80% 50%,20% --capture c7 --duration 300 -d "$DEVICE"
+agentsims screenshot /tmp/current.png -d "$DEVICE"
+# Open artifact.path with the image tool, then use the reported capture ID.
+agentsims swipe 50%,80% 50%,20% --capture c7 --duration 300 -d "$DEVICE"
 ```
 
 `--duration` takes 1 to 5000 milliseconds. A point-based swipe needs the
@@ -44,10 +70,13 @@ current capture ID. A semantic target-based swipe does not.
 
 ## type and fill
 
+The following commands are separate examples. Run only one for the current
+state.
+
 ```sh
-npx agentsims type " milk" --into @e14 -d "$DEVICE"
-npx agentsims fill "Buy milk" --into "Task" -d "$DEVICE"
-npx agentsims fill "query" --into @e14 --submit -d "$DEVICE"
+agentsims type " milk" --into @e14 -d "$DEVICE"
+agentsims fill "Buy milk" --into "Task" -d "$DEVICE"
+agentsims fill "query" --into @e14 --submit -d "$DEVICE"
 ```
 
 `type` inserts at the native selection. `fill` replaces the field value.
@@ -75,12 +104,13 @@ submit  unknown  Return transport closed
 ```
 
 The example means the text value is verified, but Return may or may not have
-happened. Observe before another action. A mismatch suppresses submit.
+happened. Observe before another action. Both `verification mismatch` and
+`verification unavailable` suppress `--submit`.
 
 ## press
 
 ```sh
-npx agentsims press home -d "$DEVICE"
+agentsims press home -d "$DEVICE"
 ```
 
 Supported public names:
@@ -106,7 +136,7 @@ control.
 ## rotate
 
 ```sh
-npx agentsims rotate landscape_left -d "$DEVICE"
+agentsims rotate landscape_left -d "$DEVICE"
 ```
 
 Valid values are `portrait`, `portrait_upside_down`, `landscape_left`, and
@@ -118,7 +148,7 @@ returned post-action state before the next target.
 Add `--screenshot` to any action when the result needs visual evidence:
 
 ```sh
-npx agentsims tap @e14 --screenshot -d "$DEVICE"
+agentsims tap @e14 --screenshot -d "$DEVICE"
 ```
 
 Without that flag, Agentsims still captures an image when:
@@ -147,3 +177,7 @@ that the app changed.
 If a keyboard or modal covers the target, use the visible control to dismiss
 it, then observe again. Android can use `press back`. iOS must use the app's
 control.
+
+If an action image exists after navigation, inspect it. If AX still shows the
+previous screen, observe again. Do not press Back only because the first
+post-action tree still shows the previous screen.

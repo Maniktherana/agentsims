@@ -47,7 +47,7 @@ The agent verifies these, but for reference:
 - macOS with Xcode and an iOS Simulator runtime, for iOS.
 - The Android SDK on macOS or Linux, for Android.
 
-Run `npx agentsims doctor` for host-specific repair steps.
+Run `agentsims doctor` for host-specific repair steps.
 
 ## Structure
 
@@ -78,10 +78,10 @@ the CLI changes, verify the examples against the running server rather than
 editing from memory:
 
 ```sh
-npx agentsims start --detach
-npx agentsims devices list
-npx agentsims observe -d <device-id>
-npx agentsims observe -d <device-id> --json > /tmp/agentsims-observe.json
+agentsims start --detach
+agentsims devices list
+agentsims observe -d <device-id>
+agentsims observe -d <device-id> --json > /tmp/agentsims-observe.json
 ```
 
 Use an explicit test device. Check both the human output and the structured
