@@ -25,6 +25,8 @@ import {
 	axFrontmostAsync,
 	type MjpegFrame,
 } from "./stream/native";
+import { iosFocusedField } from "./accessibility";
+import type { DeviceField } from "../tools/text-input";
 
 /**
  * Minimal WebSocket surface the HID input channel needs. Satisfied by both the
@@ -42,6 +44,50 @@ export interface HidSocket {
 export interface StreamSink {
 	write(chunk: Uint8Array): Promise<void> | void;
 }
+
+type IosHid = Pick<
+	NativeHid,
+	| "touch"
+	| "button"
+	| "buttonHid"
+	| "multiTouch"
+	| "key"
+	| "orientation"
+	| "caDebug"
+	| "memoryWarning"
+	| "digitalCrown"
+	| "scroll"
+	| "softwareKeyboard"
+	| "stop"
+>;
+
+type IosCapture = Pick<
+	NativeCapture,
+	"start" | "stop" | "subscribeMjpeg" | "subscribeAvcc"
+>;
+
+export interface DeviceSessionDependencies {
+	hid?: IosHid;
+	capture?: IosCapture;
+	describeAccessibility?: (udid: string) => Promise<string>;
+	screenshotWaitMs?: number;
+}
+
+interface IosScreenshot {
+	readonly sequence: number;
+	readonly width: number;
+	readonly height: number;
+	readonly bytes: Buffer;
+	readonly mimeType: "image/jpeg";
+	readonly capturedAt: number;
+}
+
+type ScreenshotWaiter = {
+	readonly afterSequence: number;
+	readonly resolve: (screenshot: IosScreenshot) => void;
+	readonly reject: (error: Error) => void;
+	timeout?: ReturnType<typeof setTimeout>;
+};
 
 // Description/keyframe/delta envelopes are framed natively; only the
 // on-connect JPEG seed is built here.
@@ -66,8 +112,10 @@ const ORIENTATION_BY_NAME: Record<string, number> = {
 };
 
 export class DeviceSession {
-	private readonly capture: NativeCapture;
-	private readonly hid: NativeHid;
+	private readonly capture: IosCapture;
+	private readonly hid: IosHid;
+	private readonly describeAccessibility: (udid: string) => Promise<string>;
+	private accessibilityReadback: unknown | undefined;
 	private unsubscribeMjpeg?: () => void;
 	private phase: "unstarted" | "starting" | "running" | "stopped" = "unstarted";
 	private startPromise: Promise<void> | null = null;
@@ -78,11 +126,22 @@ export class DeviceSession {
 
 	private latestJpegBuffer: Buffer | null = null;
 	private latestJpegLength = 0;
+	private latestJpegSequence = 0;
+	private latestJpegCapturedAt = 0;
+	private readonly screenshotWaiters = new Set<ScreenshotWaiter>();
+	private readonly screenshotWaitMs: number;
 	private readonly hidSockets = new Set<HidSocket>();
 
-	constructor(public readonly udid: string) {
-		this.hid = new NativeHid(udid);
-		this.capture = new NativeCapture(udid);
+	constructor(
+		public readonly udid: string,
+		private readonly onMutation: (udid: string) => void = () => {},
+		dependencies: DeviceSessionDependencies = {},
+	) {
+		this.hid = dependencies.hid ?? new NativeHid(udid);
+		this.capture = dependencies.capture ?? new NativeCapture(udid);
+		this.describeAccessibility =
+			dependencies.describeAccessibility ?? axDescribeAsync;
+		this.screenshotWaitMs = dependencies.screenshotWaitMs ?? 1_000;
 	}
 
 	/** Begin capture and resolve only after the native pipeline is ready. Idempotent. */
@@ -127,6 +186,11 @@ export class DeviceSession {
 	async close(): Promise<void> {
 		if (this.phase === "stopped") return;
 		this.phase = "stopped";
+		for (const waiter of this.screenshotWaiters) {
+			if (waiter.timeout) clearTimeout(waiter.timeout);
+			waiter.reject(new Error("A newer iOS screenshot is not available"));
+		}
+		this.screenshotWaiters.clear();
 		for (const ws of this.hidSockets) ws.close();
 		this.unsubscribeMjpeg?.();
 		this.hidSockets.clear();
@@ -153,11 +217,38 @@ export class DeviceSession {
 		}
 		this.latestJpegBuffer.set(jpeg, 0);
 		this.latestJpegLength = jpeg.length;
+		this.latestJpegSequence += 1;
+		this.latestJpegCapturedAt = Date.now();
+
+		const screenshot = this.latestScreenshot();
+		if (!screenshot) return;
+		for (const waiter of this.screenshotWaiters) {
+			if (screenshot.sequence <= waiter.afterSequence) continue;
+			this.screenshotWaiters.delete(waiter);
+			if (waiter.timeout) clearTimeout(waiter.timeout);
+			waiter.resolve({
+				...screenshot,
+				bytes: Buffer.from(screenshot.bytes),
+			});
+		}
 	}
 
 	private latestJpeg(): Buffer | null {
 		if (!this.latestJpegBuffer) return null;
 		return this.latestJpegBuffer.subarray(0, this.latestJpegLength);
+	}
+
+	private latestScreenshot(): IosScreenshot | null {
+		const jpeg = this.latestJpeg();
+		if (!jpeg?.length) return null;
+		return {
+			sequence: this.latestJpegSequence,
+			width: this.width,
+			height: this.height,
+			bytes: jpeg,
+			mimeType: "image/jpeg",
+			capturedAt: this.latestJpegCapturedAt,
+		};
 	}
 
 	async subscribeMjpeg(sink: StreamSink): Promise<() => void> {
@@ -176,18 +267,64 @@ export class DeviceSession {
 		});
 	}
 
-	async captureScreenshot(): Promise<Buffer> {
+	async captureScreenshot(): Promise<IosScreenshot> {
+		const afterSequence = this.latestJpegSequence;
 		await this.start();
-		for (let attempt = 0; attempt < 20; attempt += 1) {
-			const jpeg = this.latestJpeg();
-			if (jpeg?.length) return Buffer.from(jpeg);
-			await new Promise((resolve) => setTimeout(resolve, 50));
+		const current = this.latestScreenshot();
+		if (current && current.sequence > afterSequence) {
+			return { ...current, bytes: Buffer.from(current.bytes) };
 		}
-		throw new Error("The iOS stream has not produced a frame yet");
+		return new Promise<IosScreenshot>((resolve, reject) => {
+			const waiter: ScreenshotWaiter = {
+				afterSequence,
+				resolve,
+				reject,
+			};
+			waiter.timeout = setTimeout(() => {
+				this.screenshotWaiters.delete(waiter);
+				reject(
+					new Error(
+						`A newer iOS screenshot was not available within ${this.screenshotWaitMs} ms`,
+					),
+				);
+			}, this.screenshotWaitMs);
+			this.screenshotWaiters.add(waiter);
+
+			const latest = this.latestScreenshot();
+			if (!latest || latest.sequence <= afterSequence) return;
+			this.screenshotWaiters.delete(waiter);
+			clearTimeout(waiter.timeout);
+			resolve({ ...latest, bytes: Buffer.from(latest.bytes) });
+		});
 	}
 
 	async readAccessibility(): Promise<unknown> {
-		return JSON.parse(await axDescribeAsync(this.udid));
+		const raw = await this.readAccessibilityFresh();
+		this.accessibilityReadback = raw;
+		return raw;
+	}
+
+	async readFocusedField(): Promise<DeviceField | null> {
+		const coherent = this.accessibilityReadback;
+		this.accessibilityReadback = undefined;
+		if (coherent !== undefined) {
+			const field = iosFocusedField(coherent);
+			if (field) return field;
+		}
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			const field = iosFocusedField(await this.readAccessibilityFresh());
+			if (field) return field;
+		}
+		return null;
+	}
+
+	private async readAccessibilityFresh(): Promise<unknown> {
+		return JSON.parse(await this.describeAccessibility(this.udid));
+	}
+
+	private markMutation(): void {
+		this.accessibilityReadback = undefined;
+		this.onMutation(this.udid);
 	}
 
 	async readForeground(): Promise<unknown> {
@@ -200,16 +337,23 @@ export class DeviceSession {
 		this.hidSockets.add(ws);
 		const cfg = this.configFrame();
 		if (cfg) ws.send(cfg); // seed dimensions/orientation, replacing the old poll
-		ws.on("message", (data: Buffer) =>
-			this.dispatchInputFrame(Buffer.isBuffer(data) ? data : Buffer.from(data)),
-		);
+		ws.on("message", (data: Buffer) => {
+			void this.dispatchInputFrame(
+				Buffer.isBuffer(data) ? data : Buffer.from(data),
+			).catch((error) =>
+				console.error(
+					"[agentsims:ios] browser input failed:",
+					error instanceof Error ? error.message : error,
+				),
+			);
+		});
 		ws.on("close", () => this.hidSockets.delete(ws));
 		ws.on("error", () => this.hidSockets.delete(ws));
 	}
 
 	async dispatchInputFrame(data: Buffer): Promise<void> {
 		if (data.length < 1) return;
-		const tag = data[0];
+		const tag = data[0]!;
 		const body = data.length > 1 ? data.subarray(1) : null;
 		const json = <T>(): T | null => {
 			if (!body) return null;
@@ -226,7 +370,8 @@ export class DeviceSession {
 			case 0x03: {
 				const m = json<{ type: string; x: number; y: number; edge?: number }>();
 				if (m) {
-					this.hid.touch(
+					this.markMutation();
+					await this.hid.touch(
 						m.type as "begin" | "move" | "end",
 						m.x,
 						m.y,
@@ -245,14 +390,15 @@ export class DeviceSession {
 					phase?: string;
 				}>();
 				if (!m) break;
+				this.markMutation();
 				if (m.page != null && m.usage != null) {
-					this.hid.buttonHid(
+					await this.hid.buttonHid(
 						m.page,
 						m.usage,
 						(m.phase as "down" | "up" | "press") ?? "press",
 					);
 				} else {
-					this.hid.button(m.button);
+					await this.hid.button(m.button);
 				}
 				break;
 			}
@@ -265,7 +411,8 @@ export class DeviceSession {
 					y2: number;
 				}>();
 				if (m) {
-					this.hid.multiTouch(
+					this.markMutation();
+					await this.hid.multiTouch(
 						m.type as "begin" | "move" | "end",
 						m.x1,
 						m.y1,
@@ -279,42 +426,59 @@ export class DeviceSession {
 			}
 			case 0x06: {
 				const m = json<{ type: string; usage: number }>();
-				if (m) this.hid.key(m.type as "down" | "up", m.usage);
+				if (m) {
+					this.markMutation();
+					await this.hid.key(m.type as "down" | "up", m.usage);
+				}
 				break;
 			}
 			case 0x07: {
 				const m = json<{ orientation: string }>();
 				if (!m) break;
 				const value = ORIENTATION_BY_NAME[m.orientation];
-				if (value != null && (await this.hid.orientation(value))) {
-					if (m.orientation !== this.orientation) {
-						this.orientation = m.orientation;
-						this.broadcastConfig();
-					}
+				if (value == null) throw new Error("Unsupported iOS orientation");
+				this.markMutation();
+				if (!(await this.hid.orientation(value))) {
+					throw new Error("iOS refused to rotate the simulator");
+				}
+				if (m.orientation !== this.orientation) {
+					this.orientation = m.orientation;
+					this.broadcastConfig();
 				}
 				break;
 			}
 			case 0x08: {
 				const m = json<{ option: string; enabled: boolean }>();
-				if (m) this.hid.caDebug(m.option, m.enabled);
+				if (m) {
+					this.markMutation();
+					await this.hid.caDebug(m.option, m.enabled);
+				}
 				break;
 			}
 			case 0x09:
-				this.hid.memoryWarning();
+				this.markMutation();
+				await this.hid.memoryWarning();
 				break;
 			case 0x0a: {
 				const m = json<{ delta: number }>();
-				if (m) this.hid.digitalCrown(m.delta);
+				if (m) {
+					this.markMutation();
+					await this.hid.digitalCrown(m.delta);
+				}
 				break;
 			}
 			case 0x0b: {
 				// Payload deltas are a fraction of the display; scale to device pixels.
 				const m = json<{ dx: number; dy: number; x?: number; y?: number }>();
-				if (m) this.hid.scroll(m.dx * W, m.dy * H, W, H, m.x, m.y);
+				if (m) {
+					this.markMutation();
+					await this.hid.scroll(m.dx * W, m.dy * H, W, H, m.x, m.y);
+				}
 				break;
 			}
 			case 0x0c:
-				this.hid.softwareKeyboard();
+				this.markMutation();
+				await this.hid.softwareKeyboard();
 				break;
 		}
 	}
@@ -347,8 +511,12 @@ export class DeviceSession {
 // ── Registry ─────────────────────────────────────────────────────────────
 
 class IosSessionRegistry {
+	private readonly mutationListeners = new Set<(udid: string) => void>();
 	private readonly sessions = new ScopedResourceRegistry(
-		(udid: string) => new DeviceSession(udid),
+		(udid: string) =>
+			new DeviceSession(udid, (target) => {
+				for (const listener of this.mutationListeners) listener(target);
+			}),
 		(session) => session.close(),
 	);
 
@@ -363,6 +531,11 @@ class IosSessionRegistry {
 	closeAll(): Promise<void> {
 		return this.sessions.closeAll();
 	}
+
+	subscribeMutation(listener: (udid: string) => void): () => void {
+		this.mutationListeners.add(listener);
+		return () => this.mutationListeners.delete(listener);
+	}
 }
 
 export class IosHostUnavailable extends Data.TaggedError("IosHostUnavailable")<{
@@ -372,6 +545,7 @@ export class IosHostUnavailable extends Data.TaggedError("IosHostUnavailable")<{
 export type IosSessionsService = {
 	get(udid: string): Effect.Effect<DeviceSession, IosHostUnavailable>;
 	close(udid: string): Effect.Effect<void>;
+	subscribeMutation?(listener: (udid: string) => void): () => void;
 };
 
 export class IosSessions extends Context.Tag("@agentsims/IosSessions")<
@@ -387,6 +561,7 @@ export const IosSessionsUnavailable = Layer.succeed(IosSessions, {
 			}),
 		),
 	close: () => Effect.void,
+	subscribeMutation: () => () => {},
 });
 
 export const IosSessionsLive = Layer.scoped(
@@ -399,6 +574,7 @@ export const IosSessionsLive = Layer.scoped(
 			IosSessions.of({
 				get: (udid) => Effect.sync(() => registry.get(udid)),
 				close: (udid) => Effect.promise(() => registry.close(udid)),
+				subscribeMutation: (listener) => registry.subscribeMutation(listener),
 			}),
 		),
 	),

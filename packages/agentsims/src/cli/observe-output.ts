@@ -1,197 +1,327 @@
-export interface ObserveFrame {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
+import type { ActionResult } from "../core/tools/actions";
+import type { AxViewNode } from "../core/tools/observe/ax-view";
+import type {
+	DeviceMatches,
+	DeviceObservation,
+	DeviceScreenshot,
+	ImageCaptureChannel,
+} from "../core/tools/observe/observe";
+import type { DeviceSnapshot } from "../core/tools/observe/snapshot-store";
+import type {
+	ResolvedAction,
+	ResolvedPoint,
+} from "../core/tools/observe/targets";
+
+export type { DeviceMatches };
+
+export interface ObserveFormat {
+	frames?: boolean;
+	raw?: boolean;
 }
 
-export interface ObserveNode {
-	type: string;
-	label: string;
-	frame: ObserveFrame | null;
-	children: ObserveNode[];
+export type ArtifactWrite =
+	| { status: "ok"; path: string }
+	| { status: "error"; error: string };
+
+const oneLine = (value: string): string => value.replace(/\s+/g, " ").trim();
+const quoted = (value: string): string => JSON.stringify(value);
+const time = (value: number): string => new Date(value).toISOString();
+
+export function renderAxNode(
+	node: AxViewNode,
+	depth: number,
+	format: ObserveFormat = {},
+): string {
+	const role = format.raw ? node.rawRole || node.role : node.role;
+	const label = node.label ? ` "${oneLine(node.label)}"` : "";
+	const states = node.states.map((state) => ` [${state}]`).join("");
+	const box = format.frames
+		? ` [box=${node.box.x},${node.box.y},${node.box.width},${node.box.height}]`
+		: "";
+	const testId = node.testId ? ` [testid=${node.testId}]` : "";
+	const value = node.value ? `: ${oneLine(node.value)}` : "";
+	return `${"  ".repeat(depth)}- ${role}${label} [ref=${node.ref}]${states}${box}${testId}${value}`;
 }
 
-export interface Observation {
-	device?: string;
-	platform?: string;
-	screenshot?: { mimeType?: string; contentBase64?: string; bytes?: number };
-	config?: { width?: number; height?: number; orientation?: string };
-	accessibility?: unknown;
-	warnings?: unknown[];
+export function renderAxNodes(
+	nodes: readonly AxViewNode[],
+	format: ObserveFormat = {},
+	depth = 0,
+): string[] {
+	return nodes.flatMap((node) => [
+		renderAxNode(node, depth, format),
+		...renderAxNodes(node.children, format, depth + 1),
+	]);
 }
 
-const text = (value: unknown): string =>
-	typeof value === "string" ? value.trim() : "";
-
-function frameOf(raw: Record<string, unknown>): ObserveFrame | null {
-	const frame = raw.frame;
-	if (!frame || typeof frame !== "object") return null;
-	const { x, y, width, height } = frame as Record<string, unknown>;
-	return [x, y, width, height].every((v) => typeof v === "number")
-		? { x: x as number, y: y as number, width: width as number, height: height as number }
-		: null;
-}
-
-/** iOS returns a nested tree keyed on AX* fields; Android a flat element list. */
-function toNode(raw: Record<string, unknown>): ObserveNode {
-	const children = Array.isArray(raw.children)
-		? (raw.children as Record<string, unknown>[]).map(toNode)
-		: [];
-	return {
-		type: text(raw.type) || text(raw.role) || text(raw.role_description) || "?",
-		label: text(raw.AXLabel) || text(raw.label) || text(raw.AXValue) || text(raw.value),
-		frame: frameOf(raw),
-		children,
-	};
-}
-
-/** Android nests its flat element list by dotted `path`; iOS already nests. */
-function nestByPath(
-	entries: { node: ObserveNode; path: string }[],
-): ObserveNode[] {
-	const byPath = new Map(entries.map((entry) => [entry.path, entry.node]));
-	const roots: ObserveNode[] = [];
-	for (const { node, path } of entries) {
-		const cut = path.lastIndexOf(".");
-		const parent = cut === -1 ? undefined : byPath.get(path.slice(0, cut));
-		if (parent && parent !== node) parent.children.push(node);
-		else roots.push(node);
-	}
-	return roots;
-}
-
-export function normalizeAx(accessibility: unknown): ObserveNode[] {
-	const elements = (accessibility as { elements?: unknown })?.elements;
-	const list = Array.isArray(accessibility)
-		? accessibility
-		: Array.isArray(elements)
-			? elements
-			: [];
-	const raws = (list as Record<string, unknown>[]).filter(
-		(raw) => raw && typeof raw === "object",
-	);
-	const nodes = raws.map(toNode);
-	return raws.every((raw) => typeof raw.path === "string")
-		? nestByPath(
-				raws.map((raw, index) => ({
-					node: nodes[index]!,
-					path: raw.path as string,
-				})),
-			)
-		: nodes;
-}
-
-export function countNodes(nodes: readonly ObserveNode[]): number {
-	return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
-}
-
-/**
- * Accessibility frames are in the tree's own space (iOS points, Android
- * pixels), which is not always the screenshot's. `tap` takes 0-1, so emit the
- * normalized centre next to each element and the conversion never comes up.
- */
-export function axExtent(nodes: readonly ObserveNode[]): ObserveFrame | null {
-	const roots = nodes.map((node) => node.frame).filter((f) => f !== null);
-	if (roots.length === 0) return null;
-	return roots.reduce((widest, frame) =>
-		frame.width * frame.height > widest.width * widest.height ? frame : widest,
+function warningLines(values: readonly unknown[]): string[] {
+	return values.map(
+		(warning) =>
+			`warning  ${typeof warning === "string" ? warning : JSON.stringify(warning)}`,
 	);
 }
 
-function tapText(
-	frame: ObserveFrame | null,
-	extent: ObserveFrame | null,
+function renderTree(view: DeviceSnapshot, format: ObserveFormat): string[] {
+	const rest = view.shown < view.total ? "  (--all for the rest)" : "";
+	return [
+		`elements  ${view.shown} shown / ${view.total} total${rest}`,
+		"",
+		...renderAxNodes(view.nodes, format),
+	];
+}
+
+function renderImage(
+	image: ImageCaptureChannel,
+	reason?: string | null,
 ): string {
-	if (!frame || !extent || extent.width <= 0 || extent.height <= 0) return "";
-	const x = (frame.x + frame.width / 2) / extent.width;
-	const y = (frame.y + frame.height / 2) / extent.height;
-	if (x < 0 || x > 1 || y < 0 || y > 1) return "";
-	return `  tap ${x.toFixed(3)},${y.toFixed(3)}`;
+	const prefix = reason
+		? `image  ${image.status}  reason=${reason}`
+		: `image  ${image.status}`;
+	if (image.status === "error")
+		return `${prefix}  captured=${time(image.capturedAt)}  ${oneLine(image.error)}`;
+	const value = image.value;
+	return [
+		prefix,
+		`captured=${time(image.capturedAt)}`,
+		`capture=${value.captureId ?? "none"}`,
+		`${value.width}×${value.height}`,
+		value.observationId ? `observation=${value.observationId}` : "",
+	]
+		.filter(Boolean)
+		.join("  ");
 }
 
-export function renderAx(nodes: readonly ObserveNode[], limit = 200): string[] {
-	const extent = axExtent(nodes);
-	const lines: string[] = [];
-	const walk = (list: readonly ObserveNode[], depth: number) => {
-		for (const node of list) {
-			if (lines.length >= limit) return;
-			const label = node.label ? `  "${node.label}"` : "";
-			lines.push(
-				`${"  ".repeat(depth)}${node.type}${label}${tapText(node.frame, extent)}`.trimEnd(),
-			);
-			walk(node.children, depth + 1);
-		}
-	};
-	walk(nodes, 0);
-	return lines;
+function renderArtifact(artifact: ArtifactWrite | null): string | null {
+	if (!artifact) return null;
+	return artifact.status === "ok"
+		? `artifact  ok  path=${artifact.path}`
+		: `artifact  error  ${oneLine(artifact.error)}`;
 }
 
-export function screenshotExtension(mimeType: string | undefined): string {
-	if (mimeType === "image/jpeg") return "jpg";
-	if (mimeType === "image/webp") return "webp";
-	return "png";
-}
-
-export function observationFileName(
-	device: string,
-	mimeType: string | undefined,
-	now: Date,
-): string {
-	const stamp = now.toISOString().replace(/[:.]/g, "-");
-	const safe = device.replace(/[^0-9A-Za-z._-]/g, "_");
-	return `observe-${safe}-${stamp}.${screenshotExtension(mimeType)}`;
+function renderContext(result: DeviceObservation | DeviceScreenshot): string {
+	const context = result.context;
+	return [
+		"context",
+		`app=${context.app ?? "unknown"}`,
+		`orientation=${context.orientation ?? "unknown"}`,
+		`generation=${context.generation ?? "unknown"}`,
+		`changed=${context.changedDuringCapture ? "yes" : "no"}`,
+	].join("  ");
 }
 
 export function renderObservation(
-	observation: Observation,
-	screenshotPath: string | null,
+	observation: DeviceObservation,
+	artifact: ArtifactWrite | null,
+	format: ObserveFormat = {},
 ): string {
-	const nodes = normalizeAx(observation.accessibility);
-	const config = observation.config ?? {};
-	const size =
-		typeof config.width === "number" && typeof config.height === "number"
-			? `${config.width}×${config.height}${config.orientation ? ` ${config.orientation}` : ""}`
-			: "";
-	const rows: string[] = [];
-	if (screenshotPath) rows.push(`screen    ${screenshotPath}${size ? `  ${size}` : ""}`);
-	else if (size) rows.push(`screen    ${size}`);
-	if (nodes.length > 0) {
-		const total = countNodes(nodes);
-		const lines = renderAx(nodes);
-		rows.push(`elements  ${total}`);
-		rows.push("");
-		rows.push(...lines);
-		if (lines.length < total)
-			rows.push(`… ${total - lines.length} more (use --json for all)`);
-	} else {
-		rows.push("elements  none (accessibility not captured)");
-	}
-	for (const warning of observation.warnings ?? [])
-		rows.push(`warning   ${typeof warning === "string" ? warning : JSON.stringify(warning)}`);
+	const accessibility = observation.accessibility;
+	const artifactLine = renderArtifact(artifact);
+	const rows = [
+		[
+			"observe",
+			`device=${observation.device}`,
+			`platform=${observation.platform}`,
+			`observation=${observation.observationId ?? "none"}`,
+			`capture=${observation.captureId ?? "none"}`,
+			`started=${time(observation.startedAt)}`,
+			`completed=${time(observation.completedAt)}`,
+		].join("  "),
+		accessibility.status === "ok"
+			? `accessibility  ok  captured=${time(accessibility.capturedAt)}  observation=${accessibility.value.observationId}`
+			: `accessibility  error  captured=${time(accessibility.capturedAt)}  ${oneLine(accessibility.error)}`,
+		renderImage(observation.image),
+		...(artifactLine ? [artifactLine] : []),
+		renderContext(observation),
+	];
+	if (observation.view) rows.push(...renderTree(observation.view, format));
+	else rows.push("elements  none");
+	rows.push(
+		...warningLines([
+			...observation.warnings,
+			...(observation.view?.warnings ?? []),
+		]),
+	);
 	return rows.join("\n");
 }
 
-export interface StoredShot {
-	name: string;
-	modifiedMs: number;
+export function renderScreenshot(
+	screenshot: DeviceScreenshot,
+	artifact: ArtifactWrite | null,
+): string {
+	const artifactLine = renderArtifact(artifact);
+	return [
+		[
+			"screenshot",
+			`device=${screenshot.device}`,
+			`platform=${screenshot.platform}`,
+			`capture=${screenshot.captureId ?? "none"}`,
+			`started=${time(screenshot.startedAt)}`,
+			`completed=${time(screenshot.completedAt)}`,
+		].join("  "),
+		renderImage(screenshot.image),
+		...(artifactLine ? [artifactLine] : []),
+		renderContext(screenshot),
+		...warningLines(screenshot.warnings),
+	].join("\n");
 }
 
-/** Keep the screenshot directory bounded: recent enough, and not too many. */
-export const SHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-export const SHOT_MAX_COUNT = 40;
+export function renderMatches(
+	matches: DeviceMatches,
+	format: ObserveFormat = {},
+): string {
+	if (matches.nodes.length === 0)
+		return `no node matches "${matches.query}" in observation ${matches.snapshot}`;
+	return matches.nodes.map((node) => renderAxNode(node, 0, format)).join("\n");
+}
 
-export function shotsToPrune(
-	shots: readonly StoredShot[],
-	nowMs: number,
-	maxAgeMs = SHOT_MAX_AGE_MS,
-	maxCount = SHOT_MAX_COUNT,
-): string[] {
-	const newestFirst = [...shots].sort((a, b) => b.modifiedMs - a.modifiedMs);
-	return newestFirst
-		.filter(
-			(shot, index) =>
-				index >= maxCount || nowMs - shot.modifiedMs > maxAgeMs,
-		)
-		.map((shot) => shot.name);
+function percent(value: number): string {
+	return `${(value * 100).toFixed(1)}%`;
+}
+
+export function renderPoint(point: ResolvedPoint): string {
+	const where = point.pixels
+		? `${point.pixels.x},${point.pixels.y} px`
+		: `${percent(point.x)},${percent(point.y)}`;
+	const capture = point.capture ? ` capture=${point.capture}` : "";
+	if (!point.ref) return `${where}${capture}`;
+	const label = point.label ? ` "${oneLine(point.label)}"` : "";
+	return `${point.role ?? "node"}${label} @${point.ref} at ${where}${capture}`;
+}
+
+const KEY_NAMES: Record<string, string> = {
+	enter: "Return",
+	"select-all": "Select All",
+	delete: "Delete",
+};
+
+function renderNode(point: ResolvedPoint): string {
+	const label = point.label ? ` "${oneLine(point.label)}"` : "";
+	const ref = point.ref ? ` @${point.ref}` : "";
+	return `${point.role ?? "node"}${label}${ref}`;
+}
+
+function renderTypeLine(action: ResolvedAction): string {
+	const verb = action.cleared ? "fill" : "type";
+	const into = action.into ? ` into ${renderNode(action.into)}` : "";
+	const value =
+		action.value === undefined || action.value === null
+			? ""
+			: `  value=${quoted(action.value)}`;
+	return `${verb} ${quoted(action.text ?? "")}${into}${value}`;
+}
+
+function renderActionLine(action: ResolvedAction): string {
+	switch (action.type) {
+		case "swipe":
+			return action.from && action.to
+				? `swipe from ${renderPoint(action.from)} to ${renderPoint(action.to)}`
+				: "swipe";
+		case "gesture":
+			return `gesture${action.phase ? ` ${action.phase}` : ""}${
+				action.from ? ` at ${renderPoint(action.from)}` : ""
+			}`;
+		case "type":
+			return renderTypeLine(action);
+		case "key":
+			return `press ${KEY_NAMES[action.key ?? ""] ?? action.key ?? ""}`.trim();
+		case "button":
+			return `press ${action.button ?? ""}`.trim();
+		case "rotate":
+			return `rotate ${action.orientation ?? ""}`.trim();
+		default:
+			return action.from ? `tap ${renderPoint(action.from)}` : "tap";
+	}
+}
+
+export function renderActionResult(
+	result: ActionResult,
+	artifact: ArtifactWrite | null = null,
+	format: ObserveFormat = {},
+): string {
+	const lines = result.resolved.map(
+		(action) => `action  ${renderActionLine(action)}`,
+	);
+	lines.push(`dispatch  ${result.dispatch.status}  ${result.dispatch.reason}`);
+	lines.push(
+		`verification  ${result.verification.status}  ${result.verification.reason}`,
+	);
+	if (
+		result.text?.submit.status === "suppressed" ||
+		result.text?.submit.status === "unknown"
+	)
+		lines.push(
+			`submit  ${result.text.submit.status}  ${result.text.submit.reason}`,
+		);
+	const accessibility = result.accessibility;
+	lines.push(
+		accessibility.status === "ok"
+			? `accessibility  ok  captured=${time(accessibility.capturedAt)}  observation=${accessibility.value.observationId}`
+			: `accessibility  error  captured=${time(accessibility.capturedAt)}  ${oneLine(accessibility.error)}`,
+	);
+	if (result.image)
+		lines.push(renderImage(result.image, result.captureReason));
+	else lines.push("image  not_requested");
+	const artifactLine = renderArtifact(artifact);
+	if (artifactLine) lines.push(artifactLine);
+	if (result.view) lines.push(...renderTree(result.view, format));
+	else lines.push("elements  none");
+	lines.push(
+		...warningLines([
+			...result.warnings,
+			...(result.view?.warnings ?? []),
+		]),
+	);
+	return lines.join("\n");
+}
+
+function imageForOutput(image: ImageCaptureChannel): unknown {
+	if (image.status === "error") return image;
+	const { bytes: _bytes, ...value } = image.value;
+	return { ...image, value };
+}
+
+function accessibilityForOutput(
+	accessibility: DeviceObservation["accessibility"],
+): unknown {
+	if (accessibility.status === "error") return accessibility;
+	return {
+		status: accessibility.status,
+		capturedAt: accessibility.capturedAt,
+		value: { observationId: accessibility.value.observationId },
+	};
+}
+
+export function observationForOutput(
+	observation: DeviceObservation,
+	artifact: ArtifactWrite | null,
+): unknown {
+	return {
+		...observation,
+		accessibility: accessibilityForOutput(observation.accessibility),
+		image: imageForOutput(observation.image),
+		artifact,
+	};
+}
+
+export function screenshotForOutput(
+	screenshot: DeviceScreenshot,
+	artifact: ArtifactWrite | null,
+): unknown {
+	return {
+		...screenshot,
+		image: imageForOutput(screenshot.image),
+		artifact,
+	};
+}
+
+export function actionForOutput(
+	result: ActionResult,
+	artifact: ArtifactWrite | null,
+): unknown {
+	return {
+		...result,
+		accessibility: accessibilityForOutput(result.accessibility),
+		image: result.image ? imageForOutput(result.image) : null,
+		artifact,
+	};
 }

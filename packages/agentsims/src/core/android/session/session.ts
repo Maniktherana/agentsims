@@ -40,11 +40,20 @@ import { collectAndroidAxSnapshot } from "../accessibility/snapshot";
 import type { AxSnapshot } from "../../tools/observe/accessibility";
 import { enrichAxSnapshotWithRnSource } from "../../react-native/enrich-accessibility";
 import { LatestValueScheduler } from "../../latest-value-scheduler";
+import type {
+	DeviceField,
+	FieldRequest,
+	FieldResult,
+} from "../../tools/text-input";
 import {
 	AndroidAxServers,
 	type AndroidAxMode,
 	type AndroidAxServersService,
 	type AndroidAxTouchPhase,
+	type AndroidNodeAction,
+	type AndroidNodeDescription,
+	type AndroidNodeRef,
+	type AndroidNodeResult,
 } from "../accessibility/ax-server";
 
 export interface AndroidHidSocket {
@@ -62,6 +71,52 @@ const ANDROID_INPUT_MOVE_INTERVAL_MS = 1000 / 60;
 const ANDROID_SCROLL_GESTURE_END_MS = 80;
 const EMULATOR_CONFIG_DEBOUNCE_MS = 50;
 const EMULATOR_VIEWPORT_POLL_MS = 500;
+
+function androidField(node: AndroidNodeDescription | null): DeviceField | null {
+	if (!node) return null;
+	const selection =
+		node.selectionStart >= 0 && node.selectionEnd >= node.selectionStart
+			? { start: node.selectionStart, end: node.selectionEnd }
+			: undefined;
+	return {
+		value: node.hintText ? "" : node.text,
+		editable: node.editable,
+		password: node.password,
+		focused: node.focused,
+		identity: {
+			id: `${node.windowId}:${node.sourceId}`,
+			windowId: node.windowId,
+			sourceId: node.sourceId,
+		},
+		...(selection ? { selection } : {}),
+	};
+}
+
+function sameAndroidNode(
+	left: AndroidNodeDescription,
+	right: AndroidNodeDescription,
+): boolean {
+	return (
+		left.windowId === right.windowId &&
+		left.sourceId === right.sourceId &&
+		left.resourceId === right.resourceId &&
+		left.class === right.class
+	);
+}
+
+function isRequestedAndroidNode(
+	node: AndroidNodeDescription,
+	request: FieldRequest,
+): boolean {
+	return (
+		(!request.testId || node.resourceId === request.testId) &&
+		(!request.className || node.class === request.className) &&
+		(request.identity?.windowId === undefined ||
+			node.windowId === request.identity.windowId) &&
+		(request.identity?.sourceId === undefined ||
+			node.sourceId === request.identity.sourceId)
+	);
+}
 
 type TouchMessageType = "begin" | "move" | "end" | "cancel";
 type AndroidDisplayOrientation =
@@ -219,12 +274,21 @@ export interface AndroidSessionDependencies {
 	warmAx(serial: string): Promise<void>;
 	readAx(serial: string, mode: AndroidAxMode): Promise<AxSnapshot>;
 	closeAx(serial: string): void;
+	markAxMutation?(serial: string): void;
+	markUiMutation?(serial: string): void;
 	touchDevice(
 		serial: string,
 		phase: AndroidAxTouchPhase,
 		x: number,
 		y: number,
 	): Promise<void>;
+	performAxAction(
+		serial: string,
+		action: AndroidNodeAction,
+		target: AndroidNodeRef,
+		text?: string,
+	): Promise<AndroidNodeResult>;
+	readAxFocus(serial: string): Promise<AndroidNodeDescription | null>;
 	createTransport(
 		serial: string,
 		screen: { width: number; height: number; presentationGeneration?: number },
@@ -249,9 +313,15 @@ const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
 	warmAx: async () => {},
 	readAx: (serial, mode) => collectAndroidAxSnapshot(serial, { mode }),
 	closeAx: () => {},
+	markAxMutation: () => {},
+	markUiMutation: () => {},
 	touchDevice: async () => {
 		throw new Error("Android input helper is unavailable");
 	},
+	performAxAction: async () => {
+		throw new Error("Android input helper is unavailable");
+	},
+	readAxFocus: async () => null,
 	createTransport: createAndroidTransport,
 	rotate: androidRotate,
 	freeEmulatorRotation: freeAndroidEmulatorRotation,
@@ -284,6 +354,7 @@ export class AndroidSession {
 	private closed = false;
 	private deviceRotationLocked = false;
 	private pendingEmulatorRotation: AndroidRotation | null = null;
+	private focusedField: AndroidNodeDescription | null = null;
 	private readonly inputSemaphore = Effect.runSync(Effect.makeSemaphore(1));
 	private scrollGesture: {
 		transport: AndroidTransport | null;
@@ -614,6 +685,83 @@ export class AndroidSession {
 		);
 	}
 
+	/** Act on a node the snapshot named, instead of on a screen coordinate. */
+	async performNodeAction(
+		action: AndroidNodeAction,
+		target: AndroidNodeRef,
+		text?: string,
+	): Promise<AndroidNodeResult> {
+		try {
+			return await this.dependencies.performAxAction(
+				this.serial,
+				action,
+				target,
+				text,
+			);
+		} finally {
+			this.markAxMutation();
+		}
+	}
+
+	async performField(request: FieldRequest): Promise<FieldResult> {
+		if (request.action !== "focus" && request.action !== "set-text") {
+			throw new Error("Android does not support this field action");
+		}
+		const bound = this.focusedField;
+		if (request.action === "set-text" && !bound) {
+			throw new Error("The focused Android field is not known. Run observe again");
+		}
+		const identity = request.identity;
+		if (identity?.windowId === undefined || identity.sourceId === undefined) {
+			throw new Error("The Android field identity is incomplete. Run observe again");
+		}
+		if (
+			request.action === "set-text" &&
+			bound &&
+			(identity.windowId !== bound.windowId ||
+				identity.sourceId !== bound.sourceId)
+		) {
+			throw new Error("Android focused a different field. Run observe again");
+		}
+		if (request.action === "focus") this.focusedField = null;
+		const target: AndroidNodeRef = {
+			node: request.action === "set-text" ? "focus" : request.node,
+			...(request.testId ? { resourceId: request.testId } : {}),
+			...(request.className ? { className: request.className } : {}),
+			windowId: identity.windowId,
+			sourceId: identity.sourceId,
+		};
+		const result = await this.performNodeAction(
+			request.action,
+			target,
+			request.text,
+		);
+		if (!result.performed || !result.node) {
+			throw new Error(
+				request.action === "focus"
+					? "Android refused to focus the field"
+					: "Android refused to set text",
+			);
+		}
+		if (
+			!result.node.focused ||
+			!isRequestedAndroidNode(result.node, request) ||
+			(request.action === "set-text" &&
+				bound &&
+				!sameAndroidNode(bound, result.node))
+		) {
+			throw new Error("Android focused a different field. Run observe again");
+		}
+		this.focusedField = result.node;
+		return { performed: true, field: androidField(result.node) };
+	}
+
+	async readFocusedField(): Promise<DeviceField | null> {
+		const node = await this.dependencies.readAxFocus(this.serial);
+		this.focusedField = node?.focused ? node : null;
+		return androidField(this.focusedField);
+	}
+
 	async readStatus(): Promise<AndroidStatus> {
 		return this.decorateStatus(await getAndroidStatus(this.serial));
 	}
@@ -629,6 +777,14 @@ export class AndroidSession {
 				canChangeSource: false,
 			},
 		};
+	}
+
+	private markAxMutation(): void {
+		this.dependencies.markAxMutation?.(this.serial);
+	}
+
+	private markUiMutation(): void {
+		this.dependencies.markUiMutation?.(this.serial);
 	}
 
 	attachHidSocket(ws: AndroidHidSocket): void {
@@ -683,6 +839,7 @@ export class AndroidSession {
 		if (!isAndroidEmulatorSerial(this.serial)) {
 			void this.dependencies
 				.touchDevice(this.serial, phase, x * this.width, y * this.height)
+				.then(() => this.markAxMutation())
 				.catch((error) =>
 					logRuntime(`android:${this.serial}`, `Input failed: ${error}`),
 				);
@@ -696,13 +853,15 @@ export class AndroidSession {
 			{ x, y },
 			{ width: this.width, height: this.height, rotation: this.rotation },
 		);
-		return transport.injectTouch(
+		const injected = transport.injectTouch(
 			phase,
 			point.x,
 			point.y,
 			point.width,
 			point.height,
 		);
+		if (injected) this.markAxMutation();
+		return injected;
 	}
 
 	private finishScrollGesture(): void {
@@ -771,9 +930,12 @@ export class AndroidSession {
 				m.type === "cancel"
 					? m.type
 					: null;
+			if (!phase) return;
+			this.markUiMutation();
 			if (phase && !isAndroidEmulatorSerial(this.serial)) {
 				try {
 					await this.dependencies.touchDevice(this.serial, phase, x, y);
+					this.markAxMutation();
 					this.touchStart = null;
 					this.lastMove = null;
 				} catch (error) {
@@ -803,6 +965,7 @@ export class AndroidSession {
 					transportPoint.height,
 				)
 			) {
+				this.markAxMutation();
 				this.touchStart = null;
 				this.lastMove = null;
 				return;
@@ -822,6 +985,7 @@ export class AndroidSession {
 				this.lastMove = null;
 				if (!start) {
 					await androidTap(this.serial, x, y);
+					this.markAxMutation();
 					return;
 				}
 				const dx = Math.abs(end.x - start.x);
@@ -838,6 +1002,7 @@ export class AndroidSession {
 						Date.now() - start.at,
 					);
 				}
+				this.markAxMutation();
 			}
 			return;
 		}
@@ -845,6 +1010,7 @@ export class AndroidSession {
 		if (tag === 0x04) {
 			const m = json<{ button: string; phase?: string }>();
 			if (!m?.button) return;
+			this.markUiMutation();
 			const keycode = androidKeycodeForButton(m.button);
 			const phase =
 				m.phase === "down" || m.phase === "up" || m.phase === "press"
@@ -855,9 +1021,12 @@ export class AndroidSession {
 				transport?.injectKeycode &&
 				keycode != null &&
 				transport.injectKeycode(keycode, phase)
-			)
+			) {
+				this.markAxMutation();
 				return;
+			}
 			await androidButton(this.serial, m.button);
+			this.markAxMutation();
 			return;
 		}
 
@@ -877,6 +1046,8 @@ export class AndroidSession {
 				m.type === "cancel"
 					? m.type
 					: null;
+			if (!phase) return;
+			this.markUiMutation();
 			const transport = await this.activeTransport();
 			const first = transport
 				? androidTouchCoordinatesForTransport(
@@ -908,8 +1079,10 @@ export class AndroidSession {
 					first!.width,
 					first!.height,
 				)
-			)
+			) {
+				this.markAxMutation();
 				return;
+			}
 			return;
 		}
 
@@ -918,15 +1091,23 @@ export class AndroidSession {
 			if (!m || (m.type !== "down" && m.type !== "up")) return;
 			const keycode = androidKeycodeForHidUsage(m.usage);
 			if (keycode == null) return;
+			this.markUiMutation();
 			const transport = await this.activeTransport();
-			if (transport?.injectKeycode?.(keycode, m.type)) return;
-			if (m.type === "down") await androidKeyEvent(this.serial, keycode);
+			if (transport?.injectKeycode?.(keycode, m.type)) {
+				this.markAxMutation();
+				return;
+			}
+			if (m.type === "down") {
+				await androidKeyEvent(this.serial, keycode);
+				this.markAxMutation();
+			}
 			return;
 		}
 
 		if (tag === 0x07) {
 			const m = json<{ orientation: string; nativeStep?: "clockwise" }>();
 			if (!m?.orientation) return;
+			this.markUiMutation();
 			await this.activeTransport();
 			if (
 				androidTransportKindForSerial(this.serial) === "emulator-controller"
@@ -935,6 +1116,7 @@ export class AndroidSession {
 				// viewport watcher owns the resulting canonical screen config and
 				// touch mapping.
 				await this.dependencies.rotateEmulator(this.serial, 1);
+				this.markAxMutation();
 				this.transport?.resetVideo();
 				this.updateEmulatorViewportWatch();
 				return;
@@ -945,12 +1127,9 @@ export class AndroidSession {
 				height: this.height,
 				rotation: this.rotation,
 			});
-			try {
-				await this.dependencies.rotateDevice(this.serial, requestedRotation);
-				this.deviceRotationLocked = true;
-			} catch (error) {
-				console.warn("[agentsims:android] rotation failed", error);
-			}
+			await this.dependencies.rotateDevice(this.serial, requestedRotation);
+			this.markAxMutation();
+			this.deviceRotationLocked = true;
 			this.transport?.resetVideo();
 			const config = await this.dependencies.readScreenConfig(this.serial);
 			this.applyScreenConfig(config);
@@ -961,6 +1140,7 @@ export class AndroidSession {
 		if (tag === 0x0b) {
 			const m = json<{ dx: number; dy: number; x: number; y: number }>();
 			if (!m) return;
+			this.markUiMutation();
 			const transport = isAndroidEmulatorSerial(this.serial)
 				? await this.activeTransport()
 				: null;
@@ -969,16 +1149,23 @@ export class AndroidSession {
 		}
 
 		if (tag === 0x0c) {
+			this.markUiMutation();
 			await toggleAndroidSoftwareKeyboard(this.serial);
+			this.markAxMutation();
 			return;
 		}
 
 		if (tag === 0x0d) {
 			const m = json<{ action: string }>();
-			if (m?.action === "toggle_appearance")
+			if (m?.action === "toggle_appearance") {
+				this.markUiMutation();
 				await toggleAndroidDarkMode(this.serial);
-			else if (m?.action === "reload_react_native")
+				this.markAxMutation();
+			} else if (m?.action === "reload_react_native") {
+				this.markUiMutation();
 				await reloadAndroidReactNative(this.serial);
+				this.markAxMutation();
+			}
 		}
 	}
 }
@@ -988,6 +1175,7 @@ class AndroidSessionRegistry {
 		private readonly axServers: AndroidAxServersService,
 		private readonly commandExecutor: CommandExecutor,
 	) {}
+	private readonly mutationListeners = new Set<(serial: string) => void>();
 	private readonly sessions = new ScopedResourceRegistry(
 		(serial: string) =>
 			new AndroidSession(serial, {
@@ -996,6 +1184,17 @@ class AndroidSessionRegistry {
 					createAndroidTransport(...args, this.commandExecutor),
 				touchDevice: (target, phase, x, y) =>
 					Effect.runPromise(this.axServers.touch(target, phase, x, y)),
+				performAxAction: (target, action, node, text) =>
+					Effect.runPromise(
+						this.axServers.perform(target, action, node, text),
+					),
+				readAxFocus: (target) =>
+					Effect.runPromise(this.axServers.findFocus(target)),
+				markAxMutation: (target) =>
+					Effect.runSync(this.axServers.markMutation(target)),
+				markUiMutation: (target) => {
+					for (const listener of this.mutationListeners) listener(target);
+				},
 				warmAx: (target) => Effect.runPromise(this.axServers.warm(target)),
 				readAx: (target, mode) =>
 					collectAndroidAxSnapshot(target, {
@@ -1021,11 +1220,17 @@ class AndroidSessionRegistry {
 	closeAll(): Promise<void> {
 		return this.sessions.closeAll();
 	}
+
+	subscribeMutation(listener: (serial: string) => void): () => void {
+		this.mutationListeners.add(listener);
+		return () => this.mutationListeners.delete(listener);
+	}
 }
 
 export type AndroidSessionsService = {
 	get(serial: string): Effect.Effect<AndroidSession, unknown>;
 	close(serial: string): Effect.Effect<void>;
+	subscribeMutation?(listener: (serial: string) => void): () => void;
 };
 
 export class AndroidSessions extends Context.Tag("@agentsims/AndroidSessions")<
@@ -1049,6 +1254,7 @@ export const AndroidSessionsLive = Layer.scoped(
 					catch: (error) => error,
 				}),
 			close: (serial) => Effect.promise(() => registry.close(serial)),
+			subscribeMutation: (listener) => registry.subscribeMutation(listener),
 		});
 	}),
 );

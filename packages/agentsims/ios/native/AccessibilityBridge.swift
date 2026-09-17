@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Darwin
+import IOSurface
 import ObjectiveC.runtime
 
 // Accessibility tree fetcher for booted iOS Simulators.
@@ -47,8 +48,6 @@ enum AccessibilityError: Error, LocalizedError {
 /// through the matching device.
 final class AccessibilityBridge: NSObject {
     static let shared = AccessibilityBridge()
-    private static let maxSerializedElements = 500
-    private static let maxSerializationDepth = 80
 
     private let queue = DispatchQueue(label: "agentsims.ax.bridge", qos: .userInitiated)
     private let lock = NSLock()
@@ -88,16 +87,27 @@ final class AccessibilityBridge: NSObject {
         loaded = true
     }
 
-    /// Hit-test points for the frontmost-app fallback, center-out. Sized to
-    /// the smallest device we support (320×480) so one list fits every screen,
-    /// and clear of the top/bottom bands — the status bar and home indicator
-    /// belong to SpringBoard, not to the app in front of it.
-    private static let frontmostProbePoints: [CGPoint] = [
-        CGPoint(x: 160, y: 240), CGPoint(x: 160, y: 170), CGPoint(x: 160, y: 310),
-        CGPoint(x: 80, y: 240), CGPoint(x: 240, y: 240),
-        CGPoint(x: 80, y: 170), CGPoint(x: 240, y: 310),
-        CGPoint(x: 240, y: 170), CGPoint(x: 80, y: 310),
-    ]
+    /// Hit-test points for the frontmost-app fallback. Fractions keep the
+    /// center-out pattern proportional to the current screen bounds.
+    private static func frontmostProbePoints(in bounds: CGRect) -> [CGPoint] {
+        let fractions: [CGPoint] = [
+            CGPoint(x: 0.5, y: 0.5),
+            CGPoint(x: 0.5, y: 0.25),
+            CGPoint(x: 0.25, y: 0.5),
+            CGPoint(x: 0.75, y: 0.5),
+            CGPoint(x: 0.5, y: 0.75),
+            CGPoint(x: 0.25, y: 0.25),
+            CGPoint(x: 0.75, y: 0.25),
+            CGPoint(x: 0.25, y: 0.75),
+            CGPoint(x: 0.75, y: 0.75),
+        ]
+        return fractions.map { fraction in
+            CGPoint(
+                x: bounds.minX + bounds.width * fraction.x,
+                y: bounds.minY + bounds.height * fraction.y
+            )
+        }
+    }
 
     /// Frontmost app: its application element when the runtime hands one over,
     /// plus the owning pid.
@@ -117,7 +127,11 @@ final class AccessibilityBridge: NSObject {
     /// worth a try for the application element itself, but the pid alone is
     /// enough to identify the app. SpringBoard answers like any other process,
     /// so the home screen reports as SpringBoard, not as "nothing running".
-    private func resolveFrontmost(translator: NSObject, token: String) throws -> FrontmostApp {
+    private func resolveFrontmost(
+        translator: NSObject,
+        token: String,
+        device: NSObject
+    ) throws -> FrontmostApp {
         let frontmostSel = NSSelectorFromString("frontmostApplicationWithDisplayId:bridgeDelegateToken:")
         typealias FrontmostFunc = @convention(c) (AnyObject, Selector, UInt32, NSString) -> AnyObject?
         guard let frontmostIMP = translator.method(for: frontmostSel) else {
@@ -142,7 +156,11 @@ final class AccessibilityBridge: NSObject {
             unsafeBitCast($0, to: AppForPidFunc.self)
         }
 
-        for point in Self.frontmostProbePoints {
+        guard let bounds = Self.screenBounds(device: device),
+              bounds.width > 1, bounds.height > 1 else {
+            throw AccessibilityError.noFrontmostApplication
+        }
+        for point in Self.frontmostProbePoints(in: bounds) {
             guard let hit = objectAtPoint(translator, pointSel, point, 0, token as NSString) as? NSObject else {
                 continue
             }
@@ -156,7 +174,8 @@ final class AccessibilityBridge: NSObject {
         throw AccessibilityError.noFrontmostApplication
     }
 
-    /// Screen bounds in points, off the device type's pixel size and scale.
+    /// Current screen bounds in points. The live framebuffer supplies the
+    /// orientation; device-type dimensions are only the startup fallback.
     private static func screenBounds(device: NSObject) -> NSRect? {
         guard let type = device.value(forKey: "deviceType") as? NSObject,
               type.responds(to: NSSelectorFromString("mainScreenSize")),
@@ -167,7 +186,41 @@ final class AccessibilityBridge: NSObject {
            let n = type.value(forKey: "mainScreenScale") as? NSNumber, n.doubleValue > 0 {
             scale = CGFloat(n.doubleValue)
         }
-        return NSRect(x: 0, y: 0, width: size.width / scale, height: size.height / scale)
+        let live = liveScreenPixelSize(device: device) ?? size
+        return NSRect(x: 0, y: 0, width: live.width / scale, height: live.height / scale)
+    }
+
+    private static func liveScreenPixelSize(device: NSObject) -> NSSize? {
+        guard let io = device.perform(NSSelectorFromString("io"))?.takeUnretainedValue() as? NSObject else {
+            return nil
+        }
+        io.perform(NSSelectorFromString("updateIOPorts"))
+        guard let ports = io.value(forKey: "deviceIOPorts") as? [NSObject] else { return nil }
+
+        let portIdentifier = NSSelectorFromString("portIdentifier")
+        let descriptor = NSSelectorFromString("descriptor")
+        let framebuffer = NSSelectorFromString("framebufferSurface")
+        var largest: NSSize?
+        var largestArea = 0
+        for port in ports {
+            guard port.responds(to: portIdentifier),
+                  let identifier = port.perform(portIdentifier)?.takeUnretainedValue(),
+                  "\(identifier)" == "com.apple.framebuffer.display",
+                  port.responds(to: descriptor),
+                  let display = port.perform(descriptor)?.takeUnretainedValue() as? NSObject,
+                  display.responds(to: framebuffer),
+                  let surfaceObject = display.perform(framebuffer)?.takeUnretainedValue()
+            else { continue }
+            let surface = unsafeBitCast(surfaceObject, to: IOSurface.self)
+            let width = IOSurfaceGetWidth(surface)
+            let height = IOSurfaceGetHeight(surface)
+            let area = width * height
+            if area > largestArea {
+                largestArea = area
+                largest = NSSize(width: width, height: height)
+            }
+        }
+        return largest
     }
 
     /// Stand-in root in `serialize`'s shape, for runtimes that don't hand back
@@ -226,7 +279,11 @@ final class AccessibilityBridge: NSObject {
         registerToken(token, device: device)
         defer { unregisterToken(token) }
 
-        let frontmost = try resolveFrontmost(translator: translator, token: token)
+        let frontmost = try resolveFrontmost(
+            translator: translator,
+            token: token,
+            device: device
+        )
 
         // Convert the translation object to a real AXPMacPlatformElement —
         // an NSAccessibilityElement subclass whose accessibility properties
@@ -243,7 +300,6 @@ final class AccessibilityBridge: NSObject {
         //    standard accessibility-children traversal.
         var coverage = AccessibilityCoverage()
         var visited = Set<ObjectIdentifier>()
-        var remainingElements = Self.maxSerializedElements
         var root: [String: Any]
         var screenFrame = Self.screenBounds(device: device) ?? .zero
 
@@ -256,9 +312,7 @@ final class AccessibilityBridge: NSObject {
                 element: rootElement,
                 token: token,
                 coverage: &coverage,
-                visited: &visited,
-                remainingElements: &remainingElements,
-                depth: 0
+                visited: &visited
             ) else {
                 throw AccessibilityError.noFrontmostApplication
             }
@@ -287,8 +341,7 @@ final class AccessibilityBridge: NSObject {
                 token: token,
                 bounds: screenFrame,
                 coverage: &coverage,
-                visited: &visited,
-                remainingElements: &remainingElements
+                visited: &visited
             )
             children.append(contentsOf: discovered)
             root["children"] = children
@@ -318,7 +371,11 @@ final class AccessibilityBridge: NSObject {
         registerToken(token, device: device)
         defer { unregisterToken(token) }
 
-        let frontmost = try resolveFrontmost(translator: translator, token: token)
+        let frontmost = try resolveFrontmost(
+            translator: translator,
+            token: token,
+            device: device
+        )
         let pid = frontmost.pid
 
         // Bundle identifier sometimes ships as a property on the translation
@@ -385,8 +442,7 @@ final class AccessibilityBridge: NSObject {
         token: String,
         bounds: CGRect,
         coverage: inout AccessibilityCoverage,
-        visited: inout Set<ObjectIdentifier>,
-        remainingElements: inout Int
+        visited: inout Set<ObjectIdentifier>
     ) -> [[String: Any]] {
         guard let translator = translator else { return [] }
 
@@ -401,13 +457,12 @@ final class AccessibilityBridge: NSObject {
         let toMacElement = unsafeBitCast(macIMP, to: MacFunc.self)
 
         let step: CGFloat = 32
-        var pointBudget = 600  // safety cap for misbehaving sims
         var discovered: [[String: Any]] = []
 
         var y = bounds.minY + step / 2
-        while y < bounds.maxY, pointBudget > 0, remainingElements > 0 {
+        while y < bounds.maxY {
             var x = bounds.minX + step / 2
-            while x < bounds.maxX, pointBudget > 0, remainingElements > 0 {
+            while x < bounds.maxX {
                 let point = CGPoint(x: x, y: y)
                 x += step
 
@@ -416,7 +471,6 @@ final class AccessibilityBridge: NSObject {
                 // element is cataloged, every other grid point that falls
                 // inside the same text frame avoids an XPC round-trip.
                 if coverage.contains(point) { continue }
-                pointBudget -= 1
 
                 guard let translation = objectAtPoint(translator, pointSel, point, 0, token as NSString) as? NSObject else {
                     continue
@@ -445,9 +499,7 @@ final class AccessibilityBridge: NSObject {
                     element: element,
                     token: token,
                     coverage: &coverage,
-                    visited: &visited,
-                    remainingElements: &remainingElements,
-                    depth: 0
+                    visited: &visited
                 ) {
                     discovered.append(serialized)
                 }
@@ -483,17 +535,11 @@ final class AccessibilityBridge: NSObject {
         element: NSObject,
         token: String,
         coverage: inout AccessibilityCoverage,
-        visited: inout Set<ObjectIdentifier>,
-        remainingElements: inout Int,
-        depth: Int
+        visited: inout Set<ObjectIdentifier>
     ) -> [String: Any]? {
-        guard remainingElements > 0, depth <= Self.maxSerializationDepth else {
-            return nil
-        }
         guard visited.insert(ObjectIdentifier(element)).inserted else {
             return nil
         }
-        remainingElements -= 1
 
         // Token must be re-stamped on every element walked because the
         // framework creates fresh translation objects lazily as we touch
@@ -537,6 +583,13 @@ final class AccessibilityBridge: NSObject {
         dict["AXUniqueId"] = stringValue(element, key: "accessibilityIdentifier") ?? NSNull()
         dict["role_description"] = stringValue(element, key: "accessibilityRoleDescription") ?? ""
         dict["enabled"] = boolValue(element, key: "accessibilityEnabled") ?? true
+        if let focused = boolValue(element, selector: "isAccessibilityFocused") {
+            dict["focused"] = focused
+        }
+        if ["TextField", "SearchField", "TextArea", "SecureTextField", "ComboBox"].contains(role),
+           let selection = selectedTextRange(element) {
+            dict["selection"] = selection
+        }
 
         // Children — NSAccessibilityElement exposes accessibilityChildren()
         // returning [Any]?. Each child's translation needs the same token.
@@ -549,15 +602,12 @@ final class AccessibilityBridge: NSObject {
         }
         if let children {
             for child in children {
-                guard remainingElements > 0 else { break }
                 guard let childObj = child as? NSObject else { continue }
                 if let childDict = serialize(
                     element: childObj,
                     token: token,
                     coverage: &coverage,
-                    visited: &visited,
-                    remainingElements: &remainingElements,
-                    depth: depth + 1
+                    visited: &visited
                 ) {
                     childDicts.append(childDict)
                 }
@@ -593,6 +643,22 @@ final class AccessibilityBridge: NSObject {
     private func boolValue(_ obj: NSObject, key: String) -> Bool? {
         if let n = obj.value(forKey: key) as? NSNumber { return n.boolValue }
         return nil
+    }
+
+    private func boolValue(_ obj: NSObject, selector name: String) -> Bool? {
+        let selector = NSSelectorFromString(name)
+        guard let implementation = obj.method(for: selector) else { return nil }
+        typealias Function = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Function.self)(obj, selector)
+    }
+
+    private func selectedTextRange(_ obj: NSObject) -> [String: Int]? {
+        guard obj.responds(to: NSSelectorFromString("accessibilitySelectedTextRange")),
+              let value = obj.value(forKey: "accessibilitySelectedTextRange") as? NSValue
+        else { return nil }
+        let range = value.rangeValue
+        guard range.location != NSNotFound else { return nil }
+        return ["start": range.location, "end": range.location + range.length]
     }
 
     /// Heuristic: anything with a dimension >= 250pt is too big to be a

@@ -1,17 +1,17 @@
 import { Context, Effect, Layer } from "effect";
 import { logRuntime } from "../../logging";
 import { AX_UNAVAILABLE_ERROR } from "./accessibility-model";
-import type { AxElement, AxRect, AxSnapshot } from "./accessibility-model";
+import type { AxSnapshot } from "./accessibility-model";
 import { androidSerialFromStateId } from "../../android/device/identifiers";
 import { collectAndroidAxSnapshot } from "../../android/accessibility/snapshot";
 import { subscribeAndroidAxChanges } from "../../android/accessibility/ax-server";
 import { AndroidAxServers } from "../../android/accessibility/ax-server";
+import { iosAxSnapshot } from "../../ios/accessibility";
 import { axDescribeAsync } from "../../ios/stream/native";
 import { enrichAxSnapshotWithRnSource } from "../../react-native/enrich-accessibility";
 
 export type { AxElement, AxRect, AxSnapshot } from "./accessibility-model";
 
-const MAX_ELEMENTS = 500;
 const POLL_INTERVAL_MS = 500;
 const MAX_POLL_INTERVAL_MS = 2000;
 const ANDROID_POLL_INTERVAL_MS = 5000;
@@ -22,92 +22,10 @@ const UNAVAILABLE_RETRY_INTERVAL_MS = 15_000;
 // a full UIAutomator traversal for every animation frame.
 const ANDROID_CHANGE_MIN_INTERVAL_MS = 100;
 
-interface RawAxeNode {
-	AXUniqueId: string | null;
-	AXLabel: string | null;
-	AXValue: string | null;
-	enabled: boolean;
-	frame: AxRect;
-	role_description: string;
-	type: string;
-	children: RawAxeNode[];
-}
-
-function chooseScreenFrame(roots: RawAxeNode[]) {
-	return (
-		roots[0]?.frame ?? {
-			x: 0,
-			y: 0,
-			width: 1,
-			height: 1,
-		}
-	);
-}
-
-function sameRect(a: AxRect, b: AxRect) {
-	return (
-		Math.abs(a.x - b.x) < 0.5 &&
-		Math.abs(a.y - b.y) < 0.5 &&
-		Math.abs(a.width - b.width) < 0.5 &&
-		Math.abs(a.height - b.height) < 0.5
-	);
-}
-
-function normalizeAxTree(roots: RawAxeNode[]): AxSnapshot {
-	const screen = chooseScreenFrame(roots);
-	const elements: AxElement[] = [];
-
-	const visit = (node: RawAxeNode, path: string) => {
-		if (elements.length >= MAX_ELEMENTS) return;
-
-		const frame = node.frame;
-		const isScreenSized = sameRect(frame, screen);
-
-		if (!isScreenSized) {
-			elements.push({
-				id: node.AXUniqueId ?? path,
-				path,
-				label: node.AXLabel ?? "",
-				value: node.AXValue ?? "",
-				role: node.role_description,
-				type: node.type,
-				enabled: node.enabled !== false,
-				frame,
-				testId: node.AXUniqueId ?? undefined,
-				nativeId: node.AXUniqueId ?? undefined,
-			});
-		}
-
-		for (
-			let index = 0;
-			index < node.children.length && elements.length < MAX_ELEMENTS;
-			index++
-		) {
-			visit(node.children[index]!, `${path}.${index}`);
-		}
-	};
-
-	for (
-		let index = 0;
-		index < roots.length && elements.length < MAX_ELEMENTS;
-		index++
-	) {
-		visit(roots[index]!, String(index));
-	}
-
-	return {
-		screen: {
-			width: screen.width,
-			height: screen.height,
-		},
-		elements,
-	};
-}
-
 async function snapshotFromNative(udid: string): Promise<AxSnapshot> {
-	let raw: RawAxeNode[];
+	let raw: unknown;
 	try {
-		raw = JSON.parse(await axDescribeAsync(udid)) as RawAxeNode[];
+		raw = JSON.parse(await axDescribeAsync(udid));
 	} catch {
 		// The in-process AX bridge throws when the simulator can't satisfy
 		// accessibility right now (framework missing, SpringBoard restarting,
@@ -119,7 +37,7 @@ async function snapshotFromNative(udid: string): Promise<AxSnapshot> {
 			errors: [AX_UNAVAILABLE_ERROR],
 		};
 	}
-	return normalizeAxTree(raw);
+	return iosAxSnapshot(raw);
 }
 
 function isAxUnavailableSnapshot(snapshot: AxSnapshot | null) {

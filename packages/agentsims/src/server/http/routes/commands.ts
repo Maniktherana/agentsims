@@ -129,9 +129,28 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		commandResponse(
 			Effect.gen(function* () {
 				const { url } = yield* requestContext;
-				return yield* (yield* Devices).observe(
+				return yield* (yield* Devices).observe(yield* pathDevice, {
+					all: url.searchParams.get("all") === "1",
+				});
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/screenshot",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* Devices).screenshot(yield* pathDevice);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/find",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				return yield* (yield* Devices).find(
 					yield* pathDevice,
-					url.searchParams.get("ax") !== "0",
+					url.searchParams.get("q") ?? "",
 				);
 			}),
 		),
@@ -140,13 +159,14 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		"/device/:device/act",
 		commandResponse(
 			Effect.gen(function* () {
-				const { request } = yield* requestContext;
+				const { request, url } = yield* requestContext;
 				const body = yield* decodeInput(
 					actionsBody,
 					yield* requestJson(request),
 				);
-				yield* (yield* Devices).act(yield* pathDevice, body.actions);
-				return { ok: true };
+				return yield* (yield* Devices).act(yield* pathDevice, body.actions, {
+					screenshot: url.searchParams.get("screenshot") === "1",
+				});
 			}),
 		),
 	),
@@ -154,12 +174,28 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		"/device/:device/app",
 		commandResponse(
 			Effect.gen(function* () {
-				const { request } = yield* requestContext;
+				const { request, url } = yield* requestContext;
 				const input = yield* decodeInput(
 					AppOperationSchema,
 					yield* requestJson(request),
 				);
-				return yield* (yield* Apps).execute(yield* pathDevice, input);
+				const device = yield* pathDevice;
+				const operation = (yield* Apps).execute(device, input);
+				if (
+					(input.operation === "launch" || input.operation === "stop") &&
+					input.value
+				)
+					return yield* (yield* Devices).operation(
+						device,
+						operation,
+						{
+							kind: "foreground_app",
+							operation: input.operation,
+							expected: input.value,
+						},
+						{ screenshot: url.searchParams.get("screenshot") === "1" },
+					);
+				return yield* operation;
 			}),
 		),
 	),

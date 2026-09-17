@@ -54,6 +54,7 @@ function androidAxTraits(attrs: Record<string, string>): string[] | undefined {
 		["checked", "checked"],
 		["selected", "selected"],
 		["password", "password"],
+		["editable", "editable"],
 	];
 	const traits = traitAttributes
 		.filter(([attribute]) => attrs[attribute] === "true")
@@ -195,22 +196,33 @@ export async function collectAndroidAxSnapshot(
 			// them in the raw tree so paths remain an exact representation of the
 			// native hierarchy; overlay eligibility belongs to browser consumers.
 			if (!frame) continue;
-			const label = attrs["content-desc"] || attrs.text || "";
+			// An empty field reports its hint as its text, and a filled field would
+			// otherwise report one string as both its name and its value.
+			const editable = attrs.editable === "true";
+			const hint = attrs["hint-text"] === "true";
+			const text = hint ? "" : attrs.text || "";
+			const label =
+				attrs["content-desc"] || (editable ? (hint ? attrs.text || "" : "") : text);
 			const role = attrs.class || "android.view.View";
 			const nativeId = attrs["resource-id"] || undefined;
 			const windowId = optionalInteger(attrs["window-id"]);
+			const sourceId = optionalInteger(attrs["source-id"]);
 			const windowLayer = optionalInteger(attrs["window-layer"]);
 			const windowType = optionalInteger(attrs["window-type"]);
 			elements.push({
-				id: nativeId || `${serial}:${path}`,
+				id:
+					windowId !== undefined && sourceId !== undefined
+						? `${windowId}:${sourceId}`
+						: nativeId || `${serial}:${path}`,
 				path,
 				label,
-				value: attrs.text || "",
+				value: text,
 				role,
 				type: role,
 				enabled: attrs.enabled !== "false",
 				visibleToUser: attrs["visible-to-user"] !== "false",
 				...(windowId === undefined ? {} : { windowId }),
+				...(sourceId === undefined ? {} : { sourceId }),
 				...(windowLayer === undefined ? {} : { windowLayer }),
 				...(windowType === undefined ? {} : { windowType }),
 				...(attrs["window-active"] === undefined

@@ -10,7 +10,11 @@ import {
 	invalidateAndroidDiscoveryCache,
 	listAndroidDevices,
 } from "../../android/device/discovery";
-import { launchAndroidAvd } from "../../android/device/emulator";
+import {
+	launchAndroidAvd,
+	type AndroidBootWaitResult,
+	waitForAndroidBoot,
+} from "../../android/device/emulator";
 import {
 	AndroidSessions,
 	type AndroidSession,
@@ -79,6 +83,10 @@ function execFileResult(
 }
 
 export interface DeviceLifecycleDependencies {
+	waitForAndroidBoot?(
+		serial: string,
+		deadline: number,
+	): Promise<AndroidBootWaitResult>;
 	getAndroidSession(
 		serial: string,
 	): Promise<Pick<AndroidSession, "startTransport">>;
@@ -113,6 +121,7 @@ const UNCONFIGURED_LIFECYCLE_DEPENDENCIES: DeviceLifecycleDependencies = {
 };
 
 export const DEVICE_SHUTTING_DOWN_ERROR = "Device is shutting down";
+const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 
 export class DeviceLifecycle {
 	private iosSnapshot: { at: number; devices: Set<string> | null } = {
@@ -344,7 +353,22 @@ export class DeviceLifecycle {
 		serial: string,
 		port: number,
 		base: string,
+		bootDeadline = serial.startsWith("emulator-")
+			? Date.now() + ANDROID_BOOT_TIMEOUT_MS
+			: undefined,
+		avdName?: string,
 	): Promise<string | null> {
+		if (bootDeadline !== undefined) {
+			const readiness = await (
+				this.dependencies.waitForAndroidBoot ?? waitForAndroidBoot
+			)(serial, bootDeadline);
+			if (!readiness.ready) {
+				const emulator = avdName
+					? `Android emulator ${avdName} appeared as ${serial}`
+					: `Android device ${serial}`;
+				return `${emulator} did not become ready: ${readiness.error}`;
+			}
+		}
 		try {
 			const session = await this.dependencies.getAndroidSession(serial);
 			await session.startTransport();
@@ -370,7 +394,13 @@ export class DeviceLifecycle {
 		if (existingMatch) {
 			const device = androidStateId(existingMatch.serial);
 			return {
-				error: await this.startAndroidDevice(existingMatch.serial, port, base),
+				error: await this.startAndroidDevice(
+					existingMatch.serial,
+					port,
+					base,
+					Date.now() + ANDROID_BOOT_TIMEOUT_MS,
+					avdName,
+				),
 				device,
 			};
 		}
@@ -378,7 +408,7 @@ export class DeviceLifecycle {
 		const before = new Set(existing.map((device) => device.serial));
 		try {
 			const cameraRoute = getStoredMediaRoute(androidAvdStateId(avdName));
-			launchAndroidAvd(
+			await launchAndroidAvd(
 				avdName,
 				{
 					front: cameraRoute.androidCameraFront,
@@ -390,7 +420,7 @@ export class DeviceLifecycle {
 			return { error: error instanceof Error ? error.message : String(error) };
 		}
 
-		const deadline = Date.now() + 180_000;
+		const deadline = Date.now() + ANDROID_BOOT_TIMEOUT_MS;
 		let lastSeenSerial: string | null = null;
 		while (Date.now() < deadline) {
 			await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -409,7 +439,13 @@ export class DeviceLifecycle {
 			if (match) {
 				const device = androidStateId(match.serial);
 				return {
-					error: await this.startAndroidDevice(match.serial, port, base),
+					error: await this.startAndroidDevice(
+						match.serial,
+						port,
+						base,
+						deadline,
+						avdName,
+					),
 					device,
 				};
 			}

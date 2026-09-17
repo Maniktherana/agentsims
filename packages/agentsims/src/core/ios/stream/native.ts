@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
 
 // Native handles expose explicit stop methods. Swift `deinit` remains a
 // last-resort fallback when a caller loses a handle without closing its scope.
-interface SimHIDHandle {
+export interface SimHIDHandle {
 	touch(
 		type: TouchType,
 		x: number,
@@ -183,31 +183,8 @@ function load(): NativeAddon {
 export class NativeHid {
 	private readonly handle: SimHIDHandle;
 
-	constructor(udid: string) {
-		this.handle = new (load().SimHID)(udid);
-	}
-
-	// The N-API bindings throw synchronously when a JS value can't be coerced to
-	// the native parameter type (e.g. a touch with a non-string `type` →
-	// "Could not convert parameter 0 to type String"). HID now runs in-process,
-	// so an unhandled throw here crashes the whole server — and if it lands
-	// mid-gesture, the guest is left with a stuck finger that wedges input until
-	// the sim reboots. The spawned helper used to absorb this in its own process;
-	// `guard` restores that isolation by swallowing malformed-input errors.
-	private async guard<T>(
-		op: string,
-		fn: () => PromiseLike<T>,
-		fallback: T,
-	): Promise<T> {
-		try {
-			return await fn();
-		} catch (err) {
-			console.error(
-				`[hid] ${op} ignored bad input:`,
-				err instanceof Error ? err.message : err,
-			);
-			return fallback;
-		}
+	constructor(udid: string, handle?: SimHIDHandle) {
+		this.handle = handle ?? new (load().SimHID)(udid);
 	}
 
 	touch(
@@ -218,11 +195,7 @@ export class NativeHid {
 		h: number,
 		edge = 0,
 	): Promise<void> {
-		return this.guard(
-			"touch",
-			() => this.handle.touch(type, x, y, w, h, edge),
-			undefined,
-		);
+		return this.handle.touch(type, x, y, w, h, edge);
 	}
 
 	multiTouch(
@@ -234,15 +207,11 @@ export class NativeHid {
 		w: number,
 		h: number,
 	): Promise<void> {
-		return this.guard(
-			"multiTouch",
-			() => this.handle.multiTouch(type, x1, y1, x2, y2, w, h),
-			undefined,
-		);
+		return this.handle.multiTouch(type, x1, y1, x2, y2, w, h);
 	}
 
 	button(button: string): Promise<void> {
-		return this.guard("button", () => this.handle.button(button), undefined);
+		return this.handle.button(button);
 	}
 
 	buttonHid(
@@ -250,15 +219,11 @@ export class NativeHid {
 		usage: number,
 		phase: ButtonPhase = "press",
 	): Promise<void> {
-		return this.guard(
-			"buttonHid",
-			() => this.handle.buttonHid(page, usage, phase),
-			undefined,
-		);
+		return this.handle.buttonHid(page, usage, phase);
 	}
 
 	key(type: KeyType, usage: number): Promise<void> {
-		return this.guard("key", () => this.handle.key(type, usage), undefined);
+		return this.handle.key(type, usage);
 	}
 
 	/** anchorX/anchorY default to screen center when omitted. */
@@ -270,51 +235,27 @@ export class NativeHid {
 		anchorX?: number,
 		anchorY?: number,
 	): Promise<void> {
-		return this.guard(
-			"scroll",
-			() => this.handle.scroll(dx, dy, anchorX ?? NaN, anchorY ?? NaN, w, h),
-			undefined,
-		);
+		return this.handle.scroll(dx, dy, anchorX ?? NaN, anchorY ?? NaN, w, h);
 	}
 
 	digitalCrown(delta: number): Promise<void> {
-		return this.guard(
-			"digitalCrown",
-			() => this.handle.digitalCrown(delta),
-			undefined,
-		);
+		return this.handle.digitalCrown(delta);
 	}
 
 	orientation(orientation: number): Promise<boolean> {
-		return this.guard(
-			"orientation",
-			() => this.handle.orientation(orientation),
-			false,
-		);
+		return this.handle.orientation(orientation);
 	}
 
 	memoryWarning(): Promise<void> {
-		return this.guard(
-			"memoryWarning",
-			() => this.handle.memoryWarning(),
-			undefined,
-		);
+		return this.handle.memoryWarning();
 	}
 
 	softwareKeyboard(): Promise<void> {
-		return this.guard(
-			"softwareKeyboard",
-			() => this.handle.softwareKeyboard(),
-			undefined,
-		);
+		return this.handle.softwareKeyboard();
 	}
 
 	caDebug(name: string, enabled: boolean): Promise<boolean> {
-		return this.guard(
-			"caDebug",
-			() => this.handle.caDebug(name, enabled),
-			false,
-		);
+		return this.handle.caDebug(name, enabled);
 	}
 
 	private stopped = false;
@@ -322,7 +263,7 @@ export class NativeHid {
 	async stop(): Promise<void> {
 		if (this.stopped) return;
 		this.stopped = true;
-		await this.guard("stop", () => this.handle.stop(), undefined);
+		await this.handle.stop();
 	}
 }
 

@@ -48,10 +48,20 @@ const FALLBACK_PLACEHOLDER_ASSETS = {
 		paths: [join(MOBILE_DEVICE_RESOURCES_ROOT, "com.apple.iphone-16-e-1.icns")],
 	},
 	"ipad-air-11-inch-m4": {
-		paths: [join(MOBILE_DEVICE_RESOURCES_ROOT, "com.apple.ipad-air-m3-1.icns")],
+		paths: [
+			join(
+				MOBILE_DEVICE_RESOURCES_ROOT,
+				"com.apple.ipad-air-11-inch-m4-1.icns",
+			),
+		],
 	},
 	"ipad-air-13-inch-m4": {
-		paths: [join(MOBILE_DEVICE_RESOURCES_ROOT, "com.apple.ipad-air-m3-1.icns")],
+		paths: [
+			join(
+				MOBILE_DEVICE_RESOURCES_ROOT,
+				"com.apple.ipad-air-13-inch-m4-1.icns",
+			),
+		],
 	},
 } as const satisfies Record<string, PlaceholderAssetDefinition>;
 

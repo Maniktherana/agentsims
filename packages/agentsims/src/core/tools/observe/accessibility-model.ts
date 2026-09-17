@@ -53,6 +53,8 @@ export interface AxElement {
 	visibleToUser?: boolean;
 	/** Present on Android top-level roots when interactive windows are available. */
 	windowId?: number;
+	/** Native accessibility-node identity when the platform exposes it. */
+	sourceId?: number;
 	windowLayer?: number;
 	windowType?: number;
 	windowActive?: boolean;
