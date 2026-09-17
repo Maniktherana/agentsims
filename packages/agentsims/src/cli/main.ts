@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
 import {
 	ANDROID_DEVICE_BUTTONS,
+	DEFAULT_LONG_PRESS_DURATION_MS,
 	DEVICE_ORIENTATIONS,
 	IOS_DEVICE_BUTTONS,
 	validateDeviceButton,
@@ -422,11 +423,50 @@ export function createProgram(): Command {
 		async (target: string, flags: TargetFlags) =>
 			act(flags, { type: "tap", ...selector(target, flags) }),
 	);
-	targetCommand("swipe <from> <to>", `Swipe between two targets. ${TARGET_HELP}`)
+	targetCommand(
+		"long-press <target>",
+		`Press and hold a target. ${TARGET_HELP}`,
+	)
+		.option(
+			"--duration <ms>",
+			`Hold duration in milliseconds (default: ${DEFAULT_LONG_PRESS_DURATION_MS})`,
+			integer("Duration", 1, 5_000),
+		)
+		.action(
+			async (
+				target: string,
+				flags: TargetFlags & { duration?: number },
+			) =>
+				act(flags, {
+					type: "long-press",
+					...selector(target, flags),
+					...(flags.duration === undefined
+						? {}
+						: { durationMs: flags.duration }),
+				}),
+		);
+	targetCommand(
+		"swipe <from> <to>",
+		`Move one finger from one target to another. Coordinates use x,y. ${TARGET_HELP}`,
+	)
 		.option(
 			"--duration <ms>",
 			"Swipe duration in milliseconds",
 			integer("Duration", 1, 5_000),
+		)
+		.addHelpText(
+			"after",
+			`
+Direction:
+  Change x for a horizontal swipe. Change y for a vertical swipe.
+  <from> to <to> is the finger motion. Content moves in the opposite direction.
+
+Examples:
+  Finger left:  agentsims swipe 80%,50% 20%,50% --capture c7 -d <id>
+  Finger right: agentsims swipe 20%,50% 80%,50% --capture c7 -d <id>
+  Finger up:    agentsims swipe 50%,80% 50%,20% --capture c7 -d <id>
+  Finger down:  agentsims swipe 50%,20% 50%,80% --capture c7 -d <id>
+`,
 		)
 		.action(
 			async (

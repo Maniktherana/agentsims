@@ -14,7 +14,7 @@ implements the Agent Skills standard. One `SKILL.md` serves all of them.
 - Read one public accessibility view and the saved image without inline base64.
 - Keep refs and capture IDs current, and bind point input to the image that
   supplied the point.
-- Send taps, swipes, text, hardware buttons, and rotation,
+- Send taps, long presses, swipes, text, hardware buttons, and rotation,
   with the hardware names that each platform accepts.
 - Install, launch, stop, and remove apps, and read filtered Android logs.
 - Test app permissions on both platforms, camera input, appearance, locale,

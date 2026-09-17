@@ -29,6 +29,10 @@ export type TargetSelector = z.infer<typeof TargetSelectorSchema>;
 export const TargetActionSchema = z.discriminatedUnion("type", [
 	TargetSelectorSchema.extend({ type: z.literal("tap") }),
 	TargetSelectorSchema.extend({
+		type: z.literal("long-press"),
+		durationMs: z.number().optional(),
+	}),
+	TargetSelectorSchema.extend({
 		type: z.literal("gesture"),
 		phase: z.enum(GESTURE_PHASES),
 	}),
@@ -236,7 +240,8 @@ function requireActionable(
 	const actionable =
 		ACTIONABLE_ROLES.has(node.role) ||
 		source?.traits?.includes("clickable") === true ||
-		source?.traits?.includes("scrollable") === true;
+		source?.traits?.includes("scrollable") === true ||
+		source?.traits?.includes("long press") === true;
 	if (!actionable) fail(`${description} is not actionable`);
 	return node;
 }
@@ -565,6 +570,8 @@ function describeDeviceAction(action: DeviceAction): ResolvedAction {
 	switch (action.type) {
 		case "tap":
 			return { type: "tap", from: { x: action.x, y: action.y } };
+		case "long-press":
+			return { type: "long-press", from: { x: action.x, y: action.y } };
 		case "gesture":
 			return {
 				type: "gesture",
@@ -606,6 +613,7 @@ export function resolveActionTargets(
 				fail(direct.error.issues[0]?.message ?? "the action is not valid");
 			if (
 				direct.data.type === "tap" ||
+				direct.data.type === "long-press" ||
 				direct.data.type === "swipe" ||
 				direct.data.type === "gesture"
 			)
@@ -670,16 +678,28 @@ export function resolveActionTargets(
 		const from = target.point;
 		captureBound ||= Boolean(from.capture);
 		const actionIndex = actions.length;
-		actions.push(
-			action.type === "gesture"
-				? { type: "gesture", phase: action.phase, x: from.x, y: from.y }
-				: { type: "tap", x: from.x, y: from.y },
-		);
-		resolved.push(
-			action.type === "gesture"
-				? { type: "gesture", phase: action.phase, from }
-				: { type: "tap", from },
-		);
+		if (action.type === "gesture") {
+			actions.push({
+				type: "gesture",
+				phase: action.phase,
+				x: from.x,
+				y: from.y,
+			});
+			resolved.push({ type: "gesture", phase: action.phase, from });
+		} else if (action.type === "long-press") {
+			actions.push({
+				type: "long-press",
+				x: from.x,
+				y: from.y,
+				...(action.durationMs === undefined
+					? {}
+					: { durationMs: action.durationMs }),
+			});
+			resolved.push({ type: "long-press", from });
+		} else {
+			actions.push({ type: "tap", x: from.x, y: from.y });
+			resolved.push({ type: "tap", from });
+		}
 		if (target.node)
 			semanticTargets.push({
 				action: actionIndex,

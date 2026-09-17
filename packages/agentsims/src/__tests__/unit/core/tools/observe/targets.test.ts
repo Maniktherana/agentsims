@@ -227,6 +227,26 @@ describe("actionability", () => {
 		).toThrow("is not actionable");
 	});
 
+	test("allows a node that exposes only long-press actionability", () => {
+		const snapshot: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("menu", "android.widget.TextView", {
+					label: "Open menu",
+					traits: ["long press"],
+					frame: { x: 40, y: 200, width: 200, height: 100 },
+				}),
+			],
+		};
+		const { store, refs } = observed(snapshot);
+		const request = resolveActionTargets(store, DEVICE, [
+			{ type: "long-press", target: `@${refs[0]}` },
+		]);
+		expect(request.actions).toEqual([
+			{ type: "long-press", x: 140 / 1080, y: 250 / 2400 },
+		]);
+	});
+
 	test("allows a visible target in a higher non-focused popup", () => {
 		const popup: AxSnapshot = {
 			screen: screen.screen,
@@ -414,6 +434,11 @@ describe("capture-bound coordinates", () => {
 		expect(() =>
 			resolveActionTargets(store, DEVICE, [{ type: "tap", x: 0.5, y: 0.5 }]),
 		).toThrow("bare coordinates are not accepted");
+		expect(() =>
+			resolveActionTargets(store, DEVICE, [
+				{ type: "long-press", x: 0.5, y: 0.5 },
+			]),
+		).toThrow("bare coordinates are not accepted");
 	});
 
 	test("wrong-device and rotated captures are refused", () => {
@@ -500,10 +525,17 @@ describe("action resolution", () => {
 		const { store, refs } = observed();
 		const request = resolveActionTargets(store, DEVICE, [
 			{ type: "tap", target: `@${refs[0]}` },
+			{ type: "long-press", target: `@${refs[0]}`, durationMs: 700 },
 			{ type: "button", button: "home", ignored: true },
 		]);
 		expect(request.actions).toEqual([
 			{ type: "tap", x: 140 / 1080, y: 250 / 2400 },
+			{
+				type: "long-press",
+				x: 140 / 1080,
+				y: 250 / 2400,
+				durationMs: 700,
+			},
 			{ type: "button", button: "home" },
 		]);
 	});

@@ -43,17 +43,49 @@ describe("makeDeviceActions", () => {
 					y1: 0.8,
 					x2: 0.5,
 					y2: 0.2,
-					durationMs: 240,
+					durationMs: 64,
 				},
 			]),
 		);
 
 		expect(frames.map(decodedFrame)).toEqual([
 			{ tag: 0x03, payload: { type: "begin", x: 0.5, y: 0.8 } },
+			{ tag: 0x03, payload: { type: "move", x: 0.5, y: 0.65 } },
+			{ tag: 0x03, payload: { type: "move", x: 0.5, y: 0.5 } },
+			{ tag: 0x03, payload: { type: "move", x: 0.5, y: 0.35 } },
 			{ tag: 0x03, payload: { type: "move", x: 0.5, y: 0.2 } },
 			{ tag: 0x03, payload: { type: "end", x: 0.5, y: 0.2 } },
 		]);
-		expect(delays).toEqual([120, 120]);
+		expect(delays).toEqual([16, 16, 16, 16]);
+	});
+
+	test("holds one point for a long press", async () => {
+		const frames: Buffer[] = [];
+		const delays: number[] = [];
+		const act = makeDeviceActions(
+			() =>
+				Effect.succeed({
+					dispatchInputFrame: async (data) => {
+						frames.push(data);
+					},
+				}),
+			(milliseconds) =>
+				Effect.sync(() => {
+					delays.push(milliseconds);
+				}),
+		);
+
+		await Effect.runPromise(
+			act("android:emulator-5554", [
+				{ type: "long-press", x: 0.25, y: 0.75 },
+			]),
+		);
+
+		expect(frames.map(decodedFrame)).toEqual([
+			{ tag: 0x03, payload: { type: "begin", x: 0.25, y: 0.75 } },
+			{ tag: 0x03, payload: { type: "end", x: 0.25, y: 0.75 } },
+		]);
+		expect(delays).toEqual([600]);
 	});
 
 	test("rejects the whole batch before it dispatches an invalid action", async () => {
@@ -270,7 +302,7 @@ describe("makeDeviceActions", () => {
 		expect(sessionRequests).toBe(0);
 	});
 
-	test("parses supported actions and bounds swipe duration", () => {
+	test("parses supported actions and bounds touch duration", () => {
 		expect(
 			parseDeviceAction('{"type":"rotate","orientation":"landscape_left"}'),
 		).toEqual({
@@ -284,6 +316,14 @@ describe("makeDeviceActions", () => {
 				y1: 0,
 				x2: 1,
 				y2: 1,
+				durationMs: 60_000,
+			}),
+		).toMatchObject({ durationMs: 5_000 });
+		expect(
+			decodeDeviceAction({
+				type: "long-press",
+				x: 0.5,
+				y: 0.5,
 				durationMs: 60_000,
 			}),
 		).toMatchObject({ durationMs: 5_000 });

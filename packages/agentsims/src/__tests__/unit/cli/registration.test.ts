@@ -30,6 +30,7 @@ test("the public command surface is canonical", () => {
 		"device-logs",
 		"devices",
 		"tap",
+		"long-press",
 		"swipe",
 		"type",
 		"fill",
@@ -51,6 +52,7 @@ test("the public command surface is canonical", () => {
 test("action and app help shows the supported options", () => {
 	const expected: Record<string, string[]> = {
 		tap: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index"],
+		"long-press": ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
 		swipe: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
 		type: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
 		fill: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
@@ -71,11 +73,31 @@ test("action and app help shows the supported options", () => {
 });
 
 test("target indexes have no arbitrary upper limit", () => {
-	for (const name of ["tap", "swipe", "type", "fill"]) {
+	for (const name of ["tap", "long-press", "swipe", "type", "fill"]) {
 		const option = command(name).options.find((item) => item.long === "--index");
 		expect(option?.parseArg?.("1000000", "")).toBe(1_000_000);
 		expect(() => option?.parseArg?.("0", "")).toThrow("Index must be a positive integer.");
 	}
+});
+
+test("touch help explains long presses and swipe direction", () => {
+	const longPressHelp = command("long-press")
+		.helpInformation()
+		.replace(/\s+/g, " ");
+	expect(longPressHelp).toContain("Hold duration in milliseconds (default: 600)");
+
+	const swipe = command("swipe");
+	let swipeOutput = "";
+	swipe.configureOutput({ writeOut: (value) => { swipeOutput += value; } });
+	swipe.outputHelp();
+	const swipeHelp = swipeOutput.replace(/\s+/g, " ");
+	expect(swipeHelp).toContain("Coordinates use x,y.");
+	expect(swipeHelp).toContain("Change x for a horizontal swipe.");
+	expect(swipeHelp).toContain("Change y for a vertical swipe.");
+	expect(swipeHelp).toContain("Content moves in the opposite direction.");
+	expect(swipeHelp).toContain(
+		"agentsims swipe 80%,50% 20%,50% --capture c7 -d <id>",
+	);
 });
 
 test("permission and button help lists exact platform values", () => {

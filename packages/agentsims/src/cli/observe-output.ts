@@ -212,6 +212,10 @@ function renderTypeLine(action: ResolvedAction): string {
 
 function renderActionLine(action: ResolvedAction): string {
 	switch (action.type) {
+		case "long-press":
+			return action.from
+				? `long-press ${renderPoint(action.from)}`
+				: "long-press";
 		case "swipe":
 			return action.from && action.to
 				? `swipe from ${renderPoint(action.from)} to ${renderPoint(action.to)}`

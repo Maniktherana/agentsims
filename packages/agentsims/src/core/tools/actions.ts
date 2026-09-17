@@ -235,7 +235,9 @@ function isStructuralOnly(view: DeviceSnapshot | null): boolean {
 
 function isPerceptionAction(actions: readonly ResolvedAction[]): boolean {
 	return actions.some((action) =>
-		["tap", "swipe", "gesture", "button", "key"].includes(action.type),
+		["tap", "long-press", "swipe", "gesture", "button", "key"].includes(
+			action.type,
+		),
 	);
 }
 

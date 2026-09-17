@@ -46,6 +46,10 @@ mutations from one observation.
 the current ref of its enclosing `[clickable]` row or button. If no actionable
 container exists, inspect the image.
 
+`[long-press]` marks a node that accepts a long press. Use `long-press` when
+the task or node semantics require it. Do not use it only because one tap had
+no effect.
+
 ## tap
 
 ```sh
@@ -54,6 +58,17 @@ agentsims tap @e14 -d "$DEVICE"
 
 If an exact label matches more than one node, add `--role` or `--index`.
 The index starts at 1 and has no arbitrary upper limit.
+
+## long-press
+
+```sh
+agentsims long-press @e14 -d "$DEVICE"
+agentsims long-press "Open menu" --role button --duration 800 -d "$DEVICE"
+```
+
+The default hold time is 600 milliseconds. `--duration` takes 1 to 5000
+milliseconds. Long press uses the same ref, label, and capture-bound point
+rules as tap.
 
 ## swipe
 
@@ -64,6 +79,17 @@ agentsims screenshot /tmp/current.png -d "$DEVICE"
 # Open artifact.path with the image tool, then use the reported capture ID.
 agentsims swipe 50%,80% 50%,20% --capture c7 --duration 300 -d "$DEVICE"
 ```
+
+Each point uses `x,y`. Change `x` for a horizontal swipe. Change `y` for a
+vertical swipe. `<from>` to `<to>` is the finger motion. Content moves in the
+opposite direction.
+
+| Finger motion | From | To |
+|---|---|---|
+| Left | `80%,50%` | `20%,50%` |
+| Right | `20%,50%` | `80%,50%` |
+| Up | `50%,80%` | `50%,20%` |
+| Down | `50%,20%` | `50%,80%` |
 
 `--duration` takes 1 to 5000 milliseconds. A point-based swipe needs the
 current capture ID. A semantic target-based swipe does not.
@@ -156,7 +182,7 @@ Without that flag, Agentsims still captures an image when:
 - the action uses a point;
 - post-action AX fails or has no usable structure;
 - the foreground app or window changes; or
-- a tap, swipe, or hardware action leaves AX unchanged.
+- a tap, long press, swipe, or hardware action leaves AX unchanged.
 
 The action result preserves dispatch, verification, accessibility, and image
 evidence even if the local image file cannot be written. The command reports a

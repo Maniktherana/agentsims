@@ -13,7 +13,8 @@ build is not runtime proof.
 ## Use this skill when
 
 - The user asks to build, fix, or refactor a mobile screen or flow.
-- The user asks to tap, swipe, type, rotate, or press a hardware button.
+- The user asks to tap, long-press, swipe, type, rotate, or press a hardware
+  button.
 - The user asks what is on screen or asks for accessibility data.
 - The user asks to test permissions, camera input, appearance, location,
   battery, locale, or network conditions.
@@ -142,6 +143,31 @@ Do not guess a point when the target is absent.
 the current ref of its enclosing `[clickable]` row or button. If no actionable
 container exists, inspect the image.
 
+`[long-press]` marks a node that accepts a long press. Use `long-press` when
+the task or node semantics require it. Do not use it only because one tap had
+no effect.
+
+```sh
+agentsims long-press @e14 -d "$DEVICE"
+```
+
+Swipe points use `x,y`. Change `x` for horizontal motion. Change `y` for
+vertical motion. The two points describe finger motion. Content moves in the
+opposite direction.
+
+| Finger motion | From | To |
+|---|---|---|
+| Left | `80%,50%` | `20%,50%` |
+| Right | `20%,50%` | `80%,50%` |
+| Up | `50%,80%` | `50%,20%` |
+| Down | `50%,20%` | `50%,80%` |
+
+A coordinate swipe needs the current capture ID:
+
+```sh
+agentsims swipe 50%,80% 50%,20% --capture c7 -d "$DEVICE"
+```
+
 ## Dispatch and verification
 
 Every action separates transport from observed effect:
@@ -195,6 +221,7 @@ structured output.
 | Capture only pixels | `agentsims screenshot [path] -d <id>` |
 | Find current nodes | `agentsims find <text> -d <id>` |
 | Tap | `agentsims tap <target> -d <id>` |
+| Long press | `agentsims long-press <target> -d <id>` |
 | Swipe | `agentsims swipe <from> <to> -d <id>` |
 | Insert text | `agentsims type <text> [--into <target>] [--submit] -d <id>` |
 | Replace text | `agentsims fill <text> [--into <target>] [--submit] -d <id>` |

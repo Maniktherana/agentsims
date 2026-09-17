@@ -265,3 +265,21 @@ test.each([
 	expect(output).toContain("verification  mismatch");
 	expect(output).toContain(`submit  ${status}  ${reason}`);
 });
+
+test("action output names a long press", () => {
+	const output = renderActionResult({
+		device: "ios-device",
+		dispatch: { status: "accepted", reason: "Input frames were accepted." },
+		verification: {
+			status: "not_applicable",
+			reason: "This action has no direct value check.",
+		},
+		resolved: [{ type: "long-press", from: { x: 0.25, y: 0.75 } }],
+		accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+		view: null,
+		image: null,
+		captureReason: null,
+		warnings: [],
+	});
+	expect(output).toContain("action  long-press 25.0%,75.0%");
+});

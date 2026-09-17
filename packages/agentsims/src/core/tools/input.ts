@@ -129,8 +129,15 @@ const duration = z
 	.finite({ error: "durationMs must be a positive finite number" })
 	.positive({ error: "durationMs must be a positive finite number" })
 	.transform((value) => Math.min(5_000, Math.round(value)));
+export const DEFAULT_LONG_PRESS_DURATION_MS = 600;
 export const DeviceActionSchema = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("tap"), x: coordinate("x"), y: coordinate("y") }),
+	z.object({
+		type: z.literal("long-press"),
+		x: coordinate("x"),
+		y: coordinate("y"),
+		durationMs: duration.optional(),
+	}),
 	z.object({
 		type: z.literal("gesture"),
 		phase: z.enum(GESTURE_PHASES),
@@ -196,6 +203,25 @@ function stepsForAction(
 					}),
 				},
 			];
+		case "long-press":
+			return [
+				{
+					data: inputFrame(INPUT_TOUCH, {
+						type: "begin",
+						x: action.x,
+						y: action.y,
+					}),
+					delayAfterMs:
+						action.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS,
+				},
+				{
+					data: inputFrame(INPUT_TOUCH, {
+						type: "end",
+						x: action.x,
+						y: action.y,
+					}),
+				},
+			];
 		case "gesture":
 			return [
 				{
@@ -207,24 +233,40 @@ function stepsForAction(
 				},
 			];
 		case "swipe": {
-			const delayAfterMs = Math.round((action.durationMs ?? 220) / 2);
-			return [
+			const durationMs = action.durationMs ?? 220;
+			const moveCount = Math.max(1, Math.ceil(durationMs / 16));
+			const timestamp = (index: number) =>
+				Math.round((durationMs * index) / moveCount);
+			const steps: InputStep[] = [
 				{
 					data: inputFrame(INPUT_TOUCH, {
 						type: "begin",
 						x: action.x1,
 						y: action.y1,
 					}),
-					delayAfterMs,
+					delayAfterMs: timestamp(1),
 				},
-				{
+			];
+			for (let index = 1; index <= moveCount; index += 1) {
+				const progress = index / moveCount;
+				const x = index === moveCount
+					? action.x2
+					: action.x1 + (action.x2 - action.x1) * progress;
+				const y = index === moveCount
+					? action.y2
+					: action.y1 + (action.y2 - action.y1) * progress;
+				steps.push({
 					data: inputFrame(INPUT_TOUCH, {
 						type: "move",
-						x: action.x2,
-						y: action.y2,
+						x,
+						y,
 					}),
-					delayAfterMs,
-				},
+					...(index < moveCount
+						? { delayAfterMs: timestamp(index + 1) - timestamp(index) }
+						: {}),
+				});
+			}
+			steps.push(
 				{
 					data: inputFrame(INPUT_TOUCH, {
 						type: "end",
@@ -232,7 +274,8 @@ function stepsForAction(
 						y: action.y2,
 					}),
 				},
-			];
+			);
+			return steps;
 		}
 		case "type":
 			try {
