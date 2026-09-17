@@ -11,12 +11,11 @@ implements the Agent Skills standard. One `SKILL.md` serves all of them.
 ## What the agent learns
 
 - Start or reuse a workspace, and pick the exact device ID.
-- Read the screen and the native accessibility tree without flooding its own
-  context. One `observe` call returns about 2 MB of inline base64.
-- Convert a pixel frame from the accessibility tree into the normalized
-  coordinate that input commands need.
-- Send taps, swipes, multi-step gestures, text, hardware buttons, and rotation,
-  with the button names that each platform accepts.
+- Read one public accessibility view and the saved image without inline base64.
+- Keep refs and capture IDs current, and bind point input to the image that
+  supplied the point.
+- Send taps, swipes, text, hardware buttons, and rotation,
+  with the hardware names that each platform accepts.
 - Install, launch, stop, and remove apps, and read filtered Android logs.
 - Test app permissions on both platforms, camera input, appearance, locale,
   location, network, and battery conditions.
@@ -66,9 +65,9 @@ build-mobile-apps/
     └── device-control.md           # apps, Android logs, app permissions, camera
 ```
 
-`SKILL.md` holds what every device task needs: the loop, the two gotchas that
-break agents, and the command table. The references follow the loop. `observe.md`
-and `input.md` cover the two halves that every device task uses.
+`SKILL.md` holds what every device task needs: the hybrid loop, current-only
+state, safe targets, recovery, and the command table. The references follow the
+loop. `observe.md` and `input.md` cover the two halves that every device task uses.
 `device-control.md` holds the rest, which is occasional. Every reference is one
 level deep from `SKILL.md`.
 
@@ -80,8 +79,10 @@ editing from memory:
 
 ```sh
 npx agentsims start --detach
-curl -s http://127.0.0.1:3200/grid/api | jq '.devices[0]'
-npx agentsims observe -d <device-id> | jq 'del(.screenshot.contentBase64) | keys'
+npx agentsims devices list
+npx agentsims observe -d <device-id>
+npx agentsims observe -d <device-id> --json > /tmp/agentsims-observe.json
 ```
 
-Update the matching eval expectations in the same change.
+Use an explicit test device. Check both the human output and the structured
+output. Update the matching eval expectations in the same change.

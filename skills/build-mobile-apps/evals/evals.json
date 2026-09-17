@@ -58,11 +58,11 @@
 			"name": "react-native-source-inspection",
 			"prompt": "A React Native checkout button has the wrong accessibility label. Use the running iOS app to find the source and fix it.",
 			"expected_behavior": [
-				"Finds the element from a fresh screenshot and accessibility snapshot",
+				"Finds the element from a fresh image and accessibility observation",
 				"Inspects the element label, role, value, frame, and test or native identifiers",
 				"Uses React Native source confidence and match reason before claiming an exact source location",
 				"Does not present a host element owner name as the native node's exact component identity",
-				"Rebuilds and confirms the corrected label in a fresh accessibility snapshot"
+				"Rebuilds and confirms the corrected label in a fresh accessibility observation"
 			],
 			"files": []
 		},
@@ -84,9 +84,9 @@
 			"name": "hardware-volume-buttons",
 			"prompt": "Verify that this media screen responds correctly to volume-up and volume-down on both available platforms.",
 			"expected_behavior": [
-				"Uses the public act command with button actions instead of pixel coordinates",
+				"Uses the public press command instead of pixel coordinates",
 				"Uses only volume-up and volume-down names supported by both selected platforms",
-				"Observes before and after each button press",
+				"Uses the returned post-action state and observes again when that evidence is not enough",
 				"Checks the app's resulting volume state instead of trusting command success",
 				"Reports either cross-platform evidence or an unavailable platform as unverified"
 			],
@@ -123,11 +123,11 @@
 			"name": "observe-payload-handling",
 			"prompt": "Show me what is currently on screen on the booted device.",
 			"expected_behavior": [
-				"Redirects the observe output to a file instead of printing the JSON into the transcript",
-				"Extracts the screenshot from screenshot.contentBase64 and decodes it to a PNG file",
-				"Reads the decoded PNG with an image tool rather than describing the base64",
-				"Queries accessibility.elements with a filter instead of dumping the whole tree",
-				"Does not claim that observe returns a screenshot path"
+				"Uses plain observe for readable AX and the saved image path",
+				"Reads the saved image with an image tool when visual evidence is needed",
+				"Uses the one public view instead of looking for a duplicate raw AX tree",
+				"Uses screenshot only when pixels without AX are sufficient",
+				"Keeps any ref or capture ID limited to the current device state"
 			],
 			"files": []
 		},
@@ -136,11 +136,11 @@
 			"name": "accessibility-frame-to-coordinate",
 			"prompt": "Tap the Sign in button on the booted device.",
 			"expected_behavior": [
-				"Observes first and locates the element in the accessibility tree by label or testId",
-				"Converts the pixel frame to a normalized coordinate by dividing the frame centre by accessibility.screen width and height",
-				"Sends act with x and y between 0 and 1, never raw pixel values",
-				"Observes again after the tap and verifies the resulting screen state",
-				"Reports that the target is absent instead of guessing a coordinate when the tree has no match"
+				"Observes first and locates the element by a current ref, label, or test ID",
+				"Uses the current ref instead of converting the accessibility frame",
+				"If AX cannot name the target, uses an image point with the matching current capture ID",
+				"Reads dispatch, verification, and the returned post-action state",
+				"Reports that the target is absent instead of guessing an unbound coordinate"
 			],
 			"files": []
 		}

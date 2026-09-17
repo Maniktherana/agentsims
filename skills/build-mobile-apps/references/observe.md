@@ -1,216 +1,152 @@
 # Observe a device
 
-How to read the screen and the native accessibility tree, and how to turn an
-element into an input target.
+Agentsims uses a hybrid observation: a normalized accessibility view plus an
+image. Each channel reports success or failure independently.
 
-## Contents
-
-- [The payload](#the-payload)
-- [CAUTION: never print the raw JSON](#caution-never-print-the-raw-json)
-- [Extract the screenshot](#extract-the-screenshot)
-- [The accessibility tree](#the-accessibility-tree)
-- [Query the tree](#query-the-tree)
-- [Convert a frame to an input coordinate](#convert-a-frame-to-an-input-coordinate)
-- [React Native source context](#react-native-source-context)
-- [When the tree is empty](#when-the-tree-is-empty)
-
-## The payload
+## Observe AX and pixels together
 
 ```sh
-npx agentsims observe -d <device-id> [--no-ax]
+npx agentsims observe -d "$DEVICE"
 ```
 
-The command prints one JSON object with these keys:
-
-| Key | Type | Content |
-|---|---|---|
-| `device` | string | the device ID that was observed |
-| `platform` | string | `ios` or `android` |
-| `capturedAt` | number | capture time in milliseconds |
-| `screenshot` | object | `mimeType`, `contentBase64`, `bytes` |
-| `config` | object | `width`, `height`, `orientation`, and chrome data |
-| `accessibility` | object | `screen`, `elements`, and optional `errors` |
-| `warnings` | array | capture warnings, usually empty |
-
-`screenshot.bytes` is the size of the decoded PNG. `contentBase64` is the whole
-image as base64 text. `--no-ax` omits the accessibility tree and keeps the
-screenshot.
-
-## CAUTION: never print the raw JSON
-
-One call on a 1080x2424 Android emulator returned **1,881,175 bytes**, and
-**1,860,600** of those bytes were the base64 screenshot. The payload grows with
-the screen size. A single raw print can exhaust the context window.
-
-Write the output to a file. Then read only the parts that the task needs.
-
-```sh
-npx agentsims observe -d "$DEVICE" > /tmp/obs.json
-```
-
-## Extract the screenshot
-
-agentsims does not need `jq`. These recipes use it because it is short. Any
-tool that reads JSON works, and a `python3` equivalent follows each one.
-
-```sh
-jq -r '.screenshot.contentBase64' /tmp/obs.json | base64 -d > /tmp/screen.png
-file /tmp/screen.png
-```
-
-Without `jq`:
-
-```sh
-python3 -c "import base64,json; d=json.load(open('/tmp/obs.json')); open('/tmp/screen.png','wb').write(base64.b64decode(d['screenshot']['contentBase64']))"
-```
+Human output starts with the observation and channel states:
 
 ```text
-/tmp/screen.png: PNG image data, 1080 x 2424, 8-bit/color RGBA, non-interlaced
+observe  device=android:emulator-5554  platform=android  observation=s1  capture=c1  started=2026-09-17T01:00:00.000Z  completed=2026-09-17T01:00:00.020Z
+accessibility  ok  captured=2026-09-17T01:00:00.000Z  observation=s1
+image  ok  captured=2026-09-17T01:00:00.010Z  capture=c1  1080×2400  observation=s1
+artifact  ok  path=/tmp/agentsims/screenshots/observe-android_emulator-5554.png
+context  app=com.example.app  orientation=portrait  generation=7  changed=no
+elements  3 shown / 3 total
+
+- textbox "Email" [ref=e1] [focused] [testid=email]: a@b.co
+- securetextbox "Password" [ref=e2]
+- button "Sign in" [ref=e3] [testid=submit]
 ```
 
-Open `/tmp/screen.png` with an image tool. Use a new file name for each
-observation, so that a stale picture cannot be read as the current screen.
+The timestamps, IDs, path, dimensions, and nodes come from the current run.
+Use `--frames` to add `[box=x,y,w,h]` in image pixels and `--raw` to show
+the platform class. Use `--all` to include nodes removed by the useful-node
+filter.
 
-## The accessibility tree
+The default image path uses the system temporary directory. Override its
+directory with `AGENTSIMS_SCREENSHOT_DIR`, or use `-o <path>`. An explicit
+path has the highest priority. Agentsims prunes only files that it created in
+its managed default directory. It does not prune user-selected directories.
 
-`accessibility.screen` gives the screen size in pixels:
+## Capture pixels only
 
-```json
-{ "width": 1080, "height": 2424 }
+```sh
+npx agentsims screenshot /tmp/current.png -d "$DEVICE"
 ```
 
-Each entry in `accessibility.elements` can contain these fields:
+`screenshot` does not read accessibility or the foreground application. Use
+it for a visual check that does not need semantic state. It returns a capture
+ID only when the pixels are current and safe for a later point action.
+
+## One public AX view
+
+Plain output prints one tree. Structured output also exposes one public tree in
+top-level `view`. The `accessibility` channel contains its status, capture
+time, and observation ID. It does not duplicate the raw platform snapshot.
+Image bytes are not printed. The `artifact` result reports the local file.
+
+```sh
+npx agentsims observe -d "$DEVICE" --json > /tmp/observation.json
+```
+
+Important fields:
 
 | Field | Meaning |
 |---|---|
-| `id`, `path` | stable identifiers inside this snapshot |
-| `label` | the screen-reader label |
-| `value` | the current value, for example the text of a field |
-| `role`, `type` | the native class or trait |
-| `enabled` | `false` when the control rejects input |
-| `visibleToUser` | Android only, raw visibility |
-| `frame` | `x`, `y`, `width`, `height`, **in pixels** |
-| `testId`, `nativeId` | test and native identifiers |
-| `traits` | iOS traits |
-| `source` | React Native source context, when available |
+| `observationId` | ID for the published current AX state, or `null` |
+| `captureId` | ID for current actionable pixels, or `null` |
+| `accessibility` | AX channel status and capture time |
+| `image` | Image channel status, type, dimensions, IDs, and capture time |
+| `artifact` | `ok` with an absolute path, or `error` with the write failure |
+| `context` | App, orientation, generation, and capture-change evidence |
+| `view` | The one normalized AX tree used for refs and matching |
+| `warnings` | Degraded-channel and context warnings |
 
-A real Android entry:
+Image write failure does not erase the captured image metadata or the AX state.
+The command prints the evidence, reports `artifact error`, and exits with
+failure.
 
-```json
-{ "id": "emulator-5554:0", "path": "0", "label": "Gmail", "value": "",
-  "role": "android.widget.TextView", "type": "android.widget.TextView",
-  "enabled": true, "visibleToUser": true,
-  "frame": { "x": 305, "y": 1581, "width": 216, "height": 253 } }
-```
+## Refs and capture IDs
 
-## Query the tree
-
-List every element that has a label:
+A ref belongs to the current observation on one device. A capture ID belongs to
+the current image on one device. Any new observation or input invalidates the
+old IDs. Browser input invalidates CLI IDs on that device too.
 
 ```sh
-jq -r '.accessibility.elements[] | select(.label != "") | "\(.label)\t\(.role)"' \
-  /tmp/obs.json
+npx agentsims tap @e3 -d "$DEVICE"
+npx agentsims tap 603,1311 --capture c1 -d "$DEVICE"
 ```
 
-Find one target by label, without case sensitivity:
+A stale ID fails before dispatch. Do not copy a ref or capture ID into a later
+task note. Keep the label and intended value instead.
+
+`captureId: null` or human `capture=none` means the pixels remain evidence,
+but are not a valid source for a point action. This can happen when the screen
+context changes during capture.
+
+## Read the tree
+
+Each node can contain:
+
+| Field | Meaning |
+|---|---|
+| `ref` | current-only CLI target |
+| `role` and `rawRole` | normalized role and platform class |
+| `label` and `value` | current semantic content |
+| `states` | focused, disabled, checked, selected, scrollable, and related state |
+| `box` | image-pixel rectangle |
+| `testId` | app-provided test or native identifier |
+| `children` | nested useful nodes |
+
+Use `find` for a bounded current search:
 
 ```sh
-jq '.accessibility.elements[] | select(.label | test("sign in"; "i"))' /tmp/obs.json
+npx agentsims find "Sign in" -d "$DEVICE"
 ```
 
-Find a target by test identifier, which is the most exact match:
+If more than one node matches, choose a fresh ref or add `--role` and
+`--index` to the action.
 
-```sh
-jq '.accessibility.elements[] | select(.testId == "submit-button")' /tmp/obs.json
-```
+## When channels disagree
 
-Verify a semantic property that the task changed:
+Treat both channels as evidence:
 
-```sh
-jq '.accessibility.elements[] | select(.testId == "submit-button")
-    | {label, role, enabled}' /tmp/obs.json
-```
+- AX succeeds and the image fails: semantic targeting can continue. State the
+  missing visual proof.
+- The image succeeds and AX fails: inspect the saved image. A point action must
+  use the current capture ID. State that semantic checks are unverified.
+- Both fail: stop. The command exits with failure.
+- The screen changes during capture: pixels can remain visible evidence, but
+  the capture ID is `null` and cannot authorize a point.
 
-## Convert a frame to an input coordinate
+After an action, Agentsims always reads AX and captures an image only for an
+explicit request or a degraded/changed result. Read `captureReason` in JSON to
+learn why an action image exists.
 
-**This is the step that agents get wrong.** Frames are in pixels. Input is
-normalized from 0 to 1. Divide the center of the frame by the screen size:
+## iOS 27 limitation
 
-```text
-x = (frame.x + frame.width  / 2) / screen.width
-y = (frame.y + frame.height / 2) / screen.height
-```
+The shipped iOS path uses the legacy CoreSimulator accessibility provider. On
+iOS 27, an unfocused stock app can return only the application root while
+VoiceOver is off. Turning VoiceOver on can expose the tree, but VoiceOver
+intercepts taps. Therefore:
 
-One `jq` command does the whole conversion:
-
-```sh
-jq -r '.accessibility as $a
-  | $a.elements[] | select(.label | test("Gmail"; "i"))
-  | "\((.frame.x + .frame.width/2) / $a.screen.width) \((.frame.y + .frame.height/2) / $a.screen.height)"' \
-  /tmp/obs.json
-```
-
-```text
-0.3824074074074074 0.704414191419142
-```
-
-Without `jq`:
-
-```sh
-python3 -c "
-import json
-d = json.load(open('/tmp/obs.json')); a = d['accessibility']; s = a['screen']
-for e in a['elements']:
-    if 'gmail' in e['label'].lower():
-        f = e['frame']
-        print((f['x']+f['width']/2)/s['width'], (f['y']+f['height']/2)/s['height'])
-"
-```
-
-Send those two numbers to `tap`. This captures them and taps in one pass:
-
-```sh
-read -r X Y < <(jq -r '.accessibility as $a
-  | $a.elements[] | select(.label | test("Gmail"; "i"))
-  | "\((.frame.x + .frame.width/2) / $a.screen.width) \((.frame.y + .frame.height/2) / $a.screen.height)"' \
-  /tmp/obs.json | head -1)
-
-npx agentsims tap "$X" "$Y" -d "$DEVICE"
-```
-
-If `$X` is empty, the target is absent from the tree. Report that. Do not tap a
-guessed point.
-
-If a pixel value reaches the server, the request fails with a clear error:
-
-```json
-{ "error": "[{ \"path\": [\"x\"], \"message\": \"x must be a number between 0 and 1\" }]" }
-```
+- a root-only tree is degraded AX, not proof that no controls exist;
+- do not claim clean unfocused semantic targeting from that state;
+- use a current screenshot and capture-bound point only when the task permits
+  visual targeting;
+- focused-field fill and follow-up type have matched native readback proof;
+- the guest AXRuntime/XCTAutomationSupport backend is deferred and is not part
+  of the shipped build.
 
 ## React Native source context
 
-When the project uses the agentsims Metro integration, an element can carry a
-`source` object. It names the JSX callsite:
-
-| Field | Meaning |
-|---|---|
-| `confidence` | `exact-testid`, `native-id`, or `related-native-id` |
-| `matchReason` | how the match was made, for example `test-id` |
-| `elementKind` | `host` or `custom` |
-| `file`, `line`, `column` | the source position |
-| `componentName` | the owner component |
-
-An `exact-testid` match is strong evidence. A `nearby-visible-text` match is
-weak. For a `host` element, `componentName` is owner context only. Do not
-report it as the identity of that native node.
-
-## When the tree is empty
-
-`accessibility.errors` means missing evidence. It does not mean a passing
-accessibility result. Common causes:
-
-- The app is still starting. Observe again after a short wait.
-- iOS accessibility is unavailable on that simulator runtime.
-- The element is inside a view that the platform hides from the tree.
-
-If a target is absent from the tree, report that. Do not tap a guessed point.
+When the project uses the Agentsims Metro integration, a node can carry source
+context. An `exact-testid` match is strong evidence. A related native ID is
+weaker. A host element's owner name is context, not proof of the exact component
+that produced the native node.

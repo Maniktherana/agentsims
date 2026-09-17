@@ -1,102 +1,107 @@
 # Send input to a device
 
-One command per action. Every command takes `-d <device-id>`.
+Every command takes `-d <device-id>`. Use one explicit device per command.
 
-## Contents
+## Target rules
 
-- [Coordinates](#coordinates)
-- [The commands](#the-commands)
-- [tap](#tap)
-- [swipe](#swipe)
-- [text](#text)
-- [button](#button)
-- [rotate](#rotate)
-- [gesture](#gesture)
-- [After every action](#after-every-action)
+A target can be:
 
-## Coordinates
+- a ref from the current observation, such as `@e14`;
+- an exact label, with optional `--role` and `--index`;
+- an image point in pixels or percentages, with the current `--capture cN`.
 
-All coordinates are normalized from 0 to 1. `(0,0)` is the top left corner.
-`(1,1)` is the bottom right corner. The command rejects a value outside that
-range before it reaches the device.
+Prefer a ref, then an exact label. Use a point only when accessibility cannot
+name the control.
 
-Accessibility frames are in pixels. Convert them first. The formula and a `jq`
-command are in [observe.md](observe.md).
+```sh
+npx agentsims tap @e14 -d "$DEVICE"
+npx agentsims tap "Sign in" --role button -d "$DEVICE"
+npx agentsims tap 603,1311 --capture c7 -d "$DEVICE"
+npx agentsims tap 50%,90% --capture c7 -d "$DEVICE"
+```
 
-## The commands
-
-| Command | Arguments | Options |
-|---|---|---|
-| `tap` | `<x> <y>` | none |
-| `swipe` | `<x1> <y1> <x2> <y2>` | `--duration <ms>` |
-| `text` | `<text>` | none |
-| `button` | `<name>` | none |
-| `rotate` | `<orientation>` | none |
-| `gesture` | `<phase> <x> <y>` | none |
+Refs and capture IDs are current-only. A new input or observation invalidates
+them. A point without the matching current capture fails before platform input.
+Do not convert an accessibility frame into a point. Use the node ref.
 
 ## tap
 
 ```sh
-npx agentsims tap 0.5 0.7 -d "$DEVICE"
+npx agentsims tap @e14 -d "$DEVICE"
 ```
 
-Use `tap` for every single touch. Do not build a tap from two `gesture` calls.
+If an exact label matches more than one node, add `--role` or `--index`.
+The index starts at 1 and has no arbitrary upper limit.
 
 ## swipe
 
 ```sh
-npx agentsims swipe 0.5 0.8 0.5 0.2 --duration 300 -d "$DEVICE"
+npx agentsims swipe 50%,80% 50%,20% --capture c7 --duration 300 -d "$DEVICE"
 ```
 
-`--duration` is optional and takes 1 to 5000 milliseconds. A scroll usually
-needs 200 to 400 milliseconds. A slow drag needs more.
+`--duration` takes 1 to 5000 milliseconds. A point-based swipe needs the
+current capture ID. A semantic target-based swipe does not.
 
-## text
+## type and fill
 
 ```sh
-npx agentsims text "Buy milk" -d "$DEVICE"
+npx agentsims type " milk" --into @e14 -d "$DEVICE"
+npx agentsims fill "Buy milk" --into "Task" -d "$DEVICE"
+npx agentsims fill "query" --into @e14 --submit -d "$DEVICE"
 ```
 
-The text goes to the focused field. Tap the field first, then observe to verify
-that the keyboard is open. The command rejects characters that the platform
-cannot map to key events.
+`type` inserts at the native selection. `fill` replaces the field value.
+Without `--into`, Agentsims uses the one native-focused text field. It fails
+closed if focus is absent or ambiguous.
 
-## button
+Agentsims:
 
-```sh
-npx agentsims button home -d "$DEVICE"
-```
+1. resolves the requested field from the current observation;
+2. proves native focus identity before the write;
+3. writes the text;
+4. reads the field back;
+5. compares the complete expected value;
+6. submits only after a match when `--submit` is present.
 
-The command accepts these ten names:
+Literal `\n` and `\r` characters are rejected before dispatch. Use
+`--submit` to send Return.
+
+Read all three result lines:
 
 ```text
-home  power  volume-up  volume-down  back  app-switch
-action  side-button  digital-crown  left-side-button
+dispatch  accepted  The device accepted the input operation.
+verification  matched  The target field value matches the complete expected value.
+submit  unknown  Return transport closed
 ```
 
-Each platform accepts a subset:
+The example means the text value is verified, but Return may or may not have
+happened. Observe before another action. A mismatch suppresses submit.
 
-| Button | iOS | Android |
-|---|---|---|
+## press
+
+```sh
+npx agentsims press home -d "$DEVICE"
+```
+
+Supported public names:
+
+| Name | iOS | Android |
+|---|---:|---:|
 | `home` | yes | yes |
 | `power` | yes | yes |
 | `volume-up` | yes | yes |
 | `volume-down` | yes | yes |
-| `side-button` | yes | yes, same as `power` |
 | `back` | no | yes |
 | `app-switch` | no | yes |
+| `app-switcher` | yes | no |
 | `action` | yes | no |
+| `side-button` | yes | no |
 | `digital-crown` | yes | no |
 | `left-side-button` | yes | no |
 
-An unsupported name returns a clear error:
-
-```json
-{ "error": "Unsupported Android button: digital-crown", "type": "CommandFailure" }
-```
-
-Android has no `action`, `digital-crown`, or `left-side-button`. iOS has no
-`back` or `app-switch`. On iOS, move back through the app's own control.
+The CLI checks the selected platform before dispatch. It does not keep the old
+`button` spelling. iOS has no public Back command. Use the app's visible Back
+control.
 
 ## rotate
 
@@ -104,31 +109,41 @@ Android has no `action`, `digital-crown`, or `left-side-button`. iOS has no
 npx agentsims rotate landscape_left -d "$DEVICE"
 ```
 
-The four orientations are `portrait`, `portrait_upside_down`, `landscape_left`,
-and `landscape_right`.
+Valid values are `portrait`, `portrait_upside_down`, `landscape_left`, and
+`landscape_right`. Rotation invalidates previous refs and captures. Read the
+returned post-action state before the next target.
 
-Rotation changes every frame in the accessibility tree. Observe again before the
-next coordinate.
+## Conditional images
 
-## gesture
-
-`gesture` sends one phase of a touch that stays down. The phases are `begin`,
-`move`, `end`, and `cancel`.
+Add `--screenshot` to any action when the result needs visual evidence:
 
 ```sh
-npx agentsims gesture begin 0.5 0.8 -d "$DEVICE"
-npx agentsims gesture move 0.5 0.5 -d "$DEVICE"
-npx agentsims gesture end 0.5 0.2 -d "$DEVICE"
+npx agentsims tap @e14 --screenshot -d "$DEVICE"
 ```
 
-Use `gesture` only for a touch that must stay down across several steps, such as
-a long press with a drag. For a plain drag, `swipe` is one command and is more
-reliable.
+Without that flag, Agentsims still captures an image when:
 
-## After every action
+- the action uses a point;
+- post-action AX fails or has no usable structure;
+- the foreground app or window changes; or
+- a tap, swipe, or hardware action leaves AX unchanged.
 
-A success response proves that agentsims sent the action. It does not prove that
-the app reacted. Observe again and verify the new state.
+The action result preserves dispatch, verification, accessibility, and image
+evidence even if the local image file cannot be written. The command reports a
+separate artifact error and exits with failure.
 
-Coordinates become stale after navigation, rotation, a keyboard change, a list
-scroll, or any code fix. Take a new observation instead of reusing old numbers.
+## After an action
+
+`dispatch` reports whether the platform accepted input. `verification`
+reports whether the checked effect matches. An accepted dispatch is not proof
+that the app changed.
+
+- On `matched`, use the returned evidence.
+- On `mismatch`, read the observed value and change the approach.
+- On `unavailable`, state what could not be verified.
+- On `unknown` dispatch, observe before any retry. The action can have
+  happened.
+
+If a keyboard or modal covers the target, use the visible control to dismiss
+it, then observe again. Android can use `press back`. iOS must use the app's
+control.

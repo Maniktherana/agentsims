@@ -1,7 +1,7 @@
 # Control the device beyond input
 
 Apps, logs, permissions, and camera input. Everything here is occasional. The
-observe and act loop is the common path.
+observe and action loop is the common path.
 
 ## Contents
 
@@ -30,9 +30,9 @@ npx agentsims app stop com.example.app -d "$DEVICE"
 An install over an existing app keeps the app data. For a clean state,
 uninstall first.
 
-A launch response reports that agentsims sent the command. Observe the device to
-verify that the first screen rendered. An app that crashes at startup still
-returns a successful launch response.
+Launch and stop return dispatch, foreground-app verification, and post-action
+AX. Add `--screenshot` when the result needs explicit visual evidence. Do not
+report success from dispatch alone.
 
 ## Android device logs
 
@@ -86,8 +86,14 @@ Rules that the command enforces:
 
 - `grant` and `revoke` need a permission name.
 - `--value` works only with `grant`.
+- Camera takes no value. Location accepts `always`, `inuse`, or `never`.
+  Photos accepts `limited`. Notifications accepts `critical`.
 - `list` rejects a permission name and a value.
 - The bundle ID must be a valid identifier.
+
+The human list prints readable known states. Unknown services and numeric
+states remain explicit. A permission belongs to the bundle ID and can appear
+only after the application requests it.
 
 ### Android
 
