@@ -28,7 +28,7 @@ describe("isIosRuntime", () => {
 });
 
 describe("SettingRow", () => {
-	test("uses one icon, label, and trailing-control grid for settings alignment", () => {
+	test("renders its label, description, and control", () => {
 		const html = renderToStaticMarkup(
 			<SettingRow
 				icon={<span>icon</span>}
@@ -39,9 +39,9 @@ describe("SettingRow", () => {
 			</SettingRow>,
 		);
 
-		expect(html).toContain("grid-cols-[18px_minmax(0,1fr)_auto]");
-		expect(html).toContain("gap-x-2");
+		expect(html).toContain("icon");
 		expect(html).toContain("Front camera");
 		expect(html).toContain("Startup route");
+		expect(html).toContain("control");
 	});
 });

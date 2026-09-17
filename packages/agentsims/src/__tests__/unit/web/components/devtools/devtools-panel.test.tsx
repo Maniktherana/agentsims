@@ -15,7 +15,7 @@ const target = (id: string, title: string): DevToolsTarget => ({
 });
 
 describe("DevTools page switcher", () => {
-	test("uses one 28px-wide-row trigger for multiple pages", () => {
+	test("labels the page picker and shows the selected page", () => {
 		const html = renderToStaticMarkup(
 			<DevToolsTargetPicker
 				targets={[target("one", "First"), target("two", "Second")]}
@@ -23,8 +23,7 @@ describe("DevTools page switcher", () => {
 				onSelectTarget={() => {}}
 			/>,
 		);
-		expect(html).toContain("h-7");
-		expect(html).toContain("w-full");
+		expect(html).toContain('aria-label="Browser page"');
 		expect(html).toContain("First");
 		expect(html).not.toContain("Chrome");
 	});

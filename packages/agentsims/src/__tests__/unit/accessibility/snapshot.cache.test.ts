@@ -21,7 +21,8 @@ function snapshot(label: string): AxSnapshot {
 }
 
 async function flushPoll() {
-	await Bun.sleep(0);
+	await new Promise<void>((resolve) => queueMicrotask(resolve));
+	await new Promise<void>((resolve) => queueMicrotask(resolve));
 }
 
 function androidChangeHarness() {
@@ -124,7 +125,6 @@ describe("createAxStreamerCache", () => {
 		expect(firstWrites).toHaveLength(1);
 		expect(firstWrites[0]?.elements[0]?.label).toBe("first");
 		now = 10;
-		await Bun.sleep(15);
 		expect(captures).toBe(1);
 
 		const lateWrites: AxSnapshot[] = [];
@@ -280,7 +280,7 @@ describe("createAxStreamerCache", () => {
 		changes.change();
 		changes.change();
 		changes.change();
-		await Bun.sleep(10);
+		await flushPoll();
 
 		expect(captures).toBe(3);
 		expect(writes).toHaveLength(2);
@@ -305,7 +305,7 @@ describe("createAxStreamerCache", () => {
 		await flushPoll();
 
 		changes.change();
-		await Bun.sleep(1);
+		await flushPoll();
 
 		expect(captures).toBe(2);
 		expect(writes).toHaveLength(1);
@@ -335,14 +335,13 @@ describe("createAxStreamerCache", () => {
 		await flushPoll();
 
 		changes.change();
-		await Bun.sleep(1);
+		await flushPoll();
 		expect(captures).toBe(2);
 		changes.change();
 		changes.change();
-		await Bun.sleep(1);
+		await flushPoll();
 		finishCapture!(snapshot("during-event"));
 		await flushPoll();
-		await Bun.sleep(1);
 
 		expect(captures).toBe(3);
 		expect(writes.at(-1)?.elements[0]?.label).toBe("after-event");
@@ -362,7 +361,7 @@ describe("createAxStreamerCache", () => {
 
 		changes.change();
 		cache.prune([]);
-		await Bun.sleep(10);
+		await flushPoll();
 
 		expect(changes.wasUnsubscribed()).toBe(true);
 		expect(captures).toBe(1);

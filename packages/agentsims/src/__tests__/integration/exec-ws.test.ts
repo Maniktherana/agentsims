@@ -26,8 +26,8 @@ beforeAll(async () => {
 	origin = started.origin;
 });
 
-afterAll(() => {
-	server?.stop();
+afterAll(async () => {
+	await server?.stop();
 });
 
 interface Reply {

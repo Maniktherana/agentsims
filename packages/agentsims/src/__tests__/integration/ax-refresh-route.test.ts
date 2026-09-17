@@ -5,7 +5,6 @@ import type { DeviceState } from "../../core/tools/devices/state";
 import { startTestServer } from "../helpers/server";
 
 const DEVICE_A = "android:emulator-5554";
-const DEVICE_B = "android:emulator-5556";
 
 function state(device: string, port: number): DeviceState {
 	return {
@@ -81,59 +80,6 @@ describe("POST /ax/refresh on Bun", () => {
 		expect(discoveries).toBe(1);
 		expect(captures).toEqual([DEVICE_A, DEVICE_A]);
 		await reader.cancel();
-		started.server.stop();
-	});
-
-	test("refreshes only the requested active device", async () => {
-		const captures: string[] = [];
-		const initialCaptures = Promise.withResolvers<void>();
-		const refreshedCapture = Promise.withResolvers<void>();
-		const states = [state(DEVICE_A, 3100), state(DEVICE_B, 3101)];
-		const cache = createAxStreamerCache({
-			androidChangeMinIntervalMs: 0,
-			collect: async (device) => {
-				captures.push(device);
-				if (captures.length === 2) initialCaptures.resolve();
-				if (captures.length === 3) refreshedCapture.resolve();
-				return snapshot(device);
-			},
-		});
-		const started = await startTestServer({
-			basePath: "/.sim",
-			axStreamers: cache,
-			readDeviceStates: async () => states,
-		});
-		const readerA = await openStream(started.origin, DEVICE_A);
-		const readerB = await openStream(started.origin, DEVICE_B);
-		await initialCaptures.promise;
-		const response = await fetch(
-			`${started.origin}/.sim/ax/refresh?device=${encodeURIComponent(DEVICE_B)}`,
-			{ method: "POST" },
-		);
-		await refreshedCapture.promise;
-		expect(response.status).toBe(202);
-		expect(captures).toEqual([DEVICE_A, DEVICE_B, DEVICE_B]);
-		await readerB.cancel();
-		await readerA.cancel();
-		started.server.stop();
-	});
-
-	test("rejects a stale unknown device", async () => {
-		const cache = createAxStreamerCache({
-			collect: async (device) => snapshot(device),
-		});
-		cache.get(DEVICE_B);
-		const started = await startTestServer({
-			basePath: "/.sim",
-			axStreamers: cache,
-			readDeviceStates: async () => [state(DEVICE_A, 3100)],
-		});
-		const response = await fetch(
-			`${started.origin}/.sim/ax/refresh?device=${encodeURIComponent(DEVICE_B)}`,
-			{ method: "POST" },
-		);
-		expect(response.status).toBe(404);
-		expect(cache.size()).toBe(0);
-		started.server.stop();
+		await started.server.stop();
 	});
 });

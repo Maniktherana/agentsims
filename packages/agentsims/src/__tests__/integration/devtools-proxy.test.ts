@@ -7,10 +7,10 @@ import { startTestServer } from "../helpers/server";
 let cdp: Server<undefined> | null = null;
 let preview: PreviewServer | null = null;
 
-afterEach(() => {
+afterEach(async () => {
 	cdp?.stop(true);
 	cdp = null;
-	preview?.stop();
+	await preview?.stop();
 	preview = null;
 });
 

@@ -64,6 +64,33 @@ function response(): AvccSubscriberSink {
 }
 
 describe("Android session orientation observation", () => {
+	test("reports a physical-device rotation failure", async () => {
+		const failure = new Error("rotation refused");
+		const session = new AndroidSession("R5CW1234ABC", {
+			readScreenConfig: async () => ({
+				width: 1080,
+				height: 2424,
+				orientation: "portrait",
+				rotation: 0,
+			}),
+			warmAx: async () => {},
+			rotateDevice: async () => {
+				throw failure;
+			},
+		});
+		await session.start();
+
+		await expect(
+			session.dispatchInputFrame(
+				Buffer.concat([
+					Buffer.from([0x07]),
+					Buffer.from(JSON.stringify({ orientation: "landscape_left" })),
+				]),
+			),
+		).rejects.toBe(failure);
+		await session.close();
+	});
+
 	test("ADB video startup does not block emulator touch input", async () => {
 		const touches: Array<{
 			x: number;

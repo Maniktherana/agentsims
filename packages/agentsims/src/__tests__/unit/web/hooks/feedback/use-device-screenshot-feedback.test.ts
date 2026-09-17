@@ -96,11 +96,16 @@ describe("ScreenshotCaptureSession", () => {
 	test("starts the save countdown only when told the preview is ready", async () => {
 		const countdown = new ScreenshotPreviewCountdown();
 		let saves = 0;
+		let completeSave!: () => void;
+		const saved = new Promise<void>((resolve) => {
+			completeSave = resolve;
+		});
 		countdown.ready(() => {
 			saves += 1;
+			completeSave();
 		}, 2);
 		expect(saves).toBe(0);
-		await Bun.sleep(8);
+		await saved;
 		expect(saves).toBe(1);
 		expect(PREVIEW_READY_COUNTDOWN_MS).toBe(5000);
 	});
@@ -138,6 +143,10 @@ describe("ScreenshotCaptureSession", () => {
 		const coordinator = new ScreenshotSaveCoordinator();
 		let saves = 0;
 		let releases = 0;
+		let completeRemoval!: () => void;
+		const removed = new Promise<void>((resolve) => {
+			completeRemoval = resolve;
+		});
 		let active: {
 			id: string;
 			save: () => void;
@@ -164,9 +173,10 @@ describe("ScreenshotCaptureSession", () => {
 							"an unplaced preview must not animate a hidden exit",
 						);
 					},
-					onRemove: () => {
-						active?.release();
-						active = null;
+				onRemove: () => {
+					active?.release();
+					active = null;
+					completeRemoval();
 					},
 					onError: () => {
 						throw new Error("save unexpectedly failed");
@@ -175,7 +185,7 @@ describe("ScreenshotCaptureSession", () => {
 			2,
 		);
 
-		await Bun.sleep(12);
+		await removed;
 		expect(saves).toBe(1);
 		expect(releases).toBe(1);
 		expect(active).toBeNull();

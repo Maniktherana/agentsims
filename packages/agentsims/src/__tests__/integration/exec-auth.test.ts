@@ -8,7 +8,7 @@ async function withServer<T>(fn: (origin: string) => Promise<T>): Promise<T> {
 	try {
 		return await fn(origin);
 	} finally {
-		server.stop();
+		await server.stop();
 	}
 }
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
+	editKeyEvents,
 	textToKeyEvents,
 	UnsupportedCharacterError,
+	validateKeyboardText,
 } from "../../../../core/ios/text-to-keys";
 
 describe("textToKeyEvents", () => {
@@ -36,17 +38,14 @@ describe("textToKeyEvents", () => {
 		expect(textToKeyEvents("0")[0]).toEqual({ type: "down", usage: 0x27 });
 	});
 
-	it("maps space, newline, and tab to their HID codes", () => {
+	it("maps space and tab to their HID codes", () => {
 		expect(textToKeyEvents(" ")[0]).toEqual({ type: "down", usage: 0x2c });
-		expect(textToKeyEvents("\n")[0]).toEqual({ type: "down", usage: 0x28 });
 		expect(textToKeyEvents("\t")[0]).toEqual({ type: "down", usage: 0x2b });
 	});
 
-	it("normalizes CRLF to a single Enter press", () => {
-		expect(textToKeyEvents("\r\n")).toEqual([
-			{ type: "down", usage: 0x28 },
-			{ type: "up", usage: 0x28 },
-		]);
+	it("rejects newline data because Return is a separate action", () => {
+		expect(() => textToKeyEvents("\n")).toThrow(UnsupportedCharacterError);
+		expect(() => textToKeyEvents("\r")).toThrow(UnsupportedCharacterError);
 	});
 
 	it("covers common punctuation in both plain and shifted forms", () => {
@@ -64,12 +63,38 @@ describe("textToKeyEvents", () => {
 		);
 	});
 
-	it("produces 4 events for an uppercase letter (shift wraps key)", () => {
-		expect(textToKeyEvents("A").length).toBe(4);
+	it("validates the complete input before event construction", () => {
+		expect(() => validateKeyboardText("valid🙂")).toThrow(
+			UnsupportedCharacterError,
+		);
+		expect(() => validateKeyboardText("valid\r\n")).toThrow(
+			UnsupportedCharacterError,
+		);
 	});
 
-	it("expands 'Hi!' to the expected event count", () => {
-		// H: shift+down+up+shift(4) ; i: down+up(2) ; !: shift+down+up+shift(4) → 10
-		expect(textToKeyEvents("Hi!").length).toBe(10);
+});
+
+describe("editKeyEvents", () => {
+	it("sends Return only for the explicit enter action", () => {
+		expect(editKeyEvents("enter")).toEqual([
+			{ type: "down", usage: 0x28 },
+			{ type: "up", usage: 0x28 },
+		]);
+	});
+
+	it("deletes with backspace", () => {
+		expect(editKeyEvents("delete")).toEqual([
+			{ type: "down", usage: 0x2a },
+			{ type: "up", usage: 0x2a },
+		]);
+	});
+
+	it("selects all with the command chord no character can express", () => {
+		expect(editKeyEvents("select-all")).toEqual([
+			{ type: "down", usage: 0xe3 },
+			{ type: "down", usage: 0x04 },
+			{ type: "up", usage: 0x04 },
+			{ type: "up", usage: 0xe3 },
+		]);
 	});
 });

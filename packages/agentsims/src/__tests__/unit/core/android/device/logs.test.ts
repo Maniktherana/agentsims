@@ -5,7 +5,7 @@ import {
 	makeExecutor,
 	type Process,
 } from "@effect/platform/CommandExecutor";
-import { Effect, Fiber, Layer, Stream } from "effect";
+import { Effect, Fiber, Layer, Stream, TestClock, TestContext } from "effect";
 import {
 	AndroidLogs,
 	AndroidLogsLive,
@@ -45,7 +45,7 @@ test("log subscribers share one scoped process per device and replay the initial
 		Effect.scoped(
 			Effect.gen(function* () {
 				const logs = yield* AndroidLogs;
-				const first = yield* logs.stream("emulator-5554").pipe(
+				const first = yield* logs.stream("android:emulator-5554").pipe(
 					Stream.runForEach((event) =>
 						Effect.sync(() => {
 							one.push(event);
@@ -53,7 +53,7 @@ test("log subscribers share one scoped process per device and replay the initial
 					),
 					Effect.forkScoped,
 				);
-				yield* Effect.sleep("140 millis");
+				yield* TestClock.adjust("140 millis");
 				const second = yield* logs.stream("android:emulator-5554").pipe(
 					Stream.runForEach((event) =>
 						Effect.sync(() => {
@@ -62,7 +62,7 @@ test("log subscribers share one scoped process per device and replay the initial
 					),
 					Effect.forkScoped,
 				);
-				const third = yield* logs.stream("emulator-5556").pipe(
+				const third = yield* logs.stream("android:emulator-5556").pipe(
 					Stream.runForEach((event) =>
 						Effect.sync(() => {
 							other.push(event);
@@ -70,7 +70,7 @@ test("log subscribers share one scoped process per device and replay the initial
 					),
 					Effect.forkScoped,
 				);
-				yield* Effect.sleep("140 millis");
+				yield* TestClock.adjust("140 millis");
 				expect(starts).toBe(2);
 				yield* Fiber.interrupt(first);
 				expect(releases).toBe(0);
@@ -79,7 +79,7 @@ test("log subscribers share one scoped process per device and replay the initial
 				yield* Fiber.interrupt(third);
 				expect(releases).toBe(2);
 			}),
-		).pipe(Effect.provide(layer)),
+		).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext)),
 	);
 	const messages = (events: AndroidLogEvent[]) =>
 		events.flatMap((event) =>
@@ -112,7 +112,7 @@ test("logcat restarts after exit and scope close cancels a pending reconnect", a
 		Effect.scoped(
 			Effect.gen(function* () {
 				const logs = yield* AndroidLogs;
-				const stream = yield* logs.stream("emulator-5554").pipe(
+				const stream = yield* logs.stream("android:emulator-5554").pipe(
 					Stream.runForEach((event) =>
 						Effect.sync(() => {
 							events.push(event);
@@ -120,7 +120,7 @@ test("logcat restarts after exit and scope close cancels a pending reconnect", a
 					),
 					Effect.forkScoped,
 				);
-				yield* Effect.sleep("2100 millis");
+				yield* TestClock.adjust("2100 millis");
 				yield* Fiber.interrupt(stream);
 			}),
 		).pipe(
@@ -131,6 +131,7 @@ test("logcat restarts after exit and scope close cancels a pending reconnect", a
 					),
 				),
 			),
+			Effect.provide(TestContext.TestContext),
 		),
 	);
 	expect(starts).toBe(2);
@@ -140,7 +141,6 @@ test("logcat restarts after exit and scope close cancels a pending reconnect", a
 			event.type === "lines" ? event.lines.map((line) => line.message) : [],
 		),
 	).toEqual(["generation-1", "generation-2"]);
-	await Bun.sleep(100);
 	expect(starts).toBe(2);
 });
 
@@ -169,14 +169,18 @@ test("log snapshot is finite, bounded, filtered, and shares an active process", 
 			Effect.gen(function* () {
 				const logs = yield* AndroidLogs;
 				const follower = yield* logs
-					.stream("emulator-5554")
+					.stream("android:emulator-5554")
 					.pipe(Stream.runDrain, Effect.forkScoped);
-				yield* Effect.sleep("140 millis");
-				const snapshot = yield* logs.snapshot(
-					"android:emulator-5554",
-					{ query: "match", pid: 123, level: "I" },
-					1,
-				);
+				yield* TestClock.adjust("140 millis");
+				const snapshotFiber = yield* logs
+					.snapshot(
+						"android:emulator-5554",
+						{ query: "match", pid: 123, level: "I" },
+						1,
+					)
+					.pipe(Effect.fork);
+				yield* TestClock.adjust("250 millis");
+				const snapshot = yield* Fiber.join(snapshotFiber);
 				expect(starts).toBe(1);
 				yield* Fiber.interrupt(follower);
 				return snapshot;
@@ -189,6 +193,7 @@ test("log snapshot is finite, bounded, filtered, and shares an active process", 
 					),
 				),
 			),
+			Effect.provide(TestContext.TestContext),
 		),
 	);
 	expect(result.map((entry) => entry.message)).toEqual(["match-two"]);
@@ -204,7 +209,11 @@ test("log snapshot rejects an unbounded line limit before starting logcat", asyn
 	const result = await Effect.runPromise(
 		Effect.either(
 			Effect.gen(function* () {
-				return yield* (yield* AndroidLogs).snapshot("emulator-5554", {}, 2001);
+				return yield* (yield* AndroidLogs).snapshot(
+					"android:emulator-5554",
+					{},
+					2001,
+				);
 			}).pipe(
 				Effect.provide(
 					AndroidLogsLive.pipe(
@@ -217,5 +226,36 @@ test("log snapshot rejects an unbounded line limit before starting logcat", asyn
 		),
 	);
 	expect(result._tag).toBe("Left");
+	expect(starts).toBe(0);
+});
+
+test("an iOS device is rejected before ADB starts", async () => {
+	let starts = 0;
+	const executor = makeExecutor(() => {
+		starts += 1;
+		return Effect.die("ADB must not start");
+	});
+	const result = await Effect.runPromise(
+		Effect.either(
+			Effect.gen(function* () {
+				return yield* (yield* AndroidLogs).snapshot(
+					"EA490A70-320C-4CE1-A8F9-55A7116CAFD9",
+				);
+			}).pipe(
+				Effect.provide(
+					AndroidLogsLive.pipe(
+						Layer.provide(
+							Layer.succeed(CommandExecutor.CommandExecutor, executor),
+						),
+					),
+				),
+			),
+		),
+	);
+
+	expect(result).toMatchObject({
+		_tag: "Left",
+		left: { message: "Device logs require an Android device" },
+	});
 	expect(starts).toBe(0);
 });

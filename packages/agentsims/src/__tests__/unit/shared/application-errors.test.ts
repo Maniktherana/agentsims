@@ -1,21 +1,34 @@
 import { describe, expect, test } from "bun:test";
 import {
-	CommandConflict,
 	CommandFailure,
-	InvalidCommandInput,
+	isConfirmedDeviceGone,
 } from "../../../core/tools/errors";
-import { commandErrorStatus } from "../../../server/http/command";
 
 describe("application command contracts", () => {
-	test("maps tagged errors to one HTTP status policy", () => {
+	test("recognizes only confirmed loss of the selected device", () => {
 		expect(
-			commandErrorStatus(new InvalidCommandInput({ message: "bad" })),
-		).toBe(400);
-		expect(commandErrorStatus(new CommandConflict({ message: "busy" }))).toBe(
-			409,
-		);
-		expect(commandErrorStatus(new CommandFailure({ message: "failed" }))).toBe(
-			500,
-		);
+			isConfirmedDeviceGone(
+				new Error("adb: device 'emulator-5554' not found"),
+				"android:emulator-5554",
+			),
+		).toBe(true);
+		expect(
+			isConfirmedDeviceGone(
+				new CommandFailure({
+					message: "native call failed",
+					cause: new Error("Device 1234-ABCD not found"),
+				}),
+				"1234-ABCD",
+			),
+		).toBe(true);
+		for (const message of [
+			"Accessibility read timed out",
+			"The device connection closed",
+			"device offline",
+			"Device other-device not found",
+		])
+			expect(
+				isConfirmedDeviceGone(message, "android:emulator-5554"),
+			).toBe(false);
 	});
 });

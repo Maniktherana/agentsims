@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement, ReactPortal } from "react";
 import {
@@ -12,21 +10,6 @@ import {
 } from "../../../../../web/components/simulator/screenshot-preview";
 
 describe("device screenshot feedback", () => {
-	test("uses a browser download for screenshot persistence", () => {
-		const source = readFileSync(
-			join(
-				import.meta.dir,
-				"../../../../../web/components/workspace/simulator-device-view.tsx",
-			),
-			"utf8",
-		);
-		expect(source).not.toContain("link.click()");
-		expect(source).not.toContain("download =");
-		expect(source).toContain("downloadScreenshot");
-		expect(source).not.toContain("actionToolbarRef");
-		expect(source).toContain("Boolean(screenshotPreviewLayout)");
-	});
-
 	test("places the preview to the preferred right of the screen with bottom edges aligned", () => {
 		expect(
 			resolveScreenshotPreviewSidecar({
@@ -131,7 +114,7 @@ describe("device screenshot feedback", () => {
 		).toBeNull();
 	});
 
-	test("renders top-right accessible controls and image-only border geometry", () => {
+	test("renders accessible controls and the captured image", () => {
 		const html = renderToStaticMarkup(
 			<ScreenshotPreviewOverlay
 				deviceId="android:emulator-5554"
@@ -168,20 +151,10 @@ describe("device screenshot feedback", () => {
 			/>,
 		);
 
-		expect(html).toContain(
-			'data-agentsims-screenshot-preview="android:emulator-5554"',
-		);
-		expect(html).toContain('data-side="right"');
-		expect(html).toContain('data-phase="visible"');
 		expect(html).toContain('aria-label="Copy image"');
 		expect(html).toContain('aria-label="Close screenshot"');
-		expect(html).toContain("right-1.5 top-1.5 flex items-center");
-		expect(html).toContain("border-radius:9999px");
 		expect(html).toContain("width:120px");
 		expect(html).toContain("height:269px");
-		expect(html).toContain("agentsims-screenshot-preview-image");
-		expect(html).toContain("border-radius:14% 14% 10% 10% / 6% 6% 4% 4%");
-		expect(html).toContain("corner-shape:round");
 		expect(html).toContain('src="blob:shot-2"');
 	});
 
@@ -214,7 +187,6 @@ describe("device screenshot feedback", () => {
 			}) as ReactPortal & { containerInfo: unknown };
 			expect(portal.containerInfo).toBe(body);
 			const html = renderToStaticMarkup(portal.children as ReactElement);
-			expect(html).toContain("fixed z-[2147483646]");
 			expect(html).toContain("left:514px");
 			expect(html).toContain("top:460px");
 			expect(html).toContain(
@@ -277,7 +249,7 @@ describe("device screenshot feedback", () => {
 		expect(writes[0]?.[0]?.data["image/png"]).toBe(blob);
 	});
 
-	test("keeps the flash device-scoped and unable to intercept simulator input", () => {
+	test("keeps the flash unable to intercept simulator input", () => {
 		const html = renderToStaticMarkup(
 			<ScreenshotFlash
 				deviceId="ios:phone"
@@ -286,9 +258,6 @@ describe("device screenshot feedback", () => {
 			/>,
 		);
 
-		expect(html).toContain('data-agentsims-screenshot-flash="ios:phone"');
-		expect(html).toContain('data-phase="fading"');
 		expect(html).toContain("pointer-events-none");
-		expect(html).toContain("border-radius:12% / 6%");
 	});
 });

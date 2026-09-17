@@ -158,6 +158,9 @@ async function managedSmoke(executable: string): Promise<void> {
 }
 
 try {
+	const sourceBundle = await readFile(join(root, "dist/agentsims.js"), "utf8");
+	if (sourceBundle.includes(root))
+		throw new Error("The CLI bundle contains the build checkout path.");
 	await Promise.all([
 		mkdir(installDirectory, { recursive: true }),
 		mkdir(isolatedTmp, { recursive: true }),
@@ -166,6 +169,42 @@ try {
 		pack(mainDirectory),
 		pack(runtimeDirectory),
 	]);
+	const androidJar = join(
+		runtimeDirectory,
+		"dist/android/agentsims-ax-server.jar",
+	);
+	const rebuiltJar = join(temporary, "rebuilt-android-helper.jar");
+	const packagedDexDirectory = join(temporary, "packaged-dex");
+	const rebuiltDexDirectory = join(temporary, "rebuilt-dex");
+	await Promise.all([
+		mkdir(packagedDexDirectory),
+		mkdir(rebuiltDexDirectory),
+		run("bash", ["android/accessibility/build.sh", rebuiltJar]),
+	]);
+	await Promise.all([
+		run("unzip", [
+			"-qq",
+			androidJar,
+			"classes.dex",
+			"-d",
+			packagedDexDirectory,
+		]),
+		run("unzip", ["-qq", rebuiltJar, "classes.dex", "-d", rebuiltDexDirectory]),
+	]);
+	const [packagedDex, rebuiltDex] = await Promise.all([
+		readFile(join(packagedDexDirectory, "classes.dex")),
+		readFile(join(rebuiltDexDirectory, "classes.dex")),
+	]);
+	if (!packagedDex.equals(rebuiltDex))
+		throw new Error("The packaged Android helper does not match the source.");
+	for (const descriptor of [
+		"Ldev/agentsims/ax/Main;",
+		"Ldev/agentsims/ax/Main$SnapshotRequest;",
+		"Ldev/agentsims/ax/Main$NodeRequest;",
+	]) {
+		if (!packagedDex.includes(descriptor))
+			throw new Error(`Android helper is missing ${descriptor}.`);
+	}
 	await run("npm", ["init", "-y"], { cwd: installDirectory });
 	await run(
 		"npm",
@@ -214,7 +253,7 @@ try {
 		if (!record.url || !record.port || record.basePath !== "/package-smoke")
 			throw new Error(`Invalid detached ready record: ${started.stdout}`);
 		await get(`${record.url}/status`);
-		const status = JSON.parse((await npmExec("status")).stdout) as {
+		const status = JSON.parse((await npmExec("status", "--json")).stdout) as {
 			pid?: number;
 			port?: number;
 			basePath?: string;

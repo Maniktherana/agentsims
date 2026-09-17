@@ -34,7 +34,6 @@ describe("Android tool panel integration", () => {
 		expect(html).toContain("Wi-Fi");
 		expect(html).toContain("Battery percent");
 		expect(html).toContain("Display and accessibility");
-		expect(html).toContain("lem-section");
 		expect(html).not.toContain("Latitude");
 		expect(html).not.toContain('role="tablist"');
 	});
@@ -79,11 +78,11 @@ test("Android control sections follow Location and Simulator contains no nested 
 			Object.defineProperty(globalThis, "window", previousWindow);
 		else Reflect.deleteProperty(globalThis, "window");
 	}
-	const simulatorStart = html.indexOf('data-android-simulator-settings=""');
+	const simulatorStart = html.indexOf(">Simulator<");
 	const simulatorEnd = html.indexOf("</details>", simulatorStart);
 	const simulator = html.slice(simulatorStart, simulatorEnd);
-	expect(simulator).toContain('data-setting-row="Wi-Fi"');
-	expect(simulator).toContain('data-setting-row="Battery percent"');
+	expect(simulator).toContain("Wi-Fi");
+	expect(simulator).toContain("Battery percent");
 	expect(simulator).not.toContain("<details");
 	expect(html.indexOf(">Location<")).toBeGreaterThan(simulatorEnd);
 	expect(html.indexOf("Display and accessibility")).toBeGreaterThan(

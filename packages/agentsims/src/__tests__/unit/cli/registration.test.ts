@@ -1,111 +1,126 @@
 import { expect, spyOn, test } from "bun:test";
+import type { Command } from "commander";
 import { createProgram } from "../../../cli/main";
 
 function program() {
-	return createProgram().exitOverride();
+	const root = createProgram();
+	const override = (value: Command): void => {
+		value.exitOverride();
+		for (const child of value.commands) override(child);
+	};
+	override(root);
+	return root;
 }
 
-test("public device and app commands use bounded HTTP requests", async () => {
-	const requests: Array<{ path: string; body: unknown }> = [];
-	const server = Bun.serve({
-		port: 0,
-		async fetch(request) {
-			const url = new URL(request.url);
-			const text = await request.text();
-			requests.push({
-				path: url.pathname + url.search,
-				body: text ? JSON.parse(text) : null,
-			});
-			return Response.json({ ok: true });
-		},
-	});
-	const output = spyOn(process.stdout, "write").mockReturnValue(true);
-	try {
-		for (const args of [
-			["tap", "0.2", "0.7", "-d", "android:emulator-5554"],
-			["devices", "boot", "android:emulator-5554"],
-			["app", "launch", "com.example.app", "-d", "ios-device"],
-			["camera", "webcam", "camera-1", "-d", "ios-device"],
-			[
-				"permissions",
-				"grant",
-				"camera",
-				"-d",
-				"ios-device",
-				"--app",
-				"com.example.app",
-			],
-			["device-logs", "-d", "android:emulator-5554", "--level", "e", "--limit", "25"],
-		]) {
-			await program().parseAsync([...args, "--url", server.url.origin], {
-				from: "user",
-			});
-		}
-		expect(requests).toEqual([
-			{
-				path: "/device/android%3Aemulator-5554/act",
-				body: { actions: [{ type: "tap", x: 0.2, y: 0.7 }] },
-			},
-			{ path: "/grid/api/start", body: { udid: "android:emulator-5554" } },
-			{
-				path: "/device/ios-device/app",
-				body: { operation: "launch", value: "com.example.app" },
-			},
-			{
-				path: "/media/camera/webcam?device=ios-device",
-				body: { platform: "ios", webcamId: "camera-1" },
-			},
-			{
-				path: "/device/ios-device/permissions",
-				body: {
-					operation: "grant",
-					bundleId: "com.example.app",
-					permission: "camera",
-				},
-			},
-			{
-				path: "/android/logs/snapshot?device=android%3Aemulator-5554&limit=25&level=E",
-				body: null,
-			},
-		]);
-	} finally {
-		output.mockRestore();
-		await server.stop(true);
-	}
-});
+function command(name: string): Command {
+	const value = program().commands.find((item) => item.name() === name);
+	if (!value) throw new Error(`Missing command: ${name}`);
+	return value;
+}
 
-test("the command surface stays explicit", () => {
-	// Read the help text, which is the surface a user actually sees. Commander
-	// keeps its hidden flag private, so the command list includes hidden ones.
-	const help = program().helpInformation();
-	const names = help
-		.slice(help.indexOf("Commands:"))
-		.split("\n")
-		.map((line) => /^ {2}(\S+)/.exec(line)?.[1])
-		.filter((name): name is string => Boolean(name))
-		.map((name) => name.split("|")[0]!);
-	// `act` still accepts a JSON action, but it is hidden in favour of the
-	// named input commands below.
-	for (const removed of ["ui", "android", "device", "ca-debug", "setup", "act"])
-		expect(names).not.toContain(removed);
-	for (const current of [
+test("the public command surface is canonical", () => {
+	const names = program().commands
+		.filter((item) => !["serve"].includes(item.name()))
+		.map((item) => item.name());
+	expect(names).toEqual([
 		"start",
 		"stop",
 		"status",
 		"logs",
 		"device-logs",
 		"devices",
-		"observe",
 		"tap",
 		"swipe",
-		"text",
-		"button",
+		"type",
+		"fill",
+		"press",
 		"rotate",
-		"gesture",
-		"app",
+		"observe",
+		"screenshot",
+		"find",
 		"camera",
+		"app",
 		"permissions",
 		"doctor",
-	])
-		expect(names).toContain(current);
+	]);
+	expect(command("device-logs").aliases()).toEqual([]);
+	expect(command("camera").commands.find((item) => item.name() === "list")?.aliases()).toEqual([]);
+	expect(command("camera").commands.find((item) => item.name() === "use")?.aliases()).toEqual([]);
+});
+
+test("action and app help shows the supported options", () => {
+	const expected: Record<string, string[]> = {
+		tap: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index"],
+		swipe: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
+		type: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
+		fill: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
+		press: ["--device", "--url", "--json", "--screenshot"],
+		rotate: ["--device", "--url", "--json", "--screenshot"],
+	};
+	for (const [name, options] of Object.entries(expected))
+		expect(command(name).options.map((option) => option.long)).toEqual(options);
+
+	const app = command("app");
+	for (const name of ["launch", "stop"])
+		expect(app.commands.find((item) => item.name() === name)?.options.map((option) => option.long)).toEqual([
+			"--device",
+			"--url",
+			"--json",
+			"--screenshot",
+		]);
+});
+
+test("target indexes have no arbitrary upper limit", () => {
+	for (const name of ["tap", "swipe", "type", "fill"]) {
+		const option = command(name).options.find((item) => item.long === "--index");
+		expect(option?.parseArg?.("1000000", "")).toBe(1_000_000);
+		expect(() => option?.parseArg?.("0", "")).toThrow("Index must be a positive integer.");
+	}
+});
+
+test("permission and button help lists exact platform values", () => {
+	const permissions = command("permissions");
+	const grant = permissions.commands.find((item) => item.name() === "grant");
+	const permissionHelp = grant?.helpInformation().replace(/\s+/g, " ") ?? "";
+	expect(permissions.description()).toContain("after the app requests access");
+	expect(permissionHelp).toContain("location=always|inuse|never");
+	expect(permissionHelp).toContain("photos=limited");
+	expect(permissionHelp).toContain("notifications=critical");
+	expect(permissionHelp).toContain("Do not use --value for camera.");
+
+	const buttonHelp = command("press").helpInformation().replace(/\s+/g, " ");
+	expect(buttonHelp).toContain("Android: home, power, volume-up, volume-down, back, app-switch.");
+	expect(buttonHelp).toContain("iOS: home, power, volume-up, volume-down, app-switcher, action, side-button, digital-crown, left-side-button.");
+});
+
+test.each([
+	["logcat", ["logcat", "-d", "android:emulator-5554"]],
+	["button", ["button", "back", "-d", "android:emulator-5554"]],
+	["camera webcams", ["camera", "webcams", "-d", "ios-device"]],
+	["camera webcam", ["camera", "webcam", "camera-1", "-d", "ios-device"]],
+	["observe --no-ax", ["observe", "-d", "ios-device", "--no-ax"]],
+	["observe --ax-only", ["observe", "-d", "ios-device", "--ax-only"]],
+	["tap --delta", ["tap", "@e1", "-d", "ios-device", "--delta"]],
+	["tap --observe", ["tap", "@e1", "-d", "ios-device", "--observe"]],
+	["screenshot -o", ["screenshot", "-d", "ios-device", "-o", "x.png"]],
+])("rejects removed syntax: %s", async (_name, args) => {
+	const errorOutput = spyOn(process.stderr, "write").mockReturnValue(true);
+	try {
+		const cli = program();
+		await expect(cli.parseAsync(args, { from: "user" })).rejects.toBeDefined();
+	} finally {
+		errorOutput.mockRestore();
+	}
+});
+
+test.each([
+	["camera", "always", "camera does not take --value."],
+	["location", "limited", "Invalid --value for location: limited. Use always, inuse, or never."],
+	["photos", "always", "Invalid --value for photos: always. Use limited."],
+	["notifications", "never", "Invalid --value for notifications: never. Use critical."],
+])("rejects invalid %s value before HTTP", async (name, value, message) => {
+	await expect(program().parseAsync([
+		"permissions", "grant", name, "-d", "ios-device", "-a", "com.example.app",
+		"--value", value, "--url", "http://127.0.0.1:1",
+	], { from: "user" })).rejects.toThrow(message);
 });
