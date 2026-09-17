@@ -6,6 +6,7 @@ import { androidSerialFromStateId } from "../../android/device/identifiers";
 import { collectAndroidAxSnapshot } from "../../android/accessibility/snapshot";
 import { subscribeAndroidAxChanges } from "../../android/accessibility/ax-server";
 import { AndroidAxServers } from "../../android/accessibility/ax-server";
+import { AndroidSessions } from "../../android/session/session";
 import { iosAxSnapshot } from "../../ios/accessibility";
 import { axDescribeAsync } from "../../ios/stream/native";
 import { enrichAxSnapshotWithRnSource } from "../../react-native/enrich-accessibility";
@@ -426,15 +427,18 @@ export const AxStreamersLive = Layer.scoped(
 	AxStreamers,
 	Effect.gen(function* () {
 		const axServers = yield* AndroidAxServers;
+		const androidSessions = yield* AndroidSessions;
 		const cache = createAxStreamerCache({
-			collect: (udid) => {
+			collect: async (udid) => {
 				const serial = androidSerialFromStateId(udid);
-				return serial
-					? collectAndroidAxSnapshot(serial, {
-							readFastXml: (target, mode) =>
-								Effect.runPromise(axServers.read(target, mode)),
-						})
-					: collectAxSnapshot(udid);
+				if (!serial) return collectAxSnapshot(udid);
+				const session = await Effect.runPromise(androidSessions.get(serial));
+				const { width, height } = await session.readConfig();
+				return collectAndroidAxSnapshot(serial, {
+					screen: { width, height },
+					readFastXml: (target, mode) =>
+						Effect.runPromise(axServers.read(target, mode)),
+				});
 			},
 		});
 		return yield* Effect.acquireRelease(Effect.succeed(cache), (value) =>

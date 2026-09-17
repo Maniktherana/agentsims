@@ -17,8 +17,6 @@ import { ScopedResourceRegistry } from "../../resources";
 import { logRuntime } from "../../logging";
 import {
 	androidButton,
-	androidKeyEvent,
-	androidKeycodeForButton,
 	androidKeycodeForHidUsage,
 	androidRotate,
 	androidSwipe,
@@ -48,6 +46,7 @@ import type {
 import {
 	AndroidAxServers,
 	type AndroidAxMode,
+	type AndroidAxKeyPhase,
 	type AndroidAxServersService,
 	type AndroidAxTouchPhase,
 	type AndroidNodeAction,
@@ -272,7 +271,11 @@ export interface AndroidSessionDependencies {
 	}>;
 	emulatorViewportPollMs?: number;
 	warmAx(serial: string): Promise<void>;
-	readAx(serial: string, mode: AndroidAxMode): Promise<AxSnapshot>;
+	readAx(
+		serial: string,
+		mode: AndroidAxMode,
+		screen: Pick<AndroidScreenConfig, "width" | "height">,
+	): Promise<AxSnapshot>;
 	closeAx(serial: string): void;
 	markAxMutation?(serial: string): void;
 	markUiMutation?(serial: string): void;
@@ -281,6 +284,11 @@ export interface AndroidSessionDependencies {
 		phase: AndroidAxTouchPhase,
 		x: number,
 		y: number,
+	): Promise<void>;
+	keyDevice(
+		serial: string,
+		phase: AndroidAxKeyPhase,
+		keycode: number,
 	): Promise<void>;
 	performAxAction(
 		serial: string,
@@ -311,11 +319,15 @@ const DEFAULT_SESSION_DEPENDENCIES: AndroidSessionDependencies = {
 	readScreenConfig: getAndroidScreenConfig,
 	readEmulatorViewport: getAndroidEmulatorViewportState,
 	warmAx: async () => {},
-	readAx: (serial, mode) => collectAndroidAxSnapshot(serial, { mode }),
+	readAx: (serial, mode, screen) =>
+		collectAndroidAxSnapshot(serial, { mode, screen }),
 	closeAx: () => {},
 	markAxMutation: () => {},
 	markUiMutation: () => {},
 	touchDevice: async () => {
+		throw new Error("Android input helper is unavailable");
+	},
+	keyDevice: async () => {
 		throw new Error("Android input helper is unavailable");
 	},
 	performAxAction: async () => {
@@ -680,8 +692,9 @@ export class AndroidSession {
 	}
 
 	async readAccessibility(mode: AndroidAxMode = "settled"): Promise<unknown> {
+		const { width, height } = await this.readConfig();
 		return enrichAxSnapshotWithRnSource(
-			await this.dependencies.readAx(this.serial, mode),
+			await this.dependencies.readAx(this.serial, mode, { width, height }),
 		);
 	}
 
@@ -1011,20 +1024,6 @@ export class AndroidSession {
 			const m = json<{ button: string; phase?: string }>();
 			if (!m?.button) return;
 			this.markUiMutation();
-			const keycode = androidKeycodeForButton(m.button);
-			const phase =
-				m.phase === "down" || m.phase === "up" || m.phase === "press"
-					? m.phase
-					: "press";
-			const transport = await this.activeTransport();
-			if (
-				transport?.injectKeycode &&
-				keycode != null &&
-				transport.injectKeycode(keycode, phase)
-			) {
-				this.markAxMutation();
-				return;
-			}
 			await androidButton(this.serial, m.button);
 			this.markAxMutation();
 			return;
@@ -1092,15 +1091,8 @@ export class AndroidSession {
 			const keycode = androidKeycodeForHidUsage(m.usage);
 			if (keycode == null) return;
 			this.markUiMutation();
-			const transport = await this.activeTransport();
-			if (transport?.injectKeycode?.(keycode, m.type)) {
-				this.markAxMutation();
-				return;
-			}
-			if (m.type === "down") {
-				await androidKeyEvent(this.serial, keycode);
-				this.markAxMutation();
-			}
+			await this.dependencies.keyDevice(this.serial, m.type, keycode);
+			this.markAxMutation();
 			return;
 		}
 
@@ -1184,6 +1176,8 @@ class AndroidSessionRegistry {
 					createAndroidTransport(...args, this.commandExecutor),
 				touchDevice: (target, phase, x, y) =>
 					Effect.runPromise(this.axServers.touch(target, phase, x, y)),
+				keyDevice: (target, phase, keycode) =>
+					Effect.runPromise(this.axServers.key(target, phase, keycode)),
 				performAxAction: (target, action, node, text) =>
 					Effect.runPromise(
 						this.axServers.perform(target, action, node, text),
@@ -1196,9 +1190,10 @@ class AndroidSessionRegistry {
 					for (const listener of this.mutationListeners) listener(target);
 				},
 				warmAx: (target) => Effect.runPromise(this.axServers.warm(target)),
-				readAx: (target, mode) =>
+				readAx: (target, mode, screen) =>
 					collectAndroidAxSnapshot(target, {
 						mode,
+						screen,
 						readFastXml: (value, requestedMode) =>
 							Effect.runPromise(this.axServers.read(value, requestedMode)),
 					}),

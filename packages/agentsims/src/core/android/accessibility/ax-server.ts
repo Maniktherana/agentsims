@@ -20,6 +20,7 @@ const MAX_PROTOCOL_BUFFER_BYTES = 16 * 1024 * 1024;
 
 export type AndroidAxMode = "latest" | "fresh" | "settled";
 export type AndroidAxTouchPhase = "begin" | "move" | "end" | "cancel";
+export type AndroidAxKeyPhase = "down" | "up";
 export type AndroidNodeAction = "set-text" | "focus";
 
 /** A node the host read in a snapshot, or the field that has input focus. */
@@ -221,6 +222,14 @@ export function androidAxTouchLine(
 	return `${JSON.stringify({ op: "touch", phase, x, y })}\n`;
 }
 
+export function androidAxKeyLine(
+	id: number,
+	phase: AndroidAxKeyPhase,
+	keycode: number,
+): string {
+	return `${JSON.stringify({ id, op: "key", phase, keycode })}\n`;
+}
+
 export function parseAndroidAxServerLine(line: string): AndroidAxResponse {
 	const parsed = JSON.parse(line) as AndroidAxResponse;
 	if (!parsed || typeof parsed !== "object") {
@@ -319,6 +328,13 @@ export class AndroidAxServerClient {
 		});
 	}
 
+	async key(phase: AndroidAxKeyPhase, keycode: number): Promise<void> {
+		await this.request(
+			(id) => androidAxKeyLine(id, phase, keycode),
+			"key input",
+		);
+	}
+
 	close(): void {
 		if (this.closed) return;
 		this.closed = true;
@@ -330,7 +346,10 @@ export class AndroidAxServerClient {
 		this.startPromise = null;
 		if (child) {
 			child.stdin.end();
-			child.kill();
+			const timer = setTimeout(() => {
+				if (child.exitCode === null && child.signalCode === null) child.kill();
+			}, 250);
+			timer.unref();
 		}
 	}
 
@@ -549,6 +568,7 @@ type AndroidAxClient = Pick<
 	| "snapshot"
 	| "warm"
 	| "touch"
+	| "key"
 	| "perform"
 	| "findFocus"
 	| "markMutation"
@@ -587,6 +607,10 @@ class AndroidAxServerRegistry {
 		y: number,
 	): Promise<void> {
 		return this.get(serial).touch(phase, x, y);
+	}
+
+	key(serial: string, phase: AndroidAxKeyPhase, keycode: number): Promise<void> {
+		return this.get(serial).key(phase, keycode);
 	}
 
 	perform(
@@ -628,6 +652,11 @@ export type AndroidAxServersService = {
 		x: number,
 		y: number,
 	): Effect.Effect<void, unknown>;
+	key(
+		serial: string,
+		phase: AndroidAxKeyPhase,
+		keycode: number,
+	): Effect.Effect<void, unknown>;
 	perform(
 		serial: string,
 		action: AndroidNodeAction,
@@ -668,6 +697,11 @@ export const androidAxServersLayer = (
 					touch: (serial, phase, x, y) =>
 						Effect.tryPromise({
 							try: () => registry.touch(serial, phase, x, y),
+							catch: (error) => error,
+						}),
+					key: (serial, phase, keycode) =>
+						Effect.tryPromise({
+							try: () => registry.key(serial, phase, keycode),
 							catch: (error) => error,
 						}),
 					perform: (serial, action, target, text) =>

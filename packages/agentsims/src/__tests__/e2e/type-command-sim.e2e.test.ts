@@ -274,13 +274,17 @@ describeConfigured("real mobile text loop", () => {
 			]);
 			expectMatched(repeated, "AgentSimsTwo");
 
+			const insertion =
+				target.platform === "android"
+					? "A:+_?file:///sdcard/Download/task.html"
+					: "x";
 			const inserted = await cliJson<TextResult>(server, [
 				"type",
-				"x",
+				insertion,
 				"-d",
 				target.device,
 			]);
-			expectMatched(inserted, "AgentSimsTwox");
+			expectMatched(inserted, `AgentSimsTwo${insertion}`);
 
 			const replaced = await cliJson<TextResult>(server, [
 				"fill",

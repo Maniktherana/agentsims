@@ -48,7 +48,6 @@ function fakeTransport(
 			return true;
 		},
 		injectMultiTouch: () => true,
-		injectKeycode: () => true,
 	};
 }
 

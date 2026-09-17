@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import {
 	AndroidAxServers,
 	androidAxFocusLine,
+	androidAxKeyLine,
 	androidAxPerformLine,
 	androidAxRequestLine,
 	androidAxTouchLine,
@@ -45,6 +46,15 @@ describe("persistent Android AX server", () => {
 			phase: "begin",
 			x: 100.25,
 			y: 200.5,
+		});
+	});
+
+	test("writes acknowledged key phases to the persistent helper protocol", () => {
+		expect(JSON.parse(androidAxKeyLine(4, "down", 59))).toEqual({
+			id: 4,
+			op: "key",
+			phase: "down",
+			keycode: 59,
 		});
 	});
 
@@ -120,6 +130,7 @@ describe("persistent Android AX server", () => {
 				fallbacks++;
 				return XML;
 			},
+			screen: { width: 1080, height: 2424 },
 		});
 
 		expect(modes).toEqual(["fresh"]);
@@ -137,6 +148,7 @@ describe("persistent Android AX server", () => {
 				fallbacks++;
 				return XML;
 			},
+			screen: { width: 1080, height: 2424 },
 		});
 
 		expect(fallbacks).toBe(0);
@@ -150,6 +162,7 @@ describe("persistent Android AX server", () => {
 			snapshot: async () => XML,
 			warm: async () => {},
 			touch: async () => {},
+			key: async () => {},
 			perform: async () => ({ performed: true, node: null }),
 			findFocus: async () => null,
 			markMutation: () => {},

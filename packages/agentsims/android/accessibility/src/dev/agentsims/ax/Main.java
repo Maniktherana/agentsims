@@ -19,6 +19,8 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -31,8 +33,10 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -82,6 +86,7 @@ public final class Main {
   private static boolean changeScheduled;
   private static volatile boolean snapshotInProgress;
   private static long touchDownTimeMs;
+  private static final Map<Integer, Long> keyDownTimesMs = new HashMap<>();
 
   private static final Runnable emitPendingChange = new Runnable() {
     @Override
@@ -147,6 +152,12 @@ public final class Main {
           }
           long id = request.getLong("id");
           response.put("id", id);
+          if ("key".equals(operation)) {
+            injectKey(request);
+            response.put("ok", true);
+            emit(response);
+            continue;
+          }
           Runnable work;
           if ("snapshot".equals(operation)) work = new SnapshotRequest(request, response);
           else if ("perform".equals(operation) || "focus".equals(operation)) {
@@ -555,6 +566,7 @@ public final class Main {
     }
     if (automation != null) {
       try {
+        releaseHeldKeys();
         automation.setOnAccessibilityEventListener(null);
         Method disconnect = UiAutomation.class.getDeclaredMethod("disconnect");
         disconnect.setAccessible(true);
@@ -638,6 +650,91 @@ public final class Main {
       touchDownTimeMs = 0;
     }
     if (!accepted) throw new IllegalStateException("Android rejected the touch event");
+  }
+
+  private static void injectKey(JSONObject request) throws Exception {
+    String phase = request.getString("phase");
+    int action;
+    if ("down".equals(phase)) action = KeyEvent.ACTION_DOWN;
+    else if ("up".equals(phase)) action = KeyEvent.ACTION_UP;
+    else throw new IllegalArgumentException("Unsupported key phase");
+    injectKeyEvent(action, request.getInt("keycode"));
+  }
+
+  private static void injectKeyEvent(int action, int keycode) {
+    long eventTimeMs = SystemClock.uptimeMillis();
+    Long heldDownTime = keyDownTimesMs.get(keycode);
+    boolean newlyHeld = action == KeyEvent.ACTION_DOWN && heldDownTime == null;
+    if (newlyHeld) {
+      heldDownTime = eventTimeMs;
+      keyDownTimesMs.put(keycode, heldDownTime);
+    }
+    if (heldDownTime == null) heldDownTime = eventTimeMs;
+
+    int metaState = heldModifierMetaState();
+    KeyEvent event = new KeyEvent(
+      heldDownTime,
+      eventTimeMs,
+      action,
+      keycode,
+      0,
+      KeyEvent.normalizeMetaState(metaState),
+      KeyCharacterMap.VIRTUAL_KEYBOARD,
+      0,
+      KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY,
+      InputDevice.SOURCE_KEYBOARD
+    );
+    boolean accepted = automation.injectInputEvent(event, false);
+    if (!accepted) {
+      if (newlyHeld) keyDownTimesMs.remove(keycode);
+      throw new IllegalStateException("Android rejected the key event");
+    }
+    if (action == KeyEvent.ACTION_UP) keyDownTimesMs.remove(keycode);
+  }
+
+  private static int heldModifierMetaState() {
+    int state = 0;
+    for (int keycode : keyDownTimesMs.keySet()) {
+      switch (keycode) {
+        case KeyEvent.KEYCODE_SHIFT_LEFT:
+          state |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_SHIFT_RIGHT:
+          state |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_RIGHT_ON;
+          break;
+        case KeyEvent.KEYCODE_CTRL_LEFT:
+          state |= KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_CTRL_RIGHT:
+          state |= KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_RIGHT_ON;
+          break;
+        case KeyEvent.KEYCODE_ALT_LEFT:
+          state |= KeyEvent.META_ALT_ON | KeyEvent.META_ALT_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_ALT_RIGHT:
+          state |= KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON;
+          break;
+        case KeyEvent.KEYCODE_META_LEFT:
+          state |= KeyEvent.META_META_ON | KeyEvent.META_META_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_META_RIGHT:
+          state |= KeyEvent.META_META_ON | KeyEvent.META_META_RIGHT_ON;
+          break;
+        default:
+          break;
+      }
+    }
+    return state;
+  }
+
+  private static void releaseHeldKeys() {
+    List<Integer> keys = new ArrayList<>(keyDownTimesMs.keySet());
+    for (int keycode : keys) {
+      try {
+        injectKeyEvent(KeyEvent.ACTION_UP, keycode);
+      } catch (Throwable ignored) {}
+    }
+    keyDownTimesMs.clear();
   }
 
   private static String snapshotXml() {

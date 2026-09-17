@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { collectAndroidAxSnapshot } from "../../../../../core/android/accessibility/snapshot";
 
+const SCREEN = { width: 1080, height: 2400 };
+
 function xml(attributes: string): string {
 	return [
 		'<?xml version="1.0" encoding="UTF-8"?>',
@@ -15,6 +17,7 @@ function xml(attributes: string): string {
 async function field(attributes: string) {
 	const snapshot = await collectAndroidAxSnapshot("emulator-5554", {
 		readXml: async () => xml(attributes),
+		screen: SCREEN,
 	});
 	return snapshot.elements[1]!;
 }
@@ -22,6 +25,7 @@ async function field(attributes: string) {
 async function snapshotFromXml(value: string) {
 	return collectAndroidAxSnapshot("emulator-5554", {
 		readXml: async () => value,
+		screen: SCREEN,
 	});
 }
 
@@ -64,7 +68,7 @@ describe("Android accessibility elements", () => {
 		});
 	});
 
-	test("derives screen and window state without a second device read", async () => {
+	test("uses the supplied display while preserving window state", async () => {
 		let screenConfigReads = 0;
 		const snapshot = await collectAndroidAxSnapshot("emulator-5554", {
 			readXml: async () =>
@@ -73,10 +77,11 @@ describe("Android accessibility elements", () => {
 				screenConfigReads += 1;
 				return { width: 1, height: 1, orientation: "portrait" };
 			},
+			screen: { width: 1080, height: 2400 },
 		});
 
 		expect(screenConfigReads).toBe(0);
-		expect(snapshot.screen).toEqual({ width: 1080, height: 2424 });
+		expect(snapshot.screen).toEqual({ width: 1080, height: 2400 });
 		expect(snapshot.elements[0]).toMatchObject({
 			windowId: 42,
 			windowLayer: 3,
@@ -92,7 +97,7 @@ describe("Android accessibility elements", () => {
 		});
 	});
 
-	test("keeps structural paths and clamps elements to the app viewport", async () => {
+	test("keeps structural paths and clamps elements to the display", async () => {
 		const snapshot = await snapshotFromXml(
 			'<hierarchy><node window-id="10" window-type="1" class="android.widget.FrameLayout" bounds="[0,0][1080,2424]"><node class="android.view.ViewGroup" visible-to-user="false" bounds="[0,0][0,0]"><node text="Nested" class="android.widget.Button" clickable="true" bounds="[-40,2100][1120,4288]" /></node></node></hierarchy>',
 		);
@@ -112,7 +117,7 @@ describe("Android accessibility elements", () => {
 			x: 0,
 			y: 2100,
 			width: 1080,
-			height: 324,
+			height: 300,
 		});
 	});
 
@@ -167,6 +172,7 @@ describe("Android accessibility elements", () => {
 				calls.push("fallback");
 				return "<hierarchy />";
 			},
+			screen: SCREEN,
 		});
 
 		expect(calls).toEqual(["fast:settled"]);

@@ -1,5 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { createAxStreamerCache } from "../../../core/tools/observe/accessibility";
+import { Effect, Layer } from "effect";
+import {
+	AndroidAxServers,
+	type AndroidAxMode,
+} from "../../../core/android/accessibility/ax-server";
+import {
+	AndroidSession,
+	AndroidSessions,
+} from "../../../core/android/session/session";
+import {
+	AxStreamers,
+	AxStreamersLive,
+	createAxStreamerCache,
+} from "../../../core/tools/observe/accessibility";
 import type { AxSnapshot } from "../../../core/tools/observe/accessibility-model";
 
 function snapshot(label: string): AxSnapshot {
@@ -71,6 +84,61 @@ function controlledTimerClock() {
 }
 
 describe("createAxStreamerCache", () => {
+	test("uses the Android session display config for browser AX snapshots", async () => {
+		let screenReads = 0;
+		const modes: AndroidAxMode[] = [];
+		const session = new AndroidSession("emulator-5554", {
+			readScreenConfig: async () => {
+				screenReads++;
+				return { width: 1080, height: 2400, rotation: 0 };
+			},
+		});
+		const services = Layer.merge(
+			Layer.succeed(
+				AndroidSessions,
+				AndroidSessions.of({
+					get: () =>
+						Effect.promise(async () => {
+							await session.start();
+							return session;
+						}),
+					close: () => Effect.promise(() => session.close()),
+				}),
+			),
+			Layer.mock(AndroidAxServers, {
+				read: (_serial, mode = "fresh") => {
+					modes.push(mode);
+					return Effect.succeed(
+						'<hierarchy bounds="[0,0][800,1200]"><node text="Save" class="android.widget.Button" bounds="[600,900][800,1000]" /></hierarchy>',
+					);
+				},
+			}),
+		);
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const streamers = yield* AxStreamers;
+				return yield* Effect.promise(
+					() =>
+						new Promise<AxSnapshot>((resolve) => {
+							streamers.get("android:emulator-5554").addClient(resolve);
+						}),
+				);
+			}).pipe(
+				Effect.provide(AxStreamersLive.pipe(Layer.provide(services))),
+			),
+		);
+
+		expect(result.screen).toEqual({ width: 1080, height: 2400 });
+		expect(result.elements[0]?.frame).toEqual({
+			x: 600,
+			y: 900,
+			width: 200,
+			height: 100,
+		});
+		expect(screenReads).toBe(1);
+		expect(modes).toEqual(["fresh"]);
+	});
+
 	test("get() reuses the same streamer for a udid", () => {
 		const cache = createAxStreamerCache();
 		const a = cache.get("UDID-1");
