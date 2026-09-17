@@ -12,6 +12,7 @@ import {
 import {
 	runTextInput,
 	type DeviceField,
+	type FieldIdentity,
 	type FieldRequest,
 	type FieldResult,
 	type TextInputAction,
@@ -75,7 +76,7 @@ function field(
 		editable?: boolean;
 		password?: boolean;
 		selection?: { start: number; end: number } | null;
-		identity?: typeof IDENTITY | null;
+		identity?: FieldIdentity | null;
 	} = {},
 ): DeviceField {
 	return {
@@ -293,6 +294,31 @@ test("type predicts replacement from the reported selection", async () => {
 	expect(scripted.dispatches).toEqual([[{ type: "type", text: "el" }]]);
 });
 
+test("a matched value and confirmed target submit one Return", async () => {
+	const scripted = scenario({
+		initial: snapshot(""),
+		observations: [snapshot(""), snapshot("done")],
+		fieldResults: [{ performed: true, field: field("") }],
+		focusedFields: [field("done")],
+	});
+	const result = await scripted.run({
+		type: "type",
+		text: "done",
+		into: "Search",
+		submit: true,
+	});
+
+	expect(Either.isRight(result)).toBe(true);
+	if (Either.isRight(result)) {
+		expect(result.right.verification.status).toBe("matched");
+		expect(result.right.entry.submit.status).toBe("accepted");
+	}
+	expect(scripted.dispatches).toEqual([
+		[{ type: "type", text: "done" }],
+		[{ type: "key", key: "enter" }],
+	]);
+});
+
 test("a mismatch suppresses submit", async () => {
 	const scripted = scenario({
 		initial: snapshot("old"),
@@ -319,17 +345,19 @@ test("a mismatch suppresses submit", async () => {
 	expect(scripted.dispatches).toEqual([]);
 });
 
-test("verification is unavailable without selection or a post-input field", async () => {
+test("unavailable verification suppresses submit", async () => {
 	for (const options of [
 		{
 			before: field("a", { selection: null }),
 			after: snapshot("ab"),
 			focused: field("ab"),
+			reason: "current text selection is unavailable",
 		},
 		{
 			before: field("a", { selection: { start: 1, end: 1 } }),
 			after: snapshot("", { present: false }),
 			focused: null,
+			reason: "target field is not present after input",
 		},
 	]) {
 		const scripted = scenario({
@@ -338,12 +366,71 @@ test("verification is unavailable without selection or a post-input field", asyn
 			fieldResults: [{ performed: true, field: options.before }],
 			focusedFields: [options.focused],
 		});
-		const result = await scripted.run({ type: "type", text: "b", into: "Search" });
+		const result = await scripted.run({
+			type: "type",
+			text: "b",
+			into: "Search",
+			submit: true,
+		});
 
 		expect(Either.isRight(result)).toBe(true);
-		if (Either.isRight(result))
+		if (Either.isRight(result)) {
 			expect(result.right.verification.status).toBe("unavailable");
+			expect(result.right.entry.submit).toMatchObject({
+				requested: true,
+				status: "suppressed",
+				reason: expect.stringContaining(options.reason),
+			});
+		}
+		expect(scripted.dispatches).toEqual([[{ type: "type", text: "b" }]]);
 	}
+});
+
+test("a protected value suppresses submit", async () => {
+	const protectedIdentity: FieldIdentity = {
+		...IDENTITY,
+		role: "securetextbox",
+	};
+	const scripted = scenario({
+		initial: snapshot("", { password: true }),
+		observations: [
+			snapshot("", { password: true }),
+			snapshot("", { password: true }),
+		],
+		fieldResults: [
+			{
+				performed: true,
+				field: field("", { password: true, identity: protectedIdentity }),
+			},
+		],
+		focusedFields: [
+			field("", { password: true, identity: protectedIdentity }),
+		],
+	});
+	const result = await scripted.run({
+		type: "type",
+		text: "secret",
+		into: "Search",
+		submit: true,
+	});
+
+	expect(Either.isRight(result)).toBe(true);
+	if (Either.isRight(result)) {
+		expect(result.right.verification).toMatchObject({
+			status: "unavailable",
+			reason: "The protected field does not expose a value.",
+		});
+		expect(result.right.entry).toMatchObject({
+			expected: null,
+			value: null,
+			submit: {
+				requested: true,
+				status: "suppressed",
+				reason: expect.stringContaining("protected field"),
+			},
+		});
+	}
+	expect(scripted.dispatches).toEqual([[{ type: "type", text: "secret" }]]);
 });
 
 test("a refused native fill is not retried with key input", async () => {

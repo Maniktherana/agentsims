@@ -383,6 +383,7 @@ export function createProgram(): Command {
 		if (
 			payload.dispatch.status !== "accepted" ||
 			payload.verification.status === "mismatch" ||
+			payload.text?.submit.status === "suppressed" ||
 			artifact?.status === "error"
 		)
 			process.exitCode = 1;

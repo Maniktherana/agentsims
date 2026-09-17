@@ -578,11 +578,11 @@ export function runTextInput(
 			reason: "Submit was not requested.",
 		};
 		if (action.submit) {
-			if (verification.status === "mismatch")
+			if (verification.status !== "matched")
 				submit = {
 					requested: true,
 					status: "suppressed",
-					reason: "Submit was suppressed because the field value mismatched.",
+					reason: `Submit was suppressed. ${verification.reason}`,
 				};
 			else if (!targetConfirmed)
 				submit = {

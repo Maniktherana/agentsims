@@ -192,6 +192,84 @@ test("artifact failure keeps action evidence and returns failure", async () => {
 	}
 });
 
+test("suppressed submit fails in human and JSON modes without losing text evidence", async () => {
+	const payload = {
+		...action(),
+		verification: {
+			status: "unavailable",
+			reason: "The current text selection is unavailable.",
+			observed: { expected: null, value: "file:///sdcard/Download/task.html" },
+		},
+		resolved: [{
+			type: "type",
+			text: "file:///sdcard/Download/task.html",
+			value: "file:///sdcard/Download/task.html",
+		}],
+		text: {
+			operation: "type",
+			text: "file:///sdcard/Download/task.html",
+			expected: null,
+			value: "file:///sdcard/Download/task.html",
+			target: "Address bar",
+			field: {
+				ref: "e12",
+				role: "textbox",
+				label: "Address bar",
+				value: "file:///sdcard/Download/task.html",
+			},
+			submit: {
+				requested: true,
+				status: "suppressed",
+				reason: "Submit was suppressed. The current text selection is unavailable.",
+			},
+		},
+	};
+	const server = Bun.serve({
+		port: await freePort(),
+		fetch: () => Response.json(payload),
+	});
+	try {
+		const args = [
+			"type",
+			"file:///sdcard/Download/task.html",
+			"--into",
+			"Address bar",
+			"--submit",
+			"-d",
+			"ios-device",
+			"--url",
+			server.url.origin,
+		];
+		const human = await runCli(args);
+		expect(human.exitCode).toBe(1);
+		expect(human.stderr).toBe("");
+		expect(human.stdout).toContain("verification  unavailable");
+		expect(human.stdout).toContain(
+			"submit  suppressed  Submit was suppressed. The current text selection is unavailable.",
+		);
+
+		const structured = await runCli([...args, "--json"]);
+		expect(structured.exitCode).toBe(1);
+		expect(structured.stderr).toBe("");
+		const output = JSON.parse(structured.stdout);
+		expect(output.dispatch.status).toBe("accepted");
+		expect(output.verification).toMatchObject({
+			status: "unavailable",
+			observed: {
+				expected: null,
+				value: "file:///sdcard/Download/task.html",
+			},
+		});
+		expect(output.text).toMatchObject({
+			expected: null,
+			value: "file:///sdcard/Download/task.html",
+			submit: { requested: true, status: "suppressed" },
+		});
+	} finally {
+		await server.stop(true);
+	}
+});
+
 test("human output keeps both failed observation channels", async () => {
 	const server = Bun.serve({
 		port: await freePort(),
