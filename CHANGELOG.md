@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-09-19
+
+### Added
+
+- **Screen recording.** `agentsims record start`, `stop`, and `status` control
+  MP4 capture from the existing H.264 device stream. The recorder does not
+  re-encode the video. The web toolbar saves its recordings to Downloads. A
+  codec or size change starts a numbered segment. (`4ac459f`)
+- **Command traces.** `agentsims trace start`, `stop`, and `status` control
+  traces that record each device command, result, and screenshot. The web trace
+  panel shows the command list, output, and image. Trace files use
+  `~/.agentsims/traces/<trace-id>/`. (`4ac459f`)
+- **More accessibility details.** Android exposes state descriptions, errors,
+  tooltips, collection positions, actions, and text-selection details. iOS
+  exposes selected state, placeholders, help text, subroles, and slider ranges.
+  (`d66e9f6`)
+- **Slider readback.** Android sliders, progress bars, and rating bars show
+  their current values. A coordinate action reports each slider that it
+  changed. (`b224a19`)
+
+### Changed
+
+- Agentsims stores screenshots, recordings, traces, server state, and logs in
+  `~/.agentsims`. `AGENTSIMS_HOME` selects a different directory. The status
+  command shows the selected directory. (`4ac459f`)
+- The web recording and trace controls provide direct view, copy, and folder
+  actions for their output. (`4ac459f`)
+
+### Internal
+
+- Screen recording uses MediaBunny instead of the deprecated `mp4-muxer`
+  package. (`4ac459f`)
+- The CLI and web trace panel use one command-output renderer. Device panels
+  use one shared layout component. (`4ac459f`)
+
+## 2026-09-18
+
+### Added
+
+- **Observation-scoped device control.** Each observation gives stable refs for
+  one device state. Input rejects stale, ambiguous, disabled, or covered
+  targets before dispatch. (`f011a28`)
+- **Action readback.** Each input command reports dispatch and verification
+  separately. It reads the device again after the screen settles. Text submit
+  occurs only after native readback matches the requested value. (`f011a28`)
+- Added `long-press`, `drag`, `scroll`, `wait`, `observe --watch`, and `run`.
+  Scroll can collect unique list items until the list stops. Timed commands can
+  keep frames and produce contact sheets. (`f011a28`)
+
+### Fixed
+
+- Multi-line accessibility labels and values keep visible `\n` markers in CLI
+  output. (`409b3f2`)
+
+## 2026-09-16
+
+### Changed
+
+- CLI commands print readable text by default. `--json` selects structured
+  output for automation. (`d23a10c`)
+
+### Fixed
+
+- iOS app discovery reads the `simctl` property list. This keeps app discovery
+  compatible with current simulator runtimes. (`854a70e`)
+- Android accessibility reads no longer truncate large trees. (`17654d9`)
+- Server routes report the original device error and log repeated errors once.
+  Device removal now produces an SSE event. (`8b29048`, `6223bda`)
+
 ## 2026-09-15
 
 ### Added
@@ -13,7 +82,9 @@
   holds fixed.
 - **Standalone landing page.** The responsive site contains a simulator demo
   with separate boot and shutdown sequences, curved cursor movement, and iOS
-  and Android screenshots. Its components stay inside `apps/web`. (`e0ea0b0`)
+  and Android screenshots. It uses Base UI and Tailwind tokens, includes an
+  intro animation, and builds as a static site. Its components stay inside
+  `apps/web`. (`e0ea0b0`, `918b777`, `fa73b6b`, `f06055e`)
 
 ### Changed
 
