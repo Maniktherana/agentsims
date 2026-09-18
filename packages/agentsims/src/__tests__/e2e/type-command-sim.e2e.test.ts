@@ -338,6 +338,29 @@ describeConfigured("real mobile text loop", () => {
 				requested: true,
 				status: "accepted",
 			});
+
+			if (target.platform === "android") {
+				// Android gives input focus to the focusable view. A field with a
+				// child node can focus that child, or the layout around itself.
+				const wrappedObservation = await observe(server, target.device);
+				const wrapped = flatten(wrappedObservation.view?.nodes ?? []).find(
+					(node) =>
+						node.role === "textbox" && (node.children?.length ?? 0) > 0,
+				);
+				if (wrapped) {
+					const intoWrapped = await cliJson<TextResult>(server, [
+						"fill",
+						"AgentSimsWrapped",
+						"--into",
+						`@${wrapped.ref}`,
+						"-d",
+						target.device,
+					]);
+					// The container can hide the value of its child, so prove the
+					// dispatch. A refused focus fails the command instead.
+					expect(intoWrapped.dispatch.status).toBe("accepted");
+				}
+			}
 		}, 180_000);
 	}
 });

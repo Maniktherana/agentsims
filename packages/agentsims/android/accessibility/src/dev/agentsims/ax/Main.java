@@ -44,6 +44,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
@@ -60,6 +61,8 @@ public final class Main {
   private static final long CHANGE_DEBOUNCE_MS = 12;
   private static final long CHANGE_MAX_LATENCY_MS = 50;
   private static final int MAX_PENDING_SNAPSHOTS = 1;
+  /** Parent steps that a field action reports. A field sits near its layout. */
+  private static final int ANCESTOR_LIMIT = 12;
   private static final int RELEVANT_EVENT_TYPES =
     AccessibilityEvent.TYPE_VIEW_CLICKED |
     AccessibilityEvent.TYPE_VIEW_SELECTED |
@@ -255,22 +258,21 @@ public final class Main {
           String action = request.optString("action");
           NodeIdentity identity = NodeIdentity.fromRequest(request);
           if (identity == null || !identity.matches(node)) throw changedField();
+          JSONObject requested = describeNode(node);
           boolean performed =
             ("focus".equals(action) && hasInputFocus(identity)) ||
             perform(node, request);
-          if (!performed) {
-            throw new IllegalStateException(
-              "focus".equals(action)
-                ? "Android refused to focus the field"
-                : "Android refused to set text"
-            );
-          }
           node.recycle();
           node = null;
-          node = requireFocusedNode(identity);
+          // A refused action is a proven no-op. Report it, so that the host can
+          // tap the field once instead of failing the text operation.
+          node = automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
           response.put("ok", true);
-          response.put("performed", true);
-          response.put("node", describeNode(node));
+          response.put("performed", performed);
+          // The host compares both nodes. Android can focus the editable node
+          // inside the request, or the layout around it.
+          response.put("requested", requested);
+          response.put("node", node == null ? JSONObject.NULL : describeNode(node));
         }
       } catch (Throwable error) {
         try {
@@ -303,17 +305,6 @@ public final class Main {
       throw changedField();
     }
     return node;
-  }
-
-  private static AccessibilityNodeInfo requireFocusedNode(NodeIdentity expected) {
-    AccessibilityNodeInfo focused = automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
-    if (focused == null || !expected.matches(focused)) {
-      if (focused != null) focused.recycle();
-      throw new IllegalStateException(
-        "Android focused a different field. Run observe again"
-      );
-    }
-    return focused;
   }
 
   private static boolean hasInputFocus(NodeIdentity expected) {
@@ -361,7 +352,29 @@ public final class Main {
       .put("sourceId", node.hashCode())
       .put("selectionStart", node.getTextSelectionStart())
       .put("selectionEnd", node.getTextSelectionEnd())
-      .put("bounds", "[" + bounds.left + "," + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]");
+      .put("bounds", "[" + bounds.left + "," + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]")
+      .put("ancestors", ancestorChain(node));
+  }
+
+  /** The parent chain. The host accepts focus inside or around a field. */
+  private static JSONArray ancestorChain(AccessibilityNodeInfo node) throws Exception {
+    JSONArray chain = new JSONArray();
+    AccessibilityNodeInfo current = node.getParent();
+    for (int depth = 0; current != null && depth < ANCESTOR_LIMIT; depth++) {
+      chain.put(
+        new JSONObject()
+          .put("windowId", current.getWindowId())
+          .put("sourceId", current.hashCode())
+          .put("resourceId", text(current.getViewIdResourceName()))
+          .put("class", text(current.getClassName()))
+          .put("editable", current.isEditable())
+      );
+      AccessibilityNodeInfo parent = current.getParent();
+      current.recycle();
+      current = parent;
+    }
+    if (current != null) current.recycle();
+    return chain;
   }
 
   private static final class NodeIdentity {

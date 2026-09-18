@@ -15,8 +15,15 @@ import {
 	type FieldIdentity,
 	type FieldRequest,
 	type FieldResult,
+	type FieldSession,
 	type TextInputAction,
 } from "../../core/tools/text-input";
+import type {
+	AndroidNodeDescription,
+	AndroidNodeRef,
+	AndroidNodeResult,
+} from "../../core/android/accessibility/ax-server";
+import { AndroidSession } from "../../core/android/session/session";
 import type { PreviewServer } from "../../server/http/server";
 import { axElement } from "../fixtures/ax-view-snapshots";
 import { usablePng } from "../fixtures/capture-images";
@@ -115,6 +122,8 @@ type Scenario = {
 	fieldResults?: FieldResult[];
 	focusedFields?: Array<DeviceField | null>;
 	failDispatchAt?: number;
+	/** A platform session, instead of the scripted acknowledgements. */
+	session?: FieldSession;
 };
 
 function scenario(options: Scenario = {}) {
@@ -133,7 +142,7 @@ function scenario(options: Scenario = {}) {
 				{
 					device: DEVICE,
 					store,
-					session: {
+					session: options.session ?? {
 						performField: async (request) => {
 							fieldRequests.push(request);
 							const result = fieldResults.shift();
@@ -505,4 +514,209 @@ test("submit failure preserves verified text evidence", async () => {
 			submit: { status: "unknown", reason: "Return transport closed" },
 		});
 	}
+});
+
+const CONTAINER_LINK = {
+	windowId: IDENTITY.windowId,
+	sourceId: IDENTITY.sourceId,
+	resourceId: IDENTITY.id,
+	class: "android.widget.SearchView",
+	editable: false,
+};
+
+/** The search container that the snapshot shows as one text field. */
+const CONTAINER: AndroidNodeDescription = {
+	class: CONTAINER_LINK.class,
+	resourceId: IDENTITY.id,
+	text: "",
+	contentDesc: "Search",
+	editable: false,
+	hintText: false,
+	password: false,
+	focused: false,
+	enabled: true,
+	windowId: IDENTITY.windowId,
+	sourceId: IDENTITY.sourceId,
+	selectionStart: -1,
+	selectionEnd: -1,
+	bounds: "[40,240][1040,360]",
+	ancestors: [],
+};
+
+/** The editable child of the container. Android focuses this node. */
+function containerChild(value: string): AndroidNodeDescription {
+	return {
+		class: "android.widget.EditText",
+		resourceId: "com.example:id/search_src_text",
+		text: value,
+		contentDesc: "",
+		editable: true,
+		hintText: false,
+		password: false,
+		focused: true,
+		enabled: true,
+		windowId: IDENTITY.windowId,
+		sourceId: 3,
+		selectionStart: value.length,
+		selectionEnd: value.length,
+		bounds: "[48,248][1032,352]",
+		ancestors: [CONTAINER_LINK],
+	};
+}
+
+/** The plain field of `snapshot`, as the Android helper describes it. */
+function plainField(value: string): AndroidNodeDescription {
+	return {
+		...containerChild(value),
+		class: "android.widget.EditText",
+		resourceId: IDENTITY.id,
+		sourceId: IDENTITY.sourceId,
+		bounds: "[40,240][1040,360]",
+		ancestors: [],
+	};
+}
+
+function containerSnapshot(value: string): AxSnapshot {
+	return {
+		screen: SCREEN,
+		elements: [
+			axElement("0", "android.widget.FrameLayout", {
+				id: "root",
+				windowId: IDENTITY.windowId,
+				windowActive: true,
+				windowFocused: true,
+				frame: { x: 0, y: 0, width: SCREEN.width, height: SCREEN.height },
+			}),
+			axElement(IDENTITY.path, CONTAINER_LINK.class, {
+				id: IDENTITY.id,
+				label: "Search",
+				value,
+				windowId: IDENTITY.windowId,
+				sourceId: IDENTITY.sourceId,
+				traits: ["focusable"],
+				frame: { x: 40, y: 240, width: 1000, height: 120 },
+			}),
+		],
+	};
+}
+
+function androidSession(input: {
+	serial?: string;
+	perform: (call: {
+		action: string;
+		target: AndroidNodeRef;
+		text?: string;
+	}) => AndroidNodeResult;
+	focus: () => AndroidNodeDescription | null;
+	touches?: Array<{ phase: string; x: number; y: number }>;
+}): AndroidSession {
+	const serial = input.serial ?? "emulator-5554";
+	return new AndroidSession(serial, {
+		performAxAction: async (device, action, target, text) => {
+			expect(device).toBe(serial);
+			return input.perform({ action, target, text });
+		},
+		readAxFocus: async () => input.focus(),
+		readScreenConfig: async () => ({
+			width: SCREEN.width,
+			height: SCREEN.height,
+			orientation: "portrait",
+		}),
+		touchDevice: async (device, phase, x, y) => {
+			expect(device).toBe(serial);
+			input.touches?.push({ phase, x, y });
+		},
+	});
+}
+
+/** The device service binds the platform session behind its own functions. */
+function fieldSessionOf(session: AndroidSession): FieldSession {
+	return {
+		performField: (request) => session.performField(request),
+		readFocusedField: () => session.readFocusedField(),
+	};
+}
+
+test("a wrapped field accepts the focus of its editable child", async () => {
+	const calls: AndroidNodeRef[] = [];
+	let value = "";
+	const session = androidSession({
+		perform: ({ action, target, text }) => {
+			calls.push(target);
+			if (action === "focus")
+				return {
+					performed: true,
+					node: containerChild(value),
+					requested: CONTAINER,
+				};
+			value = text ?? "";
+			return { performed: true, node: containerChild(value) };
+		},
+		focus: () => containerChild(value),
+	});
+	const scripted = scenario({
+		session: fieldSessionOf(session),
+		initial: containerSnapshot(""),
+		observations: [containerSnapshot(""), containerSnapshot("hello")],
+	});
+
+	const result = await scripted.run({
+		type: "type",
+		text: "hello",
+		into: "Search",
+		clear: true,
+	});
+
+	expect(Either.isRight(result)).toBe(true);
+	if (Either.isRight(result)) {
+		expect(result.right.dispatch).toBe("accepted");
+		expect(result.right.verification.status).toBe("matched");
+		expect(result.right.entry).toMatchObject({
+			operation: "fill",
+			expected: "hello",
+			value: "hello",
+			field: { label: "Search" },
+		});
+	}
+	// The write reaches the child that holds Android's input focus.
+	expect(calls.at(-1)).toEqual({
+		node: "focus",
+		windowId: IDENTITY.windowId,
+		sourceId: 3,
+	});
+	expect(scripted.dispatches).toEqual([]);
+	await session.close();
+});
+
+test("one tap repairs a refused focus before key input", async () => {
+	const touches: Array<{ phase: string; x: number; y: number }> = [];
+	const calls: string[] = [];
+	const session = androidSession({
+		serial: "R5CW1234ABC",
+		touches,
+		perform: ({ action }) => {
+			calls.push(action);
+			return { performed: false, node: null, requested: plainField("") };
+		},
+		focus: () => plainField(""),
+	});
+	const scripted = scenario({
+		session: fieldSessionOf(session),
+		initial: snapshot(""),
+		observations: [snapshot(""), snapshot("hi")],
+	});
+
+	const result = await scripted.run({ type: "type", text: "hi", into: "Search" });
+
+	expect(Either.isRight(result)).toBe(true);
+	if (Either.isRight(result)) {
+		expect(result.right.dispatch).toBe("accepted");
+		expect(result.right.verification.status).toBe("matched");
+		expect(result.right.entry.value).toBe("hi");
+	}
+	// Android refused the focus action once. One tap, and no second action.
+	expect(calls).toEqual(["focus"]);
+	expect(touches.map((touch) => touch.phase)).toEqual(["begin", "end"]);
+	expect(scripted.dispatches).toEqual([[{ type: "type", text: "hi" }]]);
+	await session.close();
 });

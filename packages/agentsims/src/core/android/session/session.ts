@@ -68,24 +68,35 @@ const WS_MSG_MULTI_TOUCH = 0x05;
 const TRANSPORT_IDLE_CLOSE_MS = 15_000;
 const ANDROID_INPUT_MOVE_INTERVAL_MS = 1000 / 60;
 const ANDROID_SCROLL_GESTURE_END_MS = 80;
+// Android moves input focus on the next frames after a tap.
+const ANDROID_FOCUS_TAP_SETTLE_MS = 120;
 const EMULATOR_CONFIG_DEBOUNCE_MS = 50;
 const EMULATOR_VIEWPORT_POLL_MS = 500;
 
-function androidField(node: AndroidNodeDescription | null): DeviceField | null {
+/** The node of the snapshot that holds the field Android focused. */
+type AndroidNodeIdentity = { windowId: number; sourceId: number };
+
+function androidField(
+	node: AndroidNodeDescription | null,
+	alias: AndroidNodeIdentity | null = null,
+): DeviceField | null {
 	if (!node) return null;
 	const selection =
 		node.selectionStart >= 0 && node.selectionEnd >= node.selectionStart
 			? { start: node.selectionStart, end: node.selectionEnd }
 			: undefined;
+	// Report the node that the caller can find in the snapshot. Android can
+	// focus a wrapper or an inner node that the snapshot does not show.
+	const identity = alias ?? { windowId: node.windowId, sourceId: node.sourceId };
 	return {
 		value: node.hintText ? "" : node.text,
 		editable: node.editable,
 		password: node.password,
 		focused: node.focused,
 		identity: {
-			id: `${node.windowId}:${node.sourceId}`,
-			windowId: node.windowId,
-			sourceId: node.sourceId,
+			id: `${identity.windowId}:${identity.sourceId}`,
+			windowId: identity.windowId,
+			sourceId: identity.sourceId,
 		},
 		...(selection ? { selection } : {}),
 	};
@@ -115,6 +126,94 @@ function isRequestedAndroidNode(
 		(request.identity?.sourceId === undefined ||
 			node.sourceId === request.identity.sourceId)
 	);
+}
+
+function androidChainHolds(
+	node: AndroidNodeDescription,
+	identity: AndroidNodeIdentity,
+): boolean {
+	return (
+		node.ancestors?.some(
+			(link) =>
+				link.windowId === identity.windowId &&
+				link.sourceId === identity.sourceId,
+		) === true
+	);
+}
+
+/** True when one node wraps the other in the same window. */
+function relatedAndroidNodes(
+	left: AndroidNodeDescription,
+	right: AndroidNodeDescription,
+): boolean {
+	if (left.windowId !== right.windowId) return false;
+	return (
+		androidChainHolds(left, {
+			windowId: right.windowId,
+			sourceId: right.sourceId,
+		}) ||
+		androidChainHolds(right, {
+			windowId: left.windowId,
+			sourceId: left.sourceId,
+		})
+	);
+}
+
+type AndroidFocusMatch = "requested" | "related" | "unrelated";
+
+/**
+ * Android gives input focus to the focusable view, not always to the node the
+ * caller named. A layout can take the focus of the field it wraps, and a
+ * compound field can focus an inner node. Accept an editable relative of the
+ * request in the same window. Refuse any other field.
+ */
+function androidFocusMatch(
+	focused: AndroidNodeDescription,
+	request: FieldRequest,
+	requested: AndroidNodeDescription | null | undefined,
+): AndroidFocusMatch {
+	if (isRequestedAndroidNode(focused, request)) return "requested";
+	const identity = request.identity;
+	if (
+		identity?.windowId === undefined ||
+		identity.sourceId === undefined ||
+		focused.windowId !== identity.windowId ||
+		!focused.editable
+	)
+		return "unrelated";
+	if (
+		androidChainHolds(focused, {
+			windowId: identity.windowId,
+			sourceId: identity.sourceId,
+		})
+	)
+		return "related";
+	return requested && relatedAndroidNodes(requested, focused)
+		? "related"
+		: "unrelated";
+}
+
+function androidNodeName(node: AndroidNodeDescription): string {
+	return (
+		node.resourceId ||
+		node.contentDesc ||
+		(node.hintText ? node.text : "") ||
+		node.class ||
+		"an unnamed field"
+	);
+}
+
+function androidNodeCentre(
+	bounds: string | undefined,
+): { x: number; y: number } | null {
+	const match = bounds?.match(/\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/);
+	if (!match) return null;
+	const left = Number(match[1]);
+	const top = Number(match[2]);
+	const right = Number(match[3]);
+	const bottom = Number(match[4]);
+	if (right <= left || bottom <= top) return null;
+	return { x: (left + right) / 2, y: (top + bottom) / 2 };
 }
 
 type TouchMessageType = "begin" | "move" | "end" | "cancel";
@@ -367,6 +466,7 @@ export class AndroidSession {
 	private deviceRotationLocked = false;
 	private pendingEmulatorRotation: AndroidRotation | null = null;
 	private focusedField: AndroidNodeDescription | null = null;
+	private focusedAlias: AndroidNodeIdentity | null = null;
 	private readonly inputSemaphore = Effect.runSync(Effect.makeSemaphore(1));
 	private scrollGesture: {
 		transport: AndroidTransport | null;
@@ -728,51 +828,160 @@ export class AndroidSession {
 		if (identity?.windowId === undefined || identity.sourceId === undefined) {
 			throw new Error("The Android field identity is incomplete. Run observe again");
 		}
+		const wanted: AndroidNodeIdentity = {
+			windowId: identity.windowId,
+			sourceId: identity.sourceId,
+		};
 		if (
 			request.action === "set-text" &&
 			bound &&
-			(identity.windowId !== bound.windowId ||
-				identity.sourceId !== bound.sourceId)
+			!this.holdsAndroidIdentity(bound, wanted)
 		) {
 			throw new Error("Android focused a different field. Run observe again");
 		}
-		if (request.action === "focus") this.focusedField = null;
+		// A write keeps the snapshot node that the focus action accepted.
+		const alias = request.action === "set-text" ? this.focusedAlias : null;
+		if (request.action === "focus") {
+			this.focusedField = null;
+			this.focusedAlias = null;
+		}
 		const target: AndroidNodeRef = {
 			node: request.action === "set-text" ? "focus" : request.node,
 			...(request.testId ? { resourceId: request.testId } : {}),
 			...(request.className ? { className: request.className } : {}),
-			windowId: identity.windowId,
-			sourceId: identity.sourceId,
+			// A write goes to the node that holds focus now. The caller can name
+			// the field of the snapshot that wraps it.
+			...(request.action === "set-text" && bound
+				? { windowId: bound.windowId, sourceId: bound.sourceId }
+				: wanted),
 		};
-		const result = await this.performNodeAction(
+		let result = await this.performNodeAction(
 			request.action,
 			target,
 			request.text,
 		);
-		if (!result.performed || !result.node) {
+		if (!result.performed) {
+			if (request.action !== "focus") {
+				throw new Error("Android refused to set text");
+			}
+			// A refused focus action changed nothing. One tap at the node centre
+			// is the remaining way to give Android's own input focus to the field.
+			result = await this.tapAndroidFieldIntoFocus(result);
+		}
+		const focused = result.node;
+		if (!focused) {
 			throw new Error(
 				request.action === "focus"
 					? "Android refused to focus the field"
 					: "Android refused to set text",
 			);
 		}
+		const match = androidFocusMatch(focused, request, result.requested);
 		if (
-			!result.node.focused ||
-			!isRequestedAndroidNode(result.node, request) ||
+			!focused.focused ||
+			match === "unrelated" ||
 			(request.action === "set-text" &&
 				bound &&
-				!sameAndroidNode(bound, result.node))
+				!sameAndroidNode(bound, focused) &&
+				!relatedAndroidNodes(bound, focused))
 		) {
-			throw new Error("Android focused a different field. Run observe again");
+			throw new Error(
+				`Android focused a different field. Run observe again. The device focus is on ${androidNodeName(focused)}.`,
+			);
 		}
-		this.focusedField = result.node;
-		return { performed: true, field: androidField(result.node) };
+		this.focusedField = focused;
+		this.focusedAlias =
+			request.action === "set-text"
+				? alias
+				: match === "related"
+					? wanted
+					: null;
+		return { performed: true, field: androidField(focused, this.focusedAlias) };
+	}
+
+	/** True when the identity names the focused node or the field around it. */
+	private holdsAndroidIdentity(
+		bound: AndroidNodeDescription,
+		identity: AndroidNodeIdentity,
+	): boolean {
+		if (
+			bound.windowId === identity.windowId &&
+			bound.sourceId === identity.sourceId
+		)
+			return true;
+		const alias = this.focusedAlias;
+		return (
+			alias !== null &&
+			alias.windowId === identity.windowId &&
+			alias.sourceId === identity.sourceId
+		);
+	}
+
+	/**
+	 * One touch phase of a field tap. The focus read that follows needs the
+	 * device to have the phase, so await the helper on a physical device.
+	 */
+	private async injectFieldTouch(
+		transport: AndroidTransport | null,
+		phase: "begin" | "end",
+		x: number,
+		y: number,
+	): Promise<boolean> {
+		if (isAndroidEmulatorSerial(this.serial))
+			return this.scrollTouch(transport, phase, x, y);
+		await this.dependencies.touchDevice(
+			this.serial,
+			phase,
+			x * this.width,
+			y * this.height,
+		);
+		this.markAxMutation();
+		return true;
+	}
+
+	/** Tap the refused field once, then read Android's own input focus again. */
+	private async tapAndroidFieldIntoFocus(
+		refused: AndroidNodeResult,
+	): Promise<AndroidNodeResult> {
+		const requested = refused.requested ?? null;
+		const refusal = new Error("Android refused to focus the field");
+		const centre = androidNodeCentre(requested?.bounds ?? refused.node?.bounds);
+		if (!centre) throw refusal;
+		const { width, height } = await this.readConfig();
+		if (!width || !height) throw refusal;
+		const point = { x: centre.x / width, y: centre.y / height };
+		if (point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) throw refusal;
+		this.finishScrollGesture();
+		const transport = isAndroidEmulatorSerial(this.serial)
+			? await this.activeTransport()
+			: null;
+		if (!(await this.injectFieldTouch(transport, "begin", point.x, point.y)))
+			throw refusal;
+		await this.injectFieldTouch(transport, "end", point.x, point.y);
+		this.markUiMutation();
+		await wait(ANDROID_FOCUS_TAP_SETTLE_MS);
+		const node = await this.dependencies.readAxFocus(this.serial);
+		if (!node?.focused) throw refusal;
+		return {
+			performed: true,
+			node,
+			...(requested ? { requested } : {}),
+		};
 	}
 
 	async readFocusedField(): Promise<DeviceField | null> {
 		const node = await this.dependencies.readAxFocus(this.serial);
+		const bound = this.focusedField;
+		const alias =
+			node?.focused &&
+			bound &&
+			this.focusedAlias &&
+			(sameAndroidNode(bound, node) || relatedAndroidNodes(bound, node))
+				? this.focusedAlias
+				: null;
 		this.focusedField = node?.focused ? node : null;
-		return androidField(this.focusedField);
+		this.focusedAlias = this.focusedField ? alias : null;
+		return androidField(this.focusedField, this.focusedAlias);
 	}
 
 	async readStatus(): Promise<AndroidStatus> {

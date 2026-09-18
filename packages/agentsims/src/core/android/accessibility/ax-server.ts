@@ -33,6 +33,15 @@ export type AndroidNodeRef = {
 	sourceId: number;
 };
 
+/** One step of a node's parent chain. Older helpers report no chain. */
+export type AndroidNodeLink = {
+	windowId: number;
+	sourceId: number;
+	resourceId: string;
+	class: string;
+	editable: boolean;
+};
+
 export type AndroidNodeDescription = {
 	class: string;
 	resourceId: string;
@@ -49,11 +58,15 @@ export type AndroidNodeDescription = {
 	selectionStart: number;
 	selectionEnd: number;
 	bounds: string;
+	/** The parent chain, from the direct parent to the window root. */
+	ancestors?: AndroidNodeLink[];
 };
 
 export type AndroidNodeResult = {
 	performed: boolean;
 	node: AndroidNodeDescription | null;
+	/** The node the helper acted on. Older helpers report nothing here. */
+	requested?: AndroidNodeDescription | null;
 };
 
 type AndroidAxResponse = {
@@ -67,6 +80,7 @@ type AndroidAxResponse = {
 	elapsedMs?: number;
 	xml?: string;
 	node?: AndroidNodeDescription | null;
+	requested?: AndroidNodeDescription | null;
 	performed?: boolean;
 	error?: string;
 };
@@ -297,7 +311,11 @@ export class AndroidAxServerClient {
 		const response = await this.request((id) =>
 			androidAxPerformLine(id, action, target, text),
 		);
-		return { performed: response.performed === true, node: response.node ?? null };
+		return {
+			performed: response.performed === true,
+			node: response.node ?? null,
+			requested: response.requested ?? null,
+		};
 	}
 
 	async findFocus(): Promise<AndroidNodeDescription | null> {
