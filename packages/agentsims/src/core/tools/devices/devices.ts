@@ -332,6 +332,9 @@ export const DevicesLive = Layer.scoped(
 							mimeType: "image/png",
 							capturedAt: Date.now(),
 						}),
+						// Emulators keep a live frame buffer. Physical devices
+						// answer null, so the sampler uses screenshots.
+						captureFrame: () => session.captureFrame(),
 						readConfig: () => session.readConfig(),
 						readAccessibility: () => session.readAccessibility("settled"),
 						performField: (request: FieldRequest) => session.performField(request),

@@ -165,10 +165,21 @@ export class ApplicationCommandClient {
 
 	async watchDevice(
 		deviceId: string,
-		options: { durationMs: number; frames?: number },
+		options: {
+			durationMs: number;
+			samples?: number;
+			everyMs?: number;
+			region?: string;
+			keepFrames?: boolean;
+		},
 	): Promise<unknown> {
 		const query = new URLSearchParams({ watch: String(options.durationMs) });
-		if (options.frames !== undefined) query.set("frames", String(options.frames));
+		if (options.samples !== undefined)
+			query.set("samples", String(options.samples));
+		if (options.everyMs !== undefined)
+			query.set("every", String(options.everyMs));
+		if (options.region !== undefined) query.set("region", options.region);
+		if (options.keepFrames) query.set("keepFrames", "1");
 		return this.request(
 			`/device/${encodeURIComponent(deviceId)}/watch?${query}`,
 		);

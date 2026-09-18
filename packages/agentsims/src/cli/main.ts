@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Command, InvalidArgumentError } from "commander";
+import { Command, InvalidArgumentError, Option } from "commander";
 import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
@@ -57,7 +57,8 @@ import {
 	registerWaitCommands,
 	runObserveWatch,
 	watchDurationOption,
-	watchFramesOption,
+	watchEveryOption,
+	watchSamplesOption,
 } from "./commands/wait";
 import {
 	renderAppList,
@@ -562,14 +563,24 @@ Examples:
 		.option("-o, --out <path>", "Where to write the screenshot")
 		.option(
 			"--watch <ms>",
-			"Sample the screen over this long into one contact sheet",
+			"Sample the screen over this long into contact sheets",
 			watchDurationOption,
 		)
 		.option(
 			"--samples <n>",
 			"How many frames --watch samples",
-			watchFramesOption,
+			watchSamplesOption,
 		)
+		.addOption(
+			new Option("--every <ms>", "Sample a frame this often instead")
+				.argParser(watchEveryOption)
+				.conflicts("samples"),
+		)
+		.option(
+			"--region <target>",
+			"Crop every frame to a ref, an exact label, or x,y,w,h",
+		)
+		.option("--keep-frames", "Also write every sampled frame")
 		.option("--json", "Print structured output")
 		.action(
 			async (
@@ -579,6 +590,9 @@ Examples:
 					json?: boolean;
 					watch?: number;
 					samples?: number;
+					every?: number;
+					region?: string;
+					keepFrames?: boolean;
 				} & ObserveFormat,
 			) => {
 				if (flags.watch !== undefined)

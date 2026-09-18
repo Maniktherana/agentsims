@@ -98,26 +98,73 @@ describe("watch and wait routes", () => {
 
 		const watch = (await client.watchDevice(DEVICE, {
 			durationMs: 0,
-			frames: 4,
+			samples: 4,
 		})) as DeviceWatch;
 
 		expect(watch.device).toBe(DEVICE);
 		expect(watch.platform).toBe("android");
 		expect(watch.durationMs).toBe(0);
-		expect(watch.requestedFrames).toBe(4);
+		expect(watch.requestedSamples).toBe(4);
+		expect(watch.region).toBeNull();
 		expect(watch.frames.map((frame) => frame.index)).toEqual([0, 1, 2, 3]);
 		expect(watch.frames.every((frame) => frame.atMs >= 0)).toBe(true);
-		expect(watch.sheet).toMatchObject({
-			mimeType: "image/png",
-			columns: 2,
-			rows: 2,
+		// The fake session has no live buffer, so the frames are screenshots.
+		expect(watch.frames.every((frame) => frame.source === "screenshot")).toBe(
+			true,
+		);
+		expect(watch.sheets).toHaveLength(1);
+		expect(watch.sheets[0]).toMatchObject({
+			index: 0,
+			frames: [0, 1, 2, 3],
+			columns: 4,
+			rows: 1,
 			cellWidth: 40,
 			cellHeight: 90,
 		});
-		expect(Buffer.isBuffer(watch.sheet?.bytes)).toBe(true);
-		expect(watch.sheet!.bytes.byteLength).toBeGreaterThan(8);
+		expect(Buffer.isBuffer(watch.sheets[0]!.png)).toBe(true);
+		expect(watch.sheets[0]!.png.byteLength).toBeGreaterThan(8);
 		// The tree comes from the read after the last frame.
 		expect(watch.observation.view?.nodes.length).toBeGreaterThan(0);
+	});
+
+	test("pages many frames into sheets and keeps the frame PNGs", async () => {
+		const origin = await startServer([]);
+		const client = new ApplicationCommandClient({ origin });
+
+		const watch = (await client.watchDevice(DEVICE, {
+			durationMs: 0,
+			everyMs: 50,
+			keepFrames: true,
+		})) as DeviceWatch;
+
+		expect(watch.frames).toHaveLength(1);
+		expect(Buffer.isBuffer(watch.frames[0]!.png)).toBe(true);
+
+		const sampled = (await client.watchDevice(DEVICE, {
+			durationMs: 0,
+			samples: 30,
+		})) as DeviceWatch;
+
+		expect(sampled.frames).toHaveLength(30);
+		// 40x90 cells fit 45 columns across, so one sheet still holds 30.
+		expect(sampled.sheets).toHaveLength(1);
+		expect(sampled.sheets[0]!.frames).toHaveLength(30);
+	});
+
+	test("crops every frame to a named region", async () => {
+		const origin = await startServer([]);
+		const client = new ApplicationCommandClient({ origin });
+
+		const watch = (await client.watchDevice(DEVICE, {
+			durationMs: 0,
+			samples: 2,
+			region: "5,10,20,30",
+		})) as DeviceWatch;
+
+		expect(watch.region).toEqual({ x: 5, y: 10, width: 20, height: 30 });
+		expect(watch.frames.map((frame) => frame.width)).toEqual([20, 20]);
+		expect(watch.frames.map((frame) => frame.height)).toEqual([30, 30]);
+		expect(watch.sheets[0]).toMatchObject({ cellWidth: 20, cellHeight: 30 });
 	});
 
 	test("rejects a watch request outside the documented bounds", async () => {
@@ -125,11 +172,21 @@ describe("watch and wait routes", () => {
 		const client = new ApplicationCommandClient({ origin });
 
 		await expect(
-			client.watchDevice(DEVICE, { durationMs: 0, frames: 99 }),
+			client.watchDevice(DEVICE, { durationMs: 0, samples: 601 }),
 		).rejects.toMatchObject({ type: "InvalidCommandInput" });
 		await expect(
-			client.watchDevice(DEVICE, { durationMs: -5, frames: 2 }),
+			client.watchDevice(DEVICE, { durationMs: -5, samples: 2 }),
 		).rejects.toMatchObject({ type: "InvalidCommandInput" });
+		await expect(
+			client.watchDevice(DEVICE, { durationMs: 1000, samples: 2, everyMs: 100 }),
+		).rejects.toMatchObject({ type: "InvalidCommandInput" });
+		// 200 frames is a big ask, and no longer an invalid one.
+		expect(
+			((await client.watchDevice(DEVICE, {
+				durationMs: 0,
+				samples: 200,
+			})) as DeviceWatch).frames,
+		).toHaveLength(200);
 	});
 
 	test("polls until the label appears and reports the poll count", async () => {
@@ -194,14 +251,39 @@ describe("watch and wait commands", () => {
 					{ from: "user" },
 				);
 			const printed = lines.join("");
-			const sheets = readdirSync(directory);
-			expect(sheets).toHaveLength(1);
-			expect(printed).toContain("frames  4 over 0ms");
-			expect(printed).toContain(`sheet=${join(directory, sheets[0]!)}`);
-			expect(printed).toContain("grid=2x2 cell=40x90");
-			expect(printed).toContain("frame  0  at=");
+			const written = readdirSync(directory);
+			expect(written).toHaveLength(1);
+			expect(printed).toContain("frames  4 over 0ms  source=screenshot");
+			expect(printed).toContain(
+				`sheet  0  frames=0\u20133  grid=4x1  cell=40x90  path=${join(directory, written[0]!)}`,
+			);
+			expect(printed).not.toContain("frame  0  at=");
 			expect(printed).toContain("- text");
 			expect(process.exitCode).toBe(0);
+
+			lines.length = 0;
+			await createProgram()
+				.exitOverride()
+				.parseAsync(
+					[
+						"observe",
+						"-d",
+						DEVICE,
+						"--url",
+						origin,
+						"--watch",
+						"0",
+						"--samples",
+						"2",
+						"--keep-frames",
+					],
+					{ from: "user" },
+				);
+			const kept = lines.join("");
+			// One sheet and one file per frame.
+			expect(readdirSync(directory)).toHaveLength(1 + 1 + 2);
+			expect(kept).toContain("frame  0  at=");
+			expect(kept).toContain("frame  1  at=");
 
 			lines.length = 0;
 			await createProgram()

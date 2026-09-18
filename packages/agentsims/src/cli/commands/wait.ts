@@ -5,7 +5,8 @@ import {
 	WAIT_DEFAULT_TIMEOUT_MS,
 	WAIT_MAX_TIMEOUT_MS,
 	WATCH_MAX_DURATION_MS,
-	WATCH_MAX_FRAMES,
+	WATCH_MAX_SAMPLES,
+	WATCH_MIN_EVERY_MS,
 } from "../../core/tools/observe/watch";
 import type { ApplicationCommandClient } from "../application-command-client";
 import {
@@ -15,6 +16,7 @@ import {
 	watchForOutput,
 	type ArtifactWrite,
 	type ObserveFormat,
+	type WatchArtifacts,
 } from "../observe-output";
 import { writeScreenshotFile } from "../screenshots";
 
@@ -28,7 +30,6 @@ export type WaitCommandDependencies = {
 	write?: (text: string) => void;
 };
 
-export const DEFAULT_WATCH_FRAMES = 4;
 /** Leave the server time to answer after its own deadline passes. */
 const CLIENT_GRACE_MS = 15_000;
 
@@ -37,6 +38,9 @@ export type WatchFlags = {
 	url?: string;
 	watch: number;
 	samples?: number;
+	every?: number;
+	region?: string;
+	keepFrames?: boolean;
 	out?: string;
 	json?: boolean;
 } & ObserveFormat;
@@ -68,10 +72,15 @@ export const watchDurationOption = boundedInteger(
 	0,
 	WATCH_MAX_DURATION_MS,
 );
-export const watchFramesOption = boundedInteger(
-	"Frame count",
+export const watchSamplesOption = boundedInteger(
+	"Sample count",
 	1,
-	WATCH_MAX_FRAMES,
+	WATCH_MAX_SAMPLES,
+);
+export const watchEveryOption = boundedInteger(
+	"Sample interval",
+	WATCH_MIN_EVERY_MS,
+	WATCH_MAX_DURATION_MS,
 );
 
 function output(dependencies: WaitCommandDependencies, text: string): void {
@@ -80,17 +89,28 @@ function output(dependencies: WaitCommandDependencies, text: string): void {
 	write(`${text}\n`);
 }
 
-function writeSheet(watch: DeviceWatch, out?: string): ArtifactWrite | null {
-	if (!watch.sheet) return null;
+/** One file per sheet. A named path takes a suffix from the second sheet on. */
+function numbered(path: string, index: number): string {
+	if (index === 0) return path;
+	const dot = path.lastIndexOf(".");
+	const stop = dot > path.lastIndexOf("/") ? dot : path.length;
+	return `${path.slice(0, stop)}-${index + 1}${path.slice(stop)}`;
+}
+
+function writeImage(
+	device: string,
+	content: Uint8Array,
+	outputPath?: string,
+): ArtifactWrite {
 	try {
 		return {
 			status: "ok",
 			path: writeScreenshotFile({
 				kind: "observe",
-				device: watch.device,
-				content: watch.sheet.bytes,
-				mimeType: watch.sheet.mimeType,
-				outputPath: out,
+				device,
+				content,
+				mimeType: "image/png",
+				...(outputPath ? { outputPath } : {}),
 			}),
 		};
 	} catch (error) {
@@ -101,21 +121,47 @@ function writeSheet(watch: DeviceWatch, out?: string): ArtifactWrite | null {
 	}
 }
 
+function writeWatchArtifacts(watch: DeviceWatch, out?: string): WatchArtifacts {
+	const sheets = watch.sheets.map((sheet, index) =>
+		writeImage(watch.device, sheet.png, out ? numbered(out, index) : undefined),
+	);
+	const frames = watch.frames.map((frame) =>
+		frame.png
+			? writeImage(
+					watch.device,
+					frame.png,
+					out ? numbered(out, watch.sheets.length + frame.index) : undefined,
+				)
+			: null,
+	);
+	return { sheets, frames };
+}
+
 /** `observe --watch` delegates here so the timed path stays in one module. */
 export async function runObserveWatch(
 	dependencies: WaitCommandDependencies,
 	flags: WatchFlags,
 ): Promise<void> {
 	const durationMs = flags.watch;
-	const frames = flags.samples ?? DEFAULT_WATCH_FRAMES;
 	const result = (await dependencies
 		.client(flags.url, durationMs + CLIENT_GRACE_MS)
-		.watchDevice(flags.device, { durationMs, frames })) as DeviceWatch;
-	const artifact = writeSheet(result, flags.out);
-	if (artifact?.status === "error" || result.frames.length === 0)
+		.watchDevice(flags.device, {
+			durationMs,
+			...(flags.samples === undefined ? {} : { samples: flags.samples }),
+			...(flags.every === undefined ? {} : { everyMs: flags.every }),
+			...(flags.region === undefined ? {} : { region: flags.region }),
+			...(flags.keepFrames ? { keepFrames: true } : {}),
+		})) as DeviceWatch;
+	const artifacts = writeWatchArtifacts(result, flags.out);
+	if (
+		result.frames.length === 0 ||
+		[...artifacts.sheets, ...artifacts.frames].some(
+			(artifact) => artifact?.status === "error",
+		)
+	)
 		process.exitCode = 1;
-	if (flags.json) return dependencies.json(watchForOutput(result, artifact));
-	output(dependencies, renderWatch(result, artifact, flags));
+	if (flags.json) return dependencies.json(watchForOutput(result, artifacts));
+	output(dependencies, renderWatch(result, artifacts, flags));
 }
 
 export function registerWaitCommands(

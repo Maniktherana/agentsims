@@ -96,6 +96,9 @@ test("timed observation help lists the sampling and waiting options", () => {
 	const observe = command("observe").options.map((option) => option.long);
 	expect(observe).toContain("--watch");
 	expect(observe).toContain("--samples");
+	expect(observe).toContain("--every");
+	expect(observe).toContain("--region");
+	expect(observe).toContain("--keep-frames");
 	expect(observe).toContain("--frames");
 
 	const wait = command("wait");
@@ -118,15 +121,41 @@ test("timed observation help lists the sampling and waiting options", () => {
 	);
 	expect(watch?.parseArg?.("8000", "")).toBe(8000);
 	expect(() => watch?.parseArg?.("-1", "")).toThrow(
-		"Watch duration must be an integer between 0 and 120000.",
+		"Watch duration must be an integer between 0 and 600000.",
 	);
 	const samples = command("observe").options.find(
 		(option) => option.long === "--samples",
 	);
-	expect(samples?.parseArg?.("8", "")).toBe(8);
-	expect(() => samples?.parseArg?.("17", "")).toThrow(
-		"Frame count must be an integer between 1 and 16.",
+	expect(samples?.parseArg?.("20", "")).toBe(20);
+	expect(samples?.parseArg?.("200", "")).toBe(200);
+	expect(() => samples?.parseArg?.("601", "")).toThrow(
+		"Sample count must be an integer between 1 and 600.",
 	);
+	const every = command("observe").options.find(
+		(option) => option.long === "--every",
+	);
+	expect(every?.parseArg?.("250", "")).toBe(250);
+	expect(() => every?.parseArg?.("10", "")).toThrow(
+		"Sample interval must be an integer between 50 and 600000.",
+	);
+});
+
+test("observe takes a sample count or an interval, never both", async () => {
+	await expect(
+		command("observe").parseAsync(
+			[
+				"-d",
+				"android:emulator-5554",
+				"--watch",
+				"10000",
+				"--samples",
+				"8",
+				"--every",
+				"250",
+			],
+			{ from: "user" },
+		),
+	).rejects.toThrow(/cannot be used with option/);
 });
 
 test("target indexes have no arbitrary upper limit", () => {

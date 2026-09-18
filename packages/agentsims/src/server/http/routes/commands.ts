@@ -31,10 +31,12 @@ const requestContext = Effect.gen(function* () {
 const deviceBody = z.object({ udid: z.string() });
 const actionsBody = z.object({ actions: z.array(z.unknown()) });
 const stepsBody = z.object({ steps: z.array(z.unknown()) });
-const DEFAULT_WATCH_FRAMES = 4;
 const watchQuery = z.object({
 	watch: z.coerce.number().int(),
-	frames: z.coerce.number().int().optional(),
+	samples: z.coerce.number().int().optional(),
+	every: z.coerce.number().int().optional(),
+	region: z.string().optional(),
+	keepFrames: z.string().optional(),
 });
 const waitQuery = z.object({
 	for: z.string().optional(),
@@ -169,7 +171,10 @@ export const commandRoutes = HttpRouter.empty.pipe(
 				);
 				return yield* (yield* Devices).watch(yield* pathDevice, {
 					durationMs: query.watch,
-					frames: query.frames ?? DEFAULT_WATCH_FRAMES,
+					...(query.samples === undefined ? {} : { samples: query.samples }),
+					...(query.every === undefined ? {} : { everyMs: query.every }),
+					...(query.region === undefined ? {} : { region: query.region }),
+					...(query.keepFrames === "1" ? { keepFrames: true } : {}),
 				});
 			}),
 		),

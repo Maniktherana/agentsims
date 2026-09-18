@@ -9,6 +9,7 @@ import {
 	androidTransportKindForSerial,
 	createAndroidTransport,
 	isAndroidEmulatorSerial,
+	type AndroidStreamFrame,
 	type AndroidTransport,
 	type AndroidTransportConfig,
 	type AvccSubscriberSink,
@@ -72,6 +73,9 @@ const ANDROID_SCROLL_GESTURE_END_MS = 80;
 const ANDROID_FOCUS_TAP_SETTLE_MS = 120;
 const EMULATOR_CONFIG_DEBOUNCE_MS = 50;
 const EMULATOR_VIEWPORT_POLL_MS = 500;
+// A sampler reads frames in bursts. The tap outlives the gap between two
+// reads, and no longer, so an idle stream still closes itself.
+const FRAME_TAP_IDLE_MS = 3_000;
 
 /** The node of the snapshot that holds the field Android focused. */
 type AndroidNodeIdentity = { windowId: number; sourceId: number };
@@ -369,6 +373,7 @@ export interface AndroidSessionDependencies {
 		rotation: AndroidRotation;
 	}>;
 	emulatorViewportPollMs?: number;
+	frameTapIdleMs?: number;
 	warmAx(serial: string): Promise<void>;
 	readAx(
 		serial: string,
@@ -455,6 +460,7 @@ export class AndroidSession {
 	private transport: AndroidTransport | null = null;
 	private startPromise: Promise<void> | null = null;
 	private transportIdleTimer: ReturnType<typeof setTimeout> | null = null;
+	private frameTapTimer: ReturnType<typeof setTimeout> | null = null;
 	private emulatorConfigTimer: ReturnType<typeof setTimeout> | null = null;
 	private emulatorConfigRefresh: Promise<void> | null = null;
 	private emulatorConfigRefreshPending = false;
@@ -521,6 +527,8 @@ export class AndroidSession {
 		this.emulatorConfigTimer = null;
 		if (this.emulatorViewportTimer) clearTimeout(this.emulatorViewportTimer);
 		this.emulatorViewportTimer = null;
+		if (this.frameTapTimer) clearTimeout(this.frameTapTimer);
+		this.frameTapTimer = null;
 		this.emulatorConfigRefreshPending = false;
 		this.inputMoveScheduler.cancel();
 		this.finishScrollGesture();
@@ -724,6 +732,7 @@ export class AndroidSession {
 			!session ||
 			session.closed ||
 			this.hidSockets.size > 0 ||
+			this.frameTapActive ||
 			session.subscriberCount > 0
 		)
 			return;
@@ -732,6 +741,7 @@ export class AndroidSession {
 			if (
 				this.transport !== session ||
 				this.hidSockets.size > 0 ||
+				this.frameTapActive ||
 				session.subscriberCount > 0
 			)
 				return;
@@ -781,6 +791,45 @@ export class AndroidSession {
 
 	captureScreenshot(): Promise<Buffer> {
 		return captureAndroidPng(this.serial);
+	}
+
+	/** True while a sampler holds the stream open for its window. */
+	get frameTapActive(): boolean {
+		return this.frameTapTimer !== null;
+	}
+
+	/**
+	 * The newest frame of the live stream. The emulator already writes every
+	 * frame into a shared buffer, so a sampler reads frames far faster than a
+	 * screencap round trip. A backend without such a buffer answers null and
+	 * the caller falls back to a screenshot.
+	 */
+	async captureFrame(): Promise<AndroidStreamFrame | null> {
+		// Only an emulator keeps a frame buffer. A physical device answers null
+		// without a stream start, so the caller falls back to a screenshot.
+		if (this.closed || !isAndroidEmulatorSerial(this.serial)) return null;
+		let transport: AndroidTransport;
+		try {
+			transport = await this.ensureTransportStarted();
+		} catch {
+			return null;
+		}
+		if (!transport.captureFrame) return null;
+		// Frames flow only while the screenshot stream runs. The tap keeps it
+		// open over the sampling window without an AVCC subscriber, so nothing
+		// encodes video and no subscriber is left behind when it expires.
+		this.holdFrameTap();
+		return transport.captureFrame();
+	}
+
+	private holdFrameTap(): void {
+		if (this.closed) return;
+		if (this.frameTapTimer) clearTimeout(this.frameTapTimer);
+		this.frameTapTimer = setTimeout(() => {
+			this.frameTapTimer = null;
+			this.updateTransportIdleTimer();
+		}, this.dependencies.frameTapIdleMs ?? FRAME_TAP_IDLE_MS);
+		this.updateTransportIdleTimer();
 	}
 
 	async readConfig() {

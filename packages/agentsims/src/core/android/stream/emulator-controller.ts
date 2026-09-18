@@ -8,6 +8,7 @@ import {
 	ftruncateSync,
 	openSync,
 	readFileSync,
+	readSync,
 	readdirSync,
 	statSync,
 	unlinkSync,
@@ -68,6 +69,50 @@ export function encodeSimulatorFrameTiming(
  */
 function shouldSubmitAndroidCaptureFrame(subscriberCount: number): boolean {
 	return subscriberCount > 0;
+}
+
+/** One frame of the shared RGBA buffer the emulator writes for the encoder. */
+export type AndroidStreamFrame = {
+	width: number;
+	height: number;
+	rgba: Uint8Array;
+};
+
+export type AndroidFrameBufferReader = (
+	path: string,
+	length: number,
+) => Uint8Array | null;
+
+function readFrameBufferFile(path: string, length: number): Uint8Array | null {
+	let file: number | null = null;
+	try {
+		file = openSync(path, "r");
+		const buffer = Buffer.allocUnsafe(length);
+		return readSync(file, buffer, 0, length, 0) >= length ? buffer : null;
+	} catch {
+		return null;
+	} finally {
+		if (file !== null) closeSync(file);
+	}
+}
+
+/**
+ * The emulator writes every screenshot frame into the shared file, so the
+ * newest frame is already there. A short read means the frame is not written
+ * yet, which the caller answers with a screenshot instead of a guess.
+ */
+export function readEmulatorFrameBuffer(
+	path: string,
+	width: number,
+	height: number,
+	read: AndroidFrameBufferReader = readFrameBufferFile,
+): AndroidStreamFrame | null {
+	if (!Number.isInteger(width) || !Number.isInteger(height)) return null;
+	if (width <= 0 || height <= 0) return null;
+	const length = width * height * 4;
+	const rgba = read(path, length);
+	if (!rgba || rgba.length < length) return null;
+	return { width, height, rgba: rgba.subarray(0, length) };
 }
 
 type ControllerMetadata = {
@@ -614,6 +659,7 @@ export class AndroidEmulatorSession {
 		},
 		private readonly onConfig: (config: AndroidEmulatorConfig) => void,
 		private readonly onSubscriberCountChange?: (count: number) => void,
+		private readonly readFrameBuffer: AndroidFrameBufferReader = readFrameBufferFile,
 	) {
 		this.metadata = controllerMetadata(serial);
 		this.requested = targetDimensions(
@@ -662,6 +708,22 @@ export class AndroidEmulatorSession {
 	resetVideo(): boolean {
 		this.capture?.requestKeyframe();
 		return !!this.capture;
+	}
+
+	/**
+	 * The newest frame, copied out of the shared buffer. The buffer fills
+	 * while the screenshot stream runs, with or without an AVCC subscriber,
+	 * so a sampler pays for no encoding and no adb round trip.
+	 */
+	captureFrame(): AndroidStreamFrame | null {
+		const config = this.frameCoordinator?.currentConfig;
+		if (!config || !this.running) return null;
+		return readEmulatorFrameBuffer(
+			this.mmapPath,
+			config.width,
+			config.height,
+			this.readFrameBuffer,
+		);
 	}
 
 	setPresentationGeneration(generation: number): void {

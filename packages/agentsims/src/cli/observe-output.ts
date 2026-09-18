@@ -171,25 +171,37 @@ export function renderScreenshot(
 	].join("\n");
 }
 
-function sheetText(
-	watch: DeviceWatch,
-	artifact: ArtifactWrite | null,
-): string {
-	if (!watch.sheet) return "sheet=none";
-	if (!artifact) return "sheet=unsaved";
-	if (artifact.status === "error") return `sheet=error  ${oneLine(artifact.error)}`;
-	return `sheet=${artifact.path}`;
+/** One write per sheet and per kept frame, in the order of the payload. */
+export type WatchArtifacts = {
+	sheets: readonly (ArtifactWrite | null)[];
+	frames: readonly (ArtifactWrite | null)[];
+};
+
+function pathText(artifact: ArtifactWrite | null | undefined): string {
+	if (!artifact) return "path=unsaved";
+	return artifact.status === "error"
+		? `path=error  ${oneLine(artifact.error)}`
+		: `path=${artifact.path}`;
+}
+
+function frameRange(frames: readonly number[]): string {
+	const first = frames[0];
+	const last = frames.at(-1);
+	if (first === undefined || last === undefined) return "none";
+	return first === last ? `${first}` : `${first}\u2013${last}`;
 }
 
 export function renderWatch(
 	watch: DeviceWatch,
-	artifact: ArtifactWrite | null,
+	artifacts: WatchArtifacts,
 	format: ObserveFormat = {},
 ): string {
-	const sheet = watch.sheet;
-	const grid = sheet
-		? `  grid=${sheet.columns}x${sheet.rows} cell=${sheet.cellWidth}x${sheet.cellHeight}`
+	const first = watch.frames[0];
+	const source = first ? first.source : "none";
+	const region = watch.region
+		? `  region=${watch.region.x},${watch.region.y},${watch.region.width},${watch.region.height}`
 		: "";
+	const size = first ? `  size=${first.width}\u00d7${first.height}` : "";
 	const lines = [
 		[
 			"watch",
@@ -197,10 +209,17 @@ export function renderWatch(
 			`platform=${watch.platform}`,
 			`started=${time(watch.startedAt)}`,
 		].join("  "),
-		`frames  ${watch.frames.length} over ${watch.durationMs}ms  ${sheetText(watch, artifact)}${grid}`,
-		...watch.frames.map(
-			(frame) =>
-				`frame  ${frame.index}  at=${frame.atMs}ms  ${frame.width}×${frame.height}  capture=${frame.captureId ?? "none"}`,
+		`frames  ${watch.frames.length} over ${watch.durationMs}ms  source=${source}  every=${watch.requestedIntervalMs}ms  achieved=${watch.achievedIntervalMs}ms${size}${region}`,
+		...watch.sheets.map(
+			(sheet, index) =>
+				`sheet  ${sheet.index}  frames=${frameRange(sheet.frames)}  grid=${sheet.columns}x${sheet.rows}  cell=${sheet.cellWidth}x${sheet.cellHeight}  ${pathText(artifacts.sheets[index])}`,
+		),
+		...watch.frames.flatMap((frame, index) =>
+			artifacts.frames[index]
+				? [
+						`frame  ${frame.index}  at=${frame.atMs}ms  ${pathText(artifacts.frames[index])}`,
+					]
+				: [],
 		),
 		...warningLines(watch.warnings),
 		renderObservation(watch.observation, null, format),
@@ -557,16 +576,21 @@ export function screenshotForOutput(
 
 export function watchForOutput(
 	watch: DeviceWatch,
-	artifact: ArtifactWrite | null,
+	artifacts: WatchArtifacts,
 ): unknown {
-	const sheet = watch.sheet
-		? { ...watch.sheet, bytes: watch.sheet.bytes.byteLength }
-		: null;
 	return {
 		...watch,
-		sheet,
+		frames: watch.frames.map((frame, index) => ({
+			...frame,
+			png: frame.png ? frame.png.byteLength : null,
+			artifact: artifacts.frames[index] ?? null,
+		})),
+		sheets: watch.sheets.map((sheet, index) => ({
+			...sheet,
+			png: sheet.png.byteLength,
+			artifact: artifacts.sheets[index] ?? null,
+		})),
 		observation: observationForOutput(watch.observation, null),
-		artifact,
 	};
 }
 

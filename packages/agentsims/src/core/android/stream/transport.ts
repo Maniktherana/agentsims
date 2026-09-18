@@ -3,13 +3,17 @@ import {
 	AndroidEmulatorInput,
 	AndroidEmulatorSession,
 	type AndroidEmulatorConfig,
+	type AndroidStreamFrame,
 	type AvccSubscriberSink,
 } from "./emulator-controller";
 import {
 	AndroidDeviceScreenrecordSession,
 	type AndroidDeviceStreamConfig,
 } from "./device-screenrecord";
-export type { AvccSubscriberSink } from "./emulator-controller";
+export type {
+	AndroidStreamFrame,
+	AvccSubscriberSink,
+} from "./emulator-controller";
 
 export type AndroidTransportConfig =
 	| AndroidEmulatorConfig
@@ -28,6 +32,8 @@ export interface AndroidTransport {
 	close(): void | Promise<void>;
 	attachAvccSink(sink: AvccSubscriberSink): Promise<() => void>;
 	resetVideo(): boolean;
+	/** The newest frame, when the backend keeps a readable frame buffer. */
+	captureFrame?(): AndroidStreamFrame | null;
 	setPresentationGeneration?(generation: number): void;
 	injectTouch(
 		phase: AndroidTouchPhase,

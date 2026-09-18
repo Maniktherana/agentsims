@@ -74,9 +74,22 @@ export type DeviceMatches = {
 	nodes: AxViewNode[];
 };
 
+/** One frame of the live stream, as the emulator wrote it. */
+export type SessionFrame = {
+	width: number;
+	height: number;
+	rgba: Uint8Array;
+};
+
 export type ObservationSession = {
 	platform: "ios" | "android";
 	captureScreenshot(): Promise<SessionScreenshot>;
+	/**
+	 * The latest frame of the live stream, when the platform keeps one. A
+	 * sampler reads it in place of a screenshot round trip. A session without
+	 * a live buffer omits it, and one with an idle stream returns null.
+	 */
+	captureFrame?: () => Promise<SessionFrame | null>;
 	readConfig(): Promise<unknown>;
 	readAccessibility(): Promise<unknown>;
 };

@@ -4,22 +4,40 @@ import {
 	type ApplicationCommandError,
 } from "../errors";
 import { flattenAxView, type AxViewNode } from "./ax-view";
+import { capturedImage, type SessionScreenshot } from "./capture";
 import {
-	buildContactSheetAsync,
-	type ContactSheet,
+	buildContactSheetsAsync,
+	clampFrameRegion,
+	cropFrameImage,
+	decodeFrameImage,
+	encodeFramePng,
+	frameSheetGrid,
+	rgbaFrameImage,
+	scaleFrameImage,
 	type ContactSheetSource,
+	type FrameImage,
+	type FrameRegion,
 } from "./contact-sheet";
 import {
-	captureDeviceScreenshot,
 	observeDevice,
 	type DeviceObservation,
+	type ObservationSession,
 	type ObserveDependencies,
 	isStructuralOnly,
 } from "./observe";
-import { matchAxNodes } from "./targets";
+import type { DeviceSnapshot } from "./snapshot-store";
+import { isRefTarget, matchAxNodes } from "./targets";
 
-export const WATCH_MAX_FRAMES = 16;
-export const WATCH_MAX_DURATION_MS = 120_000;
+export type { FrameRegion };
+
+/** Ten minutes of screen is the longest window the sampler accepts. */
+export const WATCH_MAX_DURATION_MS = 600_000;
+/** The count follows the window, not a grid size. Sheets paginate. */
+export const WATCH_MAX_SAMPLES = 600;
+export const WATCH_MIN_EVERY_MS = 50;
+export const WATCH_DEFAULT_SAMPLES = 4;
+/** A mean interval this much over the request is worth saying out loud. */
+const WATCH_INTERVAL_TOLERANCE = 1.5;
 export const WAIT_DEFAULT_TIMEOUT_MS = 10_000;
 export const WAIT_DEFAULT_INTERVAL_MS = 500;
 export const WAIT_MAX_TIMEOUT_MS = 600_000;
@@ -33,29 +51,50 @@ export type WatchClock = {
 
 export type WatchDependencies = ObserveDependencies & { clock?: WatchClock };
 
-export type WatchOptions = {
+export type SampleOptions = {
 	durationMs: number;
-	frames: number;
+	samples?: number;
+	everyMs?: number;
+	region?: FrameRegion;
+	keepFrames?: boolean;
 };
 
-export type WatchFrame = {
+export type SampledFrame = {
 	index: number;
 	atMs: number;
 	width: number;
 	height: number;
-	bytes: number;
-	captureId: string | null;
+	source: "stream" | "screenshot";
+	png?: Uint8Array;
 };
 
-export type WatchSheet = {
-	bytes: Uint8Array;
-	mimeType: string;
-	width: number;
-	height: number;
+export type FrameSheet = {
+	index: number;
+	frames: number[];
+	png: Uint8Array;
 	columns: number;
 	rows: number;
 	cellWidth: number;
 	cellHeight: number;
+	width: number;
+	height: number;
+};
+
+export type FrameSampling = {
+	frames: SampledFrame[];
+	sheets: FrameSheet[];
+	requestedIntervalMs: number;
+	achievedIntervalMs: number;
+	warnings: string[];
+};
+
+export type WatchOptions = {
+	durationMs: number;
+	samples?: number;
+	everyMs?: number;
+	/** A ref, an exact label, or `x,y,w,h` in screenshot pixels. */
+	region?: string;
+	keepFrames?: boolean;
 };
 
 export type DeviceWatch = {
@@ -64,9 +103,12 @@ export type DeviceWatch = {
 	startedAt: number;
 	completedAt: number;
 	durationMs: number;
-	requestedFrames: number;
-	frames: WatchFrame[];
-	sheet: WatchSheet | null;
+	requestedSamples: number;
+	requestedIntervalMs: number;
+	achievedIntervalMs: number;
+	region: FrameRegion | null;
+	frames: SampledFrame[];
+	sheets: FrameSheet[];
 	observation: DeviceObservation;
 	warnings: string[];
 };
@@ -107,15 +149,347 @@ function invalid(message: string): Effect.Effect<never, InvalidCommandInput> {
 	return Effect.fail(new InvalidCommandInput({ message }));
 }
 
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 /** First sample at t=0, last at t=duration, the rest evenly between them. */
-export function watchSchedule(
-	durationMs: number,
-	frames: number,
-): number[] {
-	if (frames <= 1) return [0];
-	return Array.from({ length: frames }, (_unused, index) =>
-		Math.round((index * durationMs) / (frames - 1)),
+export function watchSchedule(durationMs: number, samples: number): number[] {
+	if (samples <= 1) return [0];
+	return Array.from({ length: samples }, (_unused, index) =>
+		Math.round((index * durationMs) / (samples - 1)),
 	);
+}
+
+type SamplePlan = {
+	samples: number;
+	requestedIntervalMs: number;
+	warnings: string[];
+};
+
+/** How many frames the request asks for, and how far apart they should be. */
+export function samplePlan(options: SampleOptions): SamplePlan | { error: string } {
+	const { durationMs, samples, everyMs } = options;
+	if (
+		!Number.isSafeInteger(durationMs) ||
+		durationMs < 0 ||
+		durationMs > WATCH_MAX_DURATION_MS
+	)
+		return {
+			error: `Watch duration must be an integer from 0 to ${WATCH_MAX_DURATION_MS} ms`,
+		};
+	if (samples !== undefined && everyMs !== undefined)
+		return { error: "Use --samples or --every, not both" };
+	if (everyMs !== undefined) {
+		if (!Number.isSafeInteger(everyMs) || everyMs < WATCH_MIN_EVERY_MS)
+			return {
+				error: `The sample interval must be an integer of at least ${WATCH_MIN_EVERY_MS} ms`,
+			};
+		const wanted = Math.floor(durationMs / everyMs) + 1;
+		const capped = Math.min(WATCH_MAX_SAMPLES, wanted);
+		return {
+			samples: capped,
+			requestedIntervalMs: everyMs,
+			warnings:
+				capped < wanted
+					? [
+							`Every ${everyMs} ms over ${durationMs} ms asks for ${wanted} frames. The sampler takes ${WATCH_MAX_SAMPLES}.`,
+						]
+					: [],
+		};
+	}
+	const count = samples ?? WATCH_DEFAULT_SAMPLES;
+	if (!Number.isSafeInteger(count) || count < 1 || count > WATCH_MAX_SAMPLES)
+		return {
+			error: `Watch samples must be an integer from 1 to ${WATCH_MAX_SAMPLES}`,
+		};
+	return {
+		samples: count,
+		requestedIntervalMs: count > 1 ? Math.round(durationMs / (count - 1)) : 0,
+		warnings: [],
+	};
+}
+
+type ScreenshotGrab =
+	| { kind: "screenshot"; shot: SessionScreenshot }
+	| { kind: "error"; message: string };
+
+type StreamGrab =
+	| { kind: "frame"; width: number; height: number; rgba: Uint8Array }
+	| { kind: "unavailable"; message: string };
+
+async function grabStreamFrame(
+	session: ObservationSession,
+): Promise<StreamGrab> {
+	try {
+		const frame = await session.captureFrame?.();
+		return frame
+			? { kind: "frame", ...frame }
+			: { kind: "unavailable", message: "the live frame buffer is empty" };
+	} catch (error) {
+		return { kind: "unavailable", message: messageOf(error) };
+	}
+}
+
+async function grabScreenshot(
+	session: ObservationSession,
+): Promise<ScreenshotGrab> {
+	try {
+		return { kind: "screenshot", shot: await session.captureScreenshot() };
+	} catch (error) {
+		return { kind: "error", message: messageOf(error) };
+	}
+}
+
+/** The sheet cell is the only size the compositor needs. Shrink once, early. */
+function sheetSource(index: number, image: FrameImage): ContactSheetSource {
+	const grid = frameSheetGrid(image.width, image.height);
+	return {
+		index,
+		image: scaleFrameImage(image, grid.cellWidth, grid.cellHeight),
+	};
+}
+
+/**
+ * Sample the screen over a window and lay the frames into legible sheets.
+ *
+ * Frames come from the emulator's live RGBA buffer when the session offers
+ * one, and from a screenshot otherwise. Neither path publishes a capture:
+ * a frame is evidence of a moment that has passed, so it must never
+ * authorize a point action.
+ */
+export function sampleDeviceFrames(
+	dependencies: WatchDependencies,
+	device: string,
+	options: SampleOptions,
+): Effect.Effect<FrameSampling, ApplicationCommandError> {
+	return Effect.gen(function* () {
+		if (!device) return yield* invalid("Invalid or missing device");
+		const plan = samplePlan(options);
+		if ("error" in plan) return yield* invalid(plan.error);
+		const session = yield* dependencies.resolveSession(device);
+		const clock = dependencies.clock ?? wallClock;
+		const startedAt = clock.now();
+		const warnings = [...plan.warnings];
+		const frames: SampledFrame[] = [];
+		const sources: ContactSheetSource[] = [];
+		const region = options.region ?? null;
+		let streaming = typeof session.captureFrame === "function";
+		let regionWarned = false;
+		const cropTo = (image: FrameImage): FrameImage => {
+			if (!region) return image;
+			const box = clampFrameRegion(region, image.width, image.height);
+			if (box) return cropFrameImage(image, box);
+			if (!regionWarned) {
+				regionWarned = true;
+				warnings.push(
+					`The region ${region.x},${region.y},${region.width},${region.height} is outside the ${image.width}×${image.height} frame. The whole frame is used.`,
+				);
+			}
+			return image;
+		};
+
+		for (const [index, atMs] of watchSchedule(
+			options.durationMs,
+			plan.samples,
+		).entries()) {
+			const remaining = atMs - (clock.now() - startedAt);
+			if (remaining > 0) yield* clock.sleep(remaining);
+			const elapsed = clock.now() - startedAt;
+			let grab: StreamGrab | ScreenshotGrab = streaming
+				? yield* Effect.promise(() => grabStreamFrame(session))
+				: yield* Effect.promise(() => grabScreenshot(session));
+			if (grab.kind === "unavailable") {
+				streaming = false;
+				warnings.push(
+					`The live frame buffer is not available (${grab.message}). Frames come from screenshots.`,
+				);
+				grab = yield* Effect.promise(() => grabScreenshot(session));
+			}
+			if (grab.kind === "error") {
+				warnings.push(`Frame ${index} failed: ${grab.message}`);
+				continue;
+			}
+			if (grab.kind === "frame") {
+				const image = cropTo(rgbaFrameImage(grab.rgba, grab.width, grab.height));
+				frames.push({
+					index,
+					atMs: elapsed,
+					width: image.width,
+					height: image.height,
+					source: "stream",
+					...(options.keepFrames ? { png: encodeFramePng(image) } : {}),
+				});
+				sources.push(sheetSource(index, image));
+				continue;
+			}
+			let shot: ReturnType<typeof capturedImage>;
+			try {
+				shot = capturedImage(grab.shot);
+			} catch (error) {
+				warnings.push(`Frame ${index} failed: ${messageOf(error)}`);
+				continue;
+			}
+			if (region && shot.mimeType !== "image/png") {
+				if (!regionWarned) {
+					regionWarned = true;
+					warnings.push(
+						`A ${shot.mimeType} frame cannot be cropped. The whole frame is used.`,
+					);
+				}
+			} else if (region) {
+				let image: FrameImage;
+				try {
+					image = cropTo(decodeFrameImage(shot.bytes));
+				} catch (error) {
+					warnings.push(`Frame ${index} failed: ${messageOf(error)}`);
+					continue;
+				}
+				frames.push({
+					index,
+					atMs: elapsed,
+					width: image.width,
+					height: image.height,
+					source: "screenshot",
+					...(options.keepFrames ? { png: encodeFramePng(image) } : {}),
+				});
+				sources.push(sheetSource(index, image));
+				continue;
+			}
+			frames.push({
+				index,
+				atMs: elapsed,
+				width: shot.width,
+				height: shot.height,
+				source: "screenshot",
+				...(options.keepFrames ? { png: new Uint8Array(shot.bytes) } : {}),
+			});
+			sources.push({ index, bytes: shot.bytes, mimeType: shot.mimeType });
+		}
+
+		const achievedIntervalMs =
+			frames.length > 1
+				? Math.round(
+						(frames.at(-1)!.atMs - frames[0]!.atMs) / (frames.length - 1),
+					)
+				: 0;
+		if (
+			plan.requestedIntervalMs > 0 &&
+			achievedIntervalMs >
+				plan.requestedIntervalMs * WATCH_INTERVAL_TOLERANCE
+		) {
+			const source = frames.some((frame) => frame.source === "stream")
+				? "stream"
+				: "screenshot";
+			warnings.push(
+				`Frames arrived every ${achievedIntervalMs} ms, not every ${plan.requestedIntervalMs} ms. The ${source} source could not keep up.`,
+			);
+		}
+
+		let sheets: FrameSheet[] = [];
+		if (sources.length > 0) {
+			const built = yield* Effect.tryPromise({
+				try: () => buildContactSheetsAsync(sources),
+				catch: messageOf,
+			}).pipe(Effect.either);
+			if (built._tag === "Right") {
+				sheets = built.right.sheets.map((sheet) => ({
+					index: sheet.index,
+					frames: sheet.frames,
+					png: sheet.bytes,
+					columns: sheet.columns,
+					rows: sheet.rows,
+					cellWidth: sheet.cellWidth,
+					cellHeight: sheet.cellHeight,
+					width: sheet.width,
+					height: sheet.height,
+				}));
+				warnings.push(...built.right.warnings);
+			} else warnings.push(`The contact sheet failed: ${built.left}`);
+		} else warnings.push("No frame was captured");
+
+		return {
+			frames,
+			sheets,
+			requestedIntervalMs: plan.requestedIntervalMs,
+			achievedIntervalMs,
+			warnings,
+		};
+	});
+}
+
+const REGION_BOX =
+	/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/;
+
+/** `x,y,w,h` in screenshot pixels. Anything else names a node. */
+export function parseFrameRegion(target: string): FrameRegion | null {
+	const match = REGION_BOX.exec(target.trim());
+	if (!match) return null;
+	const [x, y, width, height] = match.slice(1).map(Number) as [
+		number,
+		number,
+		number,
+		number,
+	];
+	if (width < 1 || height < 1) return null;
+	return {
+		x: Math.round(x),
+		y: Math.round(y),
+		width: Math.round(width),
+		height: Math.round(height),
+	};
+}
+
+function boxOf(node: AxViewNode): FrameRegion {
+	return {
+		x: Math.round(node.box.x),
+		y: Math.round(node.box.y),
+		width: Math.round(node.box.width),
+		height: Math.round(node.box.height),
+	};
+}
+
+/**
+ * A region names a box the sampler crops to. A ref or a label is read from
+ * the snapshot that the caller can see now, before the window starts.
+ */
+export function resolveWatchRegion(
+	dependencies: WatchDependencies,
+	device: string,
+	target: string,
+): Effect.Effect<FrameRegion, ApplicationCommandError> {
+	const wanted = target.trim();
+	const box = parseFrameRegion(wanted);
+	if (box) return Effect.succeed(box);
+	return Effect.gen(function* () {
+		let view: DeviceSnapshot | null = dependencies.store.current(device);
+		if (!view) {
+			const observation = yield* observeDevice(dependencies, device, {
+				screenshot: false,
+			});
+			view = observation.view;
+		}
+		if (!view)
+			return yield* invalid(
+				`The region ${wanted} could not be read. Run observe`,
+			);
+		if (isRefTarget(wanted)) {
+			const resolved = dependencies.store.resolveRef(device, wanted);
+			if (!resolved.ok)
+				return yield* invalid(
+					`The region ref ${wanted} is not addressable in snapshot ${resolved.current?.id ?? "none"}. Run observe`,
+				);
+			return boxOf(resolved.node);
+		}
+		const matches = matchAxNodes(view.nodes, wanted);
+		if (matches.length === 0)
+			return yield* invalid(`No node matches the region ${wanted}`);
+		if (matches.length > 1)
+			return yield* invalid(
+				`${matches.length} nodes match the region ${wanted}. Name one node or a box`,
+			);
+		return boxOf(matches[0]!);
+	});
 }
 
 export function watchDevice(
@@ -125,84 +499,45 @@ export function watchDevice(
 ): Effect.Effect<DeviceWatch, ApplicationCommandError> {
 	return Effect.gen(function* () {
 		if (!device) return yield* invalid("Invalid or missing device");
-		const { durationMs, frames } = options;
-		if (!Number.isSafeInteger(durationMs) || durationMs < 0 || durationMs > WATCH_MAX_DURATION_MS)
-			return yield* invalid(
-				`Watch duration must be an integer from 0 to ${WATCH_MAX_DURATION_MS} ms`,
-			);
-		if (!Number.isSafeInteger(frames) || frames < 1 || frames > WATCH_MAX_FRAMES)
-			return yield* invalid(
-				`Watch frames must be an integer from 1 to ${WATCH_MAX_FRAMES}`,
-			);
+		const plan = samplePlan({
+			durationMs: options.durationMs,
+			...(options.samples === undefined ? {} : { samples: options.samples }),
+			...(options.everyMs === undefined ? {} : { everyMs: options.everyMs }),
+		});
+		if ("error" in plan) return yield* invalid(plan.error);
 		const clock = dependencies.clock ?? wallClock;
 		const startedAt = clock.now();
-		const warnings: string[] = [];
-		const samples: Array<{ frame: WatchFrame; source: ContactSheetSource }> = [];
-		for (const [index, atMs] of watchSchedule(durationMs, frames).entries()) {
-			const remaining = atMs - (clock.now() - startedAt);
-			if (remaining > 0) yield* clock.sleep(remaining);
-			const elapsed = clock.now() - startedAt;
-			const capture = yield* captureDeviceScreenshot(dependencies, device);
-			if (capture.image.status === "error") {
-				warnings.push(`Frame ${index} failed: ${capture.image.error}`);
-				continue;
-			}
-			const image = capture.image.value;
-			// A frame is evidence of a moment that has passed. It must never
-			// authorize a point action, so its capture is retired at once.
-			if (image.captureId) dependencies.store.retireCapture(image.captureId);
-			samples.push({
-				frame: {
-					index,
-					atMs: elapsed,
-					width: image.width,
-					height: image.height,
-					bytes: image.bytes.byteLength,
-					captureId: null,
-				},
-				source: { index, bytes: image.bytes, mimeType: image.mimeType },
-			});
-		}
+		// The crop is read from the snapshot the caller already has, so a ref
+		// still means what it meant when the caller read it.
+		const region = options.region
+			? yield* resolveWatchRegion(dependencies, device, options.region)
+			: null;
+		const sampling = yield* sampleDeviceFrames(dependencies, device, {
+			durationMs: options.durationMs,
+			...(options.samples === undefined ? {} : { samples: options.samples }),
+			...(options.everyMs === undefined ? {} : { everyMs: options.everyMs }),
+			...(region ? { region } : {}),
+			...(options.keepFrames ? { keepFrames: true } : {}),
+		});
 		// The refs an agent acts on must describe the screen after the last
 		// frame, so the tree is read last and never during the sampling.
 		const observation = yield* observeDevice(dependencies, device, {
 			screenshot: false,
 		});
-		let sheet: ContactSheet | null = null;
-		if (samples.length > 0) {
-			const built = yield* Effect.tryPromise({
-				try: () =>
-					buildContactSheetAsync(samples.map((sample) => sample.source)),
-				catch: (error) =>
-					error instanceof Error ? error.message : String(error),
-			}).pipe(Effect.either);
-			if (built._tag === "Right") {
-				sheet = built.right;
-				warnings.push(...sheet.warnings);
-			} else warnings.push(`The contact sheet failed: ${built.left}`);
-		} else warnings.push("No frame was captured");
 		return {
 			device,
 			platform: observation.platform,
 			startedAt,
 			completedAt: clock.now(),
-			durationMs,
-			requestedFrames: frames,
-			frames: samples.map((sample) => sample.frame),
-			sheet: sheet
-				? {
-						bytes: sheet.bytes,
-						mimeType: sheet.mimeType,
-						width: sheet.width,
-						height: sheet.height,
-						columns: sheet.columns,
-						rows: sheet.rows,
-						cellWidth: sheet.cellWidth,
-						cellHeight: sheet.cellHeight,
-					}
-				: null,
+			durationMs: options.durationMs,
+			requestedSamples: plan.samples,
+			requestedIntervalMs: sampling.requestedIntervalMs,
+			achievedIntervalMs: sampling.achievedIntervalMs,
+			region,
+			frames: sampling.frames,
+			sheets: sampling.sheets,
 			observation,
-			warnings,
+			warnings: sampling.warnings,
 		};
 	});
 }
