@@ -128,7 +128,7 @@ export interface RecordStopResult {
 	bytes: number;
 }
 
-function parseJsonObject(stdout: string): Record<string, unknown> {
+export function parseJsonObject(stdout: string): Record<string, unknown> {
 	// The CLI prints the server object verbatim, but a stray warning line must
 	// not break the button. Read the outermost object instead of the whole
 	// stream.

@@ -5,7 +5,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
 import { ApplicationCommandClient } from "../../cli/application-command-client";
 import { createProgram } from "../../cli/main";
-import { renderSequenceResult } from "../../cli/observe-output";
+import { renderSequenceResult } from "../../core/tools/output/render";
 import { makeDeviceService, type DeviceService } from "../../core/tools/devices/devices";
 import { runSequence, type SequenceResult } from "../../core/tools/sequence";
 import type { AxSnapshot } from "../../core/tools/observe/accessibility-model";

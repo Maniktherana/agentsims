@@ -71,10 +71,15 @@ uncertain.
 | Apps | `app list`, `app launch <package>`, `app stop <package>`, `app install <path>`, `app uninstall <package>` |
 | Device state | `permissions list\|grant\|revoke\|reset -a <app>`, `camera list\|use <webcam>\|stop`, `device-logs`, `rotate` |
 | Workspace | `doctor [--platform ios\|android]`, `status`, `logs [-f]`, `start [--detach]`, `stop`, `devices list [--all]`, `devices boot\|shutdown <id>` |
+| Record the run | `trace start [--name <text>]`, `trace stop`, `trace status` |
 
 A target is a ref `@e14` from the current tree, an exact label `"Save"` with `--role` or
 `--index` when several match, or a point. Add `--json` to any command for structured
 output.
+
+Start a trace before a task you want to review later and stop it after: it writes every
+command, its result, and a screenshot of each step, and it prints the trace id and the
+directory.
 
 ## Coordinates
 

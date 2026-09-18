@@ -1,4 +1,8 @@
-import { HttpRouter, HttpServerRequest } from "@effect/platform";
+import {
+	HttpRouter,
+	HttpServerRequest,
+	HttpServerResponse,
+} from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import {
@@ -20,8 +24,15 @@ import { Recordings } from "../../../core/tools/recording/recordings";
 import { Apps, AppOperationSchema } from "../../../core/tools/apps";
 import { runSequence } from "../../../core/tools/sequence";
 import { ScrollRequestSchema } from "../../../core/tools/scroll";
+import { Traces, TraceStartSchema } from "../../../core/tools/traces/traces";
+import { actionCommand } from "../../../core/tools/traces/trace-file";
 import { ServerConfig } from "../../runtime/config";
-import { commandResponse, decodeInput, requestJson } from "../command";
+import {
+	commandErrorStatus,
+	commandResponse,
+	decodeInput,
+	requestJson,
+} from "../command";
 import { exposedState, requestSource, requestedDevice } from "./shared";
 
 const requestContext = Effect.gen(function* () {
@@ -210,9 +221,14 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 		commandResponse(
 			Effect.gen(function* () {
 				const { url } = yield* requestContext;
-				return yield* (yield* Devices).observe(yield* pathDevice, {
-					all: url.searchParams.get("all") === "1",
-				});
+				const device = yield* pathDevice;
+				const options = { all: url.searchParams.get("all") === "1" };
+				return yield* (yield* Traces).traced(
+					device,
+					"observe",
+					options,
+					(yield* Devices).observe(device, options),
+				);
 			}),
 		),
 	),
@@ -220,7 +236,13 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 		"/device/:device/screenshot",
 		commandResponse(
 			Effect.gen(function* () {
-				return yield* (yield* Devices).screenshot(yield* pathDevice);
+				const device = yield* pathDevice;
+				return yield* (yield* Traces).traced(
+					device,
+					"screenshot",
+					{},
+					(yield* Devices).screenshot(device),
+				);
 			}),
 		),
 	),
@@ -233,12 +255,19 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 					watchQuery,
 					Object.fromEntries(url.searchParams),
 				);
-				return yield* (yield* Devices).watch(yield* pathDevice, {
+				const device = yield* pathDevice;
+				const options = {
 					durationMs: query.watch,
 					...(query.samples === undefined ? {} : { samples: query.samples }),
 					...(query.every === undefined ? {} : { everyMs: query.every }),
 					...(query.keepFrames === "1" ? { keepFrames: true } : {}),
-				});
+				};
+				return yield* (yield* Traces).traced(
+					device,
+					"watch",
+					options,
+					(yield* Devices).watch(device, options),
+				);
 			}),
 		),
 	),
@@ -251,7 +280,8 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 					waitQuery,
 					Object.fromEntries(url.searchParams),
 				);
-				return yield* (yield* Devices).wait(yield* pathDevice, {
+				const device = yield* pathDevice;
+				const options = {
 					...(query.for === undefined ? {} : { for: query.for }),
 					...(query.gone === undefined ? {} : { gone: query.gone }),
 					...(query.stable === "1" ? { stable: true } : {}),
@@ -259,7 +289,13 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 					...(query.interval === undefined
 						? {}
 						: { intervalMs: query.interval }),
-				});
+				};
+				return yield* (yield* Traces).traced(
+					device,
+					"wait",
+					options,
+					(yield* Devices).wait(device, options),
+				);
 			}),
 		),
 	),
@@ -268,9 +304,13 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 		commandResponse(
 			Effect.gen(function* () {
 				const { url } = yield* requestContext;
-				return yield* (yield* Devices).find(
-					yield* pathDevice,
-					url.searchParams.get("q") ?? "",
+				const device = yield* pathDevice;
+				const query = url.searchParams.get("q") ?? "";
+				return yield* (yield* Traces).traced(
+					device,
+					"find",
+					{ q: query },
+					(yield* Devices).find(device, query),
 				);
 			}),
 		),
@@ -284,10 +324,13 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 					actionsBody,
 					yield* requestJson(request),
 				);
-				return yield* (yield* Devices).act(
-					yield* pathDevice,
-					body.actions,
-					yield* actionOptions(url),
+				const device = yield* pathDevice;
+				const options = yield* actionOptions(url);
+				return yield* (yield* Traces).traced(
+					device,
+					actionCommand(body.actions),
+					{ actions: body.actions, ...options },
+					(yield* Devices).act(device, body.actions, options),
 				);
 			}),
 		),
@@ -301,11 +344,15 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 					stepsBody,
 					yield* requestJson(request),
 				);
-				return yield* runSequence(
-					yield* Devices,
-					yield* pathDevice,
-					body.steps,
-					{ screenshot: url.searchParams.get("screenshot") === "1" },
+				const device = yield* pathDevice;
+				const options = {
+					screenshot: url.searchParams.get("screenshot") === "1",
+				};
+				return yield* (yield* Traces).traced(
+					device,
+					"run",
+					{ steps: body.steps, ...options },
+					runSequence(yield* Devices, device, body.steps, options),
 				);
 			}),
 		),
@@ -319,7 +366,13 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 					ScrollRequestSchema,
 					yield* requestJson(request),
 				);
-				return yield* (yield* Devices).scroll(yield* pathDevice, input);
+				const device = yield* pathDevice;
+				return yield* (yield* Traces).traced(
+					device,
+					"scroll",
+					input,
+					(yield* Devices).scroll(device, input),
+				);
 			}),
 		),
 	),
@@ -334,21 +387,26 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 				);
 				const device = yield* pathDevice;
 				const operation = (yield* Apps).execute(device, input);
-				if (
+				const traced =
 					(input.operation === "launch" || input.operation === "stop") &&
 					input.value
-				)
-					return yield* (yield* Devices).operation(
-						device,
-						operation,
-						{
-							kind: "foreground_app",
-							operation: input.operation,
-							expected: input.value,
-						},
-						yield* actionOptions(url),
-					);
-				return yield* operation;
+						? (yield* Devices).operation(
+								device,
+								operation,
+								{
+									kind: "foreground_app",
+									operation: input.operation,
+									expected: input.value,
+								},
+								yield* actionOptions(url),
+							)
+						: operation;
+				return yield* (yield* Traces).traced(
+					device,
+					`app:${input.operation}`,
+					input,
+					traced,
+				);
 			}),
 		),
 	),
@@ -413,6 +471,83 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 				);
 			}),
 		),
+	),
+).pipe(
+	HttpRouter.post(
+		"/device/:device/trace/start",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				const query = yield* decodeInput(
+					TraceStartSchema,
+					Object.fromEntries(url.searchParams),
+				);
+				return yield* (yield* Traces).start(yield* pathDevice, query);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/device/:device/trace/stop",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* Traces).stop(yield* pathDevice);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/trace",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* Traces).status(yield* pathDevice);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/traces",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				return yield* (yield* Traces).list(
+					url.searchParams.get("device") ?? undefined,
+				);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/traces/:trace",
+		commandResponse(
+			Effect.gen(function* () {
+				const { params } = yield* HttpRouter.RouteContext;
+				return yield* (yield* Traces).read(params.trace ?? "");
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/traces/:trace/screenshots/:file",
+		Effect.gen(function* () {
+			const { params } = yield* HttpRouter.RouteContext;
+			const file = params.file ?? "";
+			return yield* (yield* Traces)
+				.screenshot(params.trace ?? "", file)
+				.pipe(
+					Effect.map((bytes) =>
+						HttpServerResponse.uint8Array(bytes, {
+							contentType: file.endsWith(".jpg") ? "image/jpeg" : "image/png",
+							headers: {
+								"cache-control": "public, max-age=604800, immutable",
+							},
+						}),
+					),
+					Effect.catchAll((error) =>
+						Effect.succeed(
+							HttpServerResponse.unsafeJson(
+								{ error: error.message, type: error._tag },
+								{ status: commandErrorStatus(error) },
+							),
+						),
+					),
+				);
+		}),
 	),
 );
 

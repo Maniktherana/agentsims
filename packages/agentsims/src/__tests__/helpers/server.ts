@@ -11,6 +11,7 @@ import {
 	type AndroidSessionsService,
 } from "../../core/android/session/session";
 import { Devices, type DeviceService } from "../../core/tools/devices/devices";
+import { Traces, type TraceService } from "../../core/tools/traces/traces";
 import { Apps, type AppsService } from "../../core/tools/apps";
 import { makeMediaRouting, type MediaOperations } from "../../core/tools/media";
 import type { ForegroundApp } from "../../core/tools/devices/foreground-apps";
@@ -41,6 +42,7 @@ export type TestServerOverrides = Partial<HttpServerOptions> & {
 	readDeviceStates?: () => Promise<DeviceState[]>;
 	readForegroundApp?: (device: string) => Promise<ForegroundApp | null>;
 	deviceCommands?: DeviceService;
+	traces?: TraceService;
 	androidSessions?: AndroidSessionsService;
 	apps?: AppsService;
 	mediaOperations?: MediaOperations;
@@ -98,6 +100,9 @@ export async function startTestServer(
 	const CommandsTest = test.deviceCommands
 		? Layer.succeed(Devices, test.deviceCommands)
 		: Layer.empty;
+	const TracesTest = test.traces
+		? Layer.succeed(Traces, test.traces)
+		: Layer.empty;
 	const AndroidSessionsTest = test.androidSessions
 		? Layer.succeed(AndroidSessions, test.androidSessions)
 		: Layer.empty;
@@ -138,6 +143,7 @@ export async function startTestServer(
 	const ServerTestLive = Layer.mergeAll(
 		LifecycleTest,
 		CommandsTest,
+		TracesTest,
 		AndroidSessionsTest,
 		AppsTest,
 		ForegroundTest,

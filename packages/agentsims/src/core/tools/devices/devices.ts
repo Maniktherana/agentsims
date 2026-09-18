@@ -46,6 +46,7 @@ import {
 	createSnapshotStore,
 	type SnapshotStore,
 } from "../observe/snapshot-store";
+import { encodeFramePng, rgbaFrameImage } from "../observe/contact-sheet";
 import {
 	waitDevice,
 	watchDevice,
@@ -134,6 +135,9 @@ export type DeviceListOptions = {
 };
 
 export type StartDeviceOptions = { port: number; basePath?: string };
+
+/** One encoded image of the screen and the file extension that fits it. */
+export type DeviceCapture = { bytes: Uint8Array; extension: "png" | "jpg" };
 
 /** Device operations use the same scoped platform session for input and observation. */
 export function makeDeviceService(
@@ -326,6 +330,36 @@ export function makeDeviceService(
 			),
 		find: (device: string, query: string) =>
 			guardFailure(device, findOnDevice(observation, device, query)),
+		/**
+		 * Raw pixels for a recorder, without a capture channel or a snapshot.
+		 * The emulator keeps a live frame buffer, which is one mmap read
+		 * against a screenshot round trip.
+		 */
+		captureScreenshot: (device: string): Effect.Effect<DeviceCapture, ApplicationCommandError> =>
+			Effect.gen(function* () {
+				const session = yield* resolveSession(device);
+				const captureFrame = session.captureFrame;
+				const frame = captureFrame
+					? yield* Effect.tryPromise(() => captureFrame()).pipe(
+							Effect.orElseSucceed(() => null),
+						)
+					: null;
+				if (frame)
+					return {
+						bytes: encodeFramePng(
+							rgbaFrameImage(frame.rgba, frame.width, frame.height),
+						),
+						extension: "png" as const,
+					};
+				const shot = yield* Effect.tryPromise({
+					try: () => session.captureScreenshot(),
+					catch: commandFailure,
+				});
+				return {
+					bytes: shot.bytes,
+					extension: shot.mimeType === "image/jpeg" ? ("jpg" as const) : ("png" as const),
+				};
+			}),
 		memory: () =>
 			Effect.tryPromise({
 				try: () => catalog.memoryReport(),
