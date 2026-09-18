@@ -244,6 +244,58 @@ function renderActionLine(action: ResolvedAction): string {
 	return `${renderActionVerb(action)}${warnings}`;
 }
 
+const TRANSITION_KEYS = ["checked", "value"] as const;
+const FLAG_KEYS = ["contentMoved", "screenChanged"] as const;
+
+function observedWord(key: string, value: unknown): string {
+	if (value === null || value === undefined) return "unknown";
+	if (typeof value === "boolean")
+		return key === "checked"
+			? value
+				? "checked"
+				: "unchecked"
+			: value
+				? "yes"
+				: "no";
+	return typeof value === "string" ? quoted(value) : String(value);
+}
+
+function renderTransition(
+	key: string,
+	value: unknown,
+	label = key,
+): string | null {
+	if (!value || typeof value !== "object") return null;
+	if (!("before" in value) || !("after" in value)) return null;
+	const pair = value as { before: unknown; after: unknown };
+	return `${label}: ${observedWord(key, pair.before)} → ${observedWord(key, pair.after)}`;
+}
+
+/** Report what the action changed, not only that the device accepted it. */
+function renderObserved(observed: Record<string, unknown> | null): string[] {
+	if (!observed) return [];
+	const parts: string[] = [];
+	for (const key of TRANSITION_KEYS) {
+		const transition = renderTransition(key, observed[key]);
+		if (transition) parts.push(transition);
+	}
+	const firstVisible = renderTransition(
+		"firstVisible",
+		observed.firstVisible,
+		"first",
+	);
+	if (firstVisible) parts.push(firstVisible);
+	for (const key of FLAG_KEYS) {
+		const flag = observed[key];
+		if (typeof flag === "boolean") parts.push(`${key}=${flag ? "yes" : "no"}`);
+	}
+	if (observed.gone === true) parts.push("gone=yes");
+	if (Array.isArray(observed.newWindows))
+		for (const window of observed.newWindows)
+			if (typeof window === "string") parts.push(`new: ${window}`);
+	return parts;
+}
+
 export function renderActionResult(
 	result: ActionResult,
 	artifact: ArtifactWrite | null = null,
@@ -254,7 +306,12 @@ export function renderActionResult(
 	);
 	lines.push(`dispatch  ${result.dispatch.status}  ${result.dispatch.reason}`);
 	lines.push(
-		`verification  ${result.verification.status}  ${result.verification.reason}`,
+		[
+			"verification",
+			result.verification.status,
+			...renderObserved(result.verification.observed ?? null),
+			result.verification.reason,
+		].join("  "),
 	);
 	if (
 		result.text?.submit.status === "suppressed" ||

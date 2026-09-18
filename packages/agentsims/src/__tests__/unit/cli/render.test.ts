@@ -266,6 +266,106 @@ test.each([
 	expect(output).toContain(`submit  ${status}  ${reason}`);
 });
 
+test("action output reports the checked transition it observed", () => {
+	const output = renderActionResult({
+		device: "android:emulator-5554",
+		dispatch: { status: "accepted", reason: "Input frames were accepted." },
+		verification: {
+			status: "matched",
+			reason: "The target changed its checked state.",
+			observed: { checked: { before: false, after: true } },
+		},
+		resolved: [{ type: "tap", from: { x: 0.5, y: 0.5, ref: "e3" } }],
+		accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+		view: null,
+		image: null,
+		captureReason: null,
+		warnings: [],
+	});
+	expect(output).toContain("verification  matched  checked: unchecked → checked");
+	expect(output).toContain("The target changed its checked state.");
+});
+
+test("action output describes a swipe without judging it", () => {
+	const output = renderActionResult({
+		device: "android:emulator-5554",
+		dispatch: { status: "accepted", reason: "Input frames were accepted." },
+		verification: {
+			status: "not_applicable",
+			reason: "Observed after the action.",
+			observed: {
+				contentMoved: true,
+				firstVisible: { before: "Autoplay", after: "Autoplay off" },
+			},
+		},
+		resolved: [
+			{
+				type: "swipe",
+				from: { x: 0.5, y: 0.7 },
+				to: { x: 0.5, y: 0.3 },
+			},
+		],
+		accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+		view: null,
+		image: null,
+		captureReason: null,
+		warnings: [],
+	});
+	expect(output).toContain(
+		'verification  not_applicable  first: "Autoplay" → "Autoplay off"  contentMoved=yes  Observed after the action.',
+	);
+});
+
+test("action output names the window a long press opened", () => {
+	const output = renderActionResult({
+		device: "android:emulator-5554",
+		dispatch: { status: "accepted", reason: "Input frames were accepted." },
+		verification: {
+			status: "not_applicable",
+			reason: "Observed after the action.",
+			observed: {
+				screenChanged: true,
+				foregroundApp: "com.example.app",
+				newWindows: ['dialog "Add to playlist" (Cancel, OK)'],
+				gone: false,
+			},
+		},
+		resolved: [{ type: "long-press", from: { x: 0.5, y: 0.5, ref: "e3" } }],
+		accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+		view: null,
+		image: null,
+		captureReason: null,
+		warnings: [],
+	});
+	expect(output).toContain(
+		'verification  not_applicable  screenChanged=yes  new: dialog "Add to playlist" (Cancel, OK)  Observed after the action.',
+	);
+});
+
+test("action output marks a target that is gone", () => {
+	const output = renderActionResult({
+		device: "android:emulator-5554",
+		dispatch: { status: "accepted", reason: "Input frames were accepted." },
+		verification: {
+			status: "not_applicable",
+			reason: "Observed after the action.",
+			observed: {
+				screenChanged: true,
+				foregroundApp: "com.example.app",
+				newWindows: [],
+				gone: true,
+			},
+		},
+		resolved: [{ type: "tap", from: { x: 0.5, y: 0.5, ref: "e3" } }],
+		accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+		view: null,
+		image: null,
+		captureReason: null,
+		warnings: [],
+	});
+	expect(output).toContain("screenChanged=yes  gone=yes");
+});
+
 test("action output names a long press", () => {
 	const output = renderActionResult({
 		device: "ios-device",

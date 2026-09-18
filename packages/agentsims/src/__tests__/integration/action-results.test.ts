@@ -129,6 +129,44 @@ const structuralTree: AxSnapshot = {
 	],
 };
 
+function autoplayTree(checked: boolean, label = "Autoplay"): AxSnapshot {
+	return {
+		...androidSignInSnapshot,
+		elements: androidSignInSnapshot.elements.map((element) =>
+			element.id === "autoplay"
+				? {
+						...element,
+						label,
+						traits: checked ? ["checkable", "checked"] : ["checkable"],
+					}
+				: element,
+		),
+	};
+}
+
+/** The sign-in screen with a dialog over it, as a long press opens. */
+const popupTree: AxSnapshot = {
+	...androidSignInSnapshot,
+	elements: [
+		...androidSignInSnapshot.elements,
+		axElement("1", "android.app.AlertDialog", {
+			id: "popup",
+			label: "Add to playlist",
+			frame: { x: 200, y: 600, width: 600, height: 300 },
+		}),
+		axElement("1.0", "android.widget.Button", {
+			id: "cancel",
+			label: "Cancel",
+			frame: { x: 220, y: 620, width: 200, height: 100 },
+		}),
+		axElement("1.1", "android.widget.Button", {
+			id: "ok",
+			label: "OK",
+			frame: { x: 440, y: 620, width: 200, height: 100 },
+		}),
+	],
+};
+
 function windowTree(windowId: number): AxSnapshot {
 	return {
 		screen: androidSignInSnapshot.screen,
@@ -163,31 +201,178 @@ test("accepted generic input reports dispatch separately and returns fresh refs"
 		{ type: "tap", target: `@${ref}` },
 	])) as {
 		dispatch: { status: string };
-		verification: { status: string };
+		verification: { status: string; observed: Record<string, unknown> };
 		view: { id: string; refs: Record<string, string> };
 		captureReason: string | null;
 	};
 
 	expect(result.dispatch.status).toBe("accepted");
-	expect(result.verification.status).toBe("not_applicable");
+	expect(result.verification).toMatchObject({
+		status: "mismatch",
+		observed: { checked: { before: true, after: true } },
+	});
 	expect(result.view.id).toStartWith("s");
 	expect(Object.keys(result.view.refs)).not.toContain(ref);
 	expect(result.captureReason).toBe("ax_unchanged");
 });
 
-test("refusal before dispatch returns none and does not send input", async () => {
+test("refusal before dispatch changes nothing and keeps refs and captures", async () => {
 	const { client, frames } = await start();
 	await client.observeDevice(ANDROID);
-	await client.observeDevice(ANDROID);
+	const before = (await client.observeDevice(ANDROID)) as {
+		captureId: string;
+		view: { id: string; refs: Record<string, string> };
+	};
+	const disabled = Object.entries(before.view.refs).find(
+		([, id]) => id === "remember",
+	)![0];
 
 	const result = (await client.actDevice(ANDROID, [
 		{ type: "tap", target: "@e1" },
-	])) as { dispatch: { status: string; reason: string }; view: { id: string } };
+	])) as {
+		dispatch: { status: string; reason: string };
+		view: { id: string; refs: Record<string, string> };
+		accessibility: { status: string };
+		image: unknown;
+		captureReason: string | null;
+		warnings: string[];
+	};
 
 	expect(result.dispatch.status).toBe("none");
 	expect(result.dispatch.reason).toContain("ref @e1 is not addressable");
-	expect(result.view.id).toStartWith("s");
+	expect(result.view.id).toBe(before.view.id);
+	expect(result.view.refs).toEqual(before.view.refs);
+	expect(result.accessibility.status).toBe("ok");
+	expect(result.image).toBeNull();
+	expect(result.captureReason).toBeNull();
+	expect(result.warnings).toContain(
+		"Nothing was sent to the device. Refs and captures from the last observation are still valid.",
+	);
 	expect(frames).toHaveLength(0);
+
+	const refAfterRefusal = (await client.actDevice(ANDROID, [
+		{ type: "tap", target: `@${disabled}` },
+	])) as { dispatch: { reason: string }; view: { id: string } };
+	expect(refAfterRefusal.dispatch.reason).toContain("is disabled");
+	expect(refAfterRefusal.view.id).toBe(before.view.id);
+
+	const captureAfterRefusal = (await client.actDevice(ANDROID, [
+		{ type: "tap", target: "50%,50%", capture: before.captureId },
+	])) as { dispatch: { status: string } };
+	expect(captureAfterRefusal.dispatch.status).toBe("accepted");
+	expect(frames.length).toBeGreaterThan(0);
+});
+
+type VerificationResult = {
+	dispatch: { status: string };
+	verification: { status: string; observed: Record<string, unknown> | null };
+};
+
+/** Observe once and index the refs by element ID. */
+async function refsById(
+	client: ApplicationCommandClient,
+): Promise<Record<string, string>> {
+	const observation = (await client.observeDevice(ANDROID)) as {
+		view: { refs: Record<string, string> };
+	};
+	return Object.fromEntries(
+		Object.entries(observation.view.refs).map(([ref, id]) => [id, ref]),
+	);
+}
+
+test.each([
+	["matched", true],
+	["mismatch", false],
+] as const)("a switch tap reports the checked state (%s)", async (status, flips) => {
+	const { client } = await start({
+		trees: {
+			[ANDROID]: [
+				autoplayTree(false),
+				autoplayTree(false),
+				autoplayTree(flips),
+			],
+		},
+	});
+	const ref = (await refsById(client))["autoplay"]!;
+
+	const result = (await client.actDevice(ANDROID, [
+		{ type: "tap", target: `@${ref}` },
+	])) as VerificationResult;
+
+	expect(result.dispatch.status).toBe("accepted");
+	expect(result.verification).toMatchObject({
+		status,
+		observed: { checked: { before: false, after: flips } },
+	});
+});
+
+test.each([
+	["a dialog", true],
+	["nothing", false],
+] as const)("a long press describes what opened (%s)", async (_label, opens) => {
+	const { client } = await start({
+		trees: {
+			[ANDROID]: [
+				androidSignInSnapshot,
+				androidSignInSnapshot,
+				opens ? popupTree : androidSignInSnapshot,
+			],
+		},
+	});
+	const ref = (await refsById(client))["com.example:id/submit"]!;
+
+	const result = (await client.actDevice(ANDROID, [
+		{ type: "long-press", target: `@${ref}` },
+	])) as VerificationResult;
+
+	expect(result.dispatch.status).toBe("accepted");
+	expect(result.verification).toMatchObject({
+		status: "not_applicable",
+		reason: "Observed after the action.",
+		observed: {
+			screenChanged: opens,
+			foregroundApp: "com.example.app",
+			newWindows: opens ? ['dialog "Add to playlist" (Cancel, OK)'] : [],
+			gone: false,
+		},
+	});
+});
+
+test.each([
+	["moved", true],
+	["still", false],
+] as const)("a swipe describes whether the list moved (%s)", async (_label, moves) => {
+	const { client } = await start({
+		trees: {
+			[ANDROID]: [
+				androidSignInSnapshot,
+				androidSignInSnapshot,
+				moves ? autoplayTree(true, "Autoplay off") : androidSignInSnapshot,
+			],
+		},
+	});
+	const refs = await refsById(client);
+
+	const result = (await client.actDevice(ANDROID, [
+		{
+			type: "swipe",
+			from: `@${refs["list"]}`,
+			to: `@${refs["com.example:id/submit"]}`,
+		},
+	])) as VerificationResult;
+
+	expect(result.dispatch.status).toBe("accepted");
+	expect(result.verification).toMatchObject({
+		status: "not_applicable",
+		reason: "Observed after the action.",
+		observed: {
+			contentMoved: moves,
+			firstVisible: {
+				before: "Autoplay",
+				after: moves ? "Autoplay off" : "Autoplay",
+			},
+		},
+	});
 });
 
 test("a semantic target is checked again immediately before dispatch", async () => {

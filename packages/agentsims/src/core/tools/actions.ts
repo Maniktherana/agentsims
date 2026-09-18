@@ -10,6 +10,7 @@ import {
 	type Pause,
 } from "./input";
 import type { AxSnapshot } from "./observe/accessibility-model";
+import { flattenAxView, type AxViewNode } from "./observe/ax-view";
 import {
 	captureDeviceScreenshot,
 	observeDevice,
@@ -22,10 +23,12 @@ import {
 } from "./observe/observe";
 import type { DeviceSnapshot } from "./observe/snapshot-store";
 import {
+	describeAxNode,
 	isPointTarget,
 	revalidateActionTargets,
 	resolveActionTargets,
 	type ResolvedAction,
+	type ResolvedPoint,
 } from "./observe/targets";
 import {
 	isTextInput,
@@ -117,7 +120,12 @@ type ActionState = {
 	resolved: ResolvedAction[];
 	text?: TextEntry;
 	post?: PostActionState;
+	/** Generic input verifies itself after the read. It keeps its own before. */
+	input?: { before: DeviceSnapshot | null };
 };
+
+const NOTHING_SENT_WARNING =
+	"Nothing was sent to the device. Refs and captures from the last observation are still valid.";
 
 function actionUsesPoint(value: unknown): boolean {
 	if (!value || typeof value !== "object") return false;
@@ -294,6 +302,300 @@ function verificationForForeground(
 	};
 }
 
+/** Report the snapshot the device still holds. A refusal changed nothing. */
+function currentAccessibility(
+	view: DeviceSnapshot | null,
+	snapshot: AxSnapshot | null,
+): CaptureChannel<CapturedAccessibility> {
+	if (!view || !snapshot)
+		return {
+			status: "error",
+			capturedAt: Date.now(),
+			error: "No accessibility snapshot is available. Run observe.",
+		};
+	return {
+		status: "ok",
+		capturedAt: Date.now(),
+		value: { snapshot, view, observationId: view.id },
+	};
+}
+
+function viewNodes(view: DeviceSnapshot | null): AxViewNode[] {
+	return view ? flattenAxView(view.nodes) : [];
+}
+
+function inputPoint(
+	resolved: readonly ResolvedAction[],
+): ResolvedPoint | null {
+	for (const action of resolved) if (action.from?.ref) return action.from;
+	return resolved[0]?.from ?? null;
+}
+
+function nodeByRef(
+	view: DeviceSnapshot | null,
+	ref: string | undefined,
+): AxViewNode | null {
+	if (!ref) return null;
+	return viewNodes(view).find((node) => node.ref === ref) ?? null;
+}
+
+/** The same node after the action. Refs are new, so match on identity. */
+function nodeAgain(
+	view: DeviceSnapshot | null,
+	node: AxViewNode,
+): AxViewNode | null {
+	const nodes = viewNodes(view);
+	const same = nodes.filter(
+		(candidate) =>
+			(candidate.testId ?? "") === (node.testId ?? "") &&
+			candidate.role === node.role &&
+			candidate.label === node.label,
+	);
+	if (same.length === 1) return same[0]!;
+	return (
+		nodes.find((candidate) => candidate.path === node.path) ?? same[0] ?? null
+	);
+}
+
+function nodeSignature(node: AxViewNode): unknown {
+	return {
+		path: node.path,
+		role: node.role,
+		label: node.label,
+		value: node.value,
+		states: node.states,
+		box: node.box,
+		...(node.testId ? { testId: node.testId } : {}),
+	};
+}
+
+/** The comparable form of a published view. The before read keeps no tree. */
+function comparableView(view: DeviceSnapshot | null): string | null {
+	if (!view) return null;
+	return JSON.stringify({
+		app: view.app,
+		screen: view.screen,
+		nodes: viewNodes(view).map(nodeSignature),
+	});
+}
+
+function subtreeText(nodes: readonly AxViewNode[]): string {
+	return flattenAxView(nodes)
+		.map((node) => `${node.role}|${node.label}|${node.value}`)
+		.join("\n");
+}
+
+function firstLabel(nodes: readonly AxViewNode[]): string | null {
+	return flattenAxView(nodes).find((node) => node.label)?.label ?? null;
+}
+
+/** Pruning can drop a window root, so the root path stands in for its ID. */
+function windowKey(node: AxViewNode): string {
+	return node.windowId === undefined
+		? `p${node.path.split(".")[0]}`
+		: `w${node.windowId}`;
+}
+
+const REF_SUFFIX = / \[ref=[^\]]*\]/;
+
+/** Name a window the way describeAxNode does, with its first labels. */
+function describeWindow(root: AxViewNode): string {
+	const labels = flattenAxView([root])
+		.filter((node) => node !== root && node.label)
+		.slice(0, 3)
+		.map((node) => node.label);
+	const head = describeAxNode(root).replace(REF_SUFFIX, "");
+	return labels.length > 0 ? `${head} (${labels.join(", ")})` : head;
+}
+
+/** The windows the action opened. Report at most three. */
+function newWindows(
+	before: DeviceSnapshot | null,
+	after: DeviceSnapshot,
+): string[] {
+	const known = new Set((before?.nodes ?? []).map(windowKey));
+	return after.nodes
+		.filter((node) => !known.has(windowKey(node)))
+		.slice(0, 3)
+		.map(describeWindow);
+}
+
+function scrollerAt(
+	view: DeviceSnapshot,
+	point: ResolvedPoint,
+): AxViewNode | null {
+	const x = point.pixels?.x ?? point.x * view.screen.width;
+	const y = point.pixels?.y ?? point.y * view.screen.height;
+	const candidates = viewNodes(view).filter(
+		(node) =>
+			node.box.width > 0 &&
+			node.box.height > 0 &&
+			x >= node.box.x &&
+			x <= node.box.x + node.box.width &&
+			y >= node.box.y &&
+			y <= node.box.y + node.box.height &&
+			(node.states.includes("scrollable") ||
+				node.role === "scrollview" ||
+				node.role === "list"),
+	);
+	return (
+		candidates.sort(
+			(left, right) =>
+				left.box.width * left.box.height - right.box.width * right.box.height,
+		)[0] ?? null
+	);
+}
+
+function checkedVerification(
+	target: AxViewNode,
+	after: AxViewNode | null,
+): ActionVerification {
+	const before = target.states.includes("checked");
+	if (!after)
+		return {
+			status: "unavailable",
+			reason: "The target is no longer in the accessibility tree.",
+			observed: { checked: { before, after: null } },
+		};
+	const now = after.states.includes("checked");
+	const flipped = now !== before;
+	return {
+		status: flipped ? "matched" : "mismatch",
+		reason: flipped
+			? "The target changed its checked state."
+			: "The target kept its checked state.",
+		observed: { checked: { before, after: now } },
+	};
+}
+
+function sliderVerification(
+	target: AxViewNode,
+	after: AxViewNode | null,
+): ActionVerification {
+	if (!after)
+		return {
+			status: "unavailable",
+			reason: "The slider is no longer in the accessibility tree.",
+			observed: { value: { before: target.value, after: null } },
+		};
+	const changed = after.value !== target.value;
+	return {
+		status: changed ? "matched" : "mismatch",
+		reason: changed
+			? "The slider value changed."
+			: "The slider value did not change.",
+		observed: { value: { before: target.value, after: after.value } },
+	};
+}
+
+const OBSERVED_AFTER = "Observed after the action.";
+
+function screenChanged(
+	before: DeviceSnapshot | null,
+	after: DeviceSnapshot,
+): boolean {
+	const beforeText = comparableView(before);
+	return beforeText !== null && beforeText !== comparableView(after);
+}
+
+function foregroundApp(after: PostActionState): string | null {
+	return after.observation?.context.app ?? after.view?.app ?? null;
+}
+
+/** A swipe, scroll, or drag has no checkable property. Report the content. */
+function swipeObservation(
+	before: DeviceSnapshot | null,
+	view: DeviceSnapshot,
+	start: ResolvedPoint | undefined,
+): ActionVerification {
+	const scroller = before && start ? scrollerAt(before, start) : null;
+	const beforeNodes = scroller ? [scroller] : (before?.nodes ?? []);
+	const again = scroller ? nodeAgain(view, scroller) : null;
+	const afterNodes = scroller ? (again ? [again] : []) : view.nodes;
+	return {
+		status: "not_applicable",
+		reason: OBSERVED_AFTER,
+		observed: {
+			contentMoved:
+				before !== null && subtreeText(beforeNodes) !== subtreeText(afterNodes),
+			firstVisible: {
+				before: firstLabel(scroller ? scroller.children : beforeNodes),
+				after: firstLabel(again ? again.children : afterNodes),
+			},
+		},
+	};
+}
+
+/** A device button leaves no target to read. Report screen and app. */
+function buttonObservation(
+	before: DeviceSnapshot | null,
+	after: PostActionState,
+	view: DeviceSnapshot,
+): ActionVerification {
+	return {
+		status: "not_applicable",
+		reason: OBSERVED_AFTER,
+		observed: {
+			screenChanged: screenChanged(before, view),
+			foregroundApp: {
+				before: before?.app ?? null,
+				after: foregroundApp(after),
+			},
+		},
+	};
+}
+
+/** A tap or long press on a target without a checkable property. */
+function touchObservation(
+	before: DeviceSnapshot | null,
+	after: PostActionState,
+	view: DeviceSnapshot,
+	target: AxViewNode | null,
+): ActionVerification {
+	return {
+		status: "not_applicable",
+		reason: OBSERVED_AFTER,
+		observed: {
+			screenChanged: screenChanged(before, view),
+			foregroundApp: foregroundApp(after),
+			newWindows: newWindows(before, view),
+			gone: target !== null && nodeAgain(view, target) === null,
+		},
+	};
+}
+
+/**
+ * Report what the input changed. Only a checkable property, such as a checked
+ * state or a slider value, carries a matched or mismatch status. Every other
+ * action reports facts and leaves the judgement to the reader.
+ */
+function verificationForInput(
+	before: DeviceSnapshot | null,
+	after: PostActionState,
+	resolved: ResolvedAction[],
+): ActionVerification {
+	const view = after.view;
+	if (!view)
+		return {
+			status: "unavailable",
+			reason: "The accessibility read after the action is unavailable.",
+			observed: null,
+		};
+	const target = nodeByRef(before, inputPoint(resolved)?.ref);
+	if (
+		target &&
+		(target.states.includes("checked") || target.states.includes("unchecked"))
+	)
+		return checkedVerification(target, nodeAgain(view, target));
+	if (target?.role === "slider")
+		return sliderVerification(target, nodeAgain(view, target));
+	const swipe = resolved.find((action) => action.type === "swipe");
+	if (swipe) return swipeObservation(before, view, swipe.from);
+	if (resolved.some((action) => action.type === "button"))
+		return buttonObservation(before, after, view);
+	return touchObservation(before, after, view, target);
+}
+
 function captureReason(input: {
 	explicit: boolean;
 	coordinate: boolean;
@@ -396,6 +698,35 @@ export function makeDeviceActionRunner(
 		verification?: UiOperationVerification,
 	) =>
 		Effect.gen(function* () {
+			if (state.dispatch.status === "none") {
+				const view = dependencies.store.current(device);
+				const kept: PostActionState = {
+					observation: null,
+					accessibility: currentAccessibility(
+						view,
+						dependencies.store.normalized(device),
+					),
+					view,
+					warnings: [],
+				};
+				return {
+					device,
+					dispatch: state.dispatch,
+					verification: verification
+						? verificationForForeground(verification, kept)
+						: state.verification,
+					resolved: state.resolved,
+					accessibility: kept.accessibility,
+					view,
+					image: null,
+					captureReason: null,
+					warnings: [
+						...(state.post?.warnings ?? []),
+						NOTHING_SENT_WARNING,
+					],
+					...(state.text ? { text: state.text } : {}),
+				};
+			}
 			let post = state.post ?? (yield* readPost(device));
 			const afterSnapshot = dependencies.store.normalized(device);
 			const reason = captureReason({
@@ -421,7 +752,9 @@ export function makeDeviceActionRunner(
 				dispatch: state.dispatch,
 				verification: verification
 					? verificationForForeground(verification, post)
-					: state.verification,
+					: state.input
+						? verificationForInput(state.input.before, post, state.resolved)
+						: state.verification,
 				resolved: state.resolved,
 				accessibility: post.accessibility,
 				view: post.view,
@@ -644,6 +977,7 @@ export function makeDeviceActionRunner(
 									observed: null,
 								},
 								resolved: attempted.resolved,
+								input: { before: beforeView },
 							}
 						: {
 								dispatch: {
@@ -658,6 +992,7 @@ export function makeDeviceActionRunner(
 									observed: null,
 								},
 								resolved: [],
+								input: { before: beforeView },
 							};
 				}
 				return yield* finish(
