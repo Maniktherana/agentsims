@@ -126,6 +126,11 @@ Nodes print as `role "label" [ref=eN] [state]… [testid=x]: value`. Roles and s
 you what a node does: `[clickable]` and `[long-press]` take gestures, `[checked]`/
 `[unchecked]` hold state, `[scrollable]` marks a region for `scroll --in`, `[disabled]` is
 present but inert, `[offscreen]` needs scrolling into view, `[focused]` holds text input.
+Extra brackets are facts the platform knows: `[state="On"]` is what a screen reader
+would say, `[error="Required"]` and `[placeholder="Email"]` describe a field,
+`[rows=30]` is a list's full length and `[row=5/30]` an item's place in it,
+`[actions=scroll-forward,expand]` what a node accepts, `[cursor=3]` where typing lands.
+A slider shows its position as a value: `slider "Brightness" [ref=e9]: 93% (238/255)`.
 Rows carry the words they show, so `tap "Connected devices"` or `tap @e237` hits the row;
 when a label matches one actionable node and some inert text, the actionable node wins.
 Then read:
@@ -192,11 +197,14 @@ every line is evidence, not just the last. Literal newlines in text are rejected
 agentsims scroll down --to-end --collect text --in @e14 -d "$D"
 ```
 
-Never count, enumerate, or say "that is all of them" from one screen. Collect first, then
-reason. `scroll` needs no capture; `--amount <pct>` sets how far one page moves. `--to-end
---collect <testid|role|label>` returns every row inside that region across pages,
+Never count, enumerate, or say "that is all of them" from one screen. A list that prints
+`[rows=30]` has told you its length, offscreen items included; without it, collect first,
+then reason. `scroll` needs no capture; `--amount <pct>` sets how far one page moves.
+`--to-end --collect <testid|role|label>` returns every row inside that region across pages,
 deduplicated, with `count` and `endReached` (`collected  37 items  selector=text`).
-`endReached=no` means a partial list: keep going or raise `--max-pages` before you answer.
+A row named by its title is a `generic`, so collect rows with `generic` or their test ID;
+`--collect text` returns only the texts left inside them. `endReached=no` means a partial
+list: keep going or raise `--max-pages` before you answer.
 
 ### Waiting
 
@@ -248,7 +256,9 @@ agentsims swipe 50%,80% 50%,20% -d "$D"        # percent points need no capture
 ### Toggles, sliders, places
 
 A switch tap reports `checked: before → after`; if it did not flip, tap once more, not
-blindly twice. A slider reports `value:`; use `drag` along its bar. For a named place in
+blindly twice. A slider reports `value: 45% → 93%`; use `drag` along its bar, and for its
+maximum or minimum drag to the far edge of its box from `--frames`, then check the value
+reads 100% or 0%. For a named place in
 a map, open its own search result (check the subtitle, `Village` versus a bus stop),
 read the coordinate line in its menu, then act. Never long-press the map to place a
 named location.
