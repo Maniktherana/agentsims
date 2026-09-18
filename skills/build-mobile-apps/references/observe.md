@@ -1,7 +1,22 @@
 # Observe a device
 
 Agentsims uses a hybrid observation: a normalized accessibility view plus an
-image. Each channel reports success or failure independently.
+image. Each channel reports success or failure independently. Read both, then
+decide what to do; the CLI does not choose an action for you.
+
+## Contents
+
+- [Observe AX and pixels together](#observe-ax-and-pixels-together)
+- [Capture pixels only](#capture-pixels-only)
+- [Structured output](#structured-output)
+- [Refs and capture IDs](#refs-and-capture-ids)
+- [Read the tree](#read-the-tree)
+- [Search with find](#search-with-find)
+- [Wait for a screen state](#wait-for-a-screen-state)
+- [Watch something that changes](#watch-something-that-changes)
+- [When channels disagree](#when-channels-disagree)
+- [iOS 27 limitation](#ios-27-limitation)
+- [React Native source context](#react-native-source-context)
 
 ## Observe AX and pixels together
 
@@ -24,18 +39,19 @@ elements  3 shown / 3 total
 - button "Sign in" [ref=e3] [testid=submit]
 ```
 
-The timestamps, IDs, path, dimensions, and nodes come from the current run.
-Use `--frames` to add `[box=x,y,w,h]` in image pixels and `--raw` to show
-the platform class. Use `--all` to include nodes removed by the useful-node
-filter.
+The `1080×2400` on the `image` line is the pixel space that `--frames` boxes and
+pixel points use. `--frames` adds `[box=x,y,w,h]`, `--raw` prints the platform
+class in place of the role, and `--all` includes the nodes that the useful-node
+filter removed.
 
-Open `artifact.path` with the image tool before you choose image coordinates.
-Use the original image dimensions. A file path alone is not visual evidence.
+Open `artifact.path` with the image tool before you choose pixel coordinates,
+and read the image at its original dimensions. A file path alone is not visual
+evidence.
 
-The default image path uses the system temporary directory. Override its
-directory with `AGENTSIMS_SCREENSHOT_DIR`, or use `-o <path>`. An explicit
-path has the highest priority. Agentsims prunes only files that it created in
-its managed default directory. It does not prune user-selected directories.
+The default image directory is the system temporary directory. Override it with
+`AGENTSIMS_SCREENSHOT_DIR`, or pass `-o <path>`; an explicit path wins. A write
+to a path that already exists overwrites that file. Agentsims prunes only the
+files it created in its own managed default directory.
 
 ## Capture pixels only
 
@@ -43,104 +59,158 @@ its managed default directory. It does not prune user-selected directories.
 agentsims screenshot /tmp/current.png -d "$DEVICE"
 ```
 
-`screenshot` does not read accessibility or the foreground application. Use
-it for a visual check that does not need semantic state. It returns a capture
-ID only when the pixels are current and safe for a later point action.
+`screenshot` does not read accessibility or the foreground app. Use it for a
+visual check that needs no semantic state, or to get a capture ID for a pixel
+point. It returns a capture ID only when the pixels are current and safe to
+target.
 
-## One public AX view
-
-Plain output prints one tree. Structured output also exposes one public tree in
-top-level `view`. The `accessibility` channel contains its status, capture
-time, and observation ID. It does not duplicate the raw platform snapshot.
-Image bytes are not printed. The `artifact` result reports the local file.
+## Structured output
 
 ```sh
 agentsims observe -d "$DEVICE" --json > /tmp/observation.json
 ```
-
-Important fields:
 
 | Field | Meaning |
 |---|---|
 | `observationId` | ID for the published current AX state, or `null` |
 | `captureId` | ID for current actionable pixels, or `null` |
 | `accessibility` | AX channel status and capture time |
-| `image` | Image channel status, type, dimensions, IDs, and capture time |
+| `image` | image channel status, type, dimensions, IDs, capture time |
 | `artifact` | `ok` with an absolute path, or `error` with the write failure |
-| `context` | App, orientation, generation, and capture-change evidence |
-| `view` | The one normalized AX tree used for refs and matching |
-| `warnings` | Degraded-channel and context warnings |
+| `context` | app, orientation, generation, capture-change evidence |
+| `view` | the one normalized AX tree used for refs and matching |
+| `warnings` | degraded-channel and context warnings |
 
-Image write failure does not erase the captured image metadata or the AX state.
-The command prints the evidence, reports `artifact error`, and exits with
-failure.
+Image bytes are never printed. An image write failure does not erase the image
+metadata or the AX state: the command prints the evidence, reports
+`artifact error`, and exits with failure.
 
 ## Refs and capture IDs
 
-A ref belongs to the current observation on one device. A capture ID belongs to
-the current image on one device. Any new observation or input invalidates the
-old IDs. Browser input invalidates CLI IDs on that device too.
+A ref belongs to the current observation on one device. A capture ID stays valid
+until the screen changes: an accepted mutation, a rotation, or browser input on
+that device ends it. A refusal is not a change — after `dispatch none` the refs
+and captures from the last observation are still valid, and the result says so:
 
-The following commands are separate alternatives. Run only one mutation for
-the current observation.
-
-```sh
-agentsims tap @e3 -d "$DEVICE"
+```text
+warning  Nothing was sent to the device. Refs and captures from the last observation are still valid.
 ```
 
+A percent point needs no capture at all, because the server resolves it against
+the live screen size. A pixel point needs `--capture cN`:
+
 ```sh
+agentsims tap 50%,80% -d "$DEVICE"
 agentsims tap 603,1311 --capture c1 -d "$DEVICE"
 ```
 
-A stale ID fails before dispatch. Do not copy a ref or capture ID into a later
-task note. Keep the label and intended value instead.
+A stale ID fails before dispatch, with the reason: `capture c1 is from before
+the last input. Take a screenshot again`, or `ref @e3 is not addressable in
+snapshot s7. Run observe`. State is isolated by device, so work on one device
+never authorizes input on another. Keep labels, values, and goals in your notes;
+do not keep refs or capture IDs for later.
 
-`captureId: null` or human `capture=none` means the pixels remain evidence,
-but are not a valid source for a point action. This can happen when the screen
-context changes during capture.
+`captureId: null`, printed as `capture=none`, means the pixels remain evidence
+but cannot authorize a pixel point. That happens when the screen context changed
+during the capture.
 
 ## Read the tree
 
-Each node can contain:
+Each node can carry:
 
 | Field | Meaning |
 |---|---|
 | `ref` | current-only CLI target |
 | `role` and `rawRole` | normalized role and platform class |
 | `label` and `value` | current semantic content |
-| `states` | focused, disabled, checked, selected, scrollable, clickable, and related state |
-| `box` | image-pixel rectangle |
+| `states` | see below |
+| `box` | pixel rectangle, printed with `--frames` |
 | `testId` | app-provided test or native identifier |
 | `children` | nested useful nodes |
 
-Use `find` for a bounded current search:
+States tell you what a node accepts and what it currently is: `[clickable]`,
+`[long-press]`, `[scrollable]`, `[checked]`/`[unchecked]`, `[selected]`,
+`[focused]`, `[disabled]`, `[offscreen]`. Target the actionable node. An unnamed
+clickable container carries the label of the first text it shows, and that text
+child no longer appears separately:
+
+```text
+- generic "Housing" [ref=e21] [unchecked] [clickable]
+```
+
+So a settings row reads as one node with its own state. A ref on an inert node
+dispatches with a warning that names its clickable container. `[offscreen]` means
+the node is not visible to the user: scroll it into view before acting on it.
+
+Never count a list from one screen. Use `scroll --to-end --collect <selector>`
+and reason over the deduplicated list it returns.
+
+## Search with find
 
 ```sh
 agentsims find "Sign in" -d "$DEVICE"
 ```
 
-If more than one node matches, choose a fresh ref or add `--role` and
-`--index` to the action.
+`find` prints the nodes of the current observation whose label, value, or test ID
+matches. If several match, choose a ref, or add `--role` and `--index` to the
+action.
 
-`[clickable]` marks a node that accepts a tap. If text is not actionable, use
-the current ref of its enclosing `[clickable]` row or button. If no actionable
-container exists, inspect the image.
+## Wait for a screen state
+
+```sh
+agentsims wait --for "Saved" -d "$DEVICE"
+agentsims wait --gone "Loading" --timeout 20000 --interval 250 -d "$DEVICE"
+agentsims wait --stable -d "$DEVICE"
+```
+
+Use `wait` instead of `sleep`. Never use `sleep`: it proves nothing about the
+screen and hides what changed. `--for` waits for a label, value, or test ID to
+appear; `--gone` waits for it to go; `--stable` waits until two reads of the tree
+match. `--timeout` defaults to 10000 ms (maximum 600000) and `--interval` to
+500 ms. The command prints the condition, the outcome, and the tree it ended on,
+and exits 1 when the condition never held:
+
+```text
+wait  for="Saved"  satisfied=yes  elapsed=1200ms  polls=3
+```
+
+## Watch something that changes
+
+```sh
+agentsims observe --watch 8000 --samples 6 -d "$DEVICE"
+```
+
+`--watch <ms>` samples the screen over that long, up to 120000 ms, and writes one
+contact-sheet PNG of evenly spaced frames with a digit badge in each cell.
+`--samples <n>` sets the frame count, 1 to 16, and defaults to 4. Use it for
+anything that changes over time: video playback, animation, a timer, a progress
+bar, a splash screen.
+
+```text
+watch  device=android:emulator-5554  platform=android  started=2026-09-17T01:00:00.000Z
+frames  6 over 8000ms  sheet=/tmp/agentsims/screenshots/observe-android_emulator-5554.png  grid=3x2 cell=540x1200
+frame  0  at=0ms  540×1200  capture=c4
+```
+
+Open the `sheet=` path with the image tool and compare the badged frames. A
+single observation cannot show motion, so do not describe motion from one frame.
+The trailing observation in the same output is the state the watch ended on.
 
 ## When channels disagree
 
 Treat both channels as evidence:
 
-- AX succeeds and the image fails: semantic targeting can continue. State the
-  missing visual proof.
-- The image succeeds and AX fails: inspect the saved image. A point action must
-  use the current capture ID. State that semantic checks are unverified.
-- Both fail: stop. The command exits with failure.
-- The screen changes during capture: pixels can remain visible evidence, but
-  the capture ID is `null` and cannot authorize a point.
+- AX ok, image failed: semantic targeting continues. State the missing visual
+  proof.
+- Image ok, AX failed: inspect the saved image and use a capture-bound pixel
+  point. State that semantic checks are unverified.
+- Both failed: stop. The command exits with failure.
+- The screen changed during capture: the pixels can still be evidence, but
+  `capture=none` cannot authorize a point.
 
-After an action, Agentsims always reads AX and captures an image only for an
-explicit request or a degraded/changed result. Read `captureReason` in JSON to
-learn why an action image exists.
+After an action, agentsims always reads AX and captures an image only on request
+or when the result is degraded or changed. `captureReason` in JSON says why an
+action image exists.
 
 If an action image exists after navigation, inspect it. If AX still shows the
 previous screen, observe again. Do not press Back only because the first
@@ -155,15 +225,15 @@ intercepts taps. Therefore:
 
 - a root-only tree is degraded AX, not proof that no controls exist;
 - do not claim clean unfocused semantic targeting from that state;
-- use a current screenshot and capture-bound point only when the task permits
+- use a current screenshot and a capture-bound point when the task allows
   visual targeting;
-- focused-field fill and follow-up type have matched native readback proof;
-- the guest AXRuntime/XCTAutomationSupport backend is deferred and is not part
-  of the shipped build.
+- focused-field `fill` and a following `type` have matched native readback;
+- the guest AXRuntime/XCTAutomationSupport backend is not part of the shipped
+  build.
 
 ## React Native source context
 
-When the project uses the Agentsims Metro integration, a node can carry source
-context. An `exact-testid` match is strong evidence. A related native ID is
-weaker. A host element's owner name is context, not proof of the exact component
-that produced the native node.
+With the agentsims Metro integration, a node can carry source context. An
+`exact-testid` match is strong evidence. A related native ID is weaker. A host
+element's owner name is context, not proof of the exact component that produced
+the native node.

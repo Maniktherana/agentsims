@@ -44,6 +44,12 @@ Launch and stop return dispatch, foreground-app verification, and post-action
 AX. Add `--screenshot` when the result needs explicit visual evidence. Do not
 report success from dispatch alone.
 
+A launch is an accepted mutation, so it invalidates earlier refs and capture
+IDs. When the first screen needs time to appear, use `agentsims wait --for
+"<something on that screen>"` or `agentsims wait --stable`, never `sleep`. For a
+splash screen or an opening animation, sample it with
+`agentsims observe --watch <ms>` and read the contact sheet.
+
 ## Android device logs
 
 Device log snapshots are Android only. Use them when the screen does not show
@@ -146,7 +152,9 @@ reports what it changed, and what it could not change:
 ```
 
 A permission change does not restart the app. To test the first-launch prompt,
-reset the permission, stop the app, then launch it again.
+reset the permission, stop the app, then launch it again. The system prompt is a
+separate window, so observe after the launch and target the button the tree
+shows, rather than a remembered position.
 
 ## Camera input
 
