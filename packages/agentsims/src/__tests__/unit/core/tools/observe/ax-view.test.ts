@@ -4,6 +4,7 @@ import {
 	axStatesOf,
 	buildAxView,
 	flattenAxView,
+	parentIndexOf,
 	type AxPlatform,
 	type AxViewNode,
 } from "../../../../../core/tools/observe/ax-view";
@@ -139,13 +140,11 @@ describe("states", () => {
 		expect(result.nodes[0]).toMatchObject({
 			id: "item-root",
 			role: "generic",
+			label: "task.html",
+			testId: "item_root",
 			states: ["clickable"],
 		});
-		expect(result.nodes[0]?.children[0]).toMatchObject({
-			id: "item-label",
-			role: "text",
-			states: [],
-		});
+		expect(result.nodes[0]?.children).toEqual([]);
 	});
 
 	test("iOS reports only the states the bridge gives", () => {
@@ -239,6 +238,221 @@ describe("pruning", () => {
 	test("a scrollable node stays even without a label", () => {
 		const list = [...nodes.values()].find((node) => node.id === "list");
 		expect(list?.states).toContain("scrollable");
+	});
+});
+
+describe("inherited labels", () => {
+	test("an unnamed clickable container takes its first text child label", () => {
+		const result = view(
+			{
+				screen: { width: 1080, height: 2400 },
+				elements: [
+					axElement("0", "android.view.ViewGroup", {
+						id: "category-row",
+						testId: "com.example.proexpense:id/cd_category",
+						traits: ["clickable", "long press", "checkable"],
+						frame: { x: 0, y: 400, width: 1080, height: 200 },
+					}),
+					axElement("0.0", "android.widget.TextView", {
+						id: "category-label",
+						label: "Housing",
+						frame: { x: 40, y: 440, width: 600, height: 60 },
+					}),
+				],
+			},
+			"android",
+		);
+		expect(result.nodes).toHaveLength(1);
+		expect(result.nodes[0]).toMatchObject({
+			id: "category-row",
+			role: "generic",
+			label: "Housing",
+			testId: "com.example.proexpense:id/cd_category",
+			states: ["unchecked", "clickable", "long-press"],
+		});
+		expect(result.nodes[0]?.children).toEqual([]);
+	});
+
+	test("an unnamed wrapper between the row and the title collapses", () => {
+		const result = view(
+			{
+				screen: { width: 1080, height: 2400 },
+				elements: [
+					axElement("0", "android.view.ViewGroup", {
+						id: "item-root",
+						testId: "com.google.android.documentsui:id/item_root",
+						traits: ["clickable"],
+						frame: { x: 0, y: 400, width: 1080, height: 200 },
+					}),
+					axElement("0.0", "android.widget.LinearLayout", {
+						id: "item-body",
+						frame: { x: 0, y: 400, width: 1080, height: 200 },
+					}),
+					axElement("0.0.0", "android.widget.TextView", {
+						id: "item-title",
+						label: "probe.html",
+						testId: "android:id/title",
+						frame: { x: 40, y: 420, width: 600, height: 60 },
+					}),
+				],
+			},
+			"android",
+		);
+		expect(flattenAxView(result.nodes).map((node) => node.id)).toEqual([
+			"item-root",
+		]);
+		expect(result.nodes[0]).toMatchObject({
+			role: "generic",
+			label: "probe.html",
+			testId: "com.google.android.documentsui:id/item_root",
+			states: ["clickable"],
+		});
+	});
+
+	test("a subtitle stays after the container takes the title", () => {
+		const result = view(
+			{
+				screen: { width: 1080, height: 2400 },
+				elements: [
+					axElement("0", "android.view.ViewGroup", {
+						id: "result-row",
+						traits: ["clickable"],
+						frame: { x: 0, y: 400, width: 1080, height: 200 },
+					}),
+					axElement("0.0", "android.widget.TextView", {
+						id: "result-title",
+						label: "Planken",
+						frame: { x: 40, y: 420, width: 600, height: 60 },
+					}),
+					axElement("0.1", "android.widget.TextView", {
+						id: "result-subtitle",
+						label: "Village",
+						frame: { x: 40, y: 500, width: 600, height: 60 },
+					}),
+				],
+			},
+			"android",
+		);
+		expect(flattenAxView(result.nodes).map((node) => node.id)).toEqual([
+			"result-row",
+			"result-subtitle",
+		]);
+		expect(result.nodes[0]).toMatchObject({
+			role: "generic",
+			label: "Planken",
+			states: ["clickable"],
+		});
+		expect(result.nodes[0]?.children[0]).toMatchObject({
+			role: "text",
+			label: "Village",
+		});
+	});
+
+	test("a row containing a button does not inherit the button label", () => {
+		const result = view(
+			{
+				screen: { width: 1080, height: 2400 },
+				elements: [
+					axElement("0", "android.view.ViewGroup", {
+						id: "row",
+						testId: "row_root",
+						traits: ["clickable"],
+						frame: { x: 0, y: 400, width: 1080, height: 200 },
+					}),
+					axElement("0.0", "android.widget.Button", {
+						id: "row-action",
+						label: "Save",
+						traits: ["clickable"],
+						frame: { x: 700, y: 420, width: 300, height: 120 },
+					}),
+				],
+			},
+			"android",
+		);
+		const nodes = flattenAxView(result.nodes);
+		expect(nodes.find((node) => node.id === "row")?.label).toBe("");
+		expect(nodes.find((node) => node.id === "row-action")?.label).toBe("Save");
+	});
+
+	test("a named container keeps its own label", () => {
+		const result = view(
+			{
+				screen: { width: 1080, height: 2400 },
+				elements: [
+					axElement("0", "android.view.ViewGroup", {
+						id: "row",
+						label: "Open settings",
+						traits: ["clickable"],
+						frame: { x: 0, y: 400, width: 1080, height: 200 },
+					}),
+					axElement("0.0", "android.widget.TextView", {
+						id: "row-text",
+						label: "Settings",
+						frame: { x: 40, y: 420, width: 600, height: 60 },
+					}),
+				],
+			},
+			"android",
+		);
+		expect(flattenAxView(result.nodes).map((node) => node.label)).toEqual([
+			"Open settings",
+			"Settings",
+		]);
+	});
+});
+
+describe("parent index", () => {
+	test("every node maps to its ancestor chain", () => {
+		const result = view(
+			{
+				screen: { width: 1080, height: 2400 },
+				elements: [
+					axElement("0", "android.view.ViewGroup", {
+						id: "row",
+						label: "Open Downloads",
+						testId: "row_root",
+						traits: ["clickable"],
+					}),
+					axElement("0.0", "android.view.ViewGroup", {
+						id: "row-body",
+						testId: "row_body",
+					}),
+					axElement("0.0.0", "android.widget.TextView", {
+						id: "row-label",
+						label: "Downloads",
+					}),
+					axElement("0.0.1", "android.widget.TextView", {
+						id: "row-detail",
+						label: "12 items",
+					}),
+					axElement("1", "android.widget.Button", {
+						id: "done",
+						label: "Done",
+					}),
+				],
+			},
+			"android",
+		);
+		const parents = parentIndexOf(result.nodes);
+		const nodes = new Map(
+			flattenAxView(result.nodes).map((node) => [node.id, node]),
+		);
+		const chain = (id: string): Array<string | null> => {
+			const names: Array<string | null> = [];
+			let current = parents.get(nodes.get(id)!) ?? null;
+			while (current) {
+				names.push(current.id);
+				current = parents.get(current) ?? null;
+			}
+			names.push(null);
+			return names;
+		};
+
+		expect(parents.size).toBe(flattenAxView(result.nodes).length);
+		expect(chain("row-label")).toEqual(["row-body", "row", null]);
+		expect(chain("row-detail")).toEqual(["row-body", "row", null]);
+		expect(chain("row")).toEqual([null]);
+		expect(chain("done")).toEqual([null]);
 	});
 });
 

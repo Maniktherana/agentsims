@@ -8,10 +8,11 @@ import {
 import {
 	AX_ROLES,
 	flattenAxView,
+	parentIndexOf,
 	type AxRole,
 	type AxViewNode,
 } from "./ax-view";
-import type { AxElement } from "./accessibility-model";
+import type { AxElement, AxRect } from "./accessibility-model";
 import {
 	isRefIdentifier,
 	type DeviceSnapshot,
@@ -70,6 +71,8 @@ export interface ResolvedAction {
 	into?: ResolvedPoint;
 	value?: string | null;
 	cleared?: boolean;
+	/** Reports a tolerated difference, such as a row that moved. */
+	warnings?: string[];
 }
 
 export interface ResolvedActions {
@@ -80,11 +83,14 @@ export interface ResolvedActions {
 		endpoint: "from" | "to";
 		identity: NodeIdentity;
 	}>;
+	warnings?: string[];
 }
 
 export interface TargetResolutionContext {
 	orientation?: string | null;
 	generation?: number | null;
+	/** The current screen size in pixels. Percent points need no capture. */
+	screen?: { width: number; height: number };
 }
 
 interface NodeIdentity {
@@ -93,6 +99,18 @@ interface NodeIdentity {
 	role: AxRole;
 	windowId?: number;
 	sourceId?: number;
+	/** Kept so a re-rendered row can be found again by what it says. */
+	label: string;
+	value: string;
+	testId?: string;
+	box: AxRect;
+}
+
+/** A resolved node, and any tolerated difference the agent should read. */
+interface TargetCheck {
+	node: AxViewNode;
+	/** Set when the node carries no actionable role or trait of its own. */
+	warning?: string;
 }
 
 const POINT_PATTERN = /^(-?\d+(?:\.\d+)?)(%?),(-?\d+(?:\.\d+)?)(%?)$/;
@@ -112,6 +130,16 @@ export function describeAxNode(node: AxViewNode): string {
 	return `${node.role}${label ? ` "${label}"` : ""} [ref=${node.ref}]`;
 }
 
+/**
+ * Name a node without a ref. A warning survives the snapshot that its refs
+ * belong to, so a ref in a warning is not addressable when the agent reads it.
+ */
+function namedAxNode(node: AxViewNode): string {
+	const label = node.label || node.value;
+	const testId = node.testId ? ` [testid=${node.testId}]` : "";
+	return `${node.role}${label ? ` "${label}"` : ""}${testId}`;
+}
+
 function fail(message: string): never {
 	throw new InvalidCommandInput({ message });
 }
@@ -122,14 +150,18 @@ function requireSnapshot(store: SnapshotStore, device: string): DeviceSnapshot {
 	return snapshot;
 }
 
+function centreOf(box: AxRect): { x: number; y: number } {
+	return {
+		x: Math.round(box.x + box.width / 2),
+		y: Math.round(box.y + box.height / 2),
+	};
+}
+
 function pointOfNode(node: AxViewNode): ResolvedPoint {
 	return {
 		x: node.point.x,
 		y: node.point.y,
-		pixels: {
-			x: Math.round(node.box.x + node.box.width / 2),
-			y: Math.round(node.box.y + node.box.height / 2),
-		},
+		pixels: centreOf(node.box),
 		ref: node.ref,
 		role: node.role,
 		...(node.label || node.value ? { label: node.label || node.value } : {}),
@@ -213,17 +245,17 @@ function wrongWindow(
 	});
 }
 
-function requireActionable(
+/** Report why the node cannot take input, or null when it can. */
+function unreachable(
 	store: SnapshotStore,
 	device: string,
 	snapshot: DeviceSnapshot,
 	node: AxViewNode,
-): AxViewNode {
-	const description = describeAxNode(node);
+): string | null {
 	if (node.states.includes("disabled"))
-		fail(`${description} is disabled and cannot be targeted`);
+		return "is disabled and cannot be targeted";
 	if (node.states.includes("offscreen"))
-		fail(`${description} is offscreen. Run observe after it is visible`);
+		return "is offscreen. Run observe after it is visible";
 	const { x, y, width, height } = node.box;
 	if (
 		width <= 0 ||
@@ -233,24 +265,81 @@ function requireActionable(
 		x + width > snapshot.screen.width ||
 		y + height > snapshot.screen.height
 	)
-		fail(`${description} is clipped outside the current screen`);
-	if (wrongWindow(store, device, node))
-		fail(`${description} is behind the active window`);
+		return "is clipped outside the current screen";
+	if (wrongWindow(store, device, node)) return "is behind the active window";
+	return null;
+}
+
+function isActionable(
+	store: SnapshotStore,
+	device: string,
+	node: AxViewNode,
+): boolean {
 	const source = sourceElement(store, device, node);
-	const actionable =
+	return (
 		ACTIONABLE_ROLES.has(node.role) ||
 		source?.traits?.includes("clickable") === true ||
 		source?.traits?.includes("scrollable") === true ||
-		source?.traits?.includes("long press") === true;
-	if (!actionable) fail(`${description} is not actionable`);
-	return node;
+		source?.traits?.includes("long press") === true
+	);
+}
+
+/** Name the container the agent should have addressed, when there is one. */
+function actionableAncestor(
+	store: SnapshotStore,
+	device: string,
+	snapshot: DeviceSnapshot,
+	node: AxViewNode,
+): AxViewNode | null {
+	const parents = parentIndexOf(snapshot.nodes);
+	let current = parents.get(node) ?? null;
+	while (current) {
+		if (
+			node.windowId !== undefined &&
+			current.windowId !== undefined &&
+			current.windowId !== node.windowId
+		)
+			return null;
+		if (
+			isActionable(store, device, current) &&
+			unreachable(store, device, snapshot, current) === null
+		)
+			return current;
+		current = parents.get(current) ?? null;
+	}
+	return null;
+}
+
+/**
+ * Check that the node can take input. An inert node still takes a touch,
+ * because the platform delivers it to the view under the point. Report the
+ * missing trait as a warning so the agent can read what it hit.
+ */
+function requireActionable(
+	store: SnapshotStore,
+	device: string,
+	snapshot: DeviceSnapshot,
+	node: AxViewNode,
+): TargetCheck {
+	const description = describeAxNode(node);
+	const blocked = unreachable(store, device, snapshot, node);
+	if (blocked) fail(`${description} ${blocked}`);
+	if (isActionable(store, device, node)) return { node };
+	const ancestor = actionableAncestor(store, device, snapshot, node);
+	const trait = `${namedAxNode(node)} has no clickable or long-press trait.`;
+	return {
+		node,
+		warning: ancestor
+			? `${trait} Its clickable container is ${namedAxNode(ancestor)}`
+			: trait,
+	};
 }
 
 function resolveRef(
 	store: SnapshotStore,
 	device: string,
 	target: string,
-): AxViewNode {
+): TargetCheck {
 	const result = store.resolveRef(device, target);
 	if (result.ok)
 		return requireActionable(
@@ -285,8 +374,33 @@ function resolvePoint(
 	const target = selector.target;
 	const match = POINT_PATTERN.exec(target.replace(/\s+/g, ""));
 	if (!match) return null;
-	if (!selector.capture)
-		fail(`point "${target}" requires a current capture ID`);
+	const [, rawX, unitX, rawY, unitY] = match;
+	if (unitX !== unitY)
+		fail(
+			`point "${target}" mixes units. Give both values in pixels, or both in percent`,
+		);
+	const x = Number(rawX);
+	const y = Number(rawY);
+	const isPercent = unitX === "%";
+	if (isPercent && (x < 0 || x > 100 || y < 0 || y > 100))
+		fail(`point "${target}" is outside the screen. Percent runs from 0 to 100`);
+	if (!selector.capture) {
+		// Percent needs no screenshot. It only needs the live screen size.
+		if (!isPercent || !context.screen)
+			fail(`point "${target}" requires a current capture ID`);
+		const screen = context.screen;
+		if (screen.width <= 0 || screen.height <= 0)
+			fail(`point "${target}" requires a current capture ID`);
+		return {
+			x: x / 100,
+			y: y / 100,
+			pixels: {
+				x: Math.round((x / 100) * screen.width),
+				y: Math.round((y / 100) * screen.height),
+			},
+			...(context.orientation ? { orientation: context.orientation } : {}),
+		};
+	}
 	const resolved = store.resolveCapture(device, selector.capture);
 	if (!resolved.ok) {
 		switch (resolved.reason) {
@@ -325,18 +439,7 @@ function resolvePoint(
 	const { width, height } = capture.screen;
 	if (width <= 0 || height <= 0)
 		fail(`capture ${capture.id} has invalid pixel dimensions`);
-	const [, rawX, unitX, rawY, unitY] = match;
-	if (unitX !== unitY)
-		fail(
-			`point "${target}" mixes units. Give both values in pixels, or both in percent`,
-		);
-	const x = Number(rawX);
-	const y = Number(rawY);
-	if (unitX === "%") {
-		if (x < 0 || x > 100 || y < 0 || y > 100)
-			fail(
-				`point "${target}" is outside the screen. Percent runs from 0 to 100`,
-			);
+	if (isPercent) {
 		return {
 			x: x / 100,
 			y: y / 100,
@@ -388,7 +491,7 @@ function resolveLabel(
 	store: SnapshotStore,
 	device: string,
 	selector: TargetSelector,
-): AxViewNode {
+): TargetCheck {
 	const snapshot = requireSnapshot(store, device);
 	const matches = matchAxNodes(snapshot.nodes, selector.target).filter(
 		(node) => !selector.role || node.role === selector.role,
@@ -406,6 +509,12 @@ function resolveLabel(
 		return requireActionable(store, device, snapshot, node);
 	}
 	if (matches.length > 1) {
+		// A row and the text inside it carry the same name. Only one can act.
+		const actionable = matches.filter((node) =>
+			isActionable(store, device, node),
+		);
+		if (actionable.length === 1)
+			return requireActionable(store, device, snapshot, actionable[0]!);
 		const list = matches
 			.map((node, index) => `  - ${describeAxNode(node)} --index ${index + 1}`)
 			.join("\n");
@@ -421,16 +530,24 @@ export function isPointTarget(target: string): boolean {
 	return POINT_PATTERN.test(target.trim().replace(/\s+/g, ""));
 }
 
-export function resolveTargetNode(
+function checkTargetNode(
 	store: SnapshotStore,
 	device: string,
 	selector: TargetSelector,
-): AxViewNode {
+): TargetCheck {
 	const target = selector.target.trim();
 	if (selector.capture)
 		fail("capture IDs are only valid with pixel or percent coordinates");
 	if (isRefTarget(target)) return resolveRef(store, device, target);
 	return resolveLabel(store, device, { ...selector, target });
+}
+
+export function resolveTargetNode(
+	store: SnapshotStore,
+	device: string,
+	selector: TargetSelector,
+): AxViewNode {
+	return checkTargetNode(store, device, selector).node;
 }
 
 export function nodePoint(node: AxViewNode): ResolvedPoint {
@@ -444,6 +561,10 @@ function identityOf(node: AxViewNode): NodeIdentity {
 		role: node.role,
 		...(node.windowId === undefined ? {} : { windowId: node.windowId }),
 		...(node.sourceId === undefined ? {} : { sourceId: node.sourceId }),
+		label: node.label,
+		value: node.value,
+		...(node.testId === undefined ? {} : { testId: node.testId }),
+		box: node.box,
 	};
 }
 
@@ -462,18 +583,75 @@ function matchesIdentity(node: AxViewNode, identity: NodeIdentity): boolean {
 	);
 }
 
+/** A list can re-render between observe and dispatch. Hold the same row. */
+const MOVE_TOLERANCE = 0.1;
+
+function movedWithinTolerance(
+	node: AxViewNode,
+	identity: NodeIdentity,
+	screenHeight: number,
+): boolean {
+	if (screenHeight <= 0) return false;
+	const before = centreOf(identity.box);
+	const after = centreOf(node.box);
+	const distance = Math.hypot(after.x - before.x, after.y - before.y);
+	return distance < screenHeight * MOVE_TOLERANCE;
+}
+
+/** The same row after a re-render: same role, same words, nearly the same place. */
+function matchesMovedNode(
+	node: AxViewNode,
+	identity: NodeIdentity,
+	screenHeight: number,
+): boolean {
+	if (!identity.label && !identity.testId) return false;
+	if (node.role !== identity.role) return false;
+	if (node.label !== identity.label || node.value !== identity.value)
+		return false;
+	if (identity.testId !== undefined && node.testId !== identity.testId)
+		return false;
+	if (identity.windowId !== undefined && node.windowId !== identity.windowId)
+		return false;
+	return movedWithinTolerance(node, identity, screenHeight);
+}
+
+const MOVED_WARNING = "target moved; re-resolved by label";
+
+/** Identity first. A re-rendered row still answers to its role and label. */
+function rematch(
+	store: SnapshotStore,
+	device: string,
+	nodes: readonly AxViewNode[],
+	identity: NodeIdentity,
+	screenHeight: number,
+): { node: AxViewNode; moved: boolean } | null {
+	const exact = nodes.filter((node) => matchesIdentity(node, identity));
+	if (exact.length === 1) return { node: exact[0]!, moved: false };
+	const moved = nodes.filter((node) =>
+		matchesMovedNode(node, identity, screenHeight),
+	);
+	if (moved.length === 1) return { node: moved[0]!, moved: true };
+	const actionable = moved.filter((node) => isActionable(store, device, node));
+	if (actionable.length === 1) return { node: actionable[0]!, moved: true };
+	return null;
+}
+
 export function revalidateTargetNode(
 	store: SnapshotStore,
 	device: string,
 	target: AxViewNode,
 ): AxViewNode {
 	const snapshot = requireSnapshot(store, device);
-	const matches = flattenAxView(snapshot.nodes).filter((node) =>
-		matchesIdentity(node, identityOf(target)),
+	const match = rematch(
+		store,
+		device,
+		flattenAxView(snapshot.nodes),
+		identityOf(target),
+		snapshot.screen.height,
 	);
-	if (matches.length !== 1)
+	if (!match)
 		fail(`${describeAxNode(target)} changed before dispatch. Run observe again`);
-	return requireActionable(store, device, snapshot, matches[0]!);
+	return requireActionable(store, device, snapshot, match.node).node;
 }
 
 function resolvedSelector(
@@ -481,11 +659,19 @@ function resolvedSelector(
 	device: string,
 	selector: TargetSelector,
 	context: TargetResolutionContext,
-): { point: ResolvedPoint; node: AxViewNode | null } {
+): {
+	point: ResolvedPoint;
+	node: AxViewNode | null;
+	warning?: string;
+} {
 	const target = selector.target.trim();
 	if (!isPointTarget(target)) {
-		const node = resolveTargetNode(store, device, { ...selector, target });
-		return { point: pointOfNode(node), node };
+		const check = checkTargetNode(store, device, { ...selector, target });
+		return {
+			point: pointOfNode(check.node),
+			node: check.node,
+			...(check.warning ? { warning: check.warning } : {}),
+		};
 	}
 	return {
 		point: resolveTarget(store, device, { ...selector, target }, context),
@@ -509,23 +695,38 @@ export function revalidateActionTargets(
 		...(action.from ? { from: { ...action.from } } : {}),
 		...(action.to ? { to: { ...action.to } } : {}),
 	}));
+	const warnings: string[] = [];
+	// The fresh snapshot carries fresh refs, so the old notes no longer read true.
+	for (const target of request.semanticTargets)
+		delete resolved[target.action]?.warnings;
+	const note = (index: number, warning: string): void => {
+		if (!warnings.includes(warning)) warnings.push(warning);
+		const result = resolved[index]!;
+		const list = result.warnings ?? [];
+		if (!list.includes(warning)) result.warnings = [...list, warning];
+	};
 	for (const target of request.semanticTargets) {
-		const matches = nodes.filter((node) =>
-			matchesIdentity(node, target.identity),
+		const match = rematch(
+			store,
+			device,
+			nodes,
+			target.identity,
+			snapshot.screen.height,
 		);
-		if (matches.length !== 1)
-			fail("The target changed before dispatch. Run observe again");
-		const node = requireActionable(store, device, snapshot, matches[0]!);
+		if (!match) fail("The target changed before dispatch. Run observe again");
+		const check = requireActionable(store, device, snapshot, match.node);
 		const previous =
 			target.endpoint === "to"
 				? resolved[target.action]?.to
 				: resolved[target.action]?.from;
 		const point = {
-			...pointOfNode(node),
+			...pointOfNode(check.node),
 			...(previous?.ref ? { ref: previous.ref } : {}),
 		};
 		const action = actions[target.action] as Record<string, unknown>;
 		const result = resolved[target.action]!;
+		if (match.moved) note(target.action, MOVED_WARNING);
+		if (check.warning) note(target.action, check.warning);
 		if (target.endpoint === "to") {
 			action.x2 = point.x;
 			action.y2 = point.y;
@@ -540,7 +741,12 @@ export function revalidateActionTargets(
 			result.from = point;
 		}
 	}
-	return { ...request, actions, resolved };
+	return {
+		...request,
+		actions,
+		resolved,
+		...(warnings.length > 0 ? { warnings } : {}),
+	};
 }
 
 export function resolveTarget(
@@ -553,7 +759,7 @@ export function resolveTarget(
 	if (isRefTarget(target)) {
 		if (selector.capture)
 			fail("capture IDs are only valid with pixel or percent coordinates");
-		return pointOfNode(resolveRef(store, device, target));
+		return pointOfNode(resolveRef(store, device, target).node);
 	}
 	const point = resolvePoint(
 		store,
@@ -564,7 +770,7 @@ export function resolveTarget(
 	if (point) return point;
 	if (selector.capture)
 		fail("capture IDs are only valid with pixel or percent coordinates");
-	return pointOfNode(resolveLabel(store, device, { ...selector, target }));
+	return pointOfNode(resolveLabel(store, device, { ...selector, target }).node);
 }
 
 /** Report a validated action that does not use a semantic or visual target. */
@@ -607,6 +813,15 @@ export function resolveActionTargets(
 	const actions: unknown[] = [];
 	const resolved: ResolvedAction[] = [];
 	const semanticTargets: ResolvedActions["semanticTargets"] = [];
+	const warnings: string[] = [];
+	const notes = (...found: ReadonlyArray<string | undefined>): string[] => {
+		const list = found.filter((warning): warning is string =>
+			Boolean(warning),
+		);
+		for (const warning of list)
+			if (!warnings.includes(warning)) warnings.push(warning);
+		return list;
+	};
 	let captureBound = false;
 	for (const value of values) {
 		if (!isTargetAction(value)) {
@@ -661,7 +876,13 @@ export function resolveActionTargets(
 					? {}
 					: { durationMs: action.durationMs }),
 			});
-			resolved.push({ type: "swipe", from, to });
+			const swipeNotes = notes(fromTarget.warning, toTarget.warning);
+			resolved.push({
+				type: "swipe",
+				from,
+				to,
+				...(swipeNotes.length > 0 ? { warnings: swipeNotes } : {}),
+			});
 			if (fromTarget.node)
 				semanticTargets.push({
 					action: actionIndex,
@@ -680,6 +901,8 @@ export function resolveActionTargets(
 		const from = target.point;
 		captureBound ||= Boolean(from.capture);
 		const actionIndex = actions.length;
+		const found = notes(target.warning);
+		const reported = found.length > 0 ? { warnings: found } : {};
 		if (action.type === "gesture") {
 			actions.push({
 				type: "gesture",
@@ -687,7 +910,12 @@ export function resolveActionTargets(
 				x: from.x,
 				y: from.y,
 			});
-			resolved.push({ type: "gesture", phase: action.phase, from });
+			resolved.push({
+				type: "gesture",
+				phase: action.phase,
+				from,
+				...reported,
+			});
 		} else if (action.type === "long-press") {
 			actions.push({
 				type: "long-press",
@@ -697,10 +925,10 @@ export function resolveActionTargets(
 					? {}
 					: { durationMs: action.durationMs }),
 			});
-			resolved.push({ type: "long-press", from });
+			resolved.push({ type: "long-press", from, ...reported });
 		} else {
 			actions.push({ type: "tap", x: from.x, y: from.y });
-			resolved.push({ type: "tap", from });
+			resolved.push({ type: "tap", from, ...reported });
 		}
 		if (target.node)
 			semanticTargets.push({
@@ -711,5 +939,10 @@ export function resolveActionTargets(
 	}
 	if (captureBound && actions.length > 1)
 		fail("capture-bound coordinates must be the only action in a request");
-	return { actions, resolved, semanticTargets };
+	return {
+		actions,
+		resolved,
+		semanticTargets,
+		...(warnings.length > 0 ? { warnings } : {}),
+	};
 }

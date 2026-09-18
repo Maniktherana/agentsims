@@ -192,13 +192,36 @@ describe("actionability", () => {
 		).toThrow(reason);
 	});
 
-	test("rejects a named node that is not actionable", () => {
-		expect(() =>
-			resolveTarget(observed().store, DEVICE, { target: "Search results" }),
-		).toThrow("is not actionable");
+	test("a node with no actionable ancestor dispatches with a plain warning", () => {
+		const inert: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.view.ViewGroup", {
+					id: "card",
+					testId: "card_root",
+					frame: { x: 40, y: 200, width: 600, height: 100 },
+				}),
+				axElement("0.0", "android.widget.TextView", {
+					id: "card-label",
+					label: "Search results",
+					frame: { x: 60, y: 220, width: 200, height: 60 },
+				}),
+			],
+		};
+		const { store } = observed(inert);
+		const request = resolveActionTargets(store, DEVICE, [
+			{ type: "tap", target: "Search results" },
+		]);
+		expect(request.actions).toEqual([
+			{ type: "tap", x: 160 / 1080, y: 250 / 2400 },
+		]);
+		const warning =
+			'text "Search results" has no clickable or long-press trait.';
+		expect(request.resolved[0]?.warnings).toEqual([warning]);
+		expect(request.warnings).toEqual([warning]);
 	});
 
-	test("keeps a clickable container actionable without redirecting its text child", () => {
+	test("a clickable container that took its child label is the target", () => {
 		const item: AxSnapshot = {
 			screen: screen.screen,
 			elements: [
@@ -215,16 +238,132 @@ describe("actionability", () => {
 				}),
 			],
 		};
-		const { store } = observed(item);
+		const { store, refs } = observed(item);
+		expect(refs).toHaveLength(1);
 		expect(resolveTarget(store, DEVICE, { target: "item_root" }).role).toBe(
 			"generic",
 		);
-		expect(() =>
-			resolveTarget(store, DEVICE, { target: "task.html" }),
-		).toThrow('text "task.html"');
-		expect(() =>
-			resolveTarget(store, DEVICE, { target: "task.html" }),
-		).toThrow("is not actionable");
+		expect(resolveTarget(store, DEVICE, { target: "task.html" })).toMatchObject(
+			{
+				ref: refs[0],
+				role: "generic",
+				label: "task.html",
+				pixels: { x: 340, y: 250 },
+			},
+		);
+	});
+
+	test("taps an OsmAnd button by the label its frame shows", () => {
+		const osmand: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.view.ViewGroup", {
+					id: "primary-button",
+					testId: "net.osmand:id/primary_button",
+					traits: ["clickable"],
+					frame: { x: 40, y: 2000, width: 1000, height: 160 },
+				}),
+				axElement("0.0", "android.widget.TextView", {
+					id: "primary-button-text",
+					label: "INCREASE SEARCH RADIUS",
+					frame: { x: 240, y: 2050, width: 600, height: 60 },
+				}),
+			],
+		};
+		const { store, refs } = observed(osmand);
+		const request = resolveActionTargets(store, DEVICE, [
+			{ type: "tap", target: "INCREASE SEARCH RADIUS" },
+		]);
+		expect(request.actions).toEqual([
+			{ type: "tap", x: 540 / 1080, y: 2080 / 2400 },
+		]);
+		expect(request.resolved[0]?.from).toMatchObject({
+			ref: refs[0],
+			role: "generic",
+			label: "INCREASE SEARCH RADIUS",
+		});
+	});
+
+	test("a label on one actionable and one inert node selects the actionable", () => {
+		const twins: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.view.ViewGroup", {
+					id: "footer",
+					testId: "footer",
+					frame: { x: 0, y: 2000, width: 1080, height: 300 },
+				}),
+				axElement("0.0", "android.widget.TextView", {
+					id: "footer-heading",
+					label: "Done",
+					frame: { x: 40, y: 2020, width: 400, height: 60 },
+				}),
+				axElement("0.1", "android.widget.Button", {
+					id: "footer-button",
+					label: "Done",
+					traits: ["clickable"],
+					frame: { x: 40, y: 2100, width: 400, height: 120 },
+				}),
+			],
+		};
+		const { store } = observed(twins);
+		expect(resolveTarget(store, DEVICE, { target: "Done" })).toMatchObject({
+			role: "button",
+			label: "Done",
+			pixels: { x: 240, y: 2160 },
+		});
+	});
+
+	test("an inert subtitle dispatches with a warning naming its container", () => {
+		const search: AxSnapshot = {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "android.view.ViewGroup", {
+					id: "result-row",
+					testId: "net.osmand:id/searchListItemLayout",
+					traits: ["clickable"],
+					frame: { x: 0, y: 400, width: 1080, height: 200 },
+				}),
+				axElement("0.0", "android.widget.TextView", {
+					id: "result-title",
+					label: "Planken",
+					frame: { x: 40, y: 420, width: 600, height: 60 },
+				}),
+				axElement("0.1", "android.widget.TextView", {
+					id: "result-subtitle",
+					label: "Village",
+					frame: { x: 40, y: 500, width: 600, height: 60 },
+				}),
+			],
+		};
+		const { store, refs } = observed(search);
+		expect(refs).toHaveLength(2);
+		const warning =
+			'text "Village" has no clickable or long-press trait. Its clickable container is generic "Planken" [testid=net.osmand:id/searchListItemLayout]';
+		const tap = resolveActionTargets(store, DEVICE, [
+			{ type: "tap", target: `@${refs[1]}` },
+		]);
+		expect(tap.actions).toEqual([
+			{ type: "tap", x: 340 / 1080, y: 530 / 2400 },
+		]);
+		expect(tap.resolved[0]?.warnings).toEqual([warning]);
+		expect(tap.warnings).toEqual([warning]);
+
+		const held = resolveActionTargets(store, DEVICE, [
+			{ type: "long-press", target: `@${refs[1]}` },
+		]);
+		expect(held.resolved[0]?.warnings).toEqual([warning]);
+
+		const swiped = resolveActionTargets(store, DEVICE, [
+			{ type: "swipe", from: `@${refs[1]}`, to: `@${refs[0]}` },
+		]);
+		expect(swiped.resolved[0]?.warnings).toEqual([warning]);
+
+		expect(resolveTarget(store, DEVICE, { target: "Planken" })).toMatchObject({
+			ref: refs[0],
+			role: "generic",
+			label: "Planken",
+		});
 	});
 
 	test("allows a node that exposes only long-press actionability", () => {
@@ -398,6 +537,106 @@ describe("actionability", () => {
 	});
 });
 
+describe("tolerant revalidation", () => {
+	type Row = { path: string; id: string; label: string; y: number };
+
+	function listOf(rows: readonly Row[]): AxSnapshot {
+		return {
+			screen: screen.screen,
+			elements: [
+				axElement("0", "androidx.recyclerview.widget.RecyclerView", {
+					id: "list",
+					traits: ["scrollable"],
+					frame: { x: 0, y: 0, width: 1080, height: 2400 },
+				}),
+				...rows.map((row) =>
+					axElement(row.path, "android.widget.Button", {
+						id: row.id,
+						label: row.label,
+						frame: { x: 40, y: row.y, width: 1000, height: 120 },
+					}),
+				),
+			],
+		};
+	}
+
+	const first: Row = {
+		path: "0.0",
+		id: "row-a",
+		label: "Downloads",
+		y: 600,
+	};
+
+	function tapDownloads(rows: readonly Row[]) {
+		const { store } = observed(listOf([first]));
+		const request = resolveActionTargets(store, DEVICE, [
+			{ type: "tap", target: "Downloads" },
+		]);
+		store.publishObservation(store.beginObservation(DEVICE), {
+			platform: "android",
+			snapshot: listOf(rows),
+			screen: SCREEN,
+			app: "com.example.app",
+			all: false,
+		});
+		return { store, request };
+	}
+
+	test("a re-rendered row near its old place dispatches with a warning", () => {
+		const { store, request } = tapDownloads([
+			{ path: "0.1", id: "row-b", label: "Downloads", y: 680 },
+		]);
+		const revalidated = revalidateActionTargets(store, DEVICE, request);
+		expect(revalidated.actions).toEqual([
+			{ type: "tap", x: 540 / 1080, y: 740 / 2400 },
+		]);
+		expect(revalidated.warnings).toEqual([
+			"target moved; re-resolved by label",
+		]);
+		expect(revalidated.resolved[0]?.warnings).toEqual([
+			"target moved; re-resolved by label",
+		]);
+	});
+
+	test("a row that moved further than a tenth of the screen fails", () => {
+		const { store, request } = tapDownloads([
+			{ path: "0.1", id: "row-b", label: "Downloads", y: 1400 },
+		]);
+		expect(() => revalidateActionTargets(store, DEVICE, request)).toThrow(
+			"changed before dispatch",
+		);
+	});
+
+	test("a row whose label changed fails", () => {
+		const { store, request } = tapDownloads([
+			{ path: "0.1", id: "row-b", label: "Documents", y: 620 },
+		]);
+		expect(() => revalidateActionTargets(store, DEVICE, request)).toThrow(
+			"changed before dispatch",
+		);
+	});
+
+	test("two identical candidate rows fail", () => {
+		const { store, request } = tapDownloads([
+			{ path: "0.1", id: "row-b", label: "Downloads", y: 620 },
+			{ path: "0.2", id: "row-c", label: "Downloads", y: 700 },
+		]);
+		expect(() => revalidateActionTargets(store, DEVICE, request)).toThrow(
+			"changed before dispatch",
+		);
+	});
+
+	test("an unchanged row dispatches without a warning", () => {
+		const { store, request } = tapDownloads([first]);
+		const revalidated = revalidateActionTargets(store, DEVICE, request);
+		expect(revalidated.actions).toEqual([
+			{ type: "tap", x: 540 / 1080, y: 660 / 2400 },
+		]);
+		expect(revalidated.warnings).toBeUndefined();
+		expect(revalidated.resolved[0]?.warnings).toBeUndefined();
+	});
+});
+
 describe("capture-bound coordinates", () => {
 	test("pixel and percent points use the capture dimensions", () => {
 		const { store } = observed();
@@ -426,8 +665,19 @@ describe("capture-bound coordinates", () => {
 		).toMatchObject({ x: 0.25, y: 0.75, pixels: { x: 270, y: 1800 } });
 	});
 
-	test("bare points and raw normalized coordinate actions are refused", () => {
+	test("bare pixel points and raw normalized coordinate actions are refused", () => {
 		const { store } = observed();
+		expect(() =>
+			resolveTarget(store, DEVICE, { target: "540,1200" }, { orientation: "portrait" }),
+		).toThrow("requires a current capture ID");
+		expect(() =>
+			resolveTarget(
+				store,
+				DEVICE,
+				{ target: "540,1200" },
+				{ orientation: "portrait", screen: { width: 1080, height: 2400 } },
+			),
+		).toThrow("requires a current capture ID");
 		expect(() =>
 			resolveTarget(store, DEVICE, { target: "50%,50%" }, { orientation: "portrait" }),
 		).toThrow("requires a current capture ID");
@@ -439,6 +689,59 @@ describe("capture-bound coordinates", () => {
 				{ type: "long-press", x: 0.5, y: 0.5 },
 			]),
 		).toThrow("bare coordinates are not accepted");
+	});
+
+	test("a percent point resolves against the live screen without a capture", () => {
+		const { store } = observed();
+		const context = {
+			orientation: "portrait",
+			screen: { width: 1080, height: 2400 },
+		};
+		expect(
+			resolveTarget(store, DEVICE, { target: "50%,80%" }, context),
+		).toMatchObject({
+			x: 0.5,
+			y: 0.8,
+			pixels: { x: 540, y: 1920 },
+			orientation: "portrait",
+		});
+		expect(
+			resolveTarget(store, DEVICE, { target: "50%,80%" }, context).capture,
+		).toBeUndefined();
+		const request = resolveActionTargets(
+			store,
+			DEVICE,
+			[
+				{ type: "swipe", from: "50%,80%", to: "50%,20%" },
+				{ type: "button", button: "home" },
+			],
+			context,
+		);
+		expect(request.actions).toEqual([
+			{ type: "swipe", x1: 0.5, y1: 0.8, x2: 0.5, y2: 0.2 },
+			{ type: "button", button: "home" },
+		]);
+	});
+
+	test("a percent point outside 0-100 is refused with or without a capture", () => {
+		const { store } = observed();
+		const capture = publishCapture(store);
+		expect(() =>
+			resolveTarget(
+				store,
+				DEVICE,
+				{ target: "50%,120%" },
+				{ orientation: "portrait", screen: { width: 1080, height: 2400 } },
+			),
+		).toThrow("Percent runs from 0 to 100");
+		expect(() =>
+			resolveTarget(
+				store,
+				DEVICE,
+				{ target: "-5%,10%", capture },
+				{ orientation: "portrait" },
+			),
+		).toThrow("Percent runs from 0 to 100");
 	});
 
 	test("wrong-device and rotated captures are refused", () => {

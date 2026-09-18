@@ -210,7 +210,7 @@ function renderTypeLine(action: ResolvedAction): string {
 	return `${verb} ${quoted(action.text ?? "")}${into}${value}`;
 }
 
-function renderActionLine(action: ResolvedAction): string {
+function renderActionVerb(action: ResolvedAction): string {
 	switch (action.type) {
 		case "long-press":
 			return action.from
@@ -235,6 +235,13 @@ function renderActionLine(action: ResolvedAction): string {
 		default:
 			return action.from ? `tap ${renderPoint(action.from)}` : "tap";
 	}
+}
+
+function renderActionLine(action: ResolvedAction): string {
+	const warnings = (action.warnings ?? [])
+		.map((warning) => `  (${oneLine(warning)})`)
+		.join("");
+	return `${renderActionVerb(action)}${warnings}`;
 }
 
 export function renderActionResult(

@@ -145,6 +145,20 @@ function configGeneration(config: unknown): number | null {
 		: null;
 }
 
+/** The live screen size. A percent point needs it, not a screenshot. */
+function configScreen(
+	config: unknown,
+): { width: number; height: number } | null {
+	if (!config || typeof config !== "object") return null;
+	const value = config as { width?: unknown; height?: unknown };
+	return typeof value.width === "number" &&
+		typeof value.height === "number" &&
+		value.width > 0 &&
+		value.height > 0
+		? { width: value.width, height: value.height }
+		: null;
+}
+
 function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -557,11 +571,19 @@ export function makeDeviceActionRunner(
 								)
 							: null;
 						let request = yield* Effect.try({
-							try: () =>
-								resolveActionTargets(dependencies.store, device, values, {
-									orientation: configOrientation(config),
-									generation: configGeneration(config),
-								}),
+							try: () => {
+								const screen = configScreen(config);
+								return resolveActionTargets(
+									dependencies.store,
+									device,
+									values,
+									{
+										orientation: configOrientation(config),
+										generation: configGeneration(config),
+										...(screen ? { screen } : {}),
+									},
+								);
+							},
 							catch: (cause) => withActionEffect(cause, "none"),
 						});
 						if (request.semanticTargets.length > 0) {

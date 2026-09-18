@@ -156,6 +156,8 @@ interface TreeNode {
 	label: string;
 	value: string;
 	children: TreeNode[];
+	/** Set when an actionable ancestor took this text as its own label. */
+	consumed?: boolean;
 }
 
 /** Both collectors report a flat list keyed by a dotted path. Rebuild the tree. */
@@ -215,6 +217,44 @@ function textOf(node: TreeNode): string {
 	return node.label || node.value;
 }
 
+/** A node the agent can act on. It should carry the words it shows. */
+function isActionableNode(node: TreeNode): boolean {
+	return (
+		INTERACTIVE_ROLES.has(node.role) ||
+		node.states.includes("clickable") ||
+		node.states.includes("long-press") ||
+		node.states.includes("checked") ||
+		node.states.includes("unchecked")
+	);
+}
+
+/**
+ * Find the first text a node shows, in tree order. An actionable descendant
+ * keeps its own words, so this pass does not read through one.
+ */
+function firstTextNode(node: TreeNode): TreeNode | null {
+	for (const child of node.children) {
+		if (isActionableNode(child) || child.consumed === true) continue;
+		if (child.role === "text" && child.label) return child;
+		const deeper = firstTextNode(child);
+		if (deeper) return deeper;
+	}
+	return null;
+}
+
+/**
+ * Give an actionable node the words it shows, and consume the text that named
+ * it. A row that says "Housing" then reads as one node, at any nesting depth.
+ */
+function nameFromText(node: TreeNode): void {
+	for (const child of node.children) nameFromText(child);
+	if (!isActionableNode(node) || node.label || node.value) return;
+	const text = firstTextNode(node);
+	if (!text) return;
+	node.label = text.label;
+	text.consumed = true;
+}
+
 function pruneNode(node: TreeNode, parent: TreeNode | null): TreeNode | null {
 	const children = node.children
 		.map((child) => pruneNode(child, node))
@@ -224,7 +264,7 @@ function pruneNode(node: TreeNode, parent: TreeNode | null): TreeNode | null {
 		parent !== null &&
 		textOf(node) !== "" &&
 		textOf(node) === textOf(parent);
-	const keep = keepsNode(node) && !duplicate;
+	const keep = keepsNode(node) && !duplicate && node.consumed !== true;
 	if (!keep) {
 		if (children.length === 0) return null;
 		if (children.length === 1) return children[0]!;
@@ -264,6 +304,7 @@ export function buildAxView(input: AxViewInput): AxViewResult {
 			? input.screen.height / axScreen.height
 			: 1;
 	const roots = nestElements(input.snapshot.elements, input.platform);
+	if (!input.all) for (const root of roots) nameFromText(root);
 	const kept = input.all
 		? roots
 		: roots
@@ -320,4 +361,22 @@ export function buildAxView(input: AxViewInput): AxViewResult {
 
 export function flattenAxView(nodes: readonly AxViewNode[]): AxViewNode[] {
 	return nodes.flatMap((node) => [node, ...flattenAxView(node.children)]);
+}
+
+/** Map every node in the view to its parent. A root maps to null. */
+export function parentIndexOf(
+	nodes: readonly AxViewNode[],
+): Map<AxViewNode, AxViewNode | null> {
+	const parents = new Map<AxViewNode, AxViewNode | null>();
+	const walk = (
+		list: readonly AxViewNode[],
+		parent: AxViewNode | null,
+	): void => {
+		for (const node of list) {
+			parents.set(node, parent);
+			walk(node.children, node);
+		}
+	};
+	walk(nodes, null);
+	return parents;
 }
