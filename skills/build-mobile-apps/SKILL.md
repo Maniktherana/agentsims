@@ -212,19 +212,28 @@ of a text. `sleep` proves nothing.
 
 ### Motion and video
 
-Content that starts on your action is watched from that action: add `--watch` to the
-`tap` or `app launch` that starts it. A separate `observe --watch` afterwards begins a
-second late and misses the start.
+Playback starts on the tap that opens the file, so that tap is the watch:
 
-1. Open the file so the player is up, then pause it (a tap on the video shows controls).
-2. `observe` and read the total duration from the `m:ss` labels by the seek bar.
-3. Drag the seek thumb to the left edge until the position reads `0:00`.
-4. `agentsims tap "Play" --watch <duration+1500> --every 250 -d "$D"`
-5. Open every `sheet` path in order. Indices are global. Write down each distinct text
-   in the order it first appears; repeated frames are one entry.
-6. If a frame is unreadable or the achieved-interval warning appears, replay with a
-   larger `--every`, or `--keep-frames` and open the single frames. Do not guess a
-   missing word.
+```sh
+agentsims tap "ZwUN_moment_70_.mp4" --watch 20000 --every 250 -d "$D"   # or the chooser's "VLC" / "Just once"
+```
+
+Sampling begins the instant the input lands and covers the whole clip; a separate
+`observe --watch` afterwards starts a second late and misses the first frames. Pick a
+window longer than any short clip. Frames that stop changing mean the clip has ended, so
+you learn the length from the sheets instead of needing it first.
+
+Do not try to pause, read the duration, or seek to the start before watching. Player
+controls appear only while an overlay is showing, and the overlay hides itself within a
+few seconds. Every command of yours is a turn apart, so `tap "Pause"` after `tap 50%,50%`
+finds no Pause node. That loop costs turns and captures nothing.
+
+Then read every `sheet` path in order. Indices are global across sheets. Write down each
+distinct text in the order it first appears; consecutive frames with the same text are
+one entry. If a frame is unreadable, or the achieved-interval warning appears, open the
+file again with the same `--watch` and a larger `--every`, or add `--keep-frames` and open
+the single frames. Do not guess a missing word. If you missed the start, replay: open the
+file again with `--watch` on that tap.
 
 `--every 250` samples four times a second. Every frame is the whole screen.
 
