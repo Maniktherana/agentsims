@@ -1,21 +1,18 @@
-import {
-	Accessibility as AccessibilityIcon,
-	GripVertical,
-	X,
-} from "lucide-react";
+import { GripVertical, X } from "lucide-react";
 import {
 	useId,
 	type KeyboardEventHandler,
 	type PointerEventHandler,
 	type ReactNode,
 } from "react";
-import { IconButton } from "../ui/icon-button";
-import { PanelSurface } from "../ui/panel";
+import { IconButton } from "./icon-button";
+import { PanelSurface } from "./panel";
 import {
 	FloatingPanelResizeHandle,
 	floatingPanelResizeVisualPhase,
-} from "../ui/floating-panel-resize-handle";
-export interface AccessibilityDeviceIdentity {
+} from "./floating-panel-resize-handle";
+
+export interface DevicePanelIdentity {
 	id: string;
 	name: string;
 	platform: "ios" | "android";
@@ -24,11 +21,14 @@ export interface AccessibilityDeviceIdentity {
 	connected?: boolean;
 }
 
-export interface AccessibilityPanelProps {
+export interface DevicePanelProps {
 	open: boolean;
-	device: AccessibilityDeviceIdentity;
+	title: string;
+	icon: ReactNode;
+	device: DevicePanelIdentity;
 	onClose: () => void;
 	children: ReactNode;
+	closeLabel?: string;
 	placement?: "side" | "bottom";
 	headerActions?: ReactNode;
 	footer?: ReactNode;
@@ -39,17 +39,20 @@ export interface AccessibilityPanelProps {
 	onResizeKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 }
 
-export function shouldStartAccessibilityHeaderDrag(target: unknown): boolean {
+export function shouldStartDevicePanelHeaderDrag(target: unknown): boolean {
 	const closest = (target as { closest?: (selector: string) => unknown } | null)
 		?.closest;
 	return typeof closest !== "function" || !closest.call(target, "button");
 }
 
-export function AccessibilityPanel({
+export function DevicePanel({
 	open,
+	title,
+	icon,
 	device,
 	onClose,
 	children,
+	closeLabel,
 	placement = "side",
 	headerActions,
 	footer,
@@ -58,11 +61,10 @@ export function AccessibilityPanel({
 	onMovePointerDown,
 	onResizePointerDown,
 	onResizeKeyDown,
-}: AccessibilityPanelProps) {
+}: DevicePanelProps) {
 	const titleId = useId();
 	if (!open) return null;
 
-	const title = "Accessibility";
 	const identityTooltip = [
 		title,
 		device.platform === "ios" ? "iOS" : "Android",
@@ -82,19 +84,19 @@ export function AccessibilityPanel({
 			aria-labelledby={titleId}
 			data-device-id={device.id}
 			data-device-platform={device.platform}
-			data-accessibility-panel
+			data-agentsims-device-panel
 			data-agentsims-floating-panel
 			className={`relative flex min-w-0 flex-col overflow-visible rounded-[14px] border border-white/[0.1] bg-[var(--agentsims-panel-bg,#181818)] text-white shadow-[0_12px_40px_rgba(0,0,0,0.55)] ${placementClass} ${className}`}
 		>
 			<header
-				data-agentsims-accessibility-panel-header
-				data-agentsims-accessibility-drag-handle={
+				data-agentsims-device-panel-header
+				data-agentsims-device-panel-drag-handle={
 					onMovePointerDown ? "true" : undefined
 				}
 				onPointerDown={
 					onMovePointerDown
 						? (event) => {
-								if (!shouldStartAccessibilityHeaderDrag(event.target)) return;
+								if (!shouldStartDevicePanelHeaderDrag(event.target)) return;
 								onMovePointerDown(event);
 							}
 						: undefined
@@ -112,7 +114,7 @@ export function AccessibilityPanel({
 					/>
 				)}
 				<span className="grid size-7 shrink-0 place-items-center rounded-md border border-white/[0.08] bg-white/[0.04] text-white/58">
-					<AccessibilityIcon size={14} strokeWidth={1.9} />
+					{icon}
 				</span>
 				<h2 id={titleId} className="sr-only">
 					{title}
@@ -133,7 +135,7 @@ export function AccessibilityPanel({
 				</div>
 				{headerActions}
 				<IconButton
-					label="Close accessibility tree"
+					label={closeLabel ?? `Close ${title.toLowerCase()}`}
 					tooltip="Close"
 					size="panel"
 					surface="toolbar"
@@ -143,7 +145,7 @@ export function AccessibilityPanel({
 				</IconButton>
 			</header>
 			<div
-				data-agentsims-accessibility-panel-body
+				data-agentsims-device-panel-body
 				className={`min-h-0 flex-1 overflow-hidden ${bodyClassName}`}
 			>
 				{children}
@@ -157,11 +159,11 @@ export function AccessibilityPanel({
 				<FloatingPanelResizeHandle
 					onPointerDown={onResizePointerDown}
 					onKeyDown={onResizeKeyDown}
-					ariaLabel="Resize accessibility panel"
+					ariaLabel={`Resize ${title.toLowerCase()} panel`}
 				/>
 			)}
 		</PanelSurface>
 	);
 }
 
-export const accessibilityResizeVisualPhase = floatingPanelResizeVisualPhase;
+export const devicePanelResizeVisualPhase = floatingPanelResizeVisualPhase;
