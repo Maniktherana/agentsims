@@ -16,6 +16,8 @@ const DEVICE = "android:emulator-5554";
 const servers: PreviewServer[] = [];
 
 afterEach(() => {
+	// The CLI under test sets the exit code; never let it leak into bun test.
+	process.exitCode = 0;
 	for (const server of servers.splice(0)) server.stop();
 });
 

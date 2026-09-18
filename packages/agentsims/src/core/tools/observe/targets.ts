@@ -361,7 +361,7 @@ function resolveRef(
 	}
 }
 
-function isRefTarget(target: string): boolean {
+export function isRefTarget(target: string): boolean {
 	return target.startsWith("@") || isRefIdentifier(target);
 }
 
@@ -414,6 +414,10 @@ function resolvePoint(
 				fail(`capture ${selector.capture} is not published`);
 			case "failed":
 				fail(`capture ${selector.capture} failed and cannot be targeted`);
+			case "retired":
+				fail(
+					`capture ${selector.capture} is a watch frame and cannot target input. Use the capture from the final observation`,
+				);
 			case "stale":
 				fail(`capture ${selector.capture} is from before the last input. Take a screenshot again`);
 		}

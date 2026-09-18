@@ -133,11 +133,11 @@ function androidChainHolds(
 	identity: AndroidNodeIdentity,
 ): boolean {
 	return (
-		node.ancestors?.some(
+		node.ancestors.some(
 			(link) =>
 				link.windowId === identity.windowId &&
 				link.sourceId === identity.sourceId,
-		) === true
+		)
 	);
 }
 
@@ -965,7 +965,7 @@ export class AndroidSession {
 		return {
 			performed: true,
 			node,
-			...(requested ? { requested } : {}),
+			requested,
 		};
 	}
 

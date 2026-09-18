@@ -68,7 +68,8 @@ export type CaptureFailureReason =
 	| ProvenanceFailureReason
 	| "unpublished"
 	| "failed"
-	| "stale";
+	| "stale"
+	| "retired";
 
 export type CaptureResolution =
 	| { ok: true; capture: CaptureRecord }
@@ -99,6 +100,8 @@ export interface SnapshotStore {
 		},
 	): CaptureRecord | null;
 	failCapture(capture: string): boolean;
+	/** A published capture that must never target input, such as a watch frame. */
+	retireCapture(capture: string): boolean;
 	resolveCapture(device: string, capture: string): CaptureResolution;
 }
 
@@ -107,7 +110,7 @@ interface CaptureDraft {
 	session: number;
 	revision: number;
 	observation: string | null;
-	status: "pending" | "failed" | "published";
+	status: "pending" | "failed" | "published" | "retired";
 	record: CaptureRecord | null;
 }
 
@@ -342,6 +345,16 @@ export function createSnapshotStore(): SnapshotStore {
 			draft.status = "failed";
 			return true;
 		},
+		retireCapture(capture) {
+			const id = token(capture, CAPTURE_PATTERN);
+			if (!id) return false;
+			const owner = captureOwner(id);
+			if (!owner) return false;
+			const draft = entryFor(owner).captures.get(id);
+			if (!draft || draft.status !== "published") return false;
+			draft.status = "retired";
+			return true;
+		},
 		resolveCapture(device, capture) {
 			const id = token(capture, CAPTURE_PATTERN);
 			if (!id) return { ok: false, reason: "invalid" };
@@ -354,12 +367,10 @@ export function createSnapshotStore(): SnapshotStore {
 			}
 			if (draft.status === "pending")
 				return { ok: false, reason: "unpublished" };
+			if (draft.status === "retired") return { ok: false, reason: "retired" };
 			if (draft.status === "failed" || !draft.record)
 				return { ok: false, reason: "failed" };
 			if (draft.session !== entry.session || draft.revision !== entry.revision)
-				return { ok: false, reason: "stale" };
-			const bound = draft.record.observation;
-			if (bound !== null && bound !== (entry.current?.id ?? null))
 				return { ok: false, reason: "stale" };
 			return { ok: true, capture: draft.record };
 		},

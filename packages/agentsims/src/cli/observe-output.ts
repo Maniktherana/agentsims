@@ -477,12 +477,17 @@ export function renderScrollResult(
 export function renderSequenceResult(
 	result: SequenceResult,
 	format: ObserveFormat = {},
+	artifacts: ReadonlyArray<ArtifactWrite | null> = [],
 ): string {
-	const lines = result.steps.map((step) => {
+	const lines = result.steps.flatMap((step, index) => {
 		const what = step.label ?? describeSequenceStep(step.action);
-		return `step ${step.index + 1}/${result.total}  ${what}  dispatch ${
-			step.result.dispatch.status
-		}  verification ${step.result.verification.status}`;
+		const artifact = renderArtifact(artifacts[index] ?? null);
+		return [
+			`step ${step.index + 1}/${result.total}  ${what}  dispatch ${
+				step.result.dispatch.status
+			}  verification ${step.result.verification.status}`,
+			...(artifact ? [`  ${artifact}`] : []),
+		];
 	});
 	const last = result.steps.at(-1);
 	if (result.stoppedAt !== null && last)

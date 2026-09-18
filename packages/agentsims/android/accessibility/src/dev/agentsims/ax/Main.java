@@ -62,7 +62,6 @@ public final class Main {
   private static final long CHANGE_MAX_LATENCY_MS = 50;
   private static final int MAX_PENDING_SNAPSHOTS = 1;
   /** Parent steps that a field action reports. A field sits near its layout. */
-  private static final int ANCESTOR_LIMIT = 12;
   private static final int RELEVANT_EVENT_TYPES =
     AccessibilityEvent.TYPE_VIEW_CLICKED |
     AccessibilityEvent.TYPE_VIEW_SELECTED |
@@ -356,18 +355,22 @@ public final class Main {
       .put("ancestors", ancestorChain(node));
   }
 
-  /** The parent chain. The host accepts focus inside or around a field. */
+  /**
+   * The parent chain as identities, direct parent first, up to the root.
+   * Android can focus a node inside or around the one the host named, so the
+   * host decides relationship from these identities. A visited set guards
+   * against a cyclic parent link.
+   */
   private static JSONArray ancestorChain(AccessibilityNodeInfo node) throws Exception {
     JSONArray chain = new JSONArray();
+    Set<Long> visited = new HashSet<>();
+    visited.add(identityKey(node));
     AccessibilityNodeInfo current = node.getParent();
-    for (int depth = 0; current != null && depth < ANCESTOR_LIMIT; depth++) {
+    while (current != null && visited.add(identityKey(current))) {
       chain.put(
         new JSONObject()
           .put("windowId", current.getWindowId())
           .put("sourceId", current.hashCode())
-          .put("resourceId", text(current.getViewIdResourceName()))
-          .put("class", text(current.getClassName()))
-          .put("editable", current.isEditable())
       );
       AccessibilityNodeInfo parent = current.getParent();
       current.recycle();
@@ -375,6 +378,10 @@ public final class Main {
     }
     if (current != null) current.recycle();
     return chain;
+  }
+
+  private static long identityKey(AccessibilityNodeInfo node) {
+    return (((long) node.getWindowId()) << 32) ^ (node.hashCode() & 0xffffffffL);
   }
 
   private static final class NodeIdentity {

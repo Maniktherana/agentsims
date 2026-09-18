@@ -13,6 +13,7 @@ import type { AxSnapshot } from "./observe/accessibility-model";
 import { flattenAxView, type AxViewNode } from "./observe/ax-view";
 import {
 	captureDeviceScreenshot,
+	isStructuralOnly,
 	observeDevice,
 	type CaptureChannel,
 	type CapturedAccessibility,
@@ -132,6 +133,8 @@ type ActionState = {
 
 const NOTHING_SENT_WARNING =
 	"Nothing was sent to the device. Refs and captures from the last observation are still valid.";
+const FRESH_TREE_WARNING =
+	"Nothing was sent to the device. The check before dispatch re-read the screen, so the tree below is current and its refs replace the earlier ones.";
 
 function actionUsesPoint(value: unknown): boolean {
 	if (!value || typeof value !== "object") return false;
@@ -248,16 +251,6 @@ function comparableWindows(snapshot: AxSnapshot | null): string | null {
 				windowActive: element.windowActive,
 				windowFocused: element.windowFocused,
 			})),
-	);
-}
-
-function isStructuralOnly(view: DeviceSnapshot | null): boolean {
-	return (
-		!view ||
-		view.screen.width <= 0 ||
-		view.screen.height <= 0 ||
-		view.shown === 0 ||
-		view.nodes.length === 0
 	);
 }
 
@@ -728,7 +721,9 @@ export function makeDeviceActionRunner(
 					captureReason: null,
 					warnings: [
 						...(state.post?.warnings ?? []),
-						NOTHING_SENT_WARNING,
+						view !== null && beforeView !== view
+							? FRESH_TREE_WARNING
+							: NOTHING_SENT_WARNING,
 					],
 					...(state.text ? { text: state.text } : {}),
 				};

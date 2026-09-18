@@ -17,6 +17,8 @@ import { startTestServer } from "../helpers/server";
 const servers: PreviewServer[] = [];
 
 afterEach(async () => {
+	// The CLI under test sets the exit code; never let it leak into bun test.
+	process.exitCode = 0;
 	await Promise.all(servers.splice(0).map((server) => server.stop()));
 });
 

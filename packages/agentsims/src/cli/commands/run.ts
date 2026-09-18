@@ -7,6 +7,7 @@ import {
 } from "../../core/tools/sequence";
 import type { ApplicationCommandClient } from "../application-command-client";
 import { actionForOutput, renderSequenceResult } from "../observe-output";
+import { actionExitCode, writeActionImage } from "./shared";
 
 export type RunCommandDependencies = {
 	client: (url?: string) => ApplicationCommandClient;
@@ -84,15 +85,23 @@ export function registerRunCommands(
 				.runSequence(flags.device, steps, {
 					screenshot: flags.screenshot === true,
 				})) as SequenceResult;
+			// Every step goes through the same artifact and exit-status path as a
+			// single action, so a saved image and a failed step are never hidden.
+			const artifacts = result.steps.map((step) =>
+				writeActionImage(step.result.image, flags.device),
+			);
+			result.steps.forEach((step, index) =>
+				actionExitCode(step.result, artifacts[index] ?? null),
+			);
 			if (result.stoppedAt !== null) process.exitCode = 1;
 			if (flags.json)
 				return dependencies.json({
 					...result,
-					steps: result.steps.map((step) => ({
+					steps: result.steps.map((step, index) => ({
 						...step,
-						result: actionForOutput(step.result, null),
+						result: actionForOutput(step.result, artifacts[index] ?? null),
 					})),
 				});
-			process.stdout.write(`${renderSequenceResult(result)}\n`);
+			process.stdout.write(`${renderSequenceResult(result, {}, artifacts)}\n`);
 		});
 }

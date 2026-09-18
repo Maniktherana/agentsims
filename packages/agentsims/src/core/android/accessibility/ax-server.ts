@@ -34,12 +34,10 @@ export type AndroidNodeRef = {
 };
 
 /** One step of a node's parent chain. Older helpers report no chain. */
+/** One ancestor of an acted-on node, identified as the helper identifies every node. */
 export type AndroidNodeLink = {
 	windowId: number;
 	sourceId: number;
-	resourceId: string;
-	class: string;
-	editable: boolean;
 };
 
 export type AndroidNodeDescription = {
@@ -58,15 +56,15 @@ export type AndroidNodeDescription = {
 	selectionStart: number;
 	selectionEnd: number;
 	bounds: string;
-	/** The parent chain, from the direct parent to the window root. */
-	ancestors?: AndroidNodeLink[];
+	/** The parent chain, direct parent first, up to the window root. */
+	ancestors: AndroidNodeLink[];
 };
 
 export type AndroidNodeResult = {
 	performed: boolean;
 	node: AndroidNodeDescription | null;
-	/** The node the helper acted on. Older helpers report nothing here. */
-	requested?: AndroidNodeDescription | null;
+	/** The node the helper acted on, described before the action. */
+	requested: AndroidNodeDescription | null;
 };
 
 type AndroidAxResponse = {

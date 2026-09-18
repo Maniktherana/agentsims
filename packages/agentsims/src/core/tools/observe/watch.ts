@@ -5,7 +5,7 @@ import {
 } from "../errors";
 import { flattenAxView, type AxViewNode } from "./ax-view";
 import {
-	buildContactSheet,
+	buildContactSheetAsync,
 	type ContactSheet,
 	type ContactSheetSource,
 } from "./contact-sheet";
@@ -14,6 +14,7 @@ import {
 	observeDevice,
 	type DeviceObservation,
 	type ObserveDependencies,
+	isStructuralOnly,
 } from "./observe";
 import { matchAxNodes } from "./targets";
 
@@ -147,6 +148,9 @@ export function watchDevice(
 				continue;
 			}
 			const image = capture.image.value;
+			// A frame is evidence of a moment that has passed. It must never
+			// authorize a point action, so its capture is retired at once.
+			if (image.captureId) dependencies.store.retireCapture(image.captureId);
 			samples.push({
 				frame: {
 					index,
@@ -154,7 +158,7 @@ export function watchDevice(
 					width: image.width,
 					height: image.height,
 					bytes: image.bytes.byteLength,
-					captureId: image.captureId,
+					captureId: null,
 				},
 				source: { index, bytes: image.bytes, mimeType: image.mimeType },
 			});
@@ -166,14 +170,16 @@ export function watchDevice(
 		});
 		let sheet: ContactSheet | null = null;
 		if (samples.length > 0) {
-			try {
-				sheet = buildContactSheet(samples.map((sample) => sample.source));
+			const built = yield* Effect.tryPromise({
+				try: () =>
+					buildContactSheetAsync(samples.map((sample) => sample.source)),
+				catch: (error) =>
+					error instanceof Error ? error.message : String(error),
+			}).pipe(Effect.either);
+			if (built._tag === "Right") {
+				sheet = built.right;
 				warnings.push(...sheet.warnings);
-			} catch (error) {
-				warnings.push(
-					`The contact sheet failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
+			} else warnings.push(`The contact sheet failed: ${built.left}`);
 		} else warnings.push("No frame was captured");
 		return {
 			device,
@@ -277,12 +283,15 @@ export function waitDevice(
 			const signature = observation.view
 				? axViewSignature(observation.view.nodes)
 				: null;
+			// A root-only or empty tree cannot prove that a label is gone or that
+			// the screen is stable. Keep polling until the tree is usable.
+			const degraded = isStructuralOnly(observation.view);
 			const satisfied =
 				condition.kind === "for"
 					? matched(observation, condition.text)
 					: condition.kind === "gone"
-						? observation.view !== null && !matched(observation, condition.text)
-						: signature !== null && signature === previous;
+						? !degraded && !matched(observation, condition.text)
+						: !degraded && signature !== null && signature === previous;
 			previous = signature;
 			const elapsedMs = clock.now() - startedAt;
 			if (satisfied || elapsedMs >= timeoutMs)
@@ -299,6 +308,11 @@ export function waitDevice(
 					observation,
 					warnings: [
 						...observation.warnings,
+						...(degraded && condition.kind !== "for"
+							? [
+									"The accessibility tree is root-only or empty, so gone and stable cannot be judged from it.",
+								]
+							: []),
 						...(satisfied
 							? []
 							: [

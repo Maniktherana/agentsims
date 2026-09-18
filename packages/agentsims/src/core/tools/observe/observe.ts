@@ -96,6 +96,17 @@ export type ObserveOptions = {
 	all?: boolean;
 };
 
+/** A tree with no usable structure: nothing shown, no size, or no nodes. */
+export function isStructuralOnly(view: DeviceSnapshot | null): boolean {
+	return (
+		!view ||
+		view.screen.width <= 0 ||
+		view.screen.height <= 0 ||
+		view.shown === 0 ||
+		view.nodes.length === 0
+	);
+}
+
 function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }

@@ -77,13 +77,14 @@ describe("contact sheet", () => {
 		}).toEqual({
 			columns: 3,
 			rows: 3,
-			cellWidth: 677,
-			cellHeight: 1504,
-			width: 2047,
-			height: 4528,
+			cellWidth: 303,
+			cellHeight: 673,
+			width: 925,
+			height: 2035,
 		});
-		expect(image.width).toBe(2047);
-		expect(image.height).toBe(4528);
+		// Height is capped like width, so eight portrait frames shrink to fit.
+		expect(image.width).toBe(925);
+		expect(image.height).toBe(2035);
 
 		const gap = CONTACT_SHEET_SEPARATOR;
 		const first = sheet.cells[0]!;
@@ -105,7 +106,7 @@ describe("contact sheet", () => {
 		const glyph = Math.floor(sheet.cellWidth / 40);
 		const originX = last.x + glyph;
 		const originY = last.y + last.height - (5 + 2) * glyph + glyph;
-		expect(glyph).toBe(16);
+		expect(glyph).toBe(7);
 		expect(image.at(originX, originY)).toEqual([255, 255, 255]);
 		expect(image.at(originX + 2 * glyph, originY)).toEqual([255, 255, 255]);
 		expect(image.at(originX, originY + 2 * glyph)).toEqual([0, 0, 0]);

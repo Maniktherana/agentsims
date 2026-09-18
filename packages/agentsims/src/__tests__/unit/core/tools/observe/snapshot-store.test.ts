@@ -206,15 +206,29 @@ describe("capture provenance", () => {
 		expect(store.resolveCapture(DEVICE, ids[16]!)).toMatchObject({ ok: true });
 	});
 
-	test("a later observation makes an older capture stale", () => {
+	test("a later observation keeps an older capture until input changes the screen", () => {
 		const store = createSnapshotStore();
 		record(store, twoButtons);
 		const capture = store.beginCapture(DEVICE);
 		store.publishCapture(capture, { screen: { width: 1080, height: 2400 } });
 		record(store, twoButtons);
+		expect(store.resolveCapture(DEVICE, capture)).toMatchObject({ ok: true });
+		store.mutate(DEVICE);
 		expect(store.resolveCapture(DEVICE, capture)).toMatchObject({
 			ok: false,
 			reason: "stale",
+		});
+	});
+
+	test("a retired capture can never target input", () => {
+		const store = createSnapshotStore();
+		record(store, twoButtons);
+		const capture = store.beginCapture(DEVICE);
+		store.publishCapture(capture, { screen: { width: 1080, height: 2400 } });
+		expect(store.retireCapture(capture)).toBe(true);
+		expect(store.resolveCapture(DEVICE, capture)).toMatchObject({
+			ok: false,
+			reason: "retired",
 		});
 	});
 

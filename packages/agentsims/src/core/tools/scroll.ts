@@ -15,7 +15,6 @@ import {
 } from "./observe/ax-view";
 import { observeDevice, type ObserveDependencies } from "./observe/observe";
 import {
-	isRefIdentifier,
 	type DeviceSnapshot,
 } from "./observe/snapshot-store";
 import {
@@ -276,16 +275,14 @@ function resolvedSwipe(
 	};
 }
 
+/** A row's own words followed by every descendant's, so two rows that share a title but differ in a subtitle, date, or amount stay distinct. */
 function nodeText(node: AxViewNode): string {
-	const own = node.label || node.value;
-	if (own) return own;
-	return flattenAxView(node.children)
-		.map((child) => child.label || child.value)
+	return [node.label || node.value, ...flattenAxView(node.children).map((child) => child.label || child.value)]
 		.filter(Boolean)
 		.join(" ");
 }
 
-function scrollItem(node: AxViewNode): ScrollItem {
+export function scrollItem(node: AxViewNode): ScrollItem {
 	return {
 		ref: node.ref,
 		role: node.role,
@@ -300,14 +297,24 @@ function scrollItem(node: AxViewNode): ScrollItem {
 export function collectAxNodes(
 	nodes: readonly AxViewNode[],
 	selector: string,
+	containerPath: string | null = null,
 ): AxViewNode[] {
 	const folded = selector.trim().toLowerCase();
 	const role = (AX_ROLES as readonly string[]).includes(folded)
 		? (folded as AxRole)
 		: null;
-	return role
+	const matches = role
 		? flattenAxView(nodes).filter((node) => node.role === role)
 		: matchAxNodes(nodes, selector.trim());
+	// Only rows inside the scrolled region count. The container itself is
+	// not a row.
+	return containerPath
+		? matches.filter(
+				(node) =>
+					node.path !== containerPath &&
+					node.path.startsWith(`${containerPath}.`),
+			)
+		: matches;
 }
 
 export function scrollItemKey(item: ScrollItem): string {
@@ -337,22 +344,6 @@ export function containerText(
  * which is every iOS node. Accept one unambiguous scrollable match that the
  * shared target rules turn down for its role alone.
  */
-function scrollableTarget(
-	store: ScrollDependencies["store"],
-	device: string,
-	target: string,
-): AxViewNode | null {
-	const current = store.current(device);
-	if (!current) return null;
-	let found: AxViewNode[];
-	if (target.startsWith("@") || isRefIdentifier(target)) {
-		const resolution = store.resolveRef(device, target);
-		found = resolution.ok ? [resolution.node] : [];
-	} else found = matchAxNodes(current.nodes, target);
-	const scrollable = found.filter(isScrollableNode);
-	return scrollable.length === 1 ? scrollable[0]! : null;
-}
-
 function resolveContainer(
 	dependencies: ScrollDependencies,
 	device: string,
@@ -364,6 +355,8 @@ function resolveContainer(
 			defaultScrollContainer(view, dependencies.store.normalized(device)),
 		);
 	const target = request.in.trim();
+	// The shared target policy applies: a disabled, offscreen, clipped, or
+	// covered region is refused here exactly as it would be for a tap.
 	return Effect.try({
 		try: () =>
 			containerOfNode(
@@ -371,14 +364,7 @@ function resolveContainer(
 				"target",
 			),
 		catch: (cause) => withActionEffect(cause, "none"),
-	}).pipe(
-		Effect.catchAll((error) => {
-			const fallback = scrollableTarget(dependencies.store, device, target);
-			return fallback
-				? Effect.succeed(containerOfNode(fallback, "target"))
-				: Effect.fail(error);
-		}),
-	);
+	});
 }
 
 /**
@@ -445,7 +431,7 @@ export function scrollDevice(
 		const items = new Map<string, ScrollItem>();
 		const collect = (page: DeviceSnapshot): void => {
 			if (!request.collect) return;
-			for (const node of collectAxNodes(page.nodes, request.collect)) {
+			for (const node of collectAxNodes(page.nodes, request.collect, container.path)) {
 				const item = scrollItem(node);
 				items.set(scrollItemKey(item), item);
 			}
@@ -459,6 +445,7 @@ export function scrollDevice(
 			pages = 1;
 		}
 		let swipes = 0;
+		let unchanged = 0;
 		let endReached = false;
 		let action: ActionResult | null = null;
 		const limit = request.toEnd ? maxPages : 1;
@@ -470,12 +457,17 @@ export function scrollDevice(
 			if (!page) break;
 			collect(page);
 			const next = containerText(page, container.path);
-			// A page that repeats the one before it is the end of the region, not
-			// a new page.
+			// One unchanged page can be a swipe the app absorbed. Two in a row
+			// mean the region has no more content.
 			if (next === signature) {
-				endReached = true;
-				break;
+				unchanged += 1;
+				if (unchanged >= 2 || !request.toEnd) {
+					endReached = true;
+					break;
+				}
+				continue;
 			}
+			unchanged = 0;
 			pages += 1;
 			signature = next;
 		}

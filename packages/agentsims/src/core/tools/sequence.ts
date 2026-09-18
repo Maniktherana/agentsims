@@ -5,7 +5,9 @@ import { InvalidCommandInput, type ApplicationCommandError } from "./errors";
 import { DEVICE_BUTTONS } from "./input";
 import { AX_ROLES } from "./observe/ax-view";
 import type { DeviceObservation, ObserveOptions } from "./observe/observe";
-import { isPointTarget } from "./observe/targets";
+import { isPointTarget,
+	isRefTarget,
+} from "./observe/targets";
 
 /** A sequence is a short, sanctioned chain. Longer work needs its own plan. */
 export const MAX_SEQUENCE_STEPS = 25;
@@ -83,7 +85,7 @@ function isPercentPoint(target: string): boolean {
 /** Says why a target cannot survive to the next step, or null when it can. */
 function targetProblem(value: string): string | null {
 	const target = value.trim();
-	if (target.startsWith("@")) return REF_MESSAGE;
+	if (isRefTarget(target)) return REF_MESSAGE;
 	if (isPointTarget(target) && !isPercentPoint(target)) return PIXEL_MESSAGE;
 	return null;
 }
@@ -299,7 +301,13 @@ export function runSequence(
 				action: step,
 				result,
 			});
-			if (result.dispatch.status !== "accepted") {
+			// An accepted dispatch whose effect did not match, or a suppressed
+			// submit, is a failed step: the rest of the run would build on it.
+			if (
+				result.dispatch.status !== "accepted" ||
+				result.verification?.status === "mismatch" ||
+				result.text?.submit.status === "suppressed"
+			) {
 				stoppedAt = index;
 				break;
 			}

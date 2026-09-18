@@ -9,6 +9,8 @@ import {
 	DEFAULT_SCROLL_DURATION_MS,
 	defaultScrollContainer,
 	scrollDevice,
+	scrollItem,
+	scrollItemKey,
 	scrollTravel,
 	type ScrollRequest,
 	type ScrollResult,
@@ -378,13 +380,26 @@ describe("scroll to the end", () => {
 		const first = listSnapshot(["Alpha", "Beta"]);
 		const second = listSnapshot(["Gamma", "Delta"]);
 		const last = listSnapshot(["Epsilon"]);
-		const scroll = harness([first, second, last, last]);
+		const scroll = harness([first, second, last, last, last]);
 
 		const result = await scroll.run({ direction: "down", toEnd: true });
 
 		expect(result.pages).toBe(3);
-		expect(result.swipes).toBe(3);
+		// One repeated page can be an absorbed swipe; the end needs two.
+		expect(result.swipes).toBe(4);
 		expect(result.endReached).toBe(true);
+	});
+
+	test("one absorbed swipe does not end the region", async () => {
+		const first = listSnapshot(["Alpha"]);
+		const second = listSnapshot(["Beta"]);
+		const scroll = harness([first, first, second, second, second]);
+
+		const result = await scroll.run({ direction: "down", toEnd: true });
+
+		expect(result.pages).toBe(2);
+		expect(result.endReached).toBe(true);
+		expect(result.items).toBeNull();
 	});
 
 	test("the page limit stops a region that never settles", async () => {
@@ -442,7 +457,7 @@ describe("scroll to the end", () => {
 		expect(result.items?.map((item) => item.text)).toEqual(["Gamma"]);
 	});
 
-	test("collect matches a test ID as well as a role", async () => {
+	test("the scrolled container is never one of its own rows", async () => {
 		const scroll = harness([
 			listSnapshot(["Alpha"]),
 			listSnapshot(["Alpha", "Beta"]),
@@ -453,7 +468,44 @@ describe("scroll to the end", () => {
 			collect: "com.example:id/tasks",
 		});
 
-		expect(result.count).toBe(1);
-		expect(result.items?.[0]).toMatchObject({ role: "list", text: "Alpha Beta" });
+		expect(result.count).toBe(0);
+		expect(result.items).toEqual([]);
+	});
+
+	test("rows that share a title but differ below it stay distinct", () => {
+		const row = (title: string, subtitle: string) =>
+			({
+				ref: `e${title}${subtitle}`,
+				id: `${title}${subtitle}`,
+				path: `0.${title}${subtitle}`,
+				role: "generic",
+				rawRole: "android.view.ViewGroup",
+				label: title,
+				value: "",
+				states: [],
+				box: { x: 0, y: 0, width: 100, height: 40 },
+				point: { x: 0.5, y: 0.1 },
+				children: [
+					{
+						ref: `e${title}${subtitle}s`,
+						id: `${title}${subtitle}s`,
+						path: `0.${title}${subtitle}.0`,
+						role: "text",
+						rawRole: "android.widget.TextView",
+						label: subtitle,
+						value: "",
+						states: [],
+						box: { x: 0, y: 20, width: 100, height: 20 },
+						point: { x: 0.5, y: 0.15 },
+						children: [],
+					},
+				],
+			}) as never;
+		const keys = new Set(
+			[row("Rent", "$1,200"), row("Rent", "$1,350")].map((node) =>
+				scrollItemKey(scrollItem(node)),
+			),
+		);
+		expect(keys.size).toBe(2);
 	});
 });

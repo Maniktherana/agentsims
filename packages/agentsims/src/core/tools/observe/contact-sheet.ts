@@ -6,6 +6,10 @@ import { decode as decodePng, encode as encodePng } from "fast-png";
  * shows the text and act on it.
  */
 export const CONTACT_SHEET_MAX_WIDTH = 2048;
+/** The sheet is read by a model, not printed. Height is capped like width. */
+export const CONTACT_SHEET_MAX_HEIGHT = 2048;
+/** Fast deflate: the sheet is transient evidence, not an archive. */
+const SHEET_ZLIB = { level: 1 } as const;
 export const CONTACT_SHEET_SEPARATOR = 4;
 
 const SEPARATOR_LEVEL = 32;
@@ -251,12 +255,7 @@ export function buildContactSheet(
 	const first = decoded.find((entry) => entry.image !== null)?.image;
 	if (!first)
 		throw new Error("No frame in the contact sheet is a readable PNG");
-	const grid = contactSheetGrid(
-		sources.length,
-		first.width,
-		first.height,
-		maxWidth,
-	);
+	const grid = boundedGrid(sources.length, first.width, first.height, maxWidth);
 	const sheet = new Uint8Array(grid.width * grid.height * 3).fill(
 		SEPARATOR_LEVEL,
 	);
@@ -268,13 +267,86 @@ export function buildContactSheet(
 	});
 	return {
 		...grid,
-		bytes: encodePng({
-			width: grid.width,
-			height: grid.height,
-			data: sheet,
-			channels: 3,
-			depth: 8,
-		}),
+		bytes: encodePng(
+			{ width: grid.width, height: grid.height, data: sheet, channels: 3, depth: 8 },
+			{ zlib: SHEET_ZLIB },
+		),
+		mimeType: "image/png",
+		cells,
+		warnings,
+	};
+}
+
+/** A grid no wider than maxWidth and no taller than CONTACT_SHEET_MAX_HEIGHT. */
+function boundedGrid(
+	count: number,
+	frameWidth: number,
+	frameHeight: number,
+	maxWidth: number,
+): ContactSheetGrid {
+	const grid = contactSheetGrid(count, frameWidth, frameHeight, maxWidth);
+	if (grid.height <= CONTACT_SHEET_MAX_HEIGHT) return grid;
+	const narrower = Math.max(
+		1,
+		Math.floor((maxWidth * CONTACT_SHEET_MAX_HEIGHT) / grid.height),
+	);
+	return contactSheetGrid(count, frameWidth, frameHeight, narrower);
+}
+
+const yieldToEventLoop = (): Promise<void> =>
+	new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * The same sheet as buildContactSheet, built in steps that return to the event
+ * loop between frames so a live stream keeps moving while the sheet is made.
+ */
+export async function buildContactSheetAsync(
+	sources: readonly ContactSheetSource[],
+	maxWidth = CONTACT_SHEET_MAX_WIDTH,
+): Promise<ContactSheet> {
+	if (sources.length === 0)
+		throw new Error("A contact sheet needs at least one frame");
+	const warnings: string[] = [];
+	const decoded: Array<{ index: number; image: RgbImage | null }> = [];
+	for (const source of sources) {
+		if (source.mimeType && source.mimeType !== "image/png") {
+			warnings.push(
+				`Frame ${source.index} is ${source.mimeType}. The contact sheet reads PNG only.`,
+			);
+			decoded.push({ index: source.index, image: null });
+		} else {
+			try {
+				decoded.push({ index: source.index, image: toRgb(source.bytes) });
+			} catch (error) {
+				warnings.push(
+					`Frame ${source.index} is not a readable PNG: ${messageOf(error)}`,
+				);
+				decoded.push({ index: source.index, image: null });
+			}
+		}
+		await yieldToEventLoop();
+	}
+	const first = decoded.find((entry) => entry.image !== null)?.image;
+	if (!first)
+		throw new Error("No frame in the contact sheet is a readable PNG");
+	const grid = boundedGrid(sources.length, first.width, first.height, maxWidth);
+	const sheet = new Uint8Array(grid.width * grid.height * 3).fill(
+		SEPARATOR_LEVEL,
+	);
+	const cells: ContactSheet["cells"] = [];
+	for (const [position, cell] of contactSheetCells(grid, sources.length).entries()) {
+		const entry = decoded[position]!;
+		if (entry.image) drawFrame(sheet, grid.width, cell, entry.image);
+		drawIndex(sheet, grid.width, cell, entry.index);
+		cells.push({ ...cell, index: entry.index });
+		await yieldToEventLoop();
+	}
+	return {
+		...grid,
+		bytes: encodePng(
+			{ width: grid.width, height: grid.height, data: sheet, channels: 3, depth: 8 },
+			{ zlib: SHEET_ZLIB },
+		),
 		mimeType: "image/png",
 		cells,
 		warnings,
