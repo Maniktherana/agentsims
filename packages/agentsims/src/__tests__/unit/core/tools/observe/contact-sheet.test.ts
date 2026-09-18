@@ -7,6 +7,7 @@ import {
 	frameSheetGrid,
 	rgbaFrameImage,
 	CONTACT_SHEET_SEPARATOR,
+	badgeGlyphSize,
 } from "../../../../../core/tools/observe/contact-sheet";
 
 const FRAME_WIDTH = 1080;
@@ -137,7 +138,7 @@ describe("contact sheets", () => {
 		const sheet = built.sheets[0]!;
 		const cell = sheet.cells.find((entry) => entry.index === 12)!;
 		const image = sheetReader(sheet.bytes);
-		const glyph = Math.floor(cell.width / 40);
+		const glyph = badgeGlyphSize(cell.width, 2);
 		const originX = cell.x + glyph;
 		const originY = cell.y + cell.height - 7 * glyph + glyph;
 		// "1" is a single bar and "2" opens with a full row, so the badge shows

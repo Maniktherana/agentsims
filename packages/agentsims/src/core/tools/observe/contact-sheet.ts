@@ -16,6 +16,8 @@ export const CONTACT_SHEET_MAX_CELL_WIDTH = 640;
 /** Fast deflate: the sheet is transient evidence, not an archive. */
 const SHEET_ZLIB = { level: 1 } as const;
 export const CONTACT_SHEET_SEPARATOR = 4;
+/** Glyph pixel size is the cell width divided by this. */
+export const BADGE_CELL_DIVISOR = 128;
 
 const SEPARATOR_LEVEL = 32;
 const BADGE_LEVEL = 0;
@@ -309,6 +311,17 @@ function drawFrame(
  * readable over a light or a dark screen and never hides the status bar. The
  * index is global over every sheet, so it can carry two or three digits.
  */
+/** Glyph pixel size for a frame badge: small, and never wider than its cell. */
+export function badgeGlyphSize(cellWidth: number, digits: number): number {
+	return Math.max(
+		2,
+		Math.min(
+			Math.floor(cellWidth / BADGE_CELL_DIVISOR),
+			Math.floor(cellWidth / (2 + digits * (DIGIT_WIDTH + 1))),
+		),
+	);
+}
+
 function drawIndex(
 	sheet: Uint8Array,
 	sheetWidth: number,
@@ -316,14 +329,7 @@ function drawIndex(
 	index: number,
 ): void {
 	const text = String(Math.max(0, Math.floor(index)));
-	const glyph = Math.max(
-		2,
-		Math.min(
-			Math.floor(cell.width / 40),
-			// Many digits must not push the badge out of its cell.
-			Math.floor(cell.width / (2 + text.length * (DIGIT_WIDTH + 1))),
-		),
-	);
+	const glyph = badgeGlyphSize(cell.width, text.length);
 	const textWidth = (text.length * DIGIT_WIDTH + text.length - 1) * glyph;
 	const boxWidth = Math.min(cell.width, textWidth + 2 * glyph);
 	const boxHeight = Math.min(cell.height, (DIGIT_HEIGHT + 2) * glyph);
