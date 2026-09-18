@@ -19,6 +19,7 @@ export interface TraceCall {
 
 export interface TraceSummary {
 	id: string;
+	directory: string;
 	name: string | null;
 	startedAt: string;
 	endedAt: string | null;
@@ -62,6 +63,7 @@ export function parseTraceSummaries(value: unknown): TraceSummary[] {
 		return [
 			{
 				id,
+				directory: text(trace.directory) ?? "",
 				name: text(trace.name),
 				startedAt: text(trace.startedAt) ?? "",
 				endedAt: text(trace.endedAt),

@@ -1,19 +1,24 @@
-import { CircleAlert, ListOrdered, Route, Timer } from "lucide-react";
+import { FolderOpen, Route } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
 	elapsedSince,
 	formatElapsed,
+	openFileCommand,
 } from "../../../hooks/simulator/use-screen-recording";
 import { useTrace } from "../../../hooks/simulator/use-trace";
 import { useTracing } from "../../../hooks/simulator/use-tracing";
 import { execOnHost } from "../../../simulator/input/exec";
 import { Button } from "../../ui/button";
 import { CollapsibleSection } from "../../ui/collapsible-section";
+import { CopyButton } from "../../ui/copy-button";
+import { IconButton } from "../../ui/icon-button";
 import { SettingSwitch } from "../../ui/setting-switch";
+import { notify } from "../../ui/toast";
 import { SettingRow } from "./simulator-settings-tool";
 
-const TRACE_VALUE =
-	"min-w-0 max-w-[190px] truncate text-right text-[12px] font-medium tabular-nums text-white/72";
+function tone(count: number, colour: string): string {
+	return count > 0 ? colour : "text-white/42";
+}
 
 export function TracingTool({
 	udid,
@@ -43,6 +48,7 @@ export function TracingTool({
 	}, [tracing.active, open]);
 
 	const detail = trace.detail;
+	const summary = trace.traces.find((entry) => entry.id === detail?.id);
 	const live = detail !== null && detail.id === trace.activeId;
 	const refused = detail?.calls.filter((call) => call.status === "refused").length ?? 0;
 	const errors = detail?.calls.filter((call) => call.status === "error").length ?? 0;
@@ -51,6 +57,22 @@ export function TracingTool({
 			? elapsedSince(detail.startedAt, now)
 			: Math.max(0, Date.parse(detail.endedAt ?? "") - Date.parse(detail.startedAt))
 		: 0;
+	const directory =
+		summary?.directory ??
+		("directory" in tracing.state ? tracing.state.directory : null);
+
+	const openFolder = () => {
+		if (!directory) return;
+		void execOnHost(openFileCommand(directory)).then(
+			(result) => {
+				if (result.exitCode !== 0)
+					notify("error", "Could not open the trace folder", {
+						description: result.stderr.trim() || directory,
+					});
+			},
+			() => notify("error", "Could not open the trace folder"),
+		);
+	};
 
 	return (
 		<CollapsibleSection
@@ -74,13 +96,9 @@ export function TracingTool({
 			}
 			data-tracing-tool={tracing.active ? "tracing" : "idle"}
 		>
-			<SettingRow
-				icon={<Route size={14} strokeWidth={2} />}
-				label="Record every command"
-				description="One JSONL record and one screenshot per call"
-			>
+			<SettingRow icon={<Route size={14} strokeWidth={2} />} label="Trace commands">
 				<SettingSwitch
-					label="Record every command"
+					label="Trace commands"
 					checked={tracing.active}
 					disabled={tracing.busy}
 					onChange={tracing.toggle}
@@ -88,31 +106,36 @@ export function TracingTool({
 			</SettingRow>
 
 			{detail ? (
-				<>
-					<SettingRow
-						icon={<ListOrdered size={14} strokeWidth={2} />}
-						label="Calls"
-						description={`${refused} refused · ${errors} ${errors === 1 ? "error" : "errors"}`}
-					>
-						<span className={TRACE_VALUE}>{detail.calls.length}</span>
-					</SettingRow>
-					<SettingRow
-						icon={<Timer size={14} strokeWidth={2} />}
-						label={live ? "Elapsed" : "Duration"}
-					>
-						<span className={TRACE_VALUE}>{formatElapsed(spanMs)}</span>
-					</SettingRow>
-					<SettingRow
-						icon={<span className="text-[10px] font-semibold">ID</span>}
-						label="Trace"
-					>
-						<code
-							className="min-w-0 max-w-[150px] truncate rounded-[8px] bg-white/[0.05] px-2 py-1 text-[10px] font-medium text-white/48"
-							title={detail.id}
-						>
+				<div className="flex flex-col gap-3 pl-[26px] pt-1">
+					<div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-white/72">
+						{live ? (
+							<span className="agentsims-device-status-breathe size-1.5 shrink-0 rounded-full bg-success" />
+						) : null}
+						<span>{detail.calls.length} calls</span>
+						<span className="text-white/25">·</span>
+						<span className={tone(refused, "text-warning")}>{refused} refused</span>
+						<span className="text-white/25">·</span>
+						<span className={tone(errors, "text-danger")}>
+							{errors} {errors === 1 ? "error" : "errors"}
+						</span>
+						<span className="text-white/25">·</span>
+						<span>{formatElapsed(spanMs)}</span>
+					</div>
+					<div className="flex items-start gap-1.5">
+						<code className="min-w-0 flex-1 break-all font-mono text-[11px] leading-[1.5] text-white/48">
 							{detail.id}
 						</code>
-					</SettingRow>
+						<CopyButton text={detail.id} label="Copy trace id" size="row" surface="toolbar" />
+						<IconButton
+							label="Open trace folder"
+							size="row"
+							surface="toolbar"
+							disabled={!directory}
+							onClick={openFolder}
+						>
+							<FolderOpen size={12} strokeWidth={2} />
+						</IconButton>
+					</div>
 					<Button
 						variant="plain"
 						size="custom"
@@ -123,15 +146,11 @@ export function TracingTool({
 					>
 						{traceOpen ? "Close trace panel" : "Open trace panel"}
 					</Button>
-				</>
-			) : (
-				<div className="flex items-start gap-2 rounded-[8px] bg-white/[0.035] px-2.5 py-2 text-[10px] leading-[1.4] text-white/42">
-					<CircleAlert size={13} strokeWidth={2} className="mt-px shrink-0" />
-					<span>
-						{trace.error ??
-							"No trace for this device yet. Turn tracing on to record the next commands."}
-					</span>
 				</div>
+			) : (
+				<p className="pl-[26px] text-[11px] leading-[1.5] text-white/42">
+					{trace.error ?? "No trace for this device yet. Turn tracing on to record the next commands."}
+				</p>
 			)}
 		</CollapsibleSection>
 	);

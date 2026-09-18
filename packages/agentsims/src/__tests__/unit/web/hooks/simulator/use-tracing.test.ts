@@ -137,6 +137,7 @@ describe("trace HTTP JSON", () => {
 					id: "t-2",
 					device: "UDID",
 					platform: "ios",
+					directory: "/home/u/.agentsims/traces/t-2",
 					name: "checkout",
 					startedAt: "2026-09-19T10:20:00.000Z",
 					endedAt: null,
@@ -147,6 +148,7 @@ describe("trace HTTP JSON", () => {
 		).toEqual([
 			{
 				id: "t-2",
+				directory: "/home/u/.agentsims/traces/t-2",
 				name: "checkout",
 				startedAt: "2026-09-19T10:20:00.000Z",
 				endedAt: null,

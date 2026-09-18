@@ -34,7 +34,7 @@ function run(
 describe("recordCommand", () => {
 	test("asks the CLI for JSON and quotes the device id", () => {
 		expect(recordCommand("start", "android:emulator-5556")).toBe(
-			"agentsims record start -d 'android:emulator-5556' --json",
+			"agentsims record start -d 'android:emulator-5556' --out \"$HOME/Downloads\" --json",
 		);
 		expect(recordCommand("status", "UDID")).toBe(
 			"agentsims record status -d 'UDID' --json",

@@ -1,9 +1,7 @@
-import { Copy } from "lucide-react";
 import { renderCommandOutput } from "../../../core/tools/output/render";
 import type { TraceCommand } from "../../../core/tools/traces/trace-file";
 import type { TraceCall } from "../../hooks/simulator/use-trace";
-import { IconButton } from "../ui/icon-button";
-import { notify } from "../ui/toast";
+import { CopyButton } from "../ui/copy-button";
 
 export function renderCallOutput(command: TraceCommand, result: unknown): string {
 	if (result === null || result === undefined) return "";
@@ -44,19 +42,7 @@ export function TraceCallDetail({
 				>
 					{callRequestLine(call)}
 				</code>
-				<IconButton
-					label="Copy output"
-					size="row"
-					surface="toolbar"
-					onClick={() => {
-						void navigator.clipboard?.writeText(output).then(
-							() => notify("success", "Output copied"),
-							() => notify("error", "Copy failed"),
-						);
-					}}
-				>
-					<Copy size={12} strokeWidth={2} />
-				</IconButton>
+				<CopyButton text={output} label="Copy output" size="row" surface="toolbar" />
 			</div>
 			<pre
 				style={{ maxHeight }}

@@ -1,4 +1,5 @@
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
+import { CopyButton } from "../../components/ui/copy-button";
 import { notify } from "../../components/ui/toast";
 import { shellEscape, type ExecResult } from "../../simulator/input/exec";
 
@@ -117,8 +118,17 @@ export function isRecordingActive(state: ScreenRecordingState): boolean {
 
 export type RecordSubcommand = "start" | "stop" | "status";
 
+/** Recordings started from the UI land in Downloads, where a person looks for a file. */
+export const RECORDING_OUT_DIR = '"$HOME/Downloads"';
+
 export function recordCommand(sub: RecordSubcommand, device: string): string {
-	return `agentsims record ${sub} -d ${shellEscape(device)} --json`;
+	const out = sub === "start" ? ` --out ${RECORDING_OUT_DIR}` : "";
+	return `agentsims record ${sub} -d ${shellEscape(device)}${out} --json`;
+}
+
+export function openFileCommand(path: string): string {
+	const target = shellEscape(path);
+	return `open ${target} 2>/dev/null || xdg-open ${target}`;
 }
 
 export interface RecordStopResult {
@@ -255,26 +265,47 @@ export function stopDescription(result: RecordStopResult): string {
 	return rest.length > 0 ? `${first} +${rest.length} more` : first;
 }
 
-async function copyToClipboard(text: string): Promise<void> {
-	await navigator.clipboard?.writeText(text);
-}
+const TOAST_BUTTON =
+	"shrink-0 rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10";
 
-function copyPathAction(paths: string[]) {
+function toastButton(label: string, onClick: () => void) {
 	return createElement(
 		"button",
 		{
 			type: "button",
-			className:
-				"shrink-0 rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10",
+			className: TOAST_BUTTON,
 			onClick: (event: { stopPropagation: () => void }) => {
 				event.stopPropagation();
-				void copyToClipboard(paths.join("\n")).then(
-					() => notify("success", "Path copied"),
-					() => notify("error", "Copy failed"),
-				);
+				onClick();
 			},
 		},
-		"Copy",
+		label,
+	);
+}
+
+function stopActions(paths: string[], exec: ExecFn) {
+	const first = paths[0];
+	return createElement(
+		"div",
+		{ className: "flex shrink-0 gap-1.5" },
+		first
+			? toastButton("View", () => {
+					void exec(openFileCommand(first)).then(
+						(result) => {
+							if (result.exitCode !== 0)
+								notify("error", "Could not open the video", {
+									description: result.stderr.trim() || first,
+								});
+						},
+						() => notify("error", "Could not open the video"),
+					);
+				})
+			: null,
+		createElement(CopyButton, {
+			text: paths.join("\n"),
+			size: "row",
+			surface: "toolbar",
+		}),
 	);
 }
 
@@ -391,7 +422,7 @@ export function useScreenRecording(
 				dispatch(forDevice, { type: "stopped" });
 				notify("success", stopTitle(stopped), {
 					description: stopDescription(stopped),
-					action: copyPathAction(stopped.paths),
+					action: stopActions(stopped.paths, execRef.current),
 					duration: 8000,
 				});
 			} catch (error) {
