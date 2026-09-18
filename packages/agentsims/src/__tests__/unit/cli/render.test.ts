@@ -230,6 +230,22 @@ test("AX nodes render refs, hierarchy, frames, and raw roles", () => {
 		.toBe('no node matches "missing" in observation o1');
 });
 
+test("AX node text keeps its line breaks visible", () => {
+	const nodes = [{
+		ref: "e2",
+		role: "textbox",
+		rawRole: "android.widget.EditText",
+		label: "",
+		value: "name|note\nLaundry|Urgent.  Reimbursable.\r\nJeans|A need",
+		states: [],
+		box: { x: 0, y: 0, width: 10, height: 10 },
+		children: [],
+	}];
+	expect(renderAxNodes(nodes)).toEqual([
+		"- textbox [ref=e2]: name|note\\nLaundry|Urgent. Reimbursable.\\nJeans|A need",
+	]);
+});
+
 test.each([
 	["suppressed", "The field value did not match."],
 	["unknown", "Return dispatch failed."],

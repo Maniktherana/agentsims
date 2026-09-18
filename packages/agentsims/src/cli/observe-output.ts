@@ -33,7 +33,15 @@ export type ArtifactWrite =
 	| { status: "ok"; path: string }
 	| { status: "error"; error: string };
 
-const oneLine = (value: string): string => value.replace(/\s+/g, " ").trim();
+/**
+ * Keep a value on one line without losing where its lines break. A file body
+ * or a message keeps its rows apart as `\n`; other whitespace runs collapse.
+ */
+const oneLine = (value: string): string =>
+	value
+		.replace(/\r?\n/g, "\\n")
+		.replace(/[^\S\n]+/g, " ")
+		.trim();
 const quoted = (value: string): string => JSON.stringify(value);
 const time = (value: number): string => new Date(value).toISOString();
 
