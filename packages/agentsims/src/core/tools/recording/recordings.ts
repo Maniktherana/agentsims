@@ -3,7 +3,6 @@
  * recorder to the device wire on start, detaches and finalizes on stop, and
  * stops everything when the server scope closes.
  */
-import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { Context, Effect, Layer } from "effect";
 import { AndroidSessions } from "../../android/session/session";
@@ -15,12 +14,10 @@ import {
 	type ApplicationCommandError,
 } from "../errors";
 import { makeDeviceAvcc, type DeviceAvccService } from "../devices/devices";
+import { recordingsDirectory } from "../../home";
 import { ScreenRecorder } from "./recorder";
 
-/** Recordings keep their own directory. The screenshot pruner never sees it. */
-export function recordingsDirectory(): string {
-	return join(tmpdir(), "agentsims", "recordings");
-}
+export { recordingsDirectory };
 
 export function recordingFileName(device: string, now: Date): string {
 	const stamp = now.toISOString().replace(/[:.]/g, "-");

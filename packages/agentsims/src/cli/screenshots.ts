@@ -1,3 +1,4 @@
+import { screenshotsDirectory } from "../core/home";
 import {
 	mkdirSync,
 	readdirSync,
@@ -5,7 +6,6 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 export type ScreenshotKind = "observe" | "screenshot" | "action";
@@ -23,7 +23,7 @@ export interface WriteScreenshotOptions {
 	outputPath?: string;
 	now?: Date;
 	environment?: { AGENTSIMS_SCREENSHOT_DIR?: string };
-	temporaryDirectory?: string;
+	homeDirectory?: string;
 }
 
 export const SCREENSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -125,7 +125,9 @@ export function writeScreenshotFile(options: WriteScreenshotOptions): string {
 		? dirname(resolve(outputPath))
 		: resolve(
 				environmentDirectory ??
-					join(options.temporaryDirectory ?? tmpdir(), "agentsims", "screenshots"),
+					(options.homeDirectory
+						? join(options.homeDirectory, "screenshots")
+						: screenshotsDirectory()),
 			);
 	const target = outputPath
 		? resolve(outputPath)

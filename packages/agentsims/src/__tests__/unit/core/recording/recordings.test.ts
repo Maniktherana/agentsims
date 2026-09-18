@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { agentsimsHome } from "../../../../core/home";
 import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import {
@@ -73,7 +74,7 @@ test("the default path lands in the recordings directory", () => {
 		),
 	);
 	expect(recordingsDirectory()).toBe(
-		join(tmpdir(), "agentsims", "recordings"),
+		join(agentsimsHome(), "recordings"),
 	);
 });
 

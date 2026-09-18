@@ -1,5 +1,5 @@
+import { tracesDirectory } from "../../home";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { Cause, Context, Effect, Exit, Layer } from "effect";
 import { z } from "zod";
@@ -33,7 +33,6 @@ import {
 	type TraceWriter,
 } from "./trace-file";
 
-export const TRACES_DIR = join(homedir(), ".agentsims", "traces");
 
 export const TraceStartSchema = z.object({
 	name: z.string().min(1).max(120).optional(),
@@ -337,7 +336,7 @@ export const TracesLive = Layer.scoped(
 	Traces,
 	Effect.gen(function* () {
 		const devices = yield* Devices;
-		const traces = makeTraceService(TRACES_DIR, (device) =>
+		const traces = makeTraceService(tracesDirectory(), (device) =>
 			devices.captureScreenshot(device),
 		);
 		yield* Effect.addFinalizer(() => traces.stopAll());

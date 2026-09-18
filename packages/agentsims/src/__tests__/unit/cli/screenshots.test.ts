@@ -38,7 +38,7 @@ test("explicit path takes precedence and all returned paths are absolute", () =>
 	const root = temporaryRoot();
 	const explicit = join(root, "explicit", "chosen.png");
 	const environmentDirectory = join(root, "environment");
-	const temporaryDirectory = join(root, "temporary");
+	const homeDirectory = join(root, "temporary");
 
 	const path = writeScreenshotFile({
 		kind: "observe",
@@ -46,25 +46,25 @@ test("explicit path takes precedence and all returned paths are absolute", () =>
 		content: Buffer.from("explicit"),
 		outputPath: explicit,
 		environment: { AGENTSIMS_SCREENSHOT_DIR: environmentDirectory },
-		temporaryDirectory,
+		homeDirectory,
 	});
 
 	expect(path).toBe(resolve(explicit));
 	expect(readFileSync(path, "utf8")).toBe("explicit");
 	expect(existsSync(environmentDirectory)).toBe(false);
-	expect(existsSync(temporaryDirectory)).toBe(false);
+	expect(existsSync(homeDirectory)).toBe(false);
 });
 
 test("environment directory takes precedence over the default temp directory", () => {
 	const root = temporaryRoot();
 	const environmentDirectory = join(root, "environment");
-	const temporaryDirectory = join(root, "temporary");
+	const homeDirectory = join(root, "temporary");
 	const path = writeScreenshotFile({
 		kind: "action",
 		device: "android:emulator-5554",
 		content: Buffer.from("environment"),
 		environment: { AGENTSIMS_SCREENSHOT_DIR: environmentDirectory },
-		temporaryDirectory,
+		homeDirectory,
 		now: new Date("2026-09-17T01:02:03.004Z"),
 	});
 
@@ -75,24 +75,23 @@ test("environment directory takes precedence over the default temp directory", (
 			"action-android_emulator-5554-2026-09-17T01-02-03-004Z.png",
 		),
 	);
-	expect(existsSync(temporaryDirectory)).toBe(false);
+	expect(existsSync(homeDirectory)).toBe(false);
 });
 
-test("default writes use the managed temp directory", () => {
+test("default writes use the home screenshots directory", () => {
 	const root = temporaryRoot();
 	const path = writeScreenshotFile({
 		kind: "screenshot",
 		device: "ios-device",
 		content: Buffer.from("default"),
 		environment: {},
-		temporaryDirectory: root,
+		homeDirectory: root,
 		now: new Date("2026-09-17T01:02:03.004Z"),
 	});
 
 	expect(path).toBe(
 		join(
 			resolve(root),
-			"agentsims",
 			"screenshots",
 			"screenshot-ios-device-2026-09-17T01-02-03-004Z.png",
 		),
@@ -137,7 +136,7 @@ test("generated names use MIME extensions and do not overwrite collisions", () =
 
 test("default retention keeps the age boundary and preserves unrelated files", () => {
 	const root = temporaryRoot();
-	const directory = join(root, "agentsims", "screenshots");
+	const directory = join(root, "screenshots");
 	mkdirSync(directory, { recursive: true });
 	const now = new Date("2026-09-17T12:00:00.000Z");
 	const boundary = screenshotFileName(
@@ -173,7 +172,7 @@ test("default retention keeps the age boundary and preserves unrelated files", (
 		device: "current",
 		content: Buffer.from("current"),
 		environment: {},
-		temporaryDirectory: root,
+		homeDirectory: root,
 		now,
 	});
 
@@ -184,7 +183,7 @@ test("default retention keeps the age boundary and preserves unrelated files", (
 
 test("default retention removes only overflow from managed files", () => {
 	const root = temporaryRoot();
-	const directory = join(root, "agentsims", "screenshots");
+	const directory = join(root, "screenshots");
 	mkdirSync(directory, { recursive: true });
 	const now = new Date("2026-09-17T12:00:00.000Z");
 	let oldest = "";
@@ -207,7 +206,7 @@ test("default retention removes only overflow from managed files", () => {
 		device: "current",
 		content: Buffer.from("current"),
 		environment: {},
-		temporaryDirectory: root,
+		homeDirectory: root,
 		now,
 	});
 
@@ -300,7 +299,7 @@ test("retention uses strict age and count boundaries", () => {
 
 test("one command that writes many files never prunes its own output", () => {
 	const root = temporaryRoot();
-	const directory = join(root, "agentsims", "screenshots");
+	const directory = join(root, "screenshots");
 	mkdirSync(directory, { recursive: true });
 	const now = new Date("2026-09-17T12:00:00.000Z");
 	for (let index = 0; index < SCREENSHOT_MAX_COUNT + 20; index += 1) {
@@ -316,7 +315,7 @@ test("one command that writes many files never prunes its own output", () => {
 		device: "sheet",
 		content: Buffer.from("sheet"),
 		environment: {},
-		temporaryDirectory: root,
+		homeDirectory: root,
 		now,
 	});
 

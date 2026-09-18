@@ -58,6 +58,7 @@ export type TraceDocument = {
 };
 
 export type TraceSummary = Omit<TraceHeader, "type" | "version"> & {
+	directory: string;
 	endedAt: string | null;
 	calls: number;
 };
@@ -221,6 +222,7 @@ export async function readTraceSummary(
 	const { type: _type, version: _version, ...header } = trace;
 	return {
 		...header,
+		directory,
 		endedAt: end?.endedAt ?? null,
 		calls:
 			end?.calls ??

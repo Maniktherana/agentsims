@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { configuredDistDirectory, dirnameOf } from "../core/native-paths";
 import { logRuntime } from "../core/logging";
+import { logsDirectory } from "../core/home";
 import { STATE_DIR } from "../core/tools/devices/state";
 import { servePreview, type PreviewServer } from "../server/http/server";
 
@@ -37,7 +38,7 @@ export type LocalServerOptions = {
 };
 
 const metadataFile = join(STATE_DIR, "local-server.json");
-const logFile = join(STATE_DIR, "local-server.log");
+const logFile = join(logsDirectory(), "local-server.log");
 const uid = () =>
 	typeof process.getuid === "function" ? process.getuid() : null;
 

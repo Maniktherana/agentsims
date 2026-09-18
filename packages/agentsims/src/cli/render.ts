@@ -1,3 +1,4 @@
+import { agentsimsHome } from "../core/home";
 import { formatFields, formatTable } from "./output";
 
 const str = (value: unknown): string =>
@@ -130,6 +131,7 @@ export function renderServerStatus(payload: unknown): string {
 	if (value.running === false || !value.url)
 		return "Agentsims is not running. Start it with `agentsims start --detach`.";
 	return formatFields([
+		["home", agentsimsHome()],
 		["url", str(value.url)],
 		["pid", str(value.pid)],
 		["since", str(value.startedAt)],
