@@ -15,6 +15,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
 	SCREENSHOT_MAX_AGE_MS,
 	SCREENSHOT_MAX_COUNT,
+	SCREENSHOT_MIN_KEEP_MS,
 	screenshotExtension,
 	screenshotFileName,
 	screenshotsToPrune,
@@ -188,7 +189,10 @@ test("default retention removes only overflow from managed files", () => {
 	const now = new Date("2026-09-17T12:00:00.000Z");
 	let oldest = "";
 	for (let index = 0; index < SCREENSHOT_MAX_COUNT; index += 1) {
-		const at = new Date(now.getTime() - (index + 1) * 1_000);
+		// Old enough to be overflow candidates; fresh files are never pruned.
+		const at = new Date(
+			now.getTime() - SCREENSHOT_MIN_KEEP_MS - (index + 1) * 1_000,
+		);
 		const name = screenshotFileName("observe", `device-${index}`, "image/png", at);
 		if (index === SCREENSHOT_MAX_COUNT - 1) oldest = name;
 		const path = join(directory, name);
@@ -275,9 +279,10 @@ test("filesystem errors name the target path", () => {
 
 test("retention uses strict age and count boundaries", () => {
 	const now = Date.UTC(2026, 8, 17, 12, 0, 0);
+	// All old enough to count as overflow; fresh files are exempt.
 	const shots = Array.from({ length: SCREENSHOT_MAX_COUNT + 1 }, (_, index) => ({
 		name: `${index}`,
-		modifiedMs: now - index,
+		modifiedMs: now - SCREENSHOT_MIN_KEEP_MS - 1 - index,
 	}));
 	expect(screenshotsToPrune(shots, now, SCREENSHOT_MAX_AGE_MS)).toEqual([
 		`${SCREENSHOT_MAX_COUNT}`,
@@ -291,4 +296,29 @@ test("retention uses strict age and count boundaries", () => {
 			now,
 		),
 	).toEqual(["stale"]);
+});
+
+test("one command that writes many files never prunes its own output", () => {
+	const root = temporaryRoot();
+	const directory = join(root, "agentsims", "screenshots");
+	mkdirSync(directory, { recursive: true });
+	const now = new Date("2026-09-17T12:00:00.000Z");
+	for (let index = 0; index < SCREENSHOT_MAX_COUNT + 20; index += 1) {
+		const at = new Date(now.getTime() - (index + 1) * 100);
+		const name = screenshotFileName("observe", `frame-${index}`, "image/png", at);
+		const path = join(directory, name);
+		writeFileSync(path, name);
+		utimesSync(path, at, at);
+	}
+
+	writeScreenshotFile({
+		kind: "observe",
+		device: "sheet",
+		content: Buffer.from("sheet"),
+		environment: {},
+		temporaryDirectory: root,
+		now,
+	});
+
+	expect(readdirSync(directory)).toHaveLength(SCREENSHOT_MAX_COUNT + 21);
 });

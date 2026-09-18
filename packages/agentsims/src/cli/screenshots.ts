@@ -28,6 +28,8 @@ export interface WriteScreenshotOptions {
 
 export const SCREENSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const SCREENSHOT_MAX_COUNT = 40;
+/** Files younger than this are never pruned for overflow, so one command that writes many sheets and frames cannot evict its own output. */
+export const SCREENSHOT_MIN_KEEP_MS = 10 * 60 * 1000;
 
 const MANAGED_SCREENSHOT_NAME =
 	/^(?:observe|screenshot|action)-[0-9A-Za-z._-]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:-\d+)?\.(?:jpg|png|webp)$/;
@@ -59,7 +61,8 @@ export function screenshotsToPrune(
 	return newestFirst
 		.filter(
 			(shot, index) =>
-				index >= maxCount || nowMs - shot.modifiedMs > maxAgeMs,
+				(index >= maxCount && nowMs - shot.modifiedMs > SCREENSHOT_MIN_KEEP_MS) ||
+				nowMs - shot.modifiedMs > maxAgeMs,
 		)
 		.map((shot) => shot.name);
 }
