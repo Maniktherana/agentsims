@@ -42,6 +42,12 @@ import {
 	createSnapshotStore,
 	type SnapshotStore,
 } from "../observe/snapshot-store";
+import {
+	waitDevice,
+	watchDevice,
+	type WaitOptions,
+	type WatchOptions,
+} from "../observe/watch";
 import { ForegroundApps } from "./foreground-apps";
 
 export type DeviceListOptions = {
@@ -226,6 +232,15 @@ export function makeDeviceService(
 		screenshot: (device: string) =>
 			guardFailure(device, captureDeviceScreenshot(observation, device)).pipe(
 				Effect.flatMap((result) => inspectCapture(device, result)),
+			),
+		/** Timed sampling returns one contact sheet and a current tree. */
+		watch: (device: string, options: WatchOptions) =>
+			guardFailure(device, watchDevice(observation, device, options)).pipe(
+				Effect.tap((result) => inspectCapture(device, result.observation)),
+			),
+		wait: (device: string, options: WaitOptions) =>
+			guardFailure(device, waitDevice(observation, device, options)).pipe(
+				Effect.tap((result) => inspectCapture(device, result.observation)),
 			),
 		find: (device: string, query: string) =>
 			guardFailure(device, findOnDevice(observation, device, query)),

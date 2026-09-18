@@ -39,6 +39,7 @@ test("the public command surface is canonical", () => {
 		"run",
 		"observe",
 		"screenshot",
+		"wait",
 		"find",
 		"camera",
 		"app",
@@ -83,6 +84,43 @@ test("action and app help shows the supported options", () => {
 			"--json",
 			"--screenshot",
 		]);
+});
+
+test("timed observation help lists the sampling and waiting options", () => {
+	const observe = command("observe").options.map((option) => option.long);
+	expect(observe).toContain("--watch");
+	expect(observe).toContain("--samples");
+	expect(observe).toContain("--frames");
+
+	const wait = command("wait");
+	expect(wait.options.map((option) => option.long)).toEqual([
+		"--device",
+		"--url",
+		"--for",
+		"--gone",
+		"--stable",
+		"--timeout",
+		"--interval",
+		"--raw",
+		"--json",
+	]);
+	const help = wait.helpInformation().replace(/\s+/g, " ");
+	expect(help).toContain("(default: 10000)");
+	expect(help).toContain("(default: 500)");
+	const watch = command("observe").options.find(
+		(option) => option.long === "--watch",
+	);
+	expect(watch?.parseArg?.("8000", "")).toBe(8000);
+	expect(() => watch?.parseArg?.("-1", "")).toThrow(
+		"Watch duration must be an integer between 0 and 120000.",
+	);
+	const samples = command("observe").options.find(
+		(option) => option.long === "--samples",
+	);
+	expect(samples?.parseArg?.("8", "")).toBe(8);
+	expect(() => samples?.parseArg?.("17", "")).toThrow(
+		"Frame count must be an integer between 1 and 16.",
+	);
 });
 
 test("target indexes have no arbitrary upper limit", () => {

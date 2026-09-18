@@ -11,6 +11,7 @@ import {
 	describeSequenceStep,
 	type SequenceResult,
 } from "../core/tools/sequence";
+import type { DeviceWait, DeviceWatch } from "../core/tools/observe/watch";
 import type {
 	ResolvedAction,
 	ResolvedPoint,
@@ -167,6 +168,72 @@ export function renderScreenshot(
 		renderContext(screenshot),
 		...warningLines(screenshot.warnings),
 	].join("\n");
+}
+
+function sheetText(
+	watch: DeviceWatch,
+	artifact: ArtifactWrite | null,
+): string {
+	if (!watch.sheet) return "sheet=none";
+	if (!artifact) return "sheet=unsaved";
+	if (artifact.status === "error") return `sheet=error  ${oneLine(artifact.error)}`;
+	return `sheet=${artifact.path}`;
+}
+
+export function renderWatch(
+	watch: DeviceWatch,
+	artifact: ArtifactWrite | null,
+	format: ObserveFormat = {},
+): string {
+	const sheet = watch.sheet;
+	const grid = sheet
+		? `  grid=${sheet.columns}x${sheet.rows} cell=${sheet.cellWidth}x${sheet.cellHeight}`
+		: "";
+	const lines = [
+		[
+			"watch",
+			`device=${watch.device}`,
+			`platform=${watch.platform}`,
+			`started=${time(watch.startedAt)}`,
+		].join("  "),
+		`frames  ${watch.frames.length} over ${watch.durationMs}ms  ${sheetText(watch, artifact)}${grid}`,
+		...watch.frames.map(
+			(frame) =>
+				`frame  ${frame.index}  at=${frame.atMs}ms  ${frame.width}×${frame.height}  capture=${frame.captureId ?? "none"}`,
+		),
+		...warningLines(watch.warnings),
+		renderObservation(watch.observation, null, format),
+	];
+	return lines.join("\n");
+}
+
+export function renderWait(
+	wait: DeviceWait,
+	format: ObserveFormat = {},
+): string {
+	const condition =
+		wait.condition.kind === "stable"
+			? "stable"
+			: `${wait.condition.kind}=${quoted(wait.condition.text)}`;
+	const lines = [
+		[
+			"wait",
+			condition,
+			`satisfied=${wait.satisfied ? "yes" : "no"}`,
+			`elapsed=${wait.elapsedMs}ms`,
+			`polls=${wait.polls}`,
+		].join("  "),
+	];
+	if (wait.observation.view)
+		lines.push(...renderTree(wait.observation.view, format));
+	else lines.push("elements  none");
+	lines.push(
+		...warningLines([
+			...wait.warnings,
+			...(wait.observation.view?.warnings ?? []),
+		]),
+	);
+	return lines.join("\n");
 }
 
 export function renderMatches(
@@ -412,6 +479,28 @@ export function screenshotForOutput(
 		...screenshot,
 		image: imageForOutput(screenshot.image),
 		artifact,
+	};
+}
+
+export function watchForOutput(
+	watch: DeviceWatch,
+	artifact: ArtifactWrite | null,
+): unknown {
+	const sheet = watch.sheet
+		? { ...watch.sheet, bytes: watch.sheet.bytes.byteLength }
+		: null;
+	return {
+		...watch,
+		sheet,
+		observation: observationForOutput(watch.observation, null),
+		artifact,
+	};
+}
+
+export function waitForOutput(wait: DeviceWait): unknown {
+	return {
+		...wait,
+		observation: observationForOutput(wait.observation, null),
 	};
 }
 

@@ -163,6 +163,40 @@ export class ApplicationCommandClient {
 		);
 	}
 
+	async watchDevice(
+		deviceId: string,
+		options: { durationMs: number; frames?: number },
+	): Promise<unknown> {
+		const query = new URLSearchParams({ watch: String(options.durationMs) });
+		if (options.frames !== undefined) query.set("frames", String(options.frames));
+		return this.request(
+			`/device/${encodeURIComponent(deviceId)}/watch?${query}`,
+		);
+	}
+
+	async waitDevice(
+		deviceId: string,
+		options: {
+			for?: string;
+			gone?: string;
+			stable?: boolean;
+			timeoutMs?: number;
+			intervalMs?: number;
+		},
+	): Promise<unknown> {
+		const query = new URLSearchParams();
+		if (options.for !== undefined) query.set("for", options.for);
+		if (options.gone !== undefined) query.set("gone", options.gone);
+		if (options.stable) query.set("stable", "1");
+		if (options.timeoutMs !== undefined)
+			query.set("timeout", String(options.timeoutMs));
+		if (options.intervalMs !== undefined)
+			query.set("interval", String(options.intervalMs));
+		return this.request(
+			`/device/${encodeURIComponent(deviceId)}/wait?${query}`,
+		);
+	}
+
 	async findOnDevice(deviceId: string, query: string): Promise<unknown> {
 		return this.request(
 			`/device/${encodeURIComponent(deviceId)}/find?q=${encodeURIComponent(query)}`,

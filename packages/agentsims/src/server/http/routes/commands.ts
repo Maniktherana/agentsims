@@ -30,6 +30,18 @@ const requestContext = Effect.gen(function* () {
 const deviceBody = z.object({ udid: z.string() });
 const actionsBody = z.object({ actions: z.array(z.unknown()) });
 const stepsBody = z.object({ steps: z.array(z.unknown()) });
+const DEFAULT_WATCH_FRAMES = 4;
+const watchQuery = z.object({
+	watch: z.coerce.number().int(),
+	frames: z.coerce.number().int().optional(),
+});
+const waitQuery = z.object({
+	for: z.string().optional(),
+	gone: z.string().optional(),
+	stable: z.string().optional(),
+	timeout: z.coerce.number().int().optional(),
+	interval: z.coerce.number().int().optional(),
+});
 const listQuery = z.object({
 	device: z.string().optional(),
 	limit: z.coerce.number().optional(),
@@ -142,6 +154,43 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		commandResponse(
 			Effect.gen(function* () {
 				return yield* (yield* Devices).screenshot(yield* pathDevice);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/watch",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				const query = yield* decodeInput(
+					watchQuery,
+					Object.fromEntries(url.searchParams),
+				);
+				return yield* (yield* Devices).watch(yield* pathDevice, {
+					durationMs: query.watch,
+					frames: query.frames ?? DEFAULT_WATCH_FRAMES,
+				});
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/wait",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				const query = yield* decodeInput(
+					waitQuery,
+					Object.fromEntries(url.searchParams),
+				);
+				return yield* (yield* Devices).wait(yield* pathDevice, {
+					...(query.for === undefined ? {} : { for: query.for }),
+					...(query.gone === undefined ? {} : { gone: query.gone }),
+					...(query.stable === "1" ? { stable: true } : {}),
+					...(query.timeout === undefined ? {} : { timeoutMs: query.timeout }),
+					...(query.interval === undefined
+						? {}
+						: { intervalMs: query.interval }),
+				});
 			}),
 		),
 	),

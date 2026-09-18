@@ -53,6 +53,12 @@ import {
 } from "./observe-output";
 import { writeScreenshotFile } from "./screenshots";
 import {
+	registerWaitCommands,
+	runObserveWatch,
+	watchDurationOption,
+	watchFramesOption,
+} from "./commands/wait";
+import {
 	renderAppList,
 	renderPermissionList,
 	renderServerStatus,
@@ -118,8 +124,13 @@ function writeCapturedImage(
 		};
 	}
 }
-const client = (url?: string) =>
-	new ApplicationCommandClient({ origin: url ?? readLocalServer()?.url });
+const client = (url?: string, timeoutMs?: number) =>
+	new ApplicationCommandClient({
+		origin: url ?? readLocalServer()?.url,
+		...(timeoutMs === undefined ? {} : { timeoutMs }),
+	});
+/** Commands in their own module receive the shared CLI seams, not globals. */
+const commandDependencies = { client, json };
 const port = (value: string) => {
 	const parsed = Number(value);
 	if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65_535)
@@ -547,6 +558,16 @@ Examples:
 		.option("--frames", "Add [box=x,y,w,h] in screenshot pixels")
 		.option("--raw", "Print the platform class in place of the role")
 		.option("-o, --out <path>", "Where to write the screenshot")
+		.option(
+			"--watch <ms>",
+			"Sample the screen over this long into one contact sheet",
+			watchDurationOption,
+		)
+		.option(
+			"--samples <n>",
+			"How many frames --watch samples",
+			watchFramesOption,
+		)
 		.option("--json", "Print structured output")
 		.action(
 			async (
@@ -554,8 +575,15 @@ Examples:
 					all?: boolean;
 					out?: string;
 					json?: boolean;
+					watch?: number;
+					samples?: number;
 				} & ObserveFormat,
 			) => {
+				if (flags.watch !== undefined)
+					return runObserveWatch(commandDependencies, {
+						...flags,
+						watch: flags.watch,
+					});
 				const result = (await client(flags.url).observeDevice(flags.device, {
 					all: flags.all,
 				})) as DeviceObservation;
@@ -606,6 +634,7 @@ Examples:
 				process.stdout.write(`${renderScreenshot(result, artifact)}\n`);
 			},
 		);
+	registerWaitCommands(program, commandDependencies);
 	program
 		.command("find <text>")
 		.description("Print the nodes that match a label, value, or test ID")
