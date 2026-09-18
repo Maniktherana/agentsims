@@ -494,17 +494,17 @@ describe("capture-bound coordinates", () => {
 			),
 		).toThrow("failed and cannot be targeted");
 
-		const staleStore = observed().store;
-		const stale = publishCapture(staleStore);
-		publishCapture(staleStore);
-		expect(() =>
+		const historyStore = observed().store;
+		const earlier = publishCapture(historyStore);
+		publishCapture(historyStore);
+		expect(
 			resolveTarget(
-				staleStore,
+				historyStore,
 				DEVICE,
-				{ target: "10,20", capture: stale },
-				{ orientation: "portrait" },
+				{ target: "10,20", capture: earlier },
+				{ orientation: "portrait", generation: 4 },
 			),
-		).toThrow("does not exist");
+		).toMatchObject({ pixels: { x: 10, y: 20 } });
 
 		const mutatedStore = observed().store;
 		const mutated = publishCapture(mutatedStore);
@@ -516,7 +516,7 @@ describe("capture-bound coordinates", () => {
 				{ target: "10,20", capture: mutated },
 				{ orientation: "portrait" },
 			),
-		).toThrow("does not exist");
+		).toThrow("is from before the last input");
 	});
 });
 

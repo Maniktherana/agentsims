@@ -164,7 +164,7 @@ describe("capture provenance", () => {
 		expect(capture).toMatchObject({ id, observation: null });
 	});
 
-	test("captures are unique and only the latest publication is current", () => {
+	test("captures are unique and stay current until the screen changes", () => {
 		const store = createSnapshotStore();
 		record(store, twoButtons);
 		const first = store.beginCapture(DEVICE);
@@ -172,8 +172,38 @@ describe("capture provenance", () => {
 		const second = store.beginCapture(DEVICE);
 		store.publishCapture(second, { screen: { width: 1080, height: 2400 } });
 		expect(first).not.toBe(second);
-		expect(store.resolveCapture(DEVICE, first).ok).toBe(false);
+		expect(store.resolveCapture(DEVICE, first)).toMatchObject({ ok: true });
 		expect(store.resolveCapture(DEVICE, second)).toMatchObject({ ok: true });
+		store.mutate(DEVICE);
+		expect(store.resolveCapture(DEVICE, first)).toMatchObject({
+			ok: false,
+			reason: "stale",
+		});
+		expect(store.resolveCapture(DEVICE, second)).toMatchObject({
+			ok: false,
+			reason: "stale",
+		});
+		expect(store.resolveCapture(DEVICE, "c999")).toMatchObject({
+			ok: false,
+			reason: "unknown",
+		});
+	});
+
+	test("capture history keeps sixteen ids and evicts the oldest", () => {
+		const store = createSnapshotStore();
+		record(store, twoButtons);
+		const ids: string[] = [];
+		for (let index = 0; index < 17; index += 1) {
+			const id = store.beginCapture(DEVICE);
+			store.publishCapture(id, { screen: { width: 1080, height: 2400 } });
+			ids.push(id);
+		}
+		expect(store.resolveCapture(DEVICE, ids[0]!)).toMatchObject({
+			ok: false,
+			reason: "unknown",
+		});
+		expect(store.resolveCapture(DEVICE, ids[1]!)).toMatchObject({ ok: true });
+		expect(store.resolveCapture(DEVICE, ids[16]!)).toMatchObject({ ok: true });
 	});
 
 	test("a later observation makes an older capture stale", () => {
@@ -182,10 +212,13 @@ describe("capture provenance", () => {
 		const capture = store.beginCapture(DEVICE);
 		store.publishCapture(capture, { screen: { width: 1080, height: 2400 } });
 		record(store, twoButtons);
-		expect(store.resolveCapture(DEVICE, capture).ok).toBe(false);
+		expect(store.resolveCapture(DEVICE, capture)).toMatchObject({
+			ok: false,
+			reason: "stale",
+		});
 	});
 
-	test("mutation and session replacement invalidate captures", () => {
+	test("mutation and session replacement make captures stale", () => {
 		const store = createSnapshotStore();
 		record(store, twoButtons);
 		const mutationCapture = store.beginCapture(DEVICE);
@@ -193,14 +226,20 @@ describe("capture provenance", () => {
 			screen: { width: 1080, height: 2400 },
 		});
 		store.mutate(DEVICE);
-		expect(store.resolveCapture(DEVICE, mutationCapture).ok).toBe(false);
+		expect(store.resolveCapture(DEVICE, mutationCapture)).toMatchObject({
+			ok: false,
+			reason: "stale",
+		});
 		record(store, twoButtons);
 		const sessionCapture = store.beginCapture(DEVICE);
 		store.publishCapture(sessionCapture, {
 			screen: { width: 1080, height: 2400 },
 		});
 		store.invalidate(DEVICE);
-		expect(store.resolveCapture(DEVICE, sessionCapture).ok).toBe(false);
+		expect(store.resolveCapture(DEVICE, sessionCapture)).toMatchObject({
+			ok: false,
+			reason: "stale",
+		});
 	});
 
 	test("a mutation prevents an in-flight observation from publishing", () => {

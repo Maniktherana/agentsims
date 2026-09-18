@@ -239,20 +239,21 @@ test("user-managed directories are not pruned", () => {
 	expect(readdirSync(directory)).toHaveLength(SCREENSHOT_MAX_COUNT + 3);
 });
 
-test("an explicit path preserves an existing file and reports the write error", () => {
+test("an explicit path overwrites an existing file and keeps its path", () => {
 	const root = temporaryRoot();
 	const path = join(root, "selected.png");
 	writeFileSync(path, "keep");
 
-	expect(() =>
-		writeScreenshotFile({
-			kind: "observe",
-			device: "ios-device",
-			content: Buffer.from("replace"),
-			outputPath: path,
-		}),
-	).toThrow(`Screenshot write failed for ${resolve(path)}: the file already exists.`);
-	expect(readFileSync(path, "utf8")).toBe("keep");
+	const written = writeScreenshotFile({
+		kind: "observe",
+		device: "ios-device",
+		content: Buffer.from("replace"),
+		outputPath: path,
+	});
+
+	expect(written).toBe(resolve(path));
+	expect(readFileSync(written, "utf8")).toBe("replace");
+	expect(readdirSync(root)).toEqual(["selected.png"]);
 });
 
 test("filesystem errors name the target path", () => {

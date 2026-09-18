@@ -143,10 +143,11 @@ export function writeScreenshotFile(options: WriteScreenshotOptions): string {
 	}
 
 	if (outputPath) {
-		if (!writeExclusive(target, options.content))
-			throw new Error(
-				`Screenshot write failed for ${target}: the file already exists.`,
-			);
+		try {
+			writeFileSync(target, options.content);
+		} catch (error) {
+			throw writeError(target, error);
+		}
 		return target;
 	}
 

@@ -67,7 +67,8 @@ export interface CaptureRecord {
 export type CaptureFailureReason =
 	| ProvenanceFailureReason
 	| "unpublished"
-	| "failed";
+	| "failed"
+	| "stale";
 
 export type CaptureResolution =
 	| { ok: true; capture: CaptureRecord }
@@ -118,8 +119,10 @@ interface DeviceEntry {
 	current: DeviceSnapshot | null;
 	normalized: AxSnapshot | null;
 	refs: Map<string, AxViewNode>;
-	capture: CaptureDraft | null;
+	captures: Map<string, CaptureDraft>;
 }
+
+const CAPTURE_HISTORY_LIMIT = 16;
 
 const REF_PATTERN = /^e[1-9]\d*$/;
 const CAPTURE_PATTERN = /^c[1-9]\d*$/;
@@ -153,7 +156,7 @@ export function createSnapshotStore(): SnapshotStore {
 			current: null,
 			normalized: null,
 			refs: new Map(),
-			capture: null,
+			captures: new Map(),
 		};
 		devices.set(device, entry);
 		return entry;
@@ -163,7 +166,6 @@ export function createSnapshotStore(): SnapshotStore {
 		entry.current = null;
 		entry.normalized = null;
 		entry.refs.clear();
-		entry.capture = null;
 	};
 
 	const ticketIsCurrent = (entry: DeviceEntry, ticket: ObservationTicket) =>
@@ -173,7 +175,7 @@ export function createSnapshotStore(): SnapshotStore {
 
 	const captureOwner = (id: string): string | null => {
 		for (const [device, entry] of devices)
-			if (entry.capture?.id === id) return device;
+			if (entry.captures.has(id)) return device;
 		return null;
 	};
 
@@ -222,7 +224,6 @@ export function createSnapshotStore(): SnapshotStore {
 			);
 			entry.current = snapshot;
 			entry.normalized = input.snapshot;
-			entry.capture = null;
 			return snapshot;
 		},
 		failObservation(ticket) {
@@ -281,14 +282,19 @@ export function createSnapshotStore(): SnapshotStore {
 		beginCapture(device) {
 			const entry = entryFor(device);
 			const id = `c${(nextCapture += 1)}`;
-			entry.capture = {
+			entry.captures.set(id, {
 				id,
 				session: entry.session,
 				revision: entry.revision,
 				observation: entry.current?.id ?? null,
 				status: "pending",
 				record: null,
-			};
+			});
+			while (entry.captures.size > CAPTURE_HISTORY_LIMIT) {
+				const oldest = entry.captures.keys().next().value;
+				if (oldest === undefined) break;
+				entry.captures.delete(oldest);
+			}
 			return id;
 		},
 		publishCapture(capture, input) {
@@ -297,8 +303,8 @@ export function createSnapshotStore(): SnapshotStore {
 			const owner = captureOwner(id);
 			if (!owner) return null;
 			const entry = entryFor(owner);
-			const draft = entry.capture;
-			if (!draft || draft.id !== id || draft.status !== "pending") return null;
+			const draft = entry.captures.get(id);
+			if (!draft || draft.status !== "pending") return null;
 			if (
 				draft.session !== entry.session ||
 				draft.revision !== entry.revision ||
@@ -331,8 +337,8 @@ export function createSnapshotStore(): SnapshotStore {
 			if (!id) return false;
 			const owner = captureOwner(id);
 			if (!owner) return false;
-			const draft = entryFor(owner).capture;
-			if (!draft || draft.id !== id || draft.status !== "pending") return false;
+			const draft = entryFor(owner).captures.get(id);
+			if (!draft || draft.status !== "pending") return false;
 			draft.status = "failed";
 			return true;
 		},
@@ -340,8 +346,8 @@ export function createSnapshotStore(): SnapshotStore {
 			const id = token(capture, CAPTURE_PATTERN);
 			if (!id) return { ok: false, reason: "invalid" };
 			const entry = devices.get(device);
-			const draft = entry?.capture;
-			if (!draft || draft.id !== id) {
+			const draft = entry?.captures.get(id);
+			if (!entry || !draft) {
 				return captureOwner(id)
 					? { ok: false, reason: "wrong_device" }
 					: { ok: false, reason: "unknown" };
@@ -350,6 +356,11 @@ export function createSnapshotStore(): SnapshotStore {
 				return { ok: false, reason: "unpublished" };
 			if (draft.status === "failed" || !draft.record)
 				return { ok: false, reason: "failed" };
+			if (draft.session !== entry.session || draft.revision !== entry.revision)
+				return { ok: false, reason: "stale" };
+			const bound = draft.record.observation;
+			if (bound !== null && bound !== (entry.current?.id ?? null))
+				return { ok: false, reason: "stale" };
 			return { ok: true, capture: draft.record };
 		},
 	};

@@ -300,6 +300,8 @@ function resolvePoint(
 				fail(`capture ${selector.capture} is not published`);
 			case "failed":
 				fail(`capture ${selector.capture} failed and cannot be targeted`);
+			case "stale":
+				fail(`capture ${selector.capture} is from before the last input. Take a screenshot again`);
 		}
 	}
 	const capture = resolved.capture;

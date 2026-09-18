@@ -161,7 +161,7 @@ describe("browser and CLI coexistence", () => {
 			});
 			expect(store.resolveCapture(DEVICE_A, beforeA.captureId)).toEqual({
 				ok: false,
-				reason: "unknown",
+				reason: "stale",
 			});
 			expect(store.resolveRef(DEVICE_B, refB).ok).toBe(true);
 			expect(store.resolveCapture(DEVICE_B, beforeB.captureId).ok).toBe(true);
