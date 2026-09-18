@@ -184,6 +184,23 @@ export class ApplicationCommandClient {
 		);
 	}
 
+	/** A sequence re-observes between steps, so it needs a longer budget. */
+	async runSequence(
+		deviceId: string,
+		steps: ReadonlyArray<unknown>,
+		options: ActionOptions = {},
+	): Promise<unknown> {
+		const query = new URLSearchParams();
+		if (options.screenshot) query.set("screenshot", "1");
+		const search = query.size > 0 ? `?${query}` : "";
+		return this.request(
+			`/device/${encodeURIComponent(deviceId)}/run${search}`,
+			{ method: "POST", body: JSON.stringify({ steps }) },
+			"unknown",
+			this.timeoutMs + steps.length * 10_000,
+		);
+	}
+
 	async app(
 		deviceId: string,
 		operation: string,
@@ -245,6 +262,7 @@ export class ApplicationCommandClient {
 		path: string,
 		init?: RequestInit,
 		uncertainEffect?: ActionEffect,
+		timeoutMs = this.timeoutMs,
 	): Promise<unknown> {
 		const signals = [this.signal, init?.signal].filter(
 			(signal): signal is AbortSignal => signal !== undefined,
@@ -259,7 +277,7 @@ export class ApplicationCommandClient {
 		const timeout = setTimeout(() => {
 			timedOut = true;
 			controller.abort();
-		}, this.timeoutMs);
+		}, timeoutMs);
 		let response: Response;
 		let text: string;
 		try {
@@ -274,7 +292,7 @@ export class ApplicationCommandClient {
 			text = await response.text();
 		} catch (error) {
 			const message = timedOut
-				? `The request timed out after ${this.timeoutMs} ms.`
+				? `The request timed out after ${timeoutMs} ms.`
 				: controller.signal.aborted
 					? "The request was canceled."
 					: `Cannot connect to ${this.origin}. Start Agentsims before you run this command. ${

@@ -7,6 +7,10 @@ import type {
 	ImageCaptureChannel,
 } from "../core/tools/observe/observe";
 import type { DeviceSnapshot } from "../core/tools/observe/snapshot-store";
+import {
+	describeSequenceStep,
+	type SequenceResult,
+} from "../core/tools/sequence";
 import type {
 	ResolvedAction,
 	ResolvedPoint,
@@ -337,6 +341,35 @@ export function renderActionResult(
 		...warningLines([
 			...result.warnings,
 			...(result.view?.warnings ?? []),
+		]),
+	);
+	return lines.join("\n");
+}
+
+/** One line per step, then the tree the run left behind. */
+export function renderSequenceResult(
+	result: SequenceResult,
+	format: ObserveFormat = {},
+): string {
+	const lines = result.steps.map((step) => {
+		const what = step.label ?? describeSequenceStep(step.action);
+		return `step ${step.index + 1}/${result.total}  ${what}  dispatch ${
+			step.result.dispatch.status
+		}  verification ${step.result.verification.status}`;
+	});
+	const last = result.steps.at(-1);
+	if (result.stoppedAt !== null && last)
+		lines.push(
+			`stopped at step ${result.stoppedAt + 1}: ${oneLine(
+				last.result.dispatch.reason,
+			)}`,
+		);
+	if (last?.result.view) lines.push(...renderTree(last.result.view, format));
+	else lines.push("elements  none");
+	lines.push(
+		...warningLines([
+			...(last?.result.warnings ?? []),
+			...(last?.result.view?.warnings ?? []),
 		]),
 	);
 	return lines.join("\n");

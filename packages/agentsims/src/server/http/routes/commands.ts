@@ -16,6 +16,7 @@ import {
 } from "../../../core/tools/devices/lifecycle";
 import { MediaRouting } from "../../../core/tools/media";
 import { Apps, AppOperationSchema } from "../../../core/tools/apps";
+import { runSequence } from "../../../core/tools/sequence";
 import { ServerConfig } from "../../runtime/config";
 import { commandResponse, decodeInput, requestJson } from "../command";
 import { exposedState, requestSource, requestedDevice } from "./shared";
@@ -28,6 +29,7 @@ const requestContext = Effect.gen(function* () {
 });
 const deviceBody = z.object({ udid: z.string() });
 const actionsBody = z.object({ actions: z.array(z.unknown()) });
+const stepsBody = z.object({ steps: z.array(z.unknown()) });
 const listQuery = z.object({
 	device: z.string().optional(),
 	limit: z.coerce.number().optional(),
@@ -167,6 +169,24 @@ export const commandRoutes = HttpRouter.empty.pipe(
 				return yield* (yield* Devices).act(yield* pathDevice, body.actions, {
 					screenshot: url.searchParams.get("screenshot") === "1",
 				});
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/device/:device/run",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request, url } = yield* requestContext;
+				const body = yield* decodeInput(
+					stepsBody,
+					yield* requestJson(request),
+				);
+				return yield* runSequence(
+					yield* Devices,
+					yield* pathDevice,
+					body.steps,
+					{ screenshot: url.searchParams.get("screenshot") === "1" },
+				);
 			}),
 		),
 	),

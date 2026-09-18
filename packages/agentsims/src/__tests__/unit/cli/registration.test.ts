@@ -36,6 +36,7 @@ test("the public command surface is canonical", () => {
 		"fill",
 		"press",
 		"rotate",
+		"run",
 		"observe",
 		"screenshot",
 		"find",
@@ -61,6 +62,18 @@ test("action and app help shows the supported options", () => {
 	};
 	for (const [name, options] of Object.entries(expected))
 		expect(command(name).options.map((option) => option.long)).toEqual(options);
+
+	const run = command("run");
+	expect(run.options.map((option) => option.long)).toEqual([
+		"--device",
+		"--url",
+		"--json",
+		"--screenshot",
+	]);
+	const runHelp = run.helpInformation().replace(/\s+/g, " ");
+	expect(runHelp).toContain("--json");
+	expect(runHelp).toContain("Run up to 25 steps from a JSON file");
+	expect(runHelp).toContain("- for standard input");
 
 	const app = command("app");
 	for (const name of ["launch", "stop"])

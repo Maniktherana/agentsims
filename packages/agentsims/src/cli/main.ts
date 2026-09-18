@@ -59,6 +59,7 @@ import {
 	renderWebcamList,
 } from "./render";
 import { renderDeviceLogs } from "./device-logs-output";
+import { registerRunCommands } from "./commands/run";
 import {
 	formatHostDiagnostics,
 	hostDiagnosticsFor,
@@ -536,6 +537,7 @@ Examples:
 			orientation: oneOf("Orientation", DEVICE_ORIENTATIONS)(orientation),
 		}),
 	);
+	registerRunCommands(program, { client, json });
 	program
 		.command("observe")
 		.description("Capture a screenshot and the accessibility tree")
