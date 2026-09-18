@@ -1,12 +1,12 @@
-import { tmpdir } from "os";
 import { join } from "path";
 import { randomUUID } from "node:crypto";
 import { readdirSync, mkdirSync, writeFileSync, renameSync, rmSync } from "fs";
 import { FileSystem, Path } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
+import { stateDirectory } from "../../home";
 
 /** Directory where Agentsims stores runtime state. */
-export const STATE_DIR = join(tmpdir(), "agentsims");
+export const STATE_DIR = stateDirectory();
 
 /** Per-device state file: `/tmp/agentsims/server-{udid}.json` */
 export function stateFileForDevice(udid: string): string {

@@ -1,3 +1,4 @@
+import { Accessibility as AccessibilityIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
@@ -13,7 +14,7 @@ import {
 	accessibilityNativeChain,
 } from "./tree";
 import { AccessibilityHeaderActions, AccessibilityView } from "./view";
-import { AccessibilityPanel } from "./panel";
+import { DevicePanel } from "../ui/device-panel";
 import { useAccessibilityPanelPosition } from "../../accessibility/panel-position";
 
 export function AccessibilityInspectorController({
@@ -114,8 +115,11 @@ export function AccessibilityInspectorController({
 								data-agentsims-accessibility-panel-host
 								style={panelPosition.style}
 							>
-								<AccessibilityPanel
+								<DevicePanel
 									open
+									title="Accessibility"
+									icon={<AccessibilityIcon size={14} strokeWidth={1.9} />}
+									closeLabel="Close accessibility tree"
 									device={{
 										id: deviceId,
 										name: deviceName ?? deviceId,
@@ -189,7 +193,7 @@ export function AccessibilityInspectorController({
 											) : undefined
 										}
 									/>
-								</AccessibilityPanel>
+								</DevicePanel>
 							</div>
 						)}
 					</AnimatePresence>,

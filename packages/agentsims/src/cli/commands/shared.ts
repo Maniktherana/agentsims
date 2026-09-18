@@ -9,7 +9,7 @@ import {
 	type ArtifactWrite,
 	type ObserveFormat,
 	type WatchArtifacts,
-} from "../observe-output";
+} from "../../core/tools/output/render";
 import { writeScreenshotFile } from "../screenshots";
 import {
 	watchArtifactsFailed,

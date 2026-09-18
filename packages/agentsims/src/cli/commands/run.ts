@@ -6,7 +6,7 @@ import {
 	type SequenceResult,
 } from "../../core/tools/sequence";
 import type { ApplicationCommandClient } from "../application-command-client";
-import { actionForOutput, renderSequenceResult } from "../observe-output";
+import { actionForOutput, renderSequenceResult } from "../../core/tools/output/render";
 import { actionExitCode, writeActionImage } from "./shared";
 
 export type RunCommandDependencies = {

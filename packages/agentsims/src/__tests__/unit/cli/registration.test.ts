@@ -47,6 +47,7 @@ test("the public command surface is canonical", () => {
 		"press",
 		"rotate",
 		"run",
+		"record",
 		"observe",
 		"screenshot",
 		"wait",
@@ -55,6 +56,7 @@ test("the public command surface is canonical", () => {
 		"app",
 		"permissions",
 		"doctor",
+		"trace",
 	]);
 	expect(command("device-logs").aliases()).toEqual([]);
 	expect(command("camera").commands.find((item) => item.name() === "list")?.aliases()).toEqual([]);

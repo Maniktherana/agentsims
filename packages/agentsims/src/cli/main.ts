@@ -48,7 +48,7 @@ import {
 	type ArtifactWrite,
 	type DeviceMatches,
 	type ObserveFormat,
-} from "./observe-output";
+} from "../core/tools/output/render";
 import { registerScrollCommands } from "./commands/scroll";
 import {
 	printActionResult,
@@ -72,7 +72,9 @@ import {
 	renderWebcamList,
 } from "./render";
 import { renderDeviceLogs } from "./device-logs-output";
+import { registerRecordCommands } from "./commands/record";
 import { registerRunCommands } from "./commands/run";
+import { registerTraceCommands } from "./commands/trace";
 import {
 	formatHostDiagnostics,
 	hostDiagnosticsFor,
@@ -554,6 +556,7 @@ Examples:
 		}),
 	);
 	registerRunCommands(program, { client, json });
+	registerRecordCommands(program);
 	program
 		.command("observe")
 		.description("Capture a screenshot and the accessibility tree")
@@ -886,6 +889,7 @@ Examples:
 				if (!report.ok) process.exitCode = 1;
 			},
 		);
+	registerTraceCommands(program);
 	return program;
 }
 

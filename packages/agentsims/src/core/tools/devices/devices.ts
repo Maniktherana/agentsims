@@ -26,9 +26,13 @@ import {
 	androidSerialFromStateId,
 	androidStateId,
 } from "../../android/device/identifiers";
-import { AndroidSessions } from "../../android/session/session";
+import {
+	AndroidSessions,
+	type AndroidSessionsService,
+} from "../../android/session/session";
 import { iosAxSnapshot } from "../../ios/accessibility";
-import { IosSessions } from "../../ios/session";
+import { IosSessions, type IosSessionsService } from "../../ios/session";
+import type { AvccSink, VideoSize } from "../../stream/avcc-wire";
 import {
 	captureDeviceScreenshot,
 	findOnDevice,
@@ -42,6 +46,7 @@ import {
 	createSnapshotStore,
 	type SnapshotStore,
 } from "../observe/snapshot-store";
+import { encodeFramePng, rgbaFrameImage } from "../observe/contact-sheet";
 import {
 	waitDevice,
 	watchDevice,
@@ -51,6 +56,77 @@ import {
 import { scrollDevice, type ScrollRequest } from "../scroll";
 import { ForegroundApps } from "./foreground-apps";
 
+/**
+ * The AVCC wire of one device, without the platform difference. Android starts
+ * its own transport behind `attachAvccSink`; an iOS session must be started
+ * first, exactly as the `/stream.avcc` route does it.
+ */
+export type DeviceAvccService = {
+	/** Screen size from the session, for a stream whose SPS cannot be read. */
+	screenSize(
+		device: string,
+	): Effect.Effect<VideoSize | null, ApplicationCommandError>;
+	/** Copy the wire into a sink. Call the result to detach. */
+	attach(
+		device: string,
+		sink: AvccSink,
+	): Effect.Effect<() => void, ApplicationCommandError>;
+};
+
+export function makeDeviceAvcc(
+	androidSessions: AndroidSessionsService,
+	iosSessions: IosSessionsService,
+): DeviceAvccService {
+	const ios = (device: string) =>
+		Effect.gen(function* () {
+			if (process.platform !== "darwin")
+				return yield* Effect.fail(
+					new CommandUnavailable({
+						message: "iOS Simulator requires a macOS server with Xcode.",
+					}),
+				);
+			const session = yield* iosSessions.get(device);
+			yield* Effect.tryPromise({
+				try: () => session.start(),
+				catch: commandFailure,
+			});
+			return session;
+		});
+	return {
+		screenSize: (device) =>
+			Effect.gen(function* () {
+				const serial = androidSerialFromStateId(device);
+				const config = serial
+					? yield* Effect.flatMap(androidSessions.get(serial), (session) =>
+							Effect.tryPromise({
+								try: () => session.readConfig(),
+								catch: commandFailure,
+							}),
+						)
+					: (yield* ios(device)).screenConfig();
+				return config.width > 0 && config.height > 0
+					? { width: config.width, height: config.height }
+					: null;
+			}).pipe(Effect.mapError(commandFailure)),
+		attach: (device, sink) =>
+			Effect.gen(function* () {
+				const serial = androidSerialFromStateId(device);
+				if (serial) {
+					const session = yield* androidSessions.get(serial);
+					return yield* Effect.tryPromise({
+						try: () => session.attachAvccSink(sink),
+						catch: commandFailure,
+					});
+				}
+				const session = yield* ios(device);
+				return yield* Effect.tryPromise({
+					try: () => session.subscribeAvcc(sink),
+					catch: commandFailure,
+				});
+			}).pipe(Effect.mapError(commandFailure)),
+	};
+}
+
 export type DeviceListOptions = {
 	selectedDevice?: string | null;
 	limit?: number | null;
@@ -59,6 +135,9 @@ export type DeviceListOptions = {
 };
 
 export type StartDeviceOptions = { port: number; basePath?: string };
+
+/** One encoded image of the screen and the file extension that fits it. */
+export type DeviceCapture = { bytes: Uint8Array; extension: "png" | "jpg" };
 
 /** Device operations use the same scoped platform session for input and observation. */
 export function makeDeviceService(
@@ -251,6 +330,36 @@ export function makeDeviceService(
 			),
 		find: (device: string, query: string) =>
 			guardFailure(device, findOnDevice(observation, device, query)),
+		/**
+		 * Raw pixels for a recorder, without a capture channel or a snapshot.
+		 * The emulator keeps a live frame buffer, which is one mmap read
+		 * against a screenshot round trip.
+		 */
+		captureScreenshot: (device: string): Effect.Effect<DeviceCapture, ApplicationCommandError> =>
+			Effect.gen(function* () {
+				const session = yield* resolveSession(device);
+				const captureFrame = session.captureFrame;
+				const frame = captureFrame
+					? yield* Effect.tryPromise(() => captureFrame()).pipe(
+							Effect.orElseSucceed(() => null),
+						)
+					: null;
+				if (frame)
+					return {
+						bytes: encodeFramePng(
+							rgbaFrameImage(frame.rgba, frame.width, frame.height),
+						),
+						extension: "png" as const,
+					};
+				const shot = yield* Effect.tryPromise({
+					try: () => session.captureScreenshot(),
+					catch: commandFailure,
+				});
+				return {
+					bytes: shot.bytes,
+					extension: shot.mimeType === "image/jpeg" ? ("jpg" as const) : ("png" as const),
+				};
+			}),
 		memory: () =>
 			Effect.tryPromise({
 				try: () => catalog.memoryReport(),

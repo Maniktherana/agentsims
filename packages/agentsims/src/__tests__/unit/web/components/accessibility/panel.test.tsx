@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Accessibility } from "lucide-react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AxElement } from "../../../../../core/tools/observe/accessibility-model";
 import {
@@ -15,10 +16,10 @@ import {
 	resizeAccessibilityPanelGeometry,
 } from "../../../../../web/accessibility/panel-position";
 import {
-	accessibilityResizeVisualPhase,
-	AccessibilityPanel,
-	shouldStartAccessibilityHeaderDrag,
-} from "../../../../../web/components/accessibility/panel";
+	devicePanelResizeVisualPhase,
+	DevicePanel,
+	shouldStartDevicePanelHeaderDrag,
+} from "../../../../../web/components/ui/device-panel";
 import {
 	accessibilityTreeRowLabel,
 	buildAccessibilityTree,
@@ -124,19 +125,21 @@ describe("accessibility panel", () => {
 			0, -32,
 		]);
 		expect(accessibilityPanelResizeDeltaForKey("Enter", false)).toBeNull();
-		expect(accessibilityResizeVisualPhase(false, false)).toBe("idle");
-		expect(accessibilityResizeVisualPhase(true, true)).toBe("drag");
+		expect(devicePanelResizeVisualPhase(false, false)).toBe("idle");
+		expect(devicePanelResizeVisualPhase(true, true)).toBe("drag");
 
 		const html = renderToStaticMarkup(
-			<AccessibilityPanel
+			<DevicePanel
 				open
+				title="Accessibility"
+				icon={<Accessibility size={14} strokeWidth={1.9} />}
 				device={{ id: "android:pixel", name: "Pixel", platform: "android" }}
 				onClose={() => {}}
 				onMovePointerDown={() => {}}
 				onResizePointerDown={() => {}}
 			>
 				Tree
-			</AccessibilityPanel>,
+			</DevicePanel>,
 		);
 		expect(html).toContain("Accessibility");
 		expect(html).not.toContain("<textarea");
@@ -145,11 +148,11 @@ describe("accessibility panel", () => {
 	test("keeps panel buttons out of the drag gesture", () => {
 		const button = {};
 		expect(
-			shouldStartAccessibilityHeaderDrag({
+			shouldStartDevicePanelHeaderDrag({
 				closest: (selector: string) => (selector === "button" ? button : null),
 			}),
 		).toBe(false);
-		expect(shouldStartAccessibilityHeaderDrag({ closest: () => null })).toBe(
+		expect(shouldStartDevicePanelHeaderDrag({ closest: () => null })).toBe(
 			true,
 		);
 	});

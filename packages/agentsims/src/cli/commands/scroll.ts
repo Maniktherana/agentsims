@@ -10,7 +10,7 @@ import {
 	type ScrollDirection,
 	type ScrollResult,
 } from "../../core/tools/scroll";
-import { renderScrollResult, scrollForOutput } from "../observe-output";
+import { renderScrollResult, scrollForOutput } from "../../core/tools/output/render";
 import {
 	actionExitCode,
 	clientOf,

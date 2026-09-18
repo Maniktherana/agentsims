@@ -24,6 +24,7 @@ import {
 	StreamSettingsTool,
 	type CodecPreference,
 } from "./stream-settings-tool";
+import { TracingTool } from "./tracing-tool";
 import {
 	EMPTY_SIMULATOR_FRAME_RATE,
 	type SimulatorFrameRateStore,
@@ -45,6 +46,8 @@ export function ToolsPanel({
 	dock = false,
 	settingsPosition = 0,
 	refreshRevision = 0,
+	traceOpen,
+	onTraceOpenChange,
 }: {
 	open: boolean;
 	onClose: () => void;
@@ -61,6 +64,8 @@ export function ToolsPanel({
 	dock?: boolean;
 	settingsPosition?: -1 | 0 | 1;
 	refreshRevision?: number;
+	traceOpen: boolean;
+	onTraceOpenChange: (open: boolean) => void;
 }) {
 	const isAndroid = udid.startsWith("android:");
 	const supportsLocation = !isAndroid || /^android:emulator-\d+$/.test(udid);
@@ -131,6 +136,13 @@ export function ToolsPanel({
 							/>
 						</>
 					)}
+					<TracingTool
+						key={udid}
+						udid={udid}
+						active={open}
+						traceOpen={traceOpen}
+						onTraceOpenChange={onTraceOpenChange}
+					/>
 					<StreamSettingsTool
 						preference={codecPreference}
 						onPreferenceChange={onCodecPreferenceChange}

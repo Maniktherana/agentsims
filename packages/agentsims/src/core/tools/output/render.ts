@@ -1,26 +1,27 @@
-import type { ActionResult } from "../core/tools/actions";
-import type { AxViewNode } from "../core/tools/observe/ax-view";
+import type { ActionResult } from "../actions";
+import type { AxViewNode } from "../observe/ax-view";
 import type {
 	DeviceMatches,
 	DeviceObservation,
 	DeviceScreenshot,
 	ImageCaptureChannel,
-} from "../core/tools/observe/observe";
-import type { DeviceSnapshot } from "../core/tools/observe/snapshot-store";
+} from "../observe/observe";
+import type { DeviceSnapshot } from "../observe/snapshot-store";
 import {
 	describeSequenceStep,
 	type SequenceResult,
-} from "../core/tools/sequence";
+} from "../sequence";
 import type {
 	DeviceWait,
 	DeviceWatch,
 	FrameSampling,
-} from "../core/tools/observe/watch";
+} from "../observe/watch";
 import type {
 	ResolvedAction,
 	ResolvedPoint,
-} from "../core/tools/observe/targets";
-import type { ScrollItem, ScrollResult } from "../core/tools/scroll";
+} from "../observe/targets";
+import type { ScrollItem, ScrollResult } from "../scroll";
+import type { TraceCommand } from "../traces/trace-file";
 
 export type { DeviceMatches };
 
@@ -720,4 +721,45 @@ export function scrollForOutput(
 		...result,
 		action: actionForOutput(result.action, artifact, watch),
 	};
+}
+
+function isActionResult(value: unknown): value is ActionResult {
+	if (!value || typeof value !== "object") return false;
+	const result = value as { dispatch?: unknown; verification?: unknown };
+	return (
+		typeof result.dispatch === "object" &&
+		result.dispatch !== null &&
+		typeof result.verification === "object" &&
+		result.verification !== null
+	);
+}
+
+/**
+ * The text the CLI printed for a command, rebuilt from the result alone. A
+ * reader of a trace has no artifacts on disk, so the path lines stay out.
+ */
+export function renderCommandOutput(
+	command: TraceCommand,
+	result: unknown,
+): string {
+	switch (command) {
+		case "observe":
+			return renderObservation(result as DeviceObservation, null);
+		case "screenshot":
+			return renderScreenshot(result as DeviceScreenshot, null);
+		case "find":
+			return renderMatches(result as DeviceMatches);
+		case "wait":
+			return renderWait(result as DeviceWait);
+		case "watch":
+			return renderWatch(result as DeviceWatch, NO_WATCH_ARTIFACTS);
+		case "run":
+			return renderSequenceResult(result as SequenceResult);
+		case "scroll":
+			return renderScrollResult(result as ScrollResult);
+		default:
+			return isActionResult(result)
+				? renderActionResult(result)
+				: JSON.stringify(result, null, 2);
+	}
 }

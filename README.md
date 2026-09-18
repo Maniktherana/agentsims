@@ -131,7 +131,7 @@ npx agentsims observe --device android:emulator-5554
 observe  device=android:emulator-5554  platform=android  observation=s1  capture=c1  started=2026-09-17T01:00:00.000Z  completed=2026-09-17T01:00:00.020Z
 accessibility  ok  captured=2026-09-17T01:00:00.000Z  observation=s1
 image  ok  captured=2026-09-17T01:00:00.010Z  capture=c1  1080×2400  observation=s1
-artifact  ok  path=/tmp/agentsims/screenshots/observe-android_emulator-5554.png
+artifact  ok  path=~/.agentsims/screenshots/observe-android_emulator-5554.png
 context  app=com.example.app  orientation=portrait  generation=7  changed=no
 elements  8 shown / 10 total  (--all for the rest)
 

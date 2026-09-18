@@ -20,6 +20,7 @@ import {
 } from "./ios/browser-devtools/webkit";
 import { DevToolsLive } from "./tools/browser-devtools";
 import { DevicesLive } from "./tools/devices/devices";
+import { TracesLive } from "./tools/traces/traces";
 import { DeviceLifecycleLive } from "./tools/devices/lifecycle";
 import { foregroundAppsLayer } from "./tools/devices/foreground-apps";
 import { deviceStateStoreLayer, STATE_DIR } from "./tools/devices/state";
@@ -27,6 +28,7 @@ import { ShellExecLive } from "./tools/host-commands";
 import { AppsLive } from "./tools/apps";
 import { PermissionOperationsLive } from "./tools/permissions";
 import { mediaRoutingLayer } from "./tools/media";
+import { RecordingsLive } from "./tools/recording/recordings";
 import { AxStreamersLive } from "./tools/observe/accessibility";
 import { ScreenshotOperationsLive } from "./tools/observe/screenshots";
 import { ScreenshotStoreLive } from "./tools/observe/screenshot-store";
@@ -88,6 +90,8 @@ export function coreServicesLayer(basePath: string) {
 	);
 	return Layer.mergeAll(
 		mediaRoutingLayer(basePath).pipe(Layer.provideMerge(devices)),
+		RecordingsLive.pipe(Layer.provide(sessions)),
+		TracesLive.pipe(Layer.provide(devices)),
 		foregroundApps,
 		AxStreamersLive.pipe(Layer.provide(lifecycle)),
 		ScreenshotOperationsLive.pipe(Layer.provideMerge(ScreenshotStoreLive)),

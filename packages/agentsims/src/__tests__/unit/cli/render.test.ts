@@ -13,7 +13,7 @@ import {
 	renderAxNodes,
 	renderMatches,
 	renderScrollResult,
-} from "../../../cli/observe-output";
+} from "../../../core/tools/output/render";
 
 test("iOS apps render as a table and hide system apps by default", () => {
 	const apps = [

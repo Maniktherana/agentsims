@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { AnimatePresence } from "motion/react";
 import { DeviceCanvasShadow } from "./device-canvas-shadow";
 import { previewDeviceEndpoint } from "../../workspace/preview-config";
 import {
@@ -37,6 +39,8 @@ import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
 import { AccessibilityInspectorController } from "../accessibility/controller";
 import { AxDomOverlay } from "../accessibility/overlay";
 import { AccessibilityStateProvider } from "../accessibility/provider";
+import { TracePanel } from "../trace/panel";
+import { useAccessibilityPanelPosition } from "../../accessibility/panel-position";
 import {
 	accessibilityInspectorReducer,
 	createAccessibilityInspectorState,
@@ -166,6 +170,7 @@ export function SimulatorDeviceView({
 		undefined,
 		createAccessibilityInspectorState,
 	);
+	const [traceOpen, setTraceOpen] = useState(false);
 	const accessibilityOpen = accessibilityState.open;
 	const accessibilitySelecting = accessibilityState.picking;
 	const accessibilityShowAll = accessibilityState.showAllNodes;
@@ -1015,6 +1020,41 @@ export function SimulatorDeviceView({
 		onHostPathDrop: screenshotPreview.dismissPreview,
 	});
 
+	const tracePanelPosition = useAccessibilityPanelPosition(
+		simContainerRef.current,
+		traceOpen,
+		`trace:${config.device}`,
+	);
+	const tracePanel = createPortal(
+		<AnimatePresence>
+			{traceOpen && focused && (
+				<div
+					key={config.device}
+					ref={tracePanelPosition.panelRef}
+					data-agentsims-trace-panel-host
+					style={tracePanelPosition.style}
+				>
+					<TracePanel
+						open
+						device={{
+							id: config.device,
+							name: deviceName ?? config.device,
+							platform: isAndroidDevice ? "android" : "ios",
+							runtime: deviceRuntime,
+							applicationName: currentApp?.bundleId ?? null,
+							connected: streaming,
+						}}
+						onClose={() => setTraceOpen(false)}
+						onMovePointerDown={tracePanelPosition.onMovePointerDown}
+						onResizePointerDown={tracePanelPosition.onResizePointerDown}
+						onResizeKeyDown={tracePanelPosition.onResizeKeyDown}
+					/>
+				</div>
+			)}
+		</AnimatePresence>,
+		document.body,
+	);
+
 	const simulatorBounds = useSimulatorBounds(deviceStackRef, simContainerRef);
 	const simulatorResize = useSimulatorResize({
 		deviceId: config.device,
@@ -1439,6 +1479,7 @@ export function SimulatorDeviceView({
 											void captureScreenshot();
 										}}
 									/>
+									<SimulatorToolbar.RecordButton />
 									<SimulatorToolbar.RotateButton title="Rotate device" />
 									{availableDevToolsTargets.length > 0 && (
 										<SimulatorToolbar.Button
@@ -1519,6 +1560,8 @@ export function SimulatorDeviceView({
 							width={toolsPanelWidth}
 							dock={embedded}
 							settingsPosition={settingsPosition}
+							traceOpen={traceOpen}
+							onTraceOpenChange={setTraceOpen}
 						/>
 					)}
 					{panelsEnabled && !embedded && (
@@ -1529,6 +1572,7 @@ export function SimulatorDeviceView({
 							ariaLabel="Resize tools panel"
 						/>
 					)}
+					{panelsEnabled && tracePanel}
 					{panelsEnabled && (
 						<DevToolsPanel
 							open={devtoolsPanelOpen}
