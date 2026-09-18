@@ -178,7 +178,7 @@ const cameraFace = (value: string): "front" | "back" => {
 };
 const AX_ROLE_HELP = AX_ROLES.join(", ");
 const TARGET_HELP =
-	'A target is a ref (@e14) or exact label ("Search"). Points use pixels (603,1311) or percent (50%,90%) and require --capture cN.';
+	'A target is a ref (@e14) or exact label ("Search"). Percent points (50%,90%) use the live screen and need no capture. Pixel points (603,1311) require --capture cN from a screenshot.';
 type DeviceFlags = { device: string; url?: string };
 type ActionFlags = DeviceFlags & {
 	json?: boolean;
@@ -475,10 +475,10 @@ Direction:
   <from> to <to> is the finger motion. Content moves in the opposite direction.
 
 Examples:
-  Finger left:  agentsims swipe 80%,50% 20%,50% --capture c7 -d <id>
-  Finger right: agentsims swipe 20%,50% 80%,50% --capture c7 -d <id>
-  Finger up:    agentsims swipe 50%,80% 50%,20% --capture c7 -d <id>
-  Finger down:  agentsims swipe 50%,20% 50%,80% --capture c7 -d <id>
+  Finger left:  agentsims swipe 80%,50% 20%,50% -d <id>
+  Finger right: agentsims swipe 20%,50% 80%,50% -d <id>
+  Finger up:    agentsims swipe 50%,80% 50%,20% -d <id>
+  Finger down:  agentsims swipe 50%,20% 50%,80% -d <id>
 `,
 		)
 		.action(

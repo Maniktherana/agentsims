@@ -153,7 +153,7 @@ test("touch help explains long presses and swipe direction", () => {
 	expect(swipeHelp).toContain("Change y for a vertical swipe.");
 	expect(swipeHelp).toContain("Content moves in the opposite direction.");
 	expect(swipeHelp).toContain(
-		"agentsims swipe 80%,50% 20%,50% --capture c7 -d <id>",
+		"agentsims swipe 80%,50% 20%,50% -d <id>",
 	);
 });
 
