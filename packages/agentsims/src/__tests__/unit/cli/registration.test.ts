@@ -47,6 +47,7 @@ test("the public command surface is canonical", () => {
 		"press",
 		"rotate",
 		"run",
+		"record",
 		"observe",
 		"screenshot",
 		"wait",

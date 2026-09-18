@@ -1439,6 +1439,7 @@ export function SimulatorDeviceView({
 											void captureScreenshot();
 										}}
 									/>
+									<SimulatorToolbar.RecordButton />
 									<SimulatorToolbar.RotateButton title="Rotate device" />
 									{availableDevToolsTargets.length > 0 && (
 										<SimulatorToolbar.Button

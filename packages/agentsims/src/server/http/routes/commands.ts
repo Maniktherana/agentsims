@@ -16,6 +16,7 @@ import {
 	selectDeviceState,
 } from "../../../core/tools/devices/lifecycle";
 import { MediaRouting } from "../../../core/tools/media";
+import { Recordings } from "../../../core/tools/recording/recordings";
 import { Apps, AppOperationSchema } from "../../../core/tools/apps";
 import { runSequence } from "../../../core/tools/sequence";
 import { ScrollRequestSchema } from "../../../core/tools/scroll";
@@ -101,7 +102,40 @@ const pathDevice = Effect.gen(function* () {
 	return params.device;
 });
 
-export const commandRoutes = HttpRouter.empty.pipe(
+/** Recording owns its own router: `pipe` takes at most twenty routes. */
+const recordingRoutes = HttpRouter.empty.pipe(
+	HttpRouter.post(
+		"/device/:device/recording/start",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				const out = url.searchParams.get("out");
+				return yield* (yield* Recordings).start(
+					yield* pathDevice,
+					out ? { out } : {},
+				);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/device/:device/recording/stop",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* Recordings).stop(yield* pathDevice);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/recording",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* Recordings).status(yield* pathDevice);
+			}),
+		),
+	),
+);
+
+const deviceCommandRoutes = HttpRouter.empty.pipe(
 	HttpRouter.get(
 		"/status",
 		commandResponse(
@@ -380,4 +414,9 @@ export const commandRoutes = HttpRouter.empty.pipe(
 			}),
 		),
 	),
+);
+
+export const commandRoutes = HttpRouter.concat(
+	deviceCommandRoutes,
+	recordingRoutes,
 );

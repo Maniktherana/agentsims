@@ -94,3 +94,29 @@ describe("SimulatorToolbar.Button", () => {
 		expect(html).not.toContain('title="Screenshot"');
 	});
 });
+
+describe("SimulatorToolbar.RecordButton", () => {
+	test("offers to start a recording when the device is idle", () => {
+		const html = renderToStaticMarkup(
+			<SimulatorToolbar exec={exec} deviceUdid="booted" streaming>
+				<SimulatorToolbar.RecordButton />
+			</SimulatorToolbar>,
+		);
+
+		expect(html).toContain('aria-label="Start recording"');
+		expect(html).toContain('aria-pressed="false"');
+		expect(html).toContain(">Start recording</span>");
+		expect(html).not.toContain("disabled");
+	});
+
+	// The stream gate is the same one the other action buttons use.
+	test("is disabled while the stream delivers no frames", () => {
+		const html = renderToStaticMarkup(
+			<SimulatorToolbar exec={exec} deviceUdid="booted" streaming={false}>
+				<SimulatorToolbar.RecordButton />
+			</SimulatorToolbar>,
+		);
+
+		expect(html).toContain("disabled");
+	});
+});

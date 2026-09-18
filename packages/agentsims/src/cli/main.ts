@@ -72,6 +72,7 @@ import {
 	renderWebcamList,
 } from "./render";
 import { renderDeviceLogs } from "./device-logs-output";
+import { registerRecordCommands } from "./commands/record";
 import { registerRunCommands } from "./commands/run";
 import {
 	formatHostDiagnostics,
@@ -554,6 +555,7 @@ Examples:
 		}),
 	);
 	registerRunCommands(program, { client, json });
+	registerRecordCommands(program);
 	program
 		.command("observe")
 		.description("Capture a screenshot and the accessibility tree")

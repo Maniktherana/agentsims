@@ -67,6 +67,7 @@ uncertain.
 | Keys and device | `press home\|back\|app-switch\|power\|volume-up\|volume-down`, `rotate portrait\|landscape` |
 | Lists | `scroll down\|up\|left\|right [--in <target>] [--to-end --collect <selector>]` |
 | Repeat | `run <steps.json\|-> ` up to 25 label-addressed steps |
+| Record | `record start -d <id> [--out <path>]`, `record stop`, `record status` (MP4 of the screen) |
 | Apps | `app list`, `app launch <package>`, `app stop <package>`, `app install <path>`, `app uninstall <package>` |
 | Device state | `permissions list\|grant\|revoke\|reset -a <app>`, `camera list\|use <webcam>\|stop`, `device-logs`, `rotate` |
 | Workspace | `doctor [--platform ios\|android]`, `status`, `logs [-f]`, `start [--detach]`, `stop`, `devices list [--all]`, `devices boot\|shutdown <id>` |
@@ -244,6 +245,9 @@ the single frames. Do not guess a missing word. If you missed the start, replay:
 file again with `--watch` on that tap.
 
 `--every 250` samples four times a second. Every frame is the whole screen.
+
+To keep the whole flow, not samples of it, run `agentsims record start -d "$D"` before the
+flow and `agentsims record stop -d "$D"` after it. The stop line prints the MP4 path.
 
 ### Controls with no accessibility node
 

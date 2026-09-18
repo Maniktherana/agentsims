@@ -14,6 +14,10 @@ import {
 import type { SimulatorOrientation } from "../../simulator/types.js";
 import { getDeviceType, type DeviceType } from "./device-frames.js";
 import { ROTATE_LEFT_CYCLE } from "../../simulator/android/orientation.js";
+import {
+	formatElapsed,
+	useScreenRecording,
+} from "../../hooks/simulator/use-screen-recording.js";
 
 type ExecFn = (
 	command: string,
@@ -556,6 +560,84 @@ const RotateButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 	},
 );
 
+// Outlined circle when idle, filled disc while recording — the same glyph a
+// camera app uses, so the button reads as record/stop without a second icon.
+const RecordIdleIcon = (
+	<svg
+		width="18"
+		height="18"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth="2"
+		xmlns="http://www.w3.org/2000/svg"
+	>
+		<circle cx="12" cy="12" r="7" />
+	</svg>
+);
+
+const RecordActiveIcon = (
+	<svg
+		width="18"
+		height="18"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		xmlns="http://www.w3.org/2000/svg"
+		// Reuses the device-status breathe animation, which global.css already
+		// switches off under `prefers-reduced-motion: reduce`.
+		className="agentsims-device-status-breathe"
+	>
+		<circle cx="12" cy="12" r="7" />
+	</svg>
+);
+
+const RECORD_ACTIVE_COLOR = "#ff453a";
+
+const RecordButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
+	function RecordButton({ onClick, forceDisabled, style, ...rest }, ref) {
+		const ctx = useToolbar("RecordButton");
+		const recording = useScreenRecording(ctx.exec, ctx.deviceUdid);
+		const active = recording.active;
+
+		return (
+			<ToolbarButton
+				ref={ref}
+				aria-label={active ? "Stop recording" : "Start recording"}
+				aria-pressed={active}
+				forceDisabled={forceDisabled || recording.busy}
+				onClick={(e) => {
+					onClick?.(e);
+					if (e.defaultPrevented) return;
+					recording.toggle();
+				}}
+				style={{
+					gap: 5,
+					...(active ? { color: RECORD_ACTIVE_COLOR } : null),
+					...style,
+				}}
+				{...rest}
+			>
+				{active ? RecordActiveIcon : RecordIdleIcon}
+				{active && (
+					<span
+						style={{
+							fontSize: 11,
+							fontWeight: 600,
+							fontVariantNumeric: "tabular-nums",
+							lineHeight: 1,
+							minWidth: 26,
+							textAlign: "left",
+							color: RECORD_ACTIVE_COLOR,
+						}}
+					>
+						{formatElapsed(recording.elapsedMs ?? 0)}
+					</span>
+				)}
+			</ToolbarButton>
+		);
+	},
+);
+
 type SimulatorToolbarCompound = typeof SimulatorToolbarRoot & {
 	Title: typeof Title;
 	Actions: typeof Actions;
@@ -563,6 +645,7 @@ type SimulatorToolbarCompound = typeof SimulatorToolbarRoot & {
 	HomeButton: typeof HomeButton;
 	ScreenshotButton: typeof ScreenshotButton;
 	RotateButton: typeof RotateButton;
+	RecordButton: typeof RecordButton;
 };
 
 export const SimulatorToolbar =
@@ -573,3 +656,4 @@ SimulatorToolbar.Button = ToolbarButton;
 SimulatorToolbar.HomeButton = HomeButton;
 SimulatorToolbar.ScreenshotButton = ScreenshotButton;
 SimulatorToolbar.RotateButton = RotateButton;
+SimulatorToolbar.RecordButton = RecordButton;

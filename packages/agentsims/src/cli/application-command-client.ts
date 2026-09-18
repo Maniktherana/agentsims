@@ -218,6 +218,30 @@ export class ApplicationCommandClient {
 		);
 	}
 
+	async startRecording(
+		deviceId: string,
+		options: { out?: string } = {},
+	): Promise<unknown> {
+		const query = new URLSearchParams();
+		if (options.out !== undefined) query.set("out", options.out);
+		const search = query.size > 0 ? `?${query}` : "";
+		return this.request(
+			`/device/${encodeURIComponent(deviceId)}/recording/start${search}`,
+			{ method: "POST" },
+		);
+	}
+
+	async stopRecording(deviceId: string): Promise<unknown> {
+		return this.request(
+			`/device/${encodeURIComponent(deviceId)}/recording/stop`,
+			{ method: "POST" },
+		);
+	}
+
+	async recordingStatus(deviceId: string): Promise<unknown> {
+		return this.request(`/device/${encodeURIComponent(deviceId)}/recording`);
+	}
+
 	async findOnDevice(deviceId: string, query: string): Promise<unknown> {
 		return this.request(
 			`/device/${encodeURIComponent(deviceId)}/find?q=${encodeURIComponent(query)}`,

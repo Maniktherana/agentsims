@@ -27,6 +27,7 @@ import { ShellExecLive } from "./tools/host-commands";
 import { AppsLive } from "./tools/apps";
 import { PermissionOperationsLive } from "./tools/permissions";
 import { mediaRoutingLayer } from "./tools/media";
+import { RecordingsLive } from "./tools/recording/recordings";
 import { AxStreamersLive } from "./tools/observe/accessibility";
 import { ScreenshotOperationsLive } from "./tools/observe/screenshots";
 import { ScreenshotStoreLive } from "./tools/observe/screenshot-store";
@@ -88,6 +89,7 @@ export function coreServicesLayer(basePath: string) {
 	);
 	return Layer.mergeAll(
 		mediaRoutingLayer(basePath).pipe(Layer.provideMerge(devices)),
+		RecordingsLive.pipe(Layer.provide(sessions)),
 		foregroundApps,
 		AxStreamersLive.pipe(Layer.provide(lifecycle)),
 		ScreenshotOperationsLive.pipe(Layer.provideMerge(ScreenshotStoreLive)),

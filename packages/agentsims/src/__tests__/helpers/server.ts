@@ -27,6 +27,10 @@ import {
 	type HttpServerOptions,
 } from "../../server/http/server";
 import { MediaRouting } from "../../core/tools/media";
+import {
+	Recordings,
+	type RecordingsService,
+} from "../../core/tools/recording/recordings";
 import { ScreenshotOperationsLive } from "../../core/tools/observe/screenshots";
 import type { PreviewServer } from "../../server/http/server";
 import { ScreenshotStore } from "../../core/tools/observe/screenshot-store";
@@ -41,6 +45,7 @@ export type TestServerOverrides = Partial<HttpServerOptions> & {
 	apps?: AppsService;
 	mediaOperations?: MediaOperations;
 	getBridge?: () => Promise<WebKitBridge>;
+	recordings?: RecordingsService;
 	saveScreenshot?: ScreenshotStoreService["save"];
 };
 
@@ -108,6 +113,9 @@ export async function startTestServer(
 	const MediaTest = test.mediaOperations
 		? Layer.succeed(MediaRouting, makeMediaRouting(test.mediaOperations))
 		: Layer.empty;
+	const RecordingsTest = test.recordings
+		? Layer.succeed(Recordings, test.recordings)
+		: Layer.empty;
 	const DevToolsTest = test.getBridge
 		? Layer.fresh(DevToolsLive).pipe(
 				Layer.provide(
@@ -135,6 +143,7 @@ export async function startTestServer(
 		ForegroundTest,
 		StreamersTest,
 		MediaTest,
+		RecordingsTest,
 		DevToolsTest,
 		ScreenshotTest,
 	);
