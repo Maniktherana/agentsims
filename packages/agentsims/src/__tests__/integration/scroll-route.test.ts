@@ -50,7 +50,7 @@ function listPage(rows: readonly string[]): AxSnapshot {
 /** A fake device session stands in for the runner's platform host. */
 async function start(pages: readonly AxSnapshot[]) {
 	const frames: Array<Record<string, unknown>> = [];
-	let read = 0;
+	let swipes = 0;
 	const service = makeDeviceService(
 		{
 			memoryReport: async () => ({ ok: false }),
@@ -65,7 +65,11 @@ async function start(pages: readonly AxSnapshot[]) {
 			Effect.succeed({
 				platform: "android" as const,
 				dispatchInputFrame: async (data: Buffer) => {
-					frames.push(JSON.parse(data.subarray(1).toString()));
+					const frame = JSON.parse(data.subarray(1).toString());
+					frames.push(frame);
+					// A real screen changes when the finger lifts, not when it is
+					// read, so the page advances once per completed swipe.
+					if (frame.type === "end") swipes += 1;
 				},
 				captureScreenshot: async () => ({
 					bytes: IMAGE,
@@ -73,11 +77,7 @@ async function start(pages: readonly AxSnapshot[]) {
 					capturedAt: 1,
 				}),
 				readConfig: async () => SCREEN,
-				readAccessibility: async () => {
-					const index = read;
-					read += 1;
-					return pages[index] ?? pages.at(-1);
-				},
+				readAccessibility: async () => pages[swipes] ?? pages.at(-1),
 			}),
 		() => Effect.succeed("com.example.app"),
 	);

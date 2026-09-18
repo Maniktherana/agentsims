@@ -666,3 +666,76 @@ test("an unavailable app operation is refused before dispatch", async () => {
 	});
 	expect(result.captureReason).toBeNull();
 });
+
+
+test("the post-action read waits for the screen to stop changing", async () => {
+	// The first read after input still shows the old screen; the next two agree.
+	const { client, reads } = await start({
+		trees: {
+			[ANDROID]: [androidSignInSnapshot, androidSignInSnapshot, changedTree, changedTree],
+		},
+	});
+	const before = (await client.observeDevice(ANDROID)) as {
+		view: { refs: Record<string, string> };
+	};
+	const ref = Object.entries(before.view.refs).find(
+		([, id]) => id === "autoplay",
+	)![0];
+	const readsBefore = reads.get(ANDROID) ?? 0;
+
+	const result = (await client.actDevice(ANDROID, [
+		{ type: "tap", target: `@${ref}` },
+	])) as {
+		settled: boolean;
+		settledMs: number;
+		view: { refs: Record<string, string> };
+		verification: { observed: Record<string, unknown> };
+	};
+
+	expect(result.settled).toBe(true);
+	expect(result.settledMs).toBeGreaterThanOrEqual(250);
+	expect(Object.values(result.view.refs)).toContain("dismiss");
+	expect((reads.get(ANDROID) ?? 0) - readsBefore).toBeGreaterThanOrEqual(3);
+});
+
+test("a screen that keeps changing reports an unsettled read at the limit", async () => {
+	const pages = Array.from({ length: 12 }, (_unused, index) => ({
+		...androidSignInSnapshot,
+		elements: [
+			...androidSignInSnapshot.elements,
+			axElement("0.3", "android.widget.TextView", {
+				id: `tick-${index}`,
+				label: `Tick ${index}`,
+				frame: { x: 40, y: 1800, width: 400, height: 120 },
+			}),
+		],
+	}));
+	const { client } = await start({ trees: { [ANDROID]: pages } });
+	const before = (await client.observeDevice(ANDROID)) as {
+		view: { refs: Record<string, string> };
+	};
+	const ref = Object.entries(before.view.refs).find(
+		([, id]) => id === "autoplay",
+	)![0];
+
+	const result = (await client.actDevice(ANDROID, [
+		{ type: "tap", target: `@${ref}` },
+	])) as { settled: boolean; settledMs: number };
+
+	expect(result.settled).toBe(false);
+	expect(result.settledMs).toBe(1500);
+});
+
+test("a refusal performs no settle reads", async () => {
+	const { client, reads } = await start();
+	await client.observeDevice(ANDROID);
+	const readsBefore = reads.get(ANDROID) ?? 0;
+
+	const result = (await client.actDevice(ANDROID, [
+		{ type: "tap", target: "@e999999" },
+	])) as { dispatch: { status: string }; settledMs?: number };
+
+	expect(result.dispatch.status).toBe("none");
+	expect(result.settledMs).toBeUndefined();
+	expect(reads.get(ANDROID) ?? 0).toBe(readsBefore);
+});

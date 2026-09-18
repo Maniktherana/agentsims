@@ -403,7 +403,7 @@ function actionSections(
 	const accessibility = result.accessibility;
 	lines.push(
 		accessibility.status === "ok"
-			? `accessibility  ok  captured=${time(accessibility.capturedAt)}  observation=${accessibility.value.observationId}`
+			? `accessibility  ok  captured=${time(accessibility.capturedAt)}  observation=${accessibility.value.observationId}${settledSuffix(result)}`
 			: `accessibility  error  captured=${time(accessibility.capturedAt)}  ${oneLine(accessibility.error)}`,
 	);
 	if (result.image)
@@ -421,6 +421,14 @@ function actionSections(
 			...(result.view?.warnings ?? []),
 		]),
 	};
+}
+
+/** How long the post-action read waited for the screen to stop changing. */
+function settledSuffix(result: ActionResult): string {
+	if (result.settledMs === undefined) return "";
+	return result.settled
+		? `  settled=${result.settledMs}ms`
+		: `  settled=no (${result.settledMs}ms)`;
 }
 
 export function renderActionResult(

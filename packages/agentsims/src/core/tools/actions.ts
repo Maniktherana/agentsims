@@ -81,9 +81,18 @@ export type ActionResult = {
 	image: ImageCaptureChannel | null;
 	captureReason: ActionCaptureReason | null;
 	warnings: string[];
+	/** How long the post-action read waited for two matching trees. */
+	settledMs?: number;
+	/** False when the tree was still changing at the settle limit. */
+	settled?: boolean;
 	/** Present for a type action. TEXT owns its final verification contract. */
 	text?: TextEntry;
 };
+
+/** Poll spacing while the screen finishes a transition after accepted input. */
+const SETTLE_INTERVAL_MS = 250;
+/** The most a post-action read waits for the tree to stop changing. */
+const SETTLE_MAX_MS = 1500;
 
 export type ActionDependencies = Omit<ObserveDependencies, "resolveSession"> & {
 	resolveSession: (
@@ -675,6 +684,31 @@ export function makeDeviceActionRunner(
 				}),
 			}),
 		);
+	const settlePause: Pause =
+		pause ?? ((milliseconds) => Effect.sleep(`${milliseconds} millis`));
+	/**
+	 * A read taken the instant input lands can show the screen before it
+	 * transitions. Re-read until two consecutive trees match, within a bound,
+	 * so the agent is handed the outcome and not the moment before it.
+	 */
+	const readSettledPost = (device: string) =>
+		Effect.gen(function* () {
+			let post = yield* readPost(device);
+			let waited = 0;
+			let settled = post.view === null;
+			while (post.view && waited < SETTLE_MAX_MS) {
+				yield* settlePause(SETTLE_INTERVAL_MS);
+				waited += SETTLE_INTERVAL_MS;
+				const next = yield* readPost(device);
+				const same = comparableView(next.view) === comparableView(post.view);
+				post = next;
+				if (same) {
+					settled = true;
+					break;
+				}
+			}
+			return { post, settledMs: waited, settled };
+		});
 	const capture = (device: string) =>
 		captureDeviceScreenshot(dependencies, device).pipe(
 			Effect.match({
@@ -728,7 +762,8 @@ export function makeDeviceActionRunner(
 					...(state.text ? { text: state.text } : {}),
 				};
 			}
-			let post = state.post ?? (yield* readPost(device));
+			const settledRead = state.post ? null : yield* readSettledPost(device);
+			let post = state.post ?? settledRead!.post;
 			const afterSnapshot = dependencies.store.normalized(device);
 			const reason = captureReason({
 				explicit: options.screenshot === true,
@@ -762,6 +797,9 @@ export function makeDeviceActionRunner(
 				image,
 				captureReason: reason,
 				warnings: post.warnings,
+				...(settledRead
+					? { settledMs: settledRead.settledMs, settled: settledRead.settled }
+					: {}),
 				...(state.text ? { text: state.text } : {}),
 			};
 		});

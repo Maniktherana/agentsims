@@ -85,6 +85,7 @@ function harness(
 	const store = createSnapshotStore();
 	const frames: Array<Record<string, unknown>> = [];
 	let read = 0;
+	let page = 0;
 	let platform: "android" | "ios" = "android";
 	const dependencies = {
 		store,
@@ -93,7 +94,10 @@ function harness(
 			Effect.succeed({
 				platform,
 				dispatchInputFrame: async (data: Buffer) => {
-					frames.push(JSON.parse(data.subarray(1).toString()));
+					const frame = JSON.parse(data.subarray(1).toString());
+					frames.push(frame);
+					// A page turns when the finger lifts, not when the tree is read.
+					if (frame.type === "end") page += 1;
 				},
 				captureScreenshot: async () => ({
 					bytes: usablePng(screen.width, screen.height),
@@ -102,9 +106,8 @@ function harness(
 				}),
 				readConfig: async () => screen,
 				readAccessibility: async () => {
-					const index = read;
 					read += 1;
-					return trees[index] ?? trees.at(-1);
+					return trees[page] ?? trees.at(-1);
 				},
 			}),
 	};
@@ -317,7 +320,9 @@ describe("scroll dispatch", () => {
 			path: "0.0",
 		});
 		// The snapshot the agent read is reused, so a scroll adds no extra read.
-		expect(scroll.reads()).toBe(2);
+		// The agent's own observe, the post-action read, and one settle read.
+		// No extra read happens before dispatch.
+		expect(scroll.reads()).toBe(3);
 	});
 
 	test("--in accepts an iOS list, which reports no scrollable trait", async () => {
