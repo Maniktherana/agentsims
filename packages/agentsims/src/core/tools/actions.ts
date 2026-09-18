@@ -408,6 +408,36 @@ function subtreeText(nodes: readonly AxViewNode[]): string {
 		.join("\n");
 }
 
+interface SliderChange {
+	label: string;
+	before: string;
+	after: string;
+}
+
+/**
+ * A drag or tap by coordinate names no target, yet a slider it moved is the
+ * fact the reader wants. Match sliders across the two reads by test ID and
+ * label and report every position that changed.
+ */
+function sliderChanges(
+	before: DeviceSnapshot | null,
+	view: DeviceSnapshot,
+): SliderChange[] {
+	if (!before) return [];
+	const key = (node: AxViewNode) => `${node.testId ?? ""}|${node.label}`;
+	const earlier = new Map<string, AxViewNode>();
+	for (const node of viewNodes(before))
+		if (node.role === "slider" && node.value) earlier.set(key(node), node);
+	const changes: SliderChange[] = [];
+	for (const node of viewNodes(view)) {
+		if (node.role !== "slider" || !node.value) continue;
+		const was = earlier.get(key(node));
+		if (was && was.value !== node.value)
+			changes.push({ label: node.label, before: was.value, after: node.value });
+	}
+	return changes;
+}
+
 function firstLabel(nodes: readonly AxViewNode[]): string | null {
 	return flattenAxView(nodes).find((node) => node.label)?.label ?? null;
 }
@@ -545,8 +575,17 @@ function swipeObservation(
 				before: firstLabel(scroller ? scroller.children : beforeNodes),
 				after: firstLabel(again ? again.children : afterNodes),
 			},
+			...sliderFacts(before, view),
 		},
 	};
+}
+
+function sliderFacts(
+	before: DeviceSnapshot | null,
+	view: DeviceSnapshot,
+): { sliders?: SliderChange[] } {
+	const sliders = sliderChanges(before, view);
+	return sliders.length > 0 ? { sliders } : {};
 }
 
 /** A device button leaves no target to read. Report screen and app. */
@@ -583,6 +622,7 @@ function touchObservation(
 			foregroundApp: foregroundApp(after),
 			newWindows: newWindows(before, view),
 			gone: target !== null && nodeAgain(view, target) === null,
+			...sliderFacts(before, view),
 		},
 	};
 }

@@ -917,6 +917,12 @@ public final class Main {
       attribute(xml, "editable", node.isEditable());
       attribute(xml, "selected", node.isSelected());
       attribute(xml, "visible-to-user", node.isVisibleToUser());
+      AccessibilityNodeInfo.RangeInfo range = node.getRangeInfo();
+      if (range != null) {
+        attribute(xml, "range-current", numberText(range.getCurrent()));
+        attribute(xml, "range-min", numberText(range.getMin()));
+        attribute(xml, "range-max", numberText(range.getMax()));
+      }
       attribute(xml, "bounds", "[" + bounds.left + "," + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]");
       xml.append('>');
 
@@ -975,6 +981,13 @@ public final class Main {
       active = window.isActive();
       focused = window.isFocused();
     }
+  }
+
+  /** A whole number prints without a fraction; anything else keeps Float's shortest form. */
+  private static String numberText(float value) {
+    if (Float.isNaN(value) || Float.isInfinite(value)) return "";
+    if (value == Math.rint(value) && Math.abs(value) < 1e9f) return Long.toString((long) value);
+    return Float.toString(value);
   }
 
   private static void attribute(StringBuilder xml, String name, boolean value) {

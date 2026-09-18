@@ -11,7 +11,12 @@ import { iosAxSnapshot } from "../../ios/accessibility";
 import { axDescribeAsync } from "../../ios/stream/native";
 import { enrichAxSnapshotWithRnSource } from "../../react-native/enrich-accessibility";
 
-export type { AxElement, AxRect, AxSnapshot } from "./accessibility-model";
+export type {
+	AxElement,
+	AxRange,
+	AxRect,
+	AxSnapshot,
+} from "./accessibility-model";
 
 const POLL_INTERVAL_MS = 500;
 const MAX_POLL_INTERVAL_MS = 2000;

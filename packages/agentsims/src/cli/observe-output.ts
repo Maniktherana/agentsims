@@ -407,6 +407,14 @@ function renderObserved(observed: Record<string, unknown> | null): string[] {
 	if (Array.isArray(observed.newWindows))
 		for (const window of observed.newWindows)
 			if (typeof window === "string") parts.push(`new: ${window}`);
+	if (Array.isArray(observed.sliders))
+		for (const slider of observed.sliders) {
+			if (!slider || typeof slider !== "object") continue;
+			const change = slider as { label?: unknown; before?: unknown; after?: unknown };
+			parts.push(
+				`slider ${quoted(String(change.label ?? ""))}: ${String(change.before)} → ${String(change.after)}`,
+			);
+		}
 	return parts;
 }
 

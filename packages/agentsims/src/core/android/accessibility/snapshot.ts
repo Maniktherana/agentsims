@@ -1,5 +1,6 @@
 import type {
 	AxElement,
+	AxRange,
 	AxRect,
 	AxSnapshot,
 } from "../../tools/observe/accessibility";
@@ -60,6 +61,22 @@ function androidAxTraits(attrs: Record<string, string>): string[] | undefined {
 		.filter(([attribute]) => attrs[attribute] === "true")
 		.map(([, label]) => label);
 	return traits.length > 0 ? traits : undefined;
+}
+
+function optionalNumber(value: string | undefined): number | undefined {
+	if (value === undefined || value === "") return undefined;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** A SeekBar, ProgressBar, or RatingBar reports where it sits in its range. */
+function rangeOf(attrs: Record<string, string>): AxRange | undefined {
+	const current = optionalNumber(attrs["range-current"]);
+	const min = optionalNumber(attrs["range-min"]);
+	const max = optionalNumber(attrs["range-max"]);
+	if (current === undefined || min === undefined || max === undefined)
+		return undefined;
+	return { current, min, max };
 }
 
 function boundsToRect(bounds: string | undefined) {
@@ -185,6 +202,7 @@ export async function collectAndroidAxSnapshot(
 			const sourceId = optionalInteger(attrs["source-id"]);
 			const windowLayer = optionalInteger(attrs["window-layer"]);
 			const windowType = optionalInteger(attrs["window-type"]);
+			const range = rangeOf(attrs);
 			elements.push({
 				id:
 					windowId !== undefined && sourceId !== undefined
@@ -211,6 +229,7 @@ export async function collectAndroidAxSnapshot(
 				testId: nativeId,
 				nativeId,
 				traits: androidAxTraits(attrs),
+				...(range ? { range } : {}),
 			});
 		}
 		if (elements.length === 0) {

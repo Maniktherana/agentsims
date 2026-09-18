@@ -1,4 +1,9 @@
-import type { AxElement, AxRect, AxSnapshot } from "./accessibility-model";
+import type {
+	AxElement,
+	AxRange,
+	AxRect,
+	AxSnapshot,
+} from "./accessibility-model";
 
 export const AX_ROLES = [
 	"button",
@@ -160,6 +165,22 @@ interface TreeNode {
 	consumed?: boolean;
 }
 
+/**
+ * Where a ranged control sits, as a percentage. Whole-number ranges also show
+ * the raw position, so `93% (238/255)` tells a reader both what the bar shows
+ * and what the app stores.
+ */
+export function rangeText(range: AxRange): string {
+	const span = range.max - range.min;
+	if (!(span > 0)) return String(range.current);
+	const percent = Math.round(((range.current - range.min) / span) * 100);
+	const whole = [range.current, range.min, range.max].every(Number.isInteger);
+	if (!whole || (range.max === 100 && range.min === 0)) return `${percent}%`;
+	return range.min === 0
+		? `${percent}% (${range.current}/${range.max})`
+		: `${percent}% (${range.current} in ${range.min}–${range.max})`;
+}
+
 /** Both collectors report a flat list keyed by a dotted path. Rebuild the tree. */
 function nestElements(
 	elements: readonly AxElement[],
@@ -177,11 +198,13 @@ function nestElements(
 			role,
 			states: axStatesOf(element),
 			label,
-			value: fieldValue
-				? element.value
-				: element.value.trim() === label
-					? ""
-					: element.value.trim(),
+			value: element.range
+				? rangeText(element.range)
+				: fieldValue
+					? element.value
+					: element.value.trim() === label
+						? ""
+						: element.value.trim(),
 			children: [],
 		};
 		byPath.set(element.path, node);

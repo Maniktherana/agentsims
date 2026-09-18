@@ -303,6 +303,39 @@ test("action output reports the checked transition it observed", () => {
 	expect(output).toContain("The target changed its checked state.");
 });
 
+test("action output names a slider that a coordinate drag moved", () => {
+	const output = renderActionResult({
+		device: "android:emulator-5554",
+		dispatch: { status: "accepted", reason: "Input frames were accepted." },
+		verification: {
+			status: "not_applicable",
+			reason: "Observed after the action.",
+			observed: {
+				contentMoved: false,
+				firstVisible: { before: "Display brightness", after: "Display brightness" },
+				sliders: [
+					{ label: "Display brightness", before: "45% (115/255)", after: "93% (238/255)" },
+				],
+			},
+		},
+		resolved: [
+			{
+				type: "swipe",
+				from: { x: 0.5, y: 0.18 },
+				to: { x: 0.98, y: 0.18 },
+			},
+		],
+		accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+		view: null,
+		image: null,
+		captureReason: null,
+		warnings: [],
+	});
+	expect(output).toContain(
+		'slider "Display brightness": 45% (115/255) → 93% (238/255)',
+	);
+});
+
 test("action output describes a swipe without judging it", () => {
 	const output = renderActionResult({
 		device: "android:emulator-5554",

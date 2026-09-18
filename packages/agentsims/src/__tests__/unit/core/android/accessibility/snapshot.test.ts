@@ -30,6 +30,25 @@ async function snapshotFromXml(value: string) {
 }
 
 describe("Android accessibility elements", () => {
+	test("a ranged control reports its current, minimum, and maximum", async () => {
+		const snapshot = await snapshotFromXml(
+			[
+				'<?xml version="1.0" encoding="UTF-8"?>',
+				'<hierarchy rotation="0">',
+				'<node class="android.widget.FrameLayout" bounds="[0,0][1080,2400]">',
+				'<node class="android.widget.SeekBar" content-desc="Display brightness" bounds="[42,357][1038,483]" range-current="238" range-min="0" range-max="255"></node>',
+				'<node class="android.widget.Button" text="Done" bounds="[0,600][200,700]"></node>',
+				"</node>",
+				"</hierarchy>",
+			].join(""),
+		);
+		expect(snapshot.elements[1]).toMatchObject({
+			label: "Display brightness",
+			range: { current: 238, min: 0, max: 255 },
+		});
+		expect(snapshot.elements[2]).not.toHaveProperty("range");
+	});
+
 	test("the hint of an empty field is its name, not its value", async () => {
 		const node = await field('text="Search settings" editable="true" hint-text="true"');
 

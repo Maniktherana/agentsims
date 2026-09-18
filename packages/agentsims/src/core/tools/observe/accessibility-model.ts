@@ -41,6 +41,13 @@ export interface AxSourceContext {
 	injected?: boolean;
 }
 
+/** The position of a slider, progress bar, or other ranged control. */
+export interface AxRange {
+	current: number;
+	min: number;
+	max: number;
+}
+
 export interface AxElement {
 	id: string;
 	path: string;
@@ -62,6 +69,8 @@ export interface AxElement {
 	frame: AxRect;
 	testId?: string;
 	nativeId?: string;
+	/** Present when the platform reports a value range for the control. */
+	range?: AxRange;
 	traits?: string[];
 	source?: AxSourceContext;
 }

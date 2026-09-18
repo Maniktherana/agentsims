@@ -518,3 +518,37 @@ describe("warnings", () => {
 		]);
 	});
 });
+
+describe("ranged controls", () => {
+	test("a slider shows its position, with the raw count for whole-number ranges", () => {
+		const snapshot: AxSnapshot = {
+			screen: { width: 1080, height: 2400 },
+			elements: [
+				axElement("0", "android.widget.FrameLayout", {
+					frame: { x: 0, y: 0, width: 1080, height: 2400 },
+				}),
+				axElement("0.0", "android.widget.SeekBar", {
+					label: "Display brightness",
+					frame: { x: 42, y: 357, width: 996, height: 126 },
+					range: { current: 238, min: 0, max: 255 },
+				}),
+				axElement("0.1", "android.widget.SeekBar", {
+					label: "Volume",
+					frame: { x: 42, y: 600, width: 996, height: 126 },
+					range: { current: 0.5, min: 0, max: 1 },
+				}),
+				axElement("0.2", "android.widget.RatingBar", {
+					label: "Rating",
+					frame: { x: 42, y: 800, width: 996, height: 126 },
+					range: { current: 3, min: 1, max: 5 },
+				}),
+			],
+		};
+		const nodes = flattenAxView(view(snapshot, "android").nodes);
+		const valueOf = (label: string) =>
+			nodes.find((node) => node.label === label)?.value;
+		expect(valueOf("Display brightness")).toBe("93% (238/255)");
+		expect(valueOf("Volume")).toBe("50%");
+		expect(valueOf("Rating")).toBe("50% (3 in 1–5)");
+	});
+});
