@@ -51,6 +51,7 @@ import {
 	type DeviceMatches,
 	type ObserveFormat,
 } from "./observe-output";
+import { registerScrollCommands } from "./commands/scroll";
 import { writeScreenshotFile } from "./screenshots";
 import {
 	registerWaitCommands,
@@ -498,6 +499,7 @@ Examples:
 						: { durationMs: flags.duration }),
 				}),
 		);
+	registerScrollCommands(program);
 	const typeCommand = (name: string, description: string) =>
 		actionCommand(name, description)
 			.option("--into <target>", `Field to type into. ${TARGET_HELP}`)

@@ -28,6 +28,7 @@ import {
 	revalidateActionTargets,
 	resolveActionTargets,
 	type ResolvedAction,
+	type ResolvedActions,
 	type ResolvedPoint,
 } from "./observe/targets";
 import {
@@ -42,6 +43,11 @@ import {
 export type ActionOptions = {
 	/** Always capture the screen after the action. */
 	screenshot?: boolean;
+	/**
+	 * Coordinates a server-side tool resolved itself, such as the swipe scroll
+	 * computes from a container box. The runner dispatches them as they are.
+	 */
+	resolvedActions?: ResolvedActions;
 };
 
 export type ActionDispatch = {
@@ -903,22 +909,24 @@ export function makeDeviceActionRunner(
 									),
 								)
 							: null;
-						let request = yield* Effect.try({
-							try: () => {
-								const screen = configScreen(config);
-								return resolveActionTargets(
-									dependencies.store,
-									device,
-									values,
-									{
-										orientation: configOrientation(config),
-										generation: configGeneration(config),
-										...(screen ? { screen } : {}),
-									},
-								);
-							},
-							catch: (cause) => withActionEffect(cause, "none"),
-						});
+						let request =
+							options.resolvedActions ??
+							(yield* Effect.try({
+								try: () => {
+									const screen = configScreen(config);
+									return resolveActionTargets(
+										dependencies.store,
+										device,
+										values,
+										{
+											orientation: configOrientation(config),
+											generation: configGeneration(config),
+											...(screen ? { screen } : {}),
+										},
+									);
+								},
+								catch: (cause) => withActionEffect(cause, "none"),
+							}));
 						if (request.semanticTargets.length > 0) {
 							const fresh = yield* observeDevice(dependencies, device, {
 								screenshot: false,

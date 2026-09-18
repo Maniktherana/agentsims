@@ -17,6 +17,7 @@ import {
 import { MediaRouting } from "../../../core/tools/media";
 import { Apps, AppOperationSchema } from "../../../core/tools/apps";
 import { runSequence } from "../../../core/tools/sequence";
+import { ScrollRequestSchema } from "../../../core/tools/scroll";
 import { ServerConfig } from "../../runtime/config";
 import { commandResponse, decodeInput, requestJson } from "../command";
 import { exposedState, requestSource, requestedDevice } from "./shared";
@@ -236,6 +237,19 @@ export const commandRoutes = HttpRouter.empty.pipe(
 					body.steps,
 					{ screenshot: url.searchParams.get("screenshot") === "1" },
 				);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/device/:device/scroll",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request } = yield* requestContext;
+				const input = yield* decodeInput(
+					ScrollRequestSchema,
+					yield* requestJson(request),
+				);
+				return yield* (yield* Devices).scroll(yield* pathDevice, input);
 			}),
 		),
 	),

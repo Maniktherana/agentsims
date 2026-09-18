@@ -48,6 +48,7 @@ import {
 	type WaitOptions,
 	type WatchOptions,
 } from "../observe/watch";
+import { scrollDevice, type ScrollRequest } from "../scroll";
 import { ForegroundApps } from "./foreground-apps";
 
 export type DeviceListOptions = {
@@ -223,6 +224,12 @@ export function makeDeviceService(
 		/** Targets resolve against current device evidence before input dispatch. */
 		act,
 		operation,
+		/** Scroll owns its container maths and dispatches one swipe through act. */
+		scroll: (device: string, request: ScrollRequest) =>
+			guardFailure(
+				device,
+				scrollDevice({ ...observation, act }, device, request),
+			),
 		/** Browser input invalidates refs immediately without joining the CLI lock. */
 		mutate: (device: string) => store.mutate(device),
 		observe: (device: string, options: ObserveOptions = {}) =>

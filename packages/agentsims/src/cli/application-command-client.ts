@@ -235,6 +235,14 @@ export class ApplicationCommandClient {
 		);
 	}
 
+	async scrollDevice(deviceId: string, request: unknown): Promise<unknown> {
+		return this.request(
+			`/device/${encodeURIComponent(deviceId)}/scroll`,
+			{ method: "POST", body: JSON.stringify(request) },
+			"unknown",
+		);
+	}
+
 	async app(
 		deviceId: string,
 		operation: string,

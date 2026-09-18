@@ -1,5 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
-import type { Command } from "commander";
+import { Command } from "commander";
+import type { ApplicationCommandClient } from "../../../cli/application-command-client";
+import { registerScrollCommands } from "../../../cli/commands/scroll";
 import { createProgram } from "../../../cli/main";
 
 function program() {
@@ -32,6 +34,8 @@ test("the public command surface is canonical", () => {
 		"tap",
 		"long-press",
 		"swipe",
+		"scroll",
+		"drag",
 		"type",
 		"fill",
 		"press",
@@ -56,6 +60,8 @@ test("action and app help shows the supported options", () => {
 		tap: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index"],
 		"long-press": ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
 		swipe: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
+		scroll: ["--device", "--url", "--json", "--in", "--amount", "--duration", "--to-end", "--collect", "--max-pages"],
+		drag: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
 		type: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
 		fill: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
 		press: ["--device", "--url", "--json", "--screenshot"],
@@ -149,6 +155,140 @@ test("touch help explains long presses and swipe direction", () => {
 	expect(swipeHelp).toContain(
 		"agentsims swipe 80%,50% 20%,50% --capture c7 -d <id>",
 	);
+});
+
+test("scroll and drag each send one bounded request", async () => {
+	const calls: Array<{ command: string; device: string; body: unknown }> = [];
+	const lines: string[] = [];
+	const action = {
+		device: "android:emulator-5554",
+		dispatch: { status: "accepted", reason: "Input frames were accepted." },
+		verification: { status: "not_applicable", reason: "No value check." },
+		resolved: [],
+		accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+		view: null,
+		image: null,
+		captureReason: null,
+		warnings: [],
+	};
+	const fake = {
+		scrollDevice: async (device: string, request: unknown) => {
+			calls.push({ command: "scroll", device, body: request });
+			return {
+				device,
+				direction: "down",
+				container: {
+					ref: null,
+					role: "screen",
+					label: "",
+					path: null,
+					box: { x: 0, y: 0, width: 1080, height: 2400 },
+					source: "screen",
+				},
+				from: { x: 540, y: 1680 },
+				to: { x: 540, y: 720 },
+				amount: 60,
+				durationMs: 900,
+				swipes: 1,
+				pages: 1,
+				endReached: false,
+				selector: "cell",
+				count: 0,
+				items: [],
+				action,
+			};
+		},
+		actDevice: async (
+			device: string,
+			actions: ReadonlyArray<unknown>,
+			options: unknown,
+		) => {
+			calls.push({ command: "act", device, body: { actions, options } });
+			return action;
+		},
+	};
+	const root = new Command().exitOverride();
+	registerScrollCommands(root, {
+		client: () => fake as unknown as ApplicationCommandClient,
+		write: (text) => lines.push(text),
+	});
+
+	await root.parseAsync(
+		[
+			"scroll",
+			"down",
+			"-d",
+			"android:emulator-5554",
+			"--to-end",
+			"--collect",
+			"cell",
+			"--amount",
+			"60",
+			"--duration",
+			"900",
+			"--in",
+			"@e14",
+		],
+		{ from: "user" },
+	);
+	await root.parseAsync(
+		["drag", "@e4", "80%,50%", "-d", "android:emulator-5554", "--capture", "c7"],
+		{ from: "user" },
+	);
+
+	expect(calls).toEqual([
+		{
+			command: "scroll",
+			device: "android:emulator-5554",
+			body: {
+				direction: "down",
+				in: "@e14",
+				amount: 60,
+				durationMs: 900,
+				toEnd: true,
+				collect: "cell",
+				maxPages: 30,
+			},
+		},
+		{
+			command: "act",
+			device: "android:emulator-5554",
+			body: {
+				actions: [
+					{
+						type: "swipe",
+						from: "@e4",
+						to: "80%,50%",
+						durationMs: 800,
+						capture: "c7",
+					},
+				],
+				options: { screenshot: false },
+			},
+		},
+	]);
+	expect(lines[0]).toContain("action  scroll down in screen");
+	expect(lines[0]).toContain("pages=1  endReached=no");
+});
+
+test("scroll and drag help explains the defaults", () => {
+	const scroll = command("scroll");
+	let scrollOutput = "";
+	scroll.configureOutput({ writeOut: (value) => { scrollOutput += value; } });
+	scroll.outputHelp();
+	const scrollHelp = scrollOutput.replace(/\s+/g, " ");
+	expect(scrollHelp).toContain("Scroll a region one page: down, up, left, right");
+	expect(scrollHelp).toContain("Percent of the region to travel (default: 40)");
+	expect(scrollHelp).toContain("Swipe duration in milliseconds (default: 600)");
+	expect(scrollHelp).toContain("Keep scrolling until the region stops changing");
+	expect(scrollHelp).toContain("Page limit for --to-end (default: 30)");
+	expect(scrollHelp).toContain(
+		"agentsims scroll down --to-end --collect cell -d <id>",
+	);
+
+	const dragHelp = command("drag").helpInformation().replace(/\s+/g, " ");
+	expect(dragHelp).toContain("Move one finger slowly between two targets");
+	expect(dragHelp).toContain("Drag duration in milliseconds (default: 800)");
 });
 
 test("permission and button help lists exact platform values", () => {

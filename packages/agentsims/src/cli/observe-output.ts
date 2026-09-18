@@ -16,6 +16,7 @@ import type {
 	ResolvedAction,
 	ResolvedPoint,
 } from "../core/tools/observe/targets";
+import type { ScrollItem, ScrollResult } from "../core/tools/scroll";
 
 export type { DeviceMatches };
 
@@ -367,14 +368,22 @@ function renderObserved(observed: Record<string, unknown> | null): string[] {
 	return parts;
 }
 
-export function renderActionResult(
+interface ActionSections {
+	/** The action, dispatch, verification, accessibility, and image lines. */
+	head: string[];
+	tree: string[];
+	warnings: string[];
+}
+
+function actionSections(
 	result: ActionResult,
-	artifact: ArtifactWrite | null = null,
-	format: ObserveFormat = {},
-): string {
-	const lines = result.resolved.map(
-		(action) => `action  ${renderActionLine(action)}`,
-	);
+	artifact: ArtifactWrite | null,
+	format: ObserveFormat,
+	resolved: boolean,
+): ActionSections {
+	const lines = resolved
+		? result.resolved.map((action) => `action  ${renderActionLine(action)}`)
+		: [];
 	lines.push(`dispatch  ${result.dispatch.status}  ${result.dispatch.reason}`);
 	lines.push(
 		[
@@ -402,15 +411,66 @@ export function renderActionResult(
 	else lines.push("image  not_requested");
 	const artifactLine = renderArtifact(artifact);
 	if (artifactLine) lines.push(artifactLine);
-	if (result.view) lines.push(...renderTree(result.view, format));
-	else lines.push("elements  none");
-	lines.push(
-		...warningLines([
+	return {
+		head: lines,
+		tree: result.view
+			? renderTree(result.view, format)
+			: ["elements  none"],
+		warnings: warningLines([
 			...result.warnings,
 			...(result.view?.warnings ?? []),
 		]),
-	);
-	return lines.join("\n");
+	};
+}
+
+export function renderActionResult(
+	result: ActionResult,
+	artifact: ArtifactWrite | null = null,
+	format: ObserveFormat = {},
+): string {
+	const sections = actionSections(result, artifact, format, true);
+	return [...sections.head, ...sections.tree, ...sections.warnings].join("\n");
+}
+
+function renderScrollItem(item: ScrollItem): string {
+	const text = item.text ? ` "${oneLine(item.text)}"` : "";
+	const testId = item.testId ? ` [testid=${item.testId}]` : "";
+	return `  ${item.role}${text} [ref=${item.ref}]${testId}`;
+}
+
+function renderScrollLine(result: ScrollResult): string {
+	const container = result.container;
+	const label = container.label ? ` "${oneLine(container.label)}"` : "";
+	const ref = container.ref ? ` @${container.ref}` : "";
+	return [
+		`action  scroll ${result.direction} in ${container.role}${label}${ref}`,
+		`from ${result.from.x},${result.from.y} to ${result.to.x},${result.to.y} px`,
+		`amount=${result.amount}%`,
+		`duration=${result.durationMs}ms`,
+		`pages=${result.pages}`,
+		`endReached=${result.endReached ? "yes" : "no"}`,
+	].join("  ");
+}
+
+export function renderScrollResult(
+	result: ScrollResult,
+	artifact: ArtifactWrite | null = null,
+	format: ObserveFormat = {},
+): string {
+	const sections = actionSections(result.action, artifact, format, false);
+	const collected = result.items
+		? [
+				`collected  ${result.count} items  selector=${result.selector ?? ""}`,
+				...result.items.map(renderScrollItem),
+			]
+		: [];
+	return [
+		renderScrollLine(result),
+		...sections.head,
+		...collected,
+		...sections.tree,
+		...sections.warnings,
+	].join("\n");
 }
 
 /** One line per step, then the tree the run left behind. */
@@ -514,4 +574,11 @@ export function actionForOutput(
 		image: result.image ? imageForOutput(result.image) : null,
 		artifact,
 	};
+}
+
+export function scrollForOutput(
+	result: ScrollResult,
+	artifact: ArtifactWrite | null,
+): unknown {
+	return { ...result, action: actionForOutput(result.action, artifact) };
 }

@@ -12,6 +12,7 @@ import {
 	renderActionResult,
 	renderAxNodes,
 	renderMatches,
+	renderScrollResult,
 } from "../../../cli/observe-output";
 
 test("iOS apps render as a table and hide system apps by default", () => {
@@ -382,4 +383,66 @@ test("action output names a long press", () => {
 		warnings: [],
 	});
 	expect(output).toContain("action  long-press 25.0%,75.0%");
+});
+
+test("scroll output names the region, the travel, and the collected items", () => {
+	const output = renderScrollResult({
+		device: "android:emulator-5554",
+		direction: "down",
+		container: {
+			ref: "e14",
+			role: "list",
+			label: "RecyclerView",
+			path: "0.1",
+			box: { x: 0, y: 1000, width: 1080, height: 1000 },
+			source: "scrollable",
+		},
+		from: { x: 540, y: 1700 },
+		to: { x: 540, y: 1300 },
+		amount: 40,
+		durationMs: 600,
+		swipes: 3,
+		pages: 3,
+		endReached: true,
+		selector: "cell",
+		count: 2,
+		items: [
+			{ ref: "e20", role: "cell", label: "Buy milk", value: "", text: "Buy milk" },
+			{
+				ref: "e21",
+				role: "cell",
+				label: "",
+				value: "",
+				testId: "task-2",
+				text: "Pay rent",
+			},
+		],
+		action: {
+			device: "android:emulator-5554",
+			dispatch: { status: "accepted", reason: "Input frames were accepted." },
+			verification: {
+				status: "not_applicable",
+				reason: "This action has no direct value check.",
+			},
+			resolved: [
+				{ type: "swipe", from: { x: 0.5, y: 0.7 }, to: { x: 0.5, y: 0.3 } },
+			],
+			accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+			view: null,
+			image: null,
+			captureReason: null,
+			warnings: [],
+		},
+	});
+	const lines = output.split("\n");
+	expect(lines[0]).toBe(
+		'action  scroll down in list "RecyclerView" @e14  from 540,1700 to 540,1300 px  amount=40%  duration=600ms  pages=3  endReached=yes',
+	);
+	expect(lines[1]).toBe("dispatch  accepted  Input frames were accepted.");
+	expect(lines[2]).toContain("verification  not_applicable");
+	// The swipe is reported once, by the scroll line.
+	expect(output).not.toContain("action  swipe");
+	expect(output).toContain("collected  2 items  selector=cell");
+	expect(output).toContain('  cell "Buy milk" [ref=e20]');
+	expect(output).toContain('  cell "Pay rent" [ref=e21] [testid=task-2]');
 });
