@@ -10,10 +10,11 @@ import {
 	AndroidLogBuffer,
 	parseAndroidLogLine,
 } from "./logcat";
+import { androidSerialFromStateId } from "./identifiers";
 import { androidTool } from "./sdk-tools";
 import {
-	androidToolSerial,
 	androidShell,
+	androidToolSerial,
 	makeAndroidToolRunner,
 } from "./tool-command";
 import {
@@ -138,6 +139,12 @@ export const AndroidLogsLive = Layer.scoped(
 			);
 		const prepare = (device: string, filter: AndroidLogFilter) =>
 			Effect.gen(function* () {
+				if (!androidSerialFromStateId(device))
+					return yield* Effect.fail(
+						new InvalidCommandInput({
+							message: "Device logs require an Android device",
+						}),
+					);
 				const serial = yield* Effect.try({
 					try: () => androidToolSerial(device),
 					catch: commandFailure,

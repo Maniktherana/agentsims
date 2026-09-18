@@ -46,7 +46,7 @@ describe("preview assets", () => {
 		const previewRoot = mkdtempSync(
 			join(tmpdir(), "agentsims-preview-imports-"),
 		);
-		let stopServer = () => {};
+		let stopServer = async () => {};
 		try {
 			mkdirSync(join(previewRoot, "assets"));
 			for (const [assetKey, source] of Object.entries(javascript))
@@ -93,7 +93,7 @@ describe("preview assets", () => {
 
 	test("serves production assets from disk and scopes generated URLs to the mount", async () => {
 		const previewRoot = mkdtempSync(join(tmpdir(), "agentsims-preview-"));
-		let stopServer = () => {};
+		let stopServer = async () => {};
 		try {
 			mkdirSync(join(previewRoot, "assets"));
 			writeFileSync(
@@ -151,7 +151,7 @@ describe("preview assets", () => {
 
 			expect((await request("/review/assets/%5C..%5Csecret")).status).toBe(404);
 		} finally {
-			stopServer();
+			await stopServer();
 			rmSync(previewRoot, { recursive: true, force: true });
 		}
 	});

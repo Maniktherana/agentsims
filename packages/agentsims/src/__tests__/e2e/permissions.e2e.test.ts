@@ -1,57 +1,53 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "child_process";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import {
+	explicitIosDevice,
+	sourceCliPath,
+	startOwnedE2EServer,
+	type OwnedE2EServer,
+} from "../helpers/native-e2e";
+import {
+	acquireIosSimulatorTestLock,
+	IOS_E2E_HOOK_TIMEOUT_MS,
+} from "../helpers/ios-e2e-lock";
 
-// Drives the built CLI against whatever simulator is already booted (the CI
-// `sim-test.yml` job boots one before running this directory). Each assertion
-// reads the underlying state store the simulator actually consults — TCC.db,
-// the BulletinBoard plist, locationd's clients.plist — rather than trusting
-// `xcrun simctl privacy`, which is the whole reason this command exists.
-
-const FAKE_BUNDLE = "com.serve-sim.permissions-e2e";
+const FAKE_BUNDLE = "com.agentsims.permissions-e2e";
 // Location goes through `simctl privacy`, which no-ops on a bundle id that
 // isn't installed — so location assertions need a real stock app.
 const REAL_APP = "com.apple.mobilecal";
-const PKG_DIR = join(import.meta.dir, "../../..");
-const CLI = join(PKG_DIR, "dist/serve-sim.js");
-
-function bootedUdid(): string | null {
-	try {
-		const out = execSync("xcrun simctl list devices booted -j", {
-			encoding: "utf-8",
-		});
-		const data = JSON.parse(out) as {
-			devices: Record<string, Array<{ udid: string; state: string }>>;
-		};
-		// Prefer an iOS device — a dev machine may also have a booted watchOS or
-		// tvOS sim, which don't share the same permission state layout.
-		for (const [runtime, devices] of Object.entries(data.devices)) {
-			if (!/iOS/i.test(runtime)) continue;
-			for (const d of devices) if (d.state === "Booted") return d.udid;
-		}
-		for (const devices of Object.values(data.devices)) {
-			for (const d of devices) if (d.state === "Booted") return d.udid;
-		}
-	} catch (error) {
-		console.warn(
-			"[agentsims:test] recoverable setup or cleanup failure",
-			error,
-		);
-	}
-	return null;
-}
-
-const udid = bootedUdid();
-// Needs both a booted iOS sim and the built CLI. CI builds serve-sim before
-// running this directory; locally, run `bun run build.ts` first or it skips.
-const describeIfSim = udid && existsSync(CLI) ? describe : describe.skip;
+const udid = explicitIosDevice;
+const describeIfSim = udid ? describe : describe.skip;
+let server: OwnedE2EServer;
+let releaseLock = () => {};
+let priorLocationAuth: number | null = null;
+let capturedLocationAuth = false;
 
 function cli(...args: string[]): string {
-	return execFileSync("node", [CLI, "permissions", ...args], {
-		encoding: "utf-8",
-	});
+	const [operation, first, second, ...rest] = args;
+	const bundleId = operation === "list" ? first : second;
+	const permission = operation === "list" || first === "all" ? [] : [first!];
+	return execFileSync(
+		process.execPath,
+		[
+			sourceCliPath,
+			"permissions",
+			operation!,
+			...permission,
+			"-d",
+			udid!,
+			"-a",
+			bundleId!,
+			...(operation === "list" ? ["--json"] : rest),
+			"--url",
+			server.origin,
+		],
+		{
+			encoding: "utf-8",
+		},
+	);
 }
 
 function libDir(): string {
@@ -93,7 +89,7 @@ function sectionInfoInnerXml(): string {
 	);
 	if (!m?.[1]) throw new Error(`no sectionInfo entry for ${FAKE_BUNDLE}`);
 	const blob = Buffer.from(m[1].replace(/\s/g, ""), "base64");
-	const tmp = join(libDir(), "..", `.serve-sim-e2e-${Date.now()}.plist`);
+	const tmp = join(libDir(), "..", `.agentsims-e2e-${Date.now()}.plist`);
 	require("fs").writeFileSync(tmp, blob);
 	try {
 		return execSync(`plutil -convert xml1 -o - "${tmp}"`, {
@@ -127,7 +123,7 @@ function locationAuth(bundleId: string): number | null {
 // the first (possibly stale) read.
 async function locationAuthEventually(
 	bundleId: string,
-	expected: number,
+	expected: number | null,
 ): Promise<number | null> {
 	let last: number | null = null;
 	for (let i = 0; i < 40; i++) {
@@ -138,6 +134,19 @@ async function locationAuthEventually(
 	return last;
 }
 
+async function restoreLocationAuth(value: number | null): Promise<void> {
+	if (value === null) cli("reset", "location", REAL_APP);
+	else if (value === 1) cli("revoke", "location", REAL_APP);
+	else if (value === 3) cli("grant", "location", REAL_APP, "--value", "inuse");
+	else if (value === 4) cli("grant", "location", REAL_APP, "--value", "always");
+	else throw new Error(`Cannot restore location Authorization=${value}.`);
+	const restored = await locationAuthEventually(REAL_APP, value);
+	if (restored !== value)
+		throw new Error(
+			`Failed to restore Calendar location permission: expected ${value}, got ${restored}.`,
+		);
+}
+
 // Each case shells the built CLI a few times, and a cold `simctl privacy`
 // call (location) can take several seconds on a fresh CI sim — comfortably
 // past bun's 5s default. The beforeAll reset-all also cascades through every
@@ -145,11 +154,34 @@ async function locationAuthEventually(
 // to run past 90s on a GitHub macOS runner, so keep the budget well above it.
 const T = 150_000;
 
-describeIfSim("serve-sim permissions (real simulator)", () => {
-	beforeAll(() => {
+describeIfSim("Agentsims permissions (real simulator)", () => {
+	beforeAll(async () => {
+		releaseLock = await acquireIosSimulatorTestLock(udid!);
+		priorLocationAuth = locationAuth(REAL_APP);
+		capturedLocationAuth = true;
+		server = await startOwnedE2EServer();
 		// Start from a known-clean slate for the fake bundle.
 		cli("reset", "all", FAKE_BUNDLE);
 	}, T);
+
+	afterAll(async () => {
+		try {
+			if (server) {
+				try {
+					cli("reset", "all", FAKE_BUNDLE);
+				} finally {
+					if (capturedLocationAuth)
+						await restoreLocationAuth(priorLocationAuth);
+				}
+			}
+		} finally {
+			try {
+				await server?.stop();
+			} finally {
+				releaseLock();
+			}
+		}
+	}, IOS_E2E_HOOK_TIMEOUT_MS);
 
 	test(
 		"grant camera writes a TCC row with auth_value=2",
@@ -246,7 +278,6 @@ describeIfSim("serve-sim permissions (real simulator)", () => {
 		async () => {
 			cli("revoke", "location", REAL_APP);
 			expect(await locationAuthEventually(REAL_APP, 1)).toBe(1);
-			cli("reset", "location", REAL_APP);
 		},
 		T,
 	);
@@ -278,7 +309,6 @@ describeIfSim("serve-sim permissions (real simulator)", () => {
 			expect(realOut.udid).toBe(udid);
 			expect(realOut.location.Authorization).toBe(4);
 			cli("reset", "all", FAKE_BUNDLE);
-			cli("reset", "location", REAL_APP);
 		},
 		T,
 	);

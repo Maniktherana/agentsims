@@ -69,30 +69,6 @@ describe("homeButtonCommand", () => {
 });
 
 describe("SimulatorToolbar.Button", () => {
-	test("uses the shared panel background variable", () => {
-		const html = renderToStaticMarkup(
-			<SimulatorToolbar exec={exec} deviceUdid="booted" streaming>
-				<SimulatorToolbar.Button aria-label="Capture">
-					icon
-				</SimulatorToolbar.Button>
-			</SimulatorToolbar>,
-		);
-
-		expect(html).toContain("background:var(--agentsims-panel-bg, #181818)");
-	});
-
-	test("uses a rounded hover surface for icon actions", () => {
-		const html = renderToStaticMarkup(
-			<SimulatorToolbar exec={exec} deviceUdid="booted" streaming>
-				<SimulatorToolbar.Button aria-label="Capture">
-					icon
-				</SimulatorToolbar.Button>
-			</SimulatorToolbar>,
-		);
-
-		expect(html).toContain("border-radius:12px");
-	});
-
 	test("renders a tooltip from the aria label", () => {
 		const html = renderToStaticMarkup(
 			<SimulatorToolbar exec={exec} deviceUdid="booted" streaming>

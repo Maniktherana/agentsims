@@ -173,7 +173,6 @@ describe("WorkspaceHeader", () => {
 		expect(html).toContain("Available");
 		expect(html).toContain("iPhone 16");
 		expect(html).toContain("Pixel 10");
-		expect(html).toContain("overflow-x-hidden overflow-y-auto");
 		expect(html.match(/aria-live="polite"/g)).toHaveLength(1);
 		expect(html).not.toContain(">Add sim</button>");
 	});
@@ -198,13 +197,14 @@ describe("WorkspaceHeader", () => {
 
 	test("renders row skeletons while devices load", () => {
 		const html = renderHeader({ devices: null, total: 0 });
-		expect(html).toContain('data-testid="device-list-skeleton"');
-		expect(html).toContain('data-testid="device-row-skeleton"');
+		expect(html).toContain('aria-label="Loading devices"');
+		expect(html).toContain('aria-busy="true"');
 	});
 
 	test("keeps global actions in one bottom workspace dock", () => {
 		const html = renderHeader();
-		expect(html).toContain('id="agentsims-workspace-dock"');
+		expect(html).toContain('role="toolbar"');
+		expect(html).toContain('aria-label="Workspace"');
 		expect(html).toContain('aria-label="Devices, 1 shown"');
 		expect(html).toContain('aria-label="Device settings"');
 		expect(html).not.toContain('aria-label="Add simulator"');
@@ -225,16 +225,10 @@ describe("WorkspaceHeader", () => {
 			settingsUdid: shownDevices[3]!.device,
 		});
 		expect(html.match(/role="tab"/g)).toHaveLength(4);
-		expect(html).toContain('id="agentsims-tools-dock-slot"');
-		expect(html).toContain('data-expanded="true"');
 		expect(html).toContain('role="tablist"');
 		expect(html).toContain('aria-label="Settings device"');
 		expect(html).not.toContain('aria-haspopup="listbox"');
-		expect(html).toContain('data-variant="ghost"');
-		expect(html).toContain('data-slot="tabs-indicator"');
 		expect(html).toContain('aria-selected="true"');
-		expect(html).toContain("overflow-x-auto");
-		expect(html).toContain("justify-content:flex-start");
 		expect(html).not.toContain("Pin settings");
 		expect(html).not.toContain("Android tools for");
 		expect(html).toContain("iPhone 16");

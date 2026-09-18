@@ -51,17 +51,23 @@ function inputLayerTag(html: string) {
 }
 
 describe("SimulatorView accessibility input", () => {
-	test("passes pointers through the stream layer to Android selection targets", () => {
-		const html = renderAndroidSelection(true);
-		expect(inputLayerTag(html)).toContain("pointer-events:none");
-		expect(html).toContain("pointer-events-auto");
+	test.each([
+		{
+			selecting: true,
+			inputPointers: "pointer-events:none",
+			targetPointers: "pointer-events-auto",
+		},
+		{
+			selecting: false,
+			inputPointers: "",
+			targetPointers: "pointer-events-none",
+		},
+	])("renders pointer policy for selecting=$selecting", (expected) => {
+		const html = renderAndroidSelection(expected.selecting);
+		if (expected.inputPointers)
+			expect(inputLayerTag(html)).toContain(expected.inputPointers);
+		else expect(inputLayerTag(html)).not.toContain("pointer-events:none");
+		expect(html).toContain(expected.targetPointers);
 		expect(html).toContain("translate(-50%, -50%) rotate(90deg)");
-	});
-
-	test("restores stream input when selection ends", () => {
-		const html = renderAndroidSelection(false);
-		expect(inputLayerTag(html)).not.toContain("pointer-events:none");
-		expect(html).not.toContain("pointer-events-auto");
-		expect(html).toContain("pointer-events-none");
 	});
 });

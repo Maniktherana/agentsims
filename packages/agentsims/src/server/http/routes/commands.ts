@@ -9,6 +9,7 @@ import {
 	CameraWebcamSelectionSchema,
 	MediaRouteActionSchema,
 } from "../../../core/tools/media";
+import type { ActionOptions } from "../../../core/tools/actions";
 import { Devices } from "../../../core/tools/devices/devices";
 import {
 	DeviceLifecycleService,
@@ -16,6 +17,8 @@ import {
 } from "../../../core/tools/devices/lifecycle";
 import { MediaRouting } from "../../../core/tools/media";
 import { Apps, AppOperationSchema } from "../../../core/tools/apps";
+import { runSequence } from "../../../core/tools/sequence";
+import { ScrollRequestSchema } from "../../../core/tools/scroll";
 import { ServerConfig } from "../../runtime/config";
 import { commandResponse, decodeInput, requestJson } from "../command";
 import { exposedState, requestSource, requestedDevice } from "./shared";
@@ -28,6 +31,50 @@ const requestContext = Effect.gen(function* () {
 });
 const deviceBody = z.object({ udid: z.string() });
 const actionsBody = z.object({ actions: z.array(z.unknown()) });
+const stepsBody = z.object({ steps: z.array(z.unknown()) });
+const watchQuery = z.object({
+	watch: z.coerce.number().int(),
+	samples: z.coerce.number().int().optional(),
+	every: z.coerce.number().int().optional(),
+	keepFrames: z.string().optional(),
+});
+/** An action can watch the screen from the moment its input lands. */
+const actionQuery = z.object({
+	screenshot: z.string().optional(),
+	watch: z.coerce.number().int().optional(),
+	samples: z.coerce.number().int().optional(),
+	every: z.coerce.number().int().optional(),
+	keepFrames: z.string().optional(),
+});
+const actionOptions = (url: URL) =>
+	Effect.gen(function* () {
+		const query = yield* decodeInput(
+			actionQuery,
+			Object.fromEntries(url.searchParams),
+		);
+		return {
+			screenshot: query.screenshot === "1",
+			...(query.watch === undefined
+				? {}
+				: {
+						watch: {
+							durationMs: query.watch,
+							...(query.samples === undefined
+								? {}
+								: { samples: query.samples }),
+							...(query.every === undefined ? {} : { everyMs: query.every }),
+							...(query.keepFrames === "1" ? { keepFrames: true } : {}),
+						},
+					}),
+		} satisfies ActionOptions;
+	});
+const waitQuery = z.object({
+	for: z.string().optional(),
+	gone: z.string().optional(),
+	stable: z.string().optional(),
+	timeout: z.coerce.number().int().optional(),
+	interval: z.coerce.number().int().optional(),
+});
 const listQuery = z.object({
 	device: z.string().optional(),
 	limit: z.coerce.number().optional(),
@@ -129,9 +176,67 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		commandResponse(
 			Effect.gen(function* () {
 				const { url } = yield* requestContext;
-				return yield* (yield* Devices).observe(
+				return yield* (yield* Devices).observe(yield* pathDevice, {
+					all: url.searchParams.get("all") === "1",
+				});
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/screenshot",
+		commandResponse(
+			Effect.gen(function* () {
+				return yield* (yield* Devices).screenshot(yield* pathDevice);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/watch",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				const query = yield* decodeInput(
+					watchQuery,
+					Object.fromEntries(url.searchParams),
+				);
+				return yield* (yield* Devices).watch(yield* pathDevice, {
+					durationMs: query.watch,
+					...(query.samples === undefined ? {} : { samples: query.samples }),
+					...(query.every === undefined ? {} : { everyMs: query.every }),
+					...(query.keepFrames === "1" ? { keepFrames: true } : {}),
+				});
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/wait",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				const query = yield* decodeInput(
+					waitQuery,
+					Object.fromEntries(url.searchParams),
+				);
+				return yield* (yield* Devices).wait(yield* pathDevice, {
+					...(query.for === undefined ? {} : { for: query.for }),
+					...(query.gone === undefined ? {} : { gone: query.gone }),
+					...(query.stable === "1" ? { stable: true } : {}),
+					...(query.timeout === undefined ? {} : { timeoutMs: query.timeout }),
+					...(query.interval === undefined
+						? {}
+						: { intervalMs: query.interval }),
+				});
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/device/:device/find",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				return yield* (yield* Devices).find(
 					yield* pathDevice,
-					url.searchParams.get("ax") !== "0",
+					url.searchParams.get("q") ?? "",
 				);
 			}),
 		),
@@ -140,13 +245,47 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		"/device/:device/act",
 		commandResponse(
 			Effect.gen(function* () {
-				const { request } = yield* requestContext;
+				const { request, url } = yield* requestContext;
 				const body = yield* decodeInput(
 					actionsBody,
 					yield* requestJson(request),
 				);
-				yield* (yield* Devices).act(yield* pathDevice, body.actions);
-				return { ok: true };
+				return yield* (yield* Devices).act(
+					yield* pathDevice,
+					body.actions,
+					yield* actionOptions(url),
+				);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/device/:device/run",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request, url } = yield* requestContext;
+				const body = yield* decodeInput(
+					stepsBody,
+					yield* requestJson(request),
+				);
+				return yield* runSequence(
+					yield* Devices,
+					yield* pathDevice,
+					body.steps,
+					{ screenshot: url.searchParams.get("screenshot") === "1" },
+				);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/device/:device/scroll",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request } = yield* requestContext;
+				const input = yield* decodeInput(
+					ScrollRequestSchema,
+					yield* requestJson(request),
+				);
+				return yield* (yield* Devices).scroll(yield* pathDevice, input);
 			}),
 		),
 	),
@@ -154,12 +293,28 @@ export const commandRoutes = HttpRouter.empty.pipe(
 		"/device/:device/app",
 		commandResponse(
 			Effect.gen(function* () {
-				const { request } = yield* requestContext;
+				const { request, url } = yield* requestContext;
 				const input = yield* decodeInput(
 					AppOperationSchema,
 					yield* requestJson(request),
 				);
-				return yield* (yield* Apps).execute(yield* pathDevice, input);
+				const device = yield* pathDevice;
+				const operation = (yield* Apps).execute(device, input);
+				if (
+					(input.operation === "launch" || input.operation === "stop") &&
+					input.value
+				)
+					return yield* (yield* Devices).operation(
+						device,
+						operation,
+						{
+							kind: "foreground_app",
+							operation: input.operation,
+							expected: input.value,
+						},
+						yield* actionOptions(url),
+					);
+				return yield* operation;
 			}),
 		),
 	),

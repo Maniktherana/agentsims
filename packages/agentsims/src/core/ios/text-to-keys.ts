@@ -1,8 +1,8 @@
 // Convert a US-keyboard text string into a sequence of USB HID Usage Page 0x07
 // keyboard events (`down`/`up`) suitable for the agentsims WS key opcode (0x06).
 //
-// Mirrors the AXe `type` command's character coverage: A-Z, a-z, 0-9, space,
-// newline, tab, and the standard ASCII punctuation reachable on a US layout.
+// Supports characters that a US hardware keyboard can insert without using a
+// control key whose meaning depends on the focused field.
 
 const LEFT_SHIFT = 0xe1;
 
@@ -47,7 +47,6 @@ function buildMap(): Record<string, KeySpec> {
 	}
 
 	map[" "] = { usage: 0x2c, shift: false };
-	map["\n"] = { usage: 0x28, shift: false }; // Enter
 	map["\t"] = { usage: 0x2b, shift: false }; // Tab
 
 	return map;
@@ -57,21 +56,53 @@ export const US_KEYBOARD_MAP: Readonly<Record<string, KeySpec>> = buildMap();
 
 export type KeyEvent = { type: "down" | "up"; usage: number };
 
+const LEFT_GUI = 0xe3;
+const RETURN = 0x28;
+const BACKSPACE = 0x2a;
+const LETTER_A = 0x04;
+
+/** Keys that edit a field. A character string cannot express them. */
+export const EDIT_KEYS = ["enter", "select-all", "delete"] as const;
+export type EditKey = (typeof EDIT_KEYS)[number];
+
+export function editKeyEvents(key: EditKey): KeyEvent[] {
+	if (key === "enter")
+		return [
+			{ type: "down", usage: RETURN },
+			{ type: "up", usage: RETURN },
+		];
+	if (key === "delete")
+		return [
+			{ type: "down", usage: BACKSPACE },
+			{ type: "up", usage: BACKSPACE },
+		];
+	return [
+		{ type: "down", usage: LEFT_GUI },
+		{ type: "down", usage: LETTER_A },
+		{ type: "up", usage: LETTER_A },
+		{ type: "up", usage: LEFT_GUI },
+	];
+}
+
 export class UnsupportedCharacterError extends Error {
 	constructor(public readonly char: string) {
 		super(`Unsupported character: ${JSON.stringify(char)}`);
 	}
 }
 
+/** Reject the whole input before focus or key dispatch changes the device. */
+export function validateKeyboardText(text: string): void {
+	for (const char of text)
+		if (!US_KEYBOARD_MAP[char]) throw new UnsupportedCharacterError(char);
+}
+
 /** Returns the events needed to type `text`, or throws on unsupported chars.
  *  Each character emits (optional shift down) → key down → key up → (optional shift up). */
 export function textToKeyEvents(text: string): KeyEvent[] {
+	validateKeyboardText(text);
 	const events: KeyEvent[] = [];
 	for (const ch of text) {
-		// Normalize CRLF / lone CR to a single Enter press.
-		if (ch === "\r") continue;
-		const spec = US_KEYBOARD_MAP[ch];
-		if (!spec) throw new UnsupportedCharacterError(ch);
+		const spec = US_KEYBOARD_MAP[ch]!;
 		if (spec.shift) events.push({ type: "down", usage: LEFT_SHIFT });
 		events.push({ type: "down", usage: spec.usage });
 		events.push({ type: "up", usage: spec.usage });

@@ -1,179 +1,366 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { execSync, spawnSync } from "child_process";
-import { readFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { DeviceSession as IosDeviceSession } from "../../core/ios/session";
 import {
 	acquireIosSimulatorTestLock,
 	IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
-import { parseDetachedOutput } from "../helpers/detached-output";
+import {
+	explicitAndroidDevice,
+	explicitIosDevice,
+	runSourceCli,
+	startOwnedE2EServer,
+	type OwnedE2EServer,
+} from "../helpers/native-e2e";
 
-/**
- * Native e2e for `serve-sim type`.
- *
- * Boots through the full stack: textToKeyEvents → WS 0x06 frames →
- * SimStreamHelper.ClientManager → HIDInjector.sendKey → CoreSimulator's HID
- * legacy client. The helper logs `[hid] Key <down|up> usage=0x<hex>` for every
- * accepted key event, which is what we assert against — proving the event
- * round-tripped all the way to the sim, not just to the helper's WS reader.
- *
- * Those per-event HID logs are gated behind `SERVE_SIM_DEBUG_HID` (they otherwise
- * flood stdout), so the server is started with that env set to make them visible.
- *
- * Skipped automatically when no iOS simulator is booted, so this stays green
- * on machines without one. The macOS CI job boots a sim explicitly and runs
- * `bun test packages/serve-sim/src/__tests__/`, so it runs there.
- */
+type Node = {
+	ref: string;
+	role: string;
+	label: string;
+	value: string;
+	states?: string[];
+	children?: Node[];
+};
 
-const CLI_PATH = join(import.meta.dir, "../../cli/main.ts");
-const STATE_DIR = join(tmpdir(), "agentsims");
+type Observation = {
+	observationId: string | null;
+	captureId: string | null;
+	accessibility: { status: string };
+	image: { status: string };
+	artifact?: { status: string; path?: string };
+	view: { app?: string | null; nodes: Node[] } | null;
+};
 
-function firstBootedIosSim(): string | null {
-	try {
-		const out = execSync("xcrun simctl list devices booted -j", {
-			encoding: "utf-8",
-		});
-		const data = JSON.parse(out) as {
-			devices: Record<string, Array<{ udid: string; state: string }>>;
-		};
-		for (const [runtime, devs] of Object.entries(data.devices)) {
-			if (!runtime.includes("iOS")) continue;
-			for (const d of devs) if (d.state === "Booted") return d.udid;
-		}
-	} catch (error) {
-		console.warn(
-			"[agentsims:test] recoverable setup or cleanup failure",
-			error,
-		);
-	}
-	return null;
-}
+type TextResult = {
+	dispatch: { status: string };
+	verification: {
+		status: string;
+		observed?: { expected: string; value: string };
+	};
+	text: {
+		expected: string | null;
+		value: string | null;
+		submit: { requested: boolean; status: string };
+	};
+};
 
-const bootedUdid = firstBootedIosSim();
-const describeWithSim = bootedUdid ? describe : describe.skip;
-
-function serverUrlFromOutput(output: string): string {
-	const value: unknown = parseDetachedOutput<unknown>(output);
-	if (
-		!value ||
-		typeof value !== "object" ||
-		!("url" in value) ||
-		typeof value.url !== "string"
-	) {
-		throw new Error("Detached server output did not contain a URL");
-	}
-	return value.url;
-}
-
-describeWithSim(
-	`serve-sim type e2e (booted sim ${bootedUdid ?? "<skipped>"})`,
-	() => {
-		let logFile: string;
-		let serverUrl: string;
-		let releaseTestLock = () => {};
-
-		beforeAll(async () => {
-			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
-			try {
-				execSync(`bun run ${CLI_PATH} stop`, { stdio: "pipe" });
-			} catch (error) {
-				console.warn(
-					"[agentsims:test] recoverable setup or cleanup failure",
-					error,
-				);
-			}
-
-			const detach = spawnSync("bun", ["run", CLI_PATH, "start", "--detach"], {
-				encoding: "utf-8",
-				stdio: ["ignore", "pipe", "inherit"],
-				timeout: 45_000,
-				// Surface the per-event `[hid] Key …` lines this test asserts on; the
-				// env propagates to the detached `serve` child the CLI re-execs.
-				env: { ...process.env, SERVE_SIM_DEBUG_HID: "1" },
-			});
-			if (detach.status !== 0 || !detach.stdout) {
-				throw new Error(
-					`serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\nstdout: ${detach.stdout}`,
-				);
-			}
-			serverUrl = serverUrlFromOutput(detach.stdout);
-			logFile = join(STATE_DIR, "local-server.log");
-		}, IOS_E2E_HOOK_TIMEOUT_MS);
-
-		afterAll(() => {
-			try {
-				try {
-					execSync(`bun run ${CLI_PATH} stop`, { stdio: "pipe" });
-				} catch (error) {
-					console.warn(
-						"[agentsims:test] recoverable setup or cleanup failure",
-						error,
-					);
-				}
-			} finally {
-				releaseTestLock();
-			}
-		}, 30_000);
-
-		test("`agentsims act` injects HID key events into the booted simulator", async () => {
-			const logBefore = readFileSync(logFile, "utf-8");
-			const beforeCount = countKeyLines(logBefore);
-
-			// "Hi!" → 10 events:
-			//   H: shift down, KeyH down, KeyH up, shift up      (0xe1, 0x0b, 0x0b, 0xe1)
-			//   i: KeyI down, KeyI up                            (0x0c, 0x0c)
-			//   !: shift down, Digit1 down, Digit1 up, shift up  (0xe1, 0x1e, 0x1e, 0xe1)
-			const result = spawnSync(
-				"bun",
-				[
-					"run",
-					CLI_PATH,
-					"act",
-					JSON.stringify({ type: "type", text: "Hi!" }),
-					"-d",
-					bootedUdid!,
-					"--url",
-					serverUrl,
-				],
+const platforms = [
+	...(explicitIosDevice
+		? [
 				{
-					encoding: "utf-8",
-					stdio: ["ignore", "pipe", "pipe"],
-					timeout: 15_000,
+					platform: "ios" as const,
+					device: explicitIosDevice,
+					app:
+						process.env.AGENTSIMS_E2E_APP_ID?.trim() ||
+						"com.apple.Preferences",
+					field: process.env.AGENTSIMS_E2E_TEXT_TARGET?.trim() || "Search",
 				},
+			]
+		: []),
+	...(explicitAndroidDevice
+		? [
+				{
+					platform: "android" as const,
+					device: explicitAndroidDevice,
+					app: "com.android.settings",
+					field: process.env.AGENTSIMS_E2E_TEXT_TARGET?.trim() || "Search",
+				},
+			]
+		: []),
+];
+const describeConfigured = platforms.length > 0 ? describe : describe.skip;
+
+function flatten(nodes: Node[]): Node[] {
+	return nodes.flatMap((node) => [node, ...flatten(node.children ?? [])]);
+}
+
+async function cliJson<T>(server: OwnedE2EServer, args: string[]): Promise<T> {
+	const result = await runSourceCli(server, [...args, "--json"]);
+	if (result.exitCode !== 0)
+		throw new Error(
+			`agentsims ${args.join(" ")} failed.\n${result.stderr}\n${result.stdout}`,
+		);
+	return JSON.parse(result.stdout) as T;
+}
+
+async function observe(
+	server: OwnedE2EServer,
+	device: string,
+): Promise<Observation> {
+	return cliJson(server, ["observe", "-d", device, "--all"]);
+}
+
+function fieldIn(observation: Observation, target?: string): Node | null {
+	const fields = flatten(observation.view?.nodes ?? []).filter(
+		(node) => node.role === "textbox",
+	);
+	if (!target) return fields[0] ?? null;
+	const expected = target.toLowerCase();
+	return (
+		fields.find((node) =>
+			[node.label, node.value].some((value) =>
+				value.toLowerCase().includes(expected),
+			),
+		) ?? null
+	);
+}
+
+async function prepareField(
+	server: OwnedE2EServer,
+	platform: "android" | "ios",
+	device: string,
+	app: string,
+	target: string,
+): Promise<{ observation: Observation; field: Node }> {
+	for (const operation of ["stop", "launch"] as const) {
+		const result = await runSourceCli(server, [
+			"app",
+			operation,
+			app,
+			"-d",
+			device,
+			"--json",
+		]);
+		if (result.exitCode !== 0) {
+			const output = JSON.parse(result.stdout) as {
+				dispatch?: { status?: string };
+				verification?: { status?: string };
+			};
+			if (
+				output.dispatch?.status !== "accepted" &&
+				!(operation === "stop" && output.verification?.status === "matched")
+			)
+				throw new Error(
+					`agentsims app ${operation} failed.\n${result.stderr}\n${result.stdout}`,
+				);
+		}
+	}
+	const deadline = Date.now() + 60_000;
+	let lastObservation: Observation | null = null;
+	while (Date.now() < deadline) {
+		const observation = await observe(server, device);
+		lastObservation = observation;
+		const activeApp = observation.view?.app;
+		if (
+			activeApp !== app &&
+			!(
+				platform === "android" &&
+				activeApp === "com.google.android.settings.intelligence"
+			)
+		) {
+			await Bun.sleep(250);
+			continue;
+		}
+		const field = fieldIn(observation, target);
+		if (field) return { observation, field };
+		const nodes = observation.view?.nodes ?? [];
+		const searchText = flatten(nodes).find(
+			(node) => platform === "android" && /^Search settings$/i.test(node.label),
+		);
+		const searchContainer = searchText
+			? flatten(nodes)
+					.filter((node) =>
+						flatten(node.children ?? []).some(
+							(child) => child.ref === searchText.ref,
+						),
+					)
+					.at(-1)
+			: null;
+		const search = flatten(searchContainer?.children ?? []).find(
+			(node) => node.role === "button",
+		);
+		if (search) {
+			await cliJson(server, ["tap", `@${search.ref}`, "-d", device]);
+			await Bun.sleep(250);
+			continue;
+		}
+		await Bun.sleep(250);
+	}
+	throw new Error(
+		`No editable field matching ${JSON.stringify(target)} became available on ${device}. ` +
+			`Foreground app: ${lastObservation?.view?.app ?? "unknown"}. ` +
+			`Nodes: ${JSON.stringify(flatten(lastObservation?.view?.nodes ?? []).map(({ role, label }) => ({ role, label })))}`,
+	);
+}
+
+function expectMatched(result: TextResult, expected: string): void {
+	expect(result.dispatch.status).toBe("accepted");
+	expect(result.verification.status).toBe("matched");
+	expect(result.verification.observed).toMatchObject({
+		expected,
+		value: expected,
+	});
+	expect(result.text.expected).toBe(expected);
+	expect(result.text.value).toBe(expected);
+}
+
+describeConfigured("real mobile text loop", () => {
+	let server: OwnedE2EServer;
+	let releaseIosLock = () => {};
+
+	beforeAll(async () => {
+		if (explicitIosDevice)
+			releaseIosLock = await acquireIosSimulatorTestLock(explicitIosDevice);
+		server = await startOwnedE2EServer();
+	}, IOS_E2E_HOOK_TIMEOUT_MS);
+
+	afterAll(async () => {
+		try {
+			await server?.stop();
+		} finally {
+			releaseIosLock();
+		}
+	}, IOS_E2E_HOOK_TIMEOUT_MS);
+
+	for (const target of platforms) {
+		test(`${target.platform} proves target, focus, replacement, insertion, rejection, submit, and capture`, async () => {
+			const prepared = await prepareField(
+				server,
+				target.platform,
+				target.device,
+				target.app,
+				target.field,
 			);
-			expect(result.status).toBe(0);
+			expect(prepared.observation.observationId).toBeTruthy();
+			expect(prepared.observation.captureId).toBeTruthy();
+			expect(prepared.observation.accessibility.status).toBe("ok");
+			expect(prepared.observation.image.status).toBe("ok");
+			expect(prepared.observation.artifact?.status).toBe("ok");
+			expect(
+				prepared.observation.artifact?.path &&
+					existsSync(prepared.observation.artifact.path),
+			).toBe(true);
 
-			// Wait briefly for the helper to flush its stdout log — sendKey is sync,
-			// but stdio buffering means a few ms can elapse before lines hit the file.
-			await new Promise((r) => setTimeout(r, 200));
-
-			const logAfter = readFileSync(logFile, "utf-8");
-			const newLines = logAfter.slice(logBefore.length);
-			const afterCount = countKeyLines(logAfter);
-
-			expect(afterCount - beforeCount).toBe(10);
-
-			// Every usage we sent must show up at least once in the new log slice.
-			const expectedUsages = [0xe1, 0x0b, 0x0c, 0x1e];
-			for (const usage of expectedUsages) {
-				const hex = usage.toString(16);
-				expect(newLines).toContain(`usage=0x${hex}`);
+			if (target.platform === "ios") {
+				const raw = await fetch(
+					`${server.origin}/helper/${encodeURIComponent(target.device)}/ax?mode=fresh`,
+				);
+				expect(raw.status).toBe(200);
+				expect(Array.isArray(await raw.json())).toBe(true);
 			}
 
-			// And we should see balanced down/up events for the new slice.
-			expect(countMatches(newLines, /\[hid\] Key down /g)).toBe(5);
-			expect(countMatches(newLines, /\[hid\] Key up /g)).toBe(5);
-		}, 30_000);
-	},
-);
+			const first = await cliJson<TextResult>(server, [
+				"fill",
+				"AgentSimsOne",
+				"--into",
+				`@${prepared.field.ref}`,
+				"-d",
+				target.device,
+			]);
+			expectMatched(first, "AgentSimsOne");
 
-function countKeyLines(s: string): number {
-	return countMatches(s, /\[hid\] Key (down|up) /g);
-}
+			const stale = await runSourceCli(server, [
+				"fill",
+				"stale",
+				"--into",
+				`@${prepared.field.ref}`,
+				"-d",
+				target.device,
+				"--json",
+			]);
+			expect(stale.exitCode).not.toBe(0);
 
-function countMatches(s: string, re: RegExp): number {
-	let n = 0;
-	for (let m = re.exec(s); m; m = re.exec(s)) n++;
-	return n;
-}
+			const focusedObservation = await observe(server, target.device);
+			const focused = fieldIn(focusedObservation);
+			expect(focused).not.toBeNull();
+			expect(focused?.states).toContain("focused");
+			const repeated = await cliJson<TextResult>(server, [
+				"fill",
+				"AgentSimsTwo",
+				"--into",
+				`@${focused!.ref}`,
+				"-d",
+				target.device,
+			]);
+			expectMatched(repeated, "AgentSimsTwo");
+
+			const insertion =
+				target.platform === "android"
+					? "A:+_?file:///sdcard/Download/task.html"
+					: "x";
+			const inserted = await cliJson<TextResult>(server, [
+				"type",
+				insertion,
+				"-d",
+				target.device,
+			]);
+			expectMatched(inserted, `AgentSimsTwo${insertion}`);
+
+			const replaced = await cliJson<TextResult>(server, [
+				"fill",
+				"AgentSimsReplace",
+				"-d",
+				target.device,
+			]);
+			expectMatched(replaced, "AgentSimsReplace");
+
+			if (target.platform === "ios") {
+				const adapter = new IosDeviceSession(target.device);
+				try {
+					const nativeField = await adapter.readFocusedField();
+					expect(nativeField).toMatchObject({
+						focused: true,
+						value: "AgentSimsReplace",
+						selection: { start: 16, end: 16 },
+					});
+					expect(nativeField?.identity?.id).toBeTruthy();
+					expect(nativeField?.identity?.path).toBeUndefined();
+				} finally {
+					await adapter.close();
+				}
+			}
+
+			const current = await observe(server, target.device);
+			const wrong = flatten(current.view?.nodes ?? []).find(
+				(node) => node.role === "button",
+			);
+			expect(wrong).toBeDefined();
+			const refused = await runSourceCli(server, [
+				"fill",
+				"wrong",
+				"--into",
+				`@${wrong!.ref}`,
+				"-d",
+				target.device,
+				"--json",
+			]);
+			expect(refused.exitCode).not.toBe(0);
+
+			const submitted = await cliJson<TextResult>(server, [
+				"fill",
+				"AgentSimsSubmit",
+				"--submit",
+				"-d",
+				target.device,
+			]);
+			expectMatched(submitted, "AgentSimsSubmit");
+			expect(submitted.text.submit).toMatchObject({
+				requested: true,
+				status: "accepted",
+			});
+
+			if (target.platform === "android") {
+				// Android gives input focus to the focusable view. A field with a
+				// child node can focus that child, or the layout around itself.
+				const wrappedObservation = await observe(server, target.device);
+				const wrapped = flatten(wrappedObservation.view?.nodes ?? []).find(
+					(node) =>
+						node.role === "textbox" && (node.children?.length ?? 0) > 0,
+				);
+				if (wrapped) {
+					const intoWrapped = await cliJson<TextResult>(server, [
+						"fill",
+						"AgentSimsWrapped",
+						"--into",
+						`@${wrapped.ref}`,
+						"-d",
+						target.device,
+					]);
+					// The container can hide the value of its child, so prove the
+					// dispatch. A refused focus fails the command instead.
+					expect(intoWrapped.dispatch.status).toBe("accepted");
+				}
+			}
+		}, 180_000);
+	}
+});

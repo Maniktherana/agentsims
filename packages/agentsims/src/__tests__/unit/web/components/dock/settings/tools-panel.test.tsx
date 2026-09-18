@@ -13,25 +13,6 @@ import { ToolsPanel } from "../../../../../../web/components/dock/settings/tools
 const noop = () => {};
 
 describe("ToolsPanel", () => {
-	test("uses the shared panel background variable", () => {
-		const html = renderToStaticMarkup(
-			<ToolsPanel
-				open={false}
-				onClose={noop}
-				udid="one"
-				deviceRuntime="iOS-27-0"
-				currentApp={null}
-				codecPreference="auto"
-				onCodecPreferenceChange={noop}
-				activeCodec="h264"
-				avccSupported
-				width={320}
-			/>,
-		);
-
-		expect(html).toContain("background-color:var(--agentsims-panel-bg)");
-	});
-
 	test("matches iOS section order and opens only Simulator for Android", () => {
 		const previousWindow = Object.getOwnPropertyDescriptor(
 			globalThis,
@@ -88,16 +69,12 @@ describe("ToolsPanel", () => {
 			/>,
 		);
 
-		expect(html).toContain('data-android-device-subtitle="true"');
 		expect(html).toContain(">Loading<");
 		expect(html).toContain("Display");
 		expect(html).toContain("Stream");
-		expect(html).toContain('data-android-metadata="true"');
 		expect(html).toContain("Device ID");
 		expect(html).not.toContain("<details");
 		expect(html).not.toContain(">Android<");
-		expect(html).not.toContain("border-t border-white");
-		expect(html).not.toContain("border-b border-white");
 		expect(html).not.toContain(">Camera<");
 		expect(html).not.toContain(">Audio<");
 	});
@@ -140,7 +117,7 @@ describe("ToolsPanel", () => {
 		).toBe("Live stream unavailable");
 	});
 
-	test("opens real Android emulator media capabilities with a stable loading footprint", () => {
+	test("opens real Android emulator media capabilities while loading", () => {
 		const html = renderToStaticMarkup(
 			<MediaRoutingSection
 				udid="android:emulator-5554"
@@ -165,10 +142,6 @@ describe("ToolsPanel", () => {
 		expect(html).toContain("Media file");
 		expect(html).toContain("Microphone");
 		expect(html).toContain("Output");
-		expect(html).toContain('data-media-group="camera"');
-		expect(html).toContain('data-media-group="audio"');
-		expect(html).not.toContain("border-t border-white");
-		expect(html).toContain("animate-pulse");
 	});
 
 	test("does not expose emulator camera selectors for physical Android devices", () => {

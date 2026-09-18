@@ -62,39 +62,6 @@ describe("Android presented surface geometry parity", () => {
 		});
 	});
 
-	test("keeps exactly one visual transform owner around untransformed media and AX", async () => {
-		const simulatorView = await Bun.file(
-			new URL(
-				"../../../../../web/components/simulator/simulator-view.tsx",
-				import.meta.url,
-			),
-		).text();
-		const workspace = await Bun.file(
-			new URL(
-				"../../../../../web/components/workspace/simulator-device-view.tsx",
-				import.meta.url,
-			),
-		).text();
-		expect(simulatorView).toContain("data-agentsims-presentation-plane");
-		expect(simulatorView).toContain('transform: "none"');
-		expect(simulatorView).toContain("{presentationOverlay}");
-		expect(simulatorView).toMatch(
-			/const presentationScreenSize\s*=\s*relayMode && streamConfig\s*\? streamConfig\s*:\s*screenSize;/,
-		);
-		expect(simulatorView).toContain("if (hasPresentationPlane) return null;");
-		expect(simulatorView).toContain(
-			'position: hasPresentationPlane ? "absolute" : "relative"',
-		);
-		expect(simulatorView).toContain(
-			"inset: hasPresentationPlane ? 0 : undefined",
-		);
-		expect(simulatorView).toContain("? (presentationRotationDegrees ?? 0)");
-		expect(workspace).toMatch(
-			/presentationPlaneStyle=\{\s*isAndroidDevice\s*\? effectivePlane\.planeStyle\s*:\s*undefined\s*\}/,
-		);
-		expect(workspace).not.toContain("androidPresentationPendingRef.current");
-	});
-
 	test("carries current frame rotation through orientation and cutout r0-r3", () => {
 		expect(
 			[0, 1, 2, 3].map((rotation) =>

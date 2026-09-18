@@ -1,12 +1,15 @@
 import {
+	editKeyEvents,
+	EDIT_KEYS,
 	textToKeyEvents,
 	UnsupportedCharacterError,
 } from "../ios/text-to-keys";
+import { androidSerialFromStateId } from "../android/device/identifiers";
 import { Effect } from "effect";
 import { z } from "zod";
 import {
-	commandFailure,
 	InvalidCommandInput,
+	withActionEffect,
 	type ApplicationCommandError,
 } from "./errors";
 
@@ -22,30 +25,98 @@ export const DEVICE_ORIENTATIONS = [
 	"landscape_right",
 ] as const;
 
-const HID_BUTTON_CODES: Record<string, { page: number; usage: number }> = {
-	power: { page: 12, usage: 48 },
-	"volume-up": { page: 12, usage: 233 },
-	"volume-down": { page: 12, usage: 234 },
-	action: { page: 11, usage: 45 },
-	"side-button": { page: 12, usage: 149 },
-	"digital-crown": { page: 12, usage: 64 },
-	"left-side-button": { page: 65281, usage: 512 },
-};
-
 export const GESTURE_PHASES = ["begin", "move", "end", "cancel"] as const;
 
-export const DEVICE_BUTTONS = [
+export const ANDROID_DEVICE_BUTTONS = [
 	"home",
 	"power",
 	"volume-up",
 	"volume-down",
 	"back",
 	"app-switch",
+] as const;
+
+export const IOS_DEVICE_BUTTONS = [
+	"home",
+	"power",
+	"volume-up",
+	"volume-down",
+	"app-switcher",
 	"action",
 	"side-button",
 	"digital-crown",
 	"left-side-button",
 ] as const;
+
+export const DEVICE_BUTTONS = [
+	...ANDROID_DEVICE_BUTTONS,
+	"app-switcher",
+	"action",
+	"side-button",
+	"digital-crown",
+	"left-side-button",
+] as const;
+
+type DeviceButton = (typeof DEVICE_BUTTONS)[number];
+type DevicePlatform = "android" | "ios";
+type NativeButton = { button: string; page?: number; usage?: number };
+
+const NATIVE_BUTTONS: Record<
+	DevicePlatform,
+	Partial<Record<DeviceButton, NativeButton>>
+> = {
+	android: {
+		home: { button: "home" },
+		power: { button: "power" },
+		"volume-up": { button: "volume_up" },
+		"volume-down": { button: "volume_down" },
+		back: { button: "back" },
+		"app-switch": { button: "app_switch" },
+	},
+	ios: {
+		home: { button: "home" },
+		power: { button: "power", page: 12, usage: 48 },
+		"volume-up": { button: "volume_up", page: 12, usage: 233 },
+		"volume-down": { button: "volume_down", page: 12, usage: 234 },
+		"app-switcher": { button: "app_switcher" },
+		action: { button: "action", page: 11, usage: 45 },
+		"side-button": { button: "side_button", page: 12, usage: 149 },
+		"digital-crown": { button: "digital_crown", page: 12, usage: 64 },
+		"left-side-button": {
+			button: "left_side_button",
+			page: 65281,
+			usage: 512,
+		},
+	},
+};
+
+function devicePlatform(device: string): DevicePlatform {
+	return androidSerialFromStateId(device) ? "android" : "ios";
+}
+
+function buttonList(values: readonly string[]): string {
+	return `${values.slice(0, -1).join(", ")}, or ${values.at(-1)}`;
+}
+
+function buttonForPlatform(
+	platform: DevicePlatform,
+	value: string,
+): DeviceButton {
+	const values =
+		platform === "android" ? ANDROID_DEVICE_BUTTONS : IOS_DEVICE_BUTTONS;
+	if ((values as readonly string[]).includes(value)) return value as DeviceButton;
+	const label = platform === "android" ? "Android" : "iOS";
+	throw new Error(
+		`Button "${value}" is not available on ${label}. Use ${buttonList(values)}.`,
+	);
+}
+
+export function validateDeviceButton(
+	device: string,
+	value: string,
+): DeviceButton {
+	return buttonForPlatform(devicePlatform(device), value);
+}
 
 const coordinate = (name: string) =>
 	z
@@ -58,8 +129,15 @@ const duration = z
 	.finite({ error: "durationMs must be a positive finite number" })
 	.positive({ error: "durationMs must be a positive finite number" })
 	.transform((value) => Math.min(5_000, Math.round(value)));
+export const DEFAULT_LONG_PRESS_DURATION_MS = 600;
 export const DeviceActionSchema = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("tap"), x: coordinate("x"), y: coordinate("y") }),
+	z.object({
+		type: z.literal("long-press"),
+		x: coordinate("x"),
+		y: coordinate("y"),
+		durationMs: duration.optional(),
+	}),
 	z.object({
 		type: z.literal("gesture"),
 		phase: z.enum(GESTURE_PHASES),
@@ -75,6 +153,7 @@ export const DeviceActionSchema = z.discriminatedUnion("type", [
 		durationMs: duration.optional(),
 	}),
 	z.object({ type: z.literal("type"), text: z.string() }),
+	z.object({ type: z.literal("key"), key: z.enum(EDIT_KEYS) }),
 	z.object({ type: z.literal("button"), button: z.enum(DEVICE_BUTTONS) }),
 	z.object({ type: z.literal("rotate"), orientation: z.enum(DEVICE_ORIENTATIONS) }),
 ]);
@@ -92,7 +171,7 @@ type InputStep = {
 export type ResolveSession = (
 	device: string,
 ) => Effect.Effect<DeviceInputSession, ApplicationCommandError>;
-type Pause = (milliseconds: number) => Effect.Effect<void>;
+export type Pause = (milliseconds: number) => Effect.Effect<void>;
 
 function inputFrame(tag: number, payload: Record<string, unknown>): Buffer {
 	return Buffer.concat([
@@ -101,7 +180,10 @@ function inputFrame(tag: number, payload: Record<string, unknown>): Buffer {
 	]);
 }
 
-function stepsForAction(action: DeviceAction): InputStep[] {
+function stepsForAction(
+	action: DeviceAction,
+	platform: DevicePlatform,
+): InputStep[] {
 	switch (action.type) {
 		case "tap":
 			return [
@@ -112,6 +194,25 @@ function stepsForAction(action: DeviceAction): InputStep[] {
 						y: action.y,
 					}),
 					delayAfterMs: 40,
+				},
+				{
+					data: inputFrame(INPUT_TOUCH, {
+						type: "end",
+						x: action.x,
+						y: action.y,
+					}),
+				},
+			];
+		case "long-press":
+			return [
+				{
+					data: inputFrame(INPUT_TOUCH, {
+						type: "begin",
+						x: action.x,
+						y: action.y,
+					}),
+					delayAfterMs:
+						action.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS,
 				},
 				{
 					data: inputFrame(INPUT_TOUCH, {
@@ -132,24 +233,40 @@ function stepsForAction(action: DeviceAction): InputStep[] {
 				},
 			];
 		case "swipe": {
-			const delayAfterMs = Math.round((action.durationMs ?? 220) / 2);
-			return [
+			const durationMs = action.durationMs ?? 220;
+			const moveCount = Math.max(1, Math.ceil(durationMs / 16));
+			const timestamp = (index: number) =>
+				Math.round((durationMs * index) / moveCount);
+			const steps: InputStep[] = [
 				{
 					data: inputFrame(INPUT_TOUCH, {
 						type: "begin",
 						x: action.x1,
 						y: action.y1,
 					}),
-					delayAfterMs,
+					delayAfterMs: timestamp(1),
 				},
-				{
+			];
+			for (let index = 1; index <= moveCount; index += 1) {
+				const progress = index / moveCount;
+				const x = index === moveCount
+					? action.x2
+					: action.x1 + (action.x2 - action.x1) * progress;
+				const y = index === moveCount
+					? action.y2
+					: action.y1 + (action.y2 - action.y1) * progress;
+				steps.push({
 					data: inputFrame(INPUT_TOUCH, {
 						type: "move",
-						x: action.x2,
-						y: action.y2,
+						x,
+						y,
 					}),
-					delayAfterMs,
-				},
+					...(index < moveCount
+						? { delayAfterMs: timestamp(index + 1) - timestamp(index) }
+						: {}),
+				});
+			}
+			steps.push(
 				{
 					data: inputFrame(INPUT_TOUCH, {
 						type: "end",
@@ -157,7 +274,8 @@ function stepsForAction(action: DeviceAction): InputStep[] {
 						y: action.y2,
 					}),
 				},
-			];
+			);
+			return steps;
 		}
 		case "type":
 			try {
@@ -173,14 +291,17 @@ function stepsForAction(action: DeviceAction): InputStep[] {
 				}
 				throw error;
 			}
+		case "key":
+			return editKeyEvents(action.key).map((event) => ({
+				data: inputFrame(INPUT_KEY, event),
+				delayAfterMs: 4,
+			}));
 		case "button": {
-			const hid = HID_BUTTON_CODES[action.button];
+			const button = buttonForPlatform(platform, action.button);
+			const native = NATIVE_BUTTONS[platform][button]!;
 			return [
 				{
-					data: inputFrame(
-						INPUT_BUTTON,
-						hid ? { button: action.button, ...hid } : { button: action.button },
-					),
+					data: inputFrame(INPUT_BUTTON, native),
 				},
 			];
 		}
@@ -218,35 +339,55 @@ export function makeDeviceActions(
 	return (
 		device: string,
 		values: ReadonlyArray<unknown>,
-	): Effect.Effect<void, ApplicationCommandError> => {
+		beforeDispatch?: () => void,
+	): Effect.Effect<DeviceAction[], ApplicationCommandError> => {
 		return Effect.gen(function* () {
 			if (!device)
 				return yield* Effect.fail(
-					new InvalidCommandInput({ message: "Invalid or missing device" }),
+					new InvalidCommandInput({
+						message: "Invalid or missing device",
+						effect: "none",
+					}),
 				);
 			if (values.length === 0) {
 				return yield* Effect.fail(
 					new InvalidCommandInput({
 						message: "At least one action is required",
+						effect: "none",
 					}),
 				);
 			}
+			// Every frame is built before the first one leaves, so a refused
+			// action cannot stop a batch that already reached the device.
 			const actions = yield* Effect.try({
 				try: () => values.map(decodeDeviceAction),
-				catch: commandFailure,
+				catch: (cause) => withActionEffect(cause, "none"),
 			});
-			const session = yield* resolveSession(device);
-			for (const action of actions) {
-				for (const step of stepsForAction(action)) {
+			const platform = devicePlatform(device);
+			const steps = yield* Effect.try({
+				try: () => actions.map((action) => stepsForAction(action, platform)),
+				catch: (cause) => withActionEffect(cause, "none"),
+			});
+			const session = yield* resolveSession(device).pipe(
+				Effect.mapError((error) => withActionEffect(error, "none")),
+			);
+			if (beforeDispatch)
+				yield* Effect.try({
+					try: beforeDispatch,
+					catch: (cause) => withActionEffect(cause, "none"),
+				});
+			for (const action of steps) {
+				for (const step of action) {
 					yield* Effect.tryPromise({
 						try: () => session.dispatchInputFrame(step.data),
-						catch: commandFailure,
+						catch: (cause) => withActionEffect(cause, "unknown"),
 					});
 					if (step.delayAfterMs) {
 						yield* pause(step.delayAfterMs);
 					}
 				}
 			}
+			return actions;
 		});
 	};
 }

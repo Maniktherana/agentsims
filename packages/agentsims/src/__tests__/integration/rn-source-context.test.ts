@@ -43,7 +43,7 @@ async function getFromMiddleware(
 			headers: { ETag: response.headers.get("etag") ?? undefined },
 		};
 	} finally {
-		started.server.stop();
+		await started.server.stop();
 	}
 }
 

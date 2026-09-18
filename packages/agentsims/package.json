@@ -79,6 +79,8 @@
 		"start": "bun dist/agentsims.js",
 		"prepack": "bun run build",
 		"test": "bun test",
+		"test:ci": "bun test src/__tests__/unit src/__tests__/integration --path-ignore-patterns='**/android-videotoolbox.test.ts'",
+		"test:native": "bun run scripts/test-native.ts",
 		"lint": "oxlint src -D no-empty --deny-warnings",
 		"typecheck": "bun run typecheck:server && bun run typecheck:web",
 		"typecheck:server": "tsc -p tsconfig.server.json",

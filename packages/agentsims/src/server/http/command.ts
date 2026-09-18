@@ -11,6 +11,18 @@ class UnsupportedMediaType extends Data.TaggedError("UnsupportedMediaType")<{
 	message: string;
 }> {}
 
+const BYTES_KEY = "$agentsimsBytes";
+
+function wireValue(value: unknown): unknown {
+	if (Buffer.isBuffer(value) || value instanceof Uint8Array)
+		return { [BYTES_KEY]: Buffer.from(value).toString("base64") };
+	if (Array.isArray(value)) return value.map(wireValue);
+	if (!value || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.entries(value).map(([key, item]) => [key, wireValue(item)]),
+	);
+}
+
 export function commandErrorStatus(error: ApplicationCommandError): number {
 	switch (error._tag) {
 		case "InvalidCommandInput":
@@ -21,6 +33,8 @@ export function commandErrorStatus(error: ApplicationCommandError): number {
 			return 409;
 		case "CommandUnavailable":
 			return 503;
+		case "DeviceGone":
+			return 410;
 		case "CommandFailure":
 			return 500;
 	}
@@ -29,7 +43,7 @@ export function commandErrorStatus(error: ApplicationCommandError): number {
 /** The HTTP boundary owns serialization; services keep their typed failures. */
 export function commandResponse<A, E, R>(effect: Effect.Effect<A, E, R>) {
 	return effect.pipe(
-		Effect.map((value) => HttpServerResponse.unsafeJson(value)),
+		Effect.map((value) => HttpServerResponse.unsafeJson(wireValue(value))),
 		Effect.catchAll((cause) => {
 			if (cause instanceof UnsupportedMediaType)
 				return Effect.succeed(
@@ -41,7 +55,14 @@ export function commandResponse<A, E, R>(effect: Effect.Effect<A, E, R>) {
 			const error = commandFailure(cause);
 			return Effect.succeed(
 				HttpServerResponse.unsafeJson(
-					{ error: error.message, type: error._tag },
+					{
+						error: error.message,
+						type: error._tag,
+						...(error._tag === "DeviceGone"
+							? { code: error.code, details: error.details }
+							: {}),
+						...(error.effect ? { effect: error.effect } : {}),
+					},
 					{ status: commandErrorStatus(error) },
 				),
 			);

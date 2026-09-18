@@ -110,8 +110,8 @@ test("loading capabilities and refresh keep the same simulator control rows", ()
 		);
 	const ready = renderRows(false, true);
 	for (const pending of [renderRows(true, false), renderRows(true, true)]) {
-		expect(pending.match(/data-setting-row="[^"]+"/g)).toEqual(
-			ready.match(/data-setting-row="[^"]+"/g),
+		expect(pending.match(/aria-label="[^"]+"/g)).toEqual(
+			ready.match(/aria-label="[^"]+"/g),
 		);
 		const controls = pending.match(/<(?:button|input)\b[^>]*>/g) ?? [];
 		expect(controls).toHaveLength(8);
@@ -199,7 +199,7 @@ test("network and battery are plain settings rows without reset actions", () => 
 		"Battery percent",
 		"Charging",
 	]) {
-		expect(html).toContain(`data-setting-row="${label}"`);
+		expect(html).toContain(label);
 	}
 });
 
@@ -222,6 +222,6 @@ test("device snapshots, display and calls remain separate sections", () => {
 	expect(html.indexOf("Display and accessibility")).toBeLessThan(
 		html.indexOf("Calls and messages"),
 	);
-	expect(html).not.toContain('data-setting-row="Wi-Fi"');
-	expect(html).not.toContain('data-setting-row="Battery percent"');
+	expect(html).not.toContain("Wi-Fi");
+	expect(html).not.toContain("Battery percent");
 });

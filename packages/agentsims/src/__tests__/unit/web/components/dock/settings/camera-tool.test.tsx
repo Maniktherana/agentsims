@@ -255,11 +255,10 @@ describe("CameraStatusPill — UI state matrix", () => {
 		expect(html).not.toContain("Disconnected");
 	});
 
-	test("Active state renders 'Active' label and live indicator", () => {
+	test("Active state renders the 'Active' label", () => {
 		const html = renderToStaticMarkup(<CameraStatusPill state="active" />);
 		expect(html).toContain("Active");
 		expect(html).not.toContain("Ready");
-		expect(html).toContain("rounded-full");
 	});
 
 	test("Disconnected state renders 'Disconnected' and a non-success dot", () => {
@@ -337,12 +336,12 @@ describe("CameraMediaPreview — source states", () => {
 });
 
 describe("CameraInlineBanner — error / warning UI", () => {
-	test("danger banner renders the message and uses the danger token", () => {
+	test("error banner renders the message as an alert", () => {
 		const html = renderToStaticMarkup(
 			<CameraInlineBanner kind="error" message="helper crashed" />,
 		);
 		expect(html).toContain("helper crashed");
-		expect(html).toContain("danger");
+		expect(html).toContain('role="alert"');
 	});
 
 	test("warning banner surfaces the large-video copy verbatim", () => {

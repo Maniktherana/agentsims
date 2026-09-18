@@ -6,7 +6,12 @@ import {
 	AxStreamers,
 	type AxStreamerCache,
 } from "../../core/tools/observe/accessibility";
+import {
+	AndroidSessions,
+	type AndroidSessionsService,
+} from "../../core/android/session/session";
 import { Devices, type DeviceService } from "../../core/tools/devices/devices";
+import { Apps, type AppsService } from "../../core/tools/apps";
 import { makeMediaRouting, type MediaOperations } from "../../core/tools/media";
 import type { ForegroundApp } from "../../core/tools/devices/foreground-apps";
 import type { DeviceState } from "../../core/tools/devices/state";
@@ -32,12 +37,14 @@ export type TestServerOverrides = Partial<HttpServerOptions> & {
 	readDeviceStates?: () => Promise<DeviceState[]>;
 	readForegroundApp?: (device: string) => Promise<ForegroundApp | null>;
 	deviceCommands?: DeviceService;
+	androidSessions?: AndroidSessionsService;
+	apps?: AppsService;
 	mediaOperations?: MediaOperations;
 	getBridge?: () => Promise<WebKitBridge>;
 	saveScreenshot?: ScreenshotStoreService["save"];
 };
 
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
 	const { promise, resolve: done, reject } = Promise.withResolvers<number>();
 	const server = createServer();
 	server.once("error", reject);
@@ -86,6 +93,10 @@ export async function startTestServer(
 	const CommandsTest = test.deviceCommands
 		? Layer.succeed(Devices, test.deviceCommands)
 		: Layer.empty;
+	const AndroidSessionsTest = test.androidSessions
+		? Layer.succeed(AndroidSessions, test.androidSessions)
+		: Layer.empty;
+	const AppsTest = test.apps ? Layer.succeed(Apps, test.apps) : Layer.empty;
 	const ForegroundTest = test.readForegroundApp
 		? Layer.mock(ForegroundApps, {
 				read: (device) => Effect.promise(() => test.readForegroundApp!(device)),
@@ -119,6 +130,8 @@ export async function startTestServer(
 	const ServerTestLive = Layer.mergeAll(
 		LifecycleTest,
 		CommandsTest,
+		AndroidSessionsTest,
+		AppsTest,
 		ForegroundTest,
 		StreamersTest,
 		MediaTest,

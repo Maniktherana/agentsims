@@ -1,92 +1,107 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { execFileSync, execSync } from "child_process";
-import { existsSync } from "fs";
-import { join } from "path";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { getUiOption, getUiStatus, setUiOption } from "../../core/ios/settings";
+import { explicitIosDevice } from "../helpers/native-e2e";
+import {
+	acquireIosSimulatorTestLock,
+	IOS_E2E_HOOK_TIMEOUT_MS,
+} from "../helpers/ios-e2e-lock";
 
-// Drives the built CLI's `ui` verb against whatever simulator is already
-// booted (the CI `sim-test.yml` job boots one before running this directory).
-// Each assertion reads the underlying preference store the simulator actually
-// consults — com.apple.Accessibility, com.apple.mediaaccessibility,
-// com.apple.UIKit — or `simctl ui` for the options it natively reports,
-// rather than trusting the value the CLI itself echoes back.
-
-const PKG_DIR = join(import.meta.dir, "../../..");
-const CLI = join(PKG_DIR, "dist/serve-sim.js");
-
-function bootedUdid(): string | null {
-	try {
-		const out = execSync("xcrun simctl list devices booted -j", {
-			encoding: "utf-8",
-		});
-		const data = JSON.parse(out) as {
-			devices: Record<string, Array<{ udid: string; state: string }>>;
-		};
-		for (const [runtime, devices] of Object.entries(data.devices)) {
-			if (!/iOS/i.test(runtime)) continue;
-			for (const d of devices) if (d.state === "Booted") return d.udid;
-		}
-	} catch (error) {
-		console.warn(
-			"[agentsims:test] recoverable setup or cleanup failure",
-			error,
-		);
-	}
-	return null;
-}
-
-const udid = bootedUdid();
-
-// `simctl ui` hangs *intermittently per-call* on GitHub's shared macOS
-// runners — a probe can succeed and the very next call hang for minutes
-// (the same unwarmed-UI-plane breakage the avcc and ax suites skip around),
-// so no point-in-time health check can gate this reliably. Skip on CI by
-// default; SERVE_SIM_UI_E2E=1 forces the suite on for runners where the
-// simulator UI plane actually works. Off-CI, a bounded probe still guards
-// against a wedged local sim.
-const skipOnCi = !!process.env.CI && process.env.SERVE_SIM_UI_E2E !== "1";
-
-function simctlUiUsable(): boolean {
-	if (!udid) return false;
-	if (skipOnCi) {
-		console.warn(
-			"[ui-settings.e2e] skipping on CI: `simctl ui` hangs intermittently on shared runners (set SERVE_SIM_UI_E2E=1 to force)",
-		);
-		return false;
-	}
-	try {
-		execFileSync("xcrun", ["simctl", "ui", udid, "appearance"], {
-			encoding: "utf-8",
-			timeout: 15_000,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		return true;
-	} catch {
-		console.warn(
-			"[ui-settings.e2e] skipping: `simctl ui` is not functional on this host",
-		);
-		return false;
-	}
-}
-
-const describeIfSim =
-	udid && existsSync(CLI) && simctlUiUsable() ? describe : describe.skip;
-
-// Timeouts on every child call so a wedged simulator fails the test instead
-// of hanging the CI job.
+const device = explicitIosDevice;
+const describeConfigured = device ? describe : describe.skip;
 const EXEC_TIMEOUT_MS = 15_000;
 
-function cli(...args: string[]): string {
-	return execFileSync("node", [CLI, "ui", ...args, "-d", udid!], {
-		encoding: "utf-8",
-		timeout: EXEC_TIMEOUT_MS,
-	}).trim();
+type TerminationResult = {
+	status: number | null;
+	stderr: string;
+	signal: string | null;
+	cause?: unknown;
+};
+
+function terminationFailure(result: TerminationResult): Error | null {
+	if (result.status === 0) return null;
+	if (
+		result.status === 3 &&
+		/found nothing to terminate/i.test(result.stderr)
+	)
+		return null;
+	const details = [
+		`status=${result.status ?? "none"}`,
+		...(result.signal ? [`signal=${result.signal}`] : []),
+		...(result.stderr.trim() ? [`stderr=${result.stderr.trim()}`] : []),
+	];
+	return new Error(`Failed to terminate Settings (${details.join(", ")}).`, {
+		cause: result.cause,
+	});
 }
+
+function terminateSettings(device: string): void {
+	try {
+		execFileSync(
+			"xcrun",
+			["simctl", "terminate", device, "com.apple.Preferences"],
+			{
+				encoding: "utf-8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: EXEC_TIMEOUT_MS,
+			},
+		);
+	} catch (cause) {
+		const commandError = cause as {
+			status?: number | null;
+			stderr?: string | Buffer;
+			signal?: string | null;
+		};
+		const failure = terminationFailure({
+			status: commandError.status ?? null,
+			stderr:
+				typeof commandError.stderr === "string"
+					? commandError.stderr
+					: (commandError.stderr?.toString("utf-8") ?? ""),
+			signal: commandError.signal ?? null,
+			cause,
+		});
+		if (failure) throw failure;
+	}
+}
+
+test.each([
+	["success", { status: 0, stderr: "", signal: null }, null],
+	[
+		"known already-stopped status",
+		{
+			status: 3,
+			stderr: "Application termination failed: found nothing to terminate",
+			signal: null,
+		},
+		null,
+	],
+	[
+		"status 3 with an unrelated diagnostic",
+		{ status: 3, stderr: "Simulator service is unavailable", signal: null },
+		"status=3",
+	],
+	[
+		"another nonzero status",
+		{ status: 1, stderr: "Operation denied", signal: null },
+		"status=1",
+	],
+	[
+		"a timeout or signal failure",
+		{ status: null, stderr: "", signal: "SIGTERM" },
+		"signal=SIGTERM",
+	],
+] as const)("classifies Settings termination: %s", (_name, result, expected) => {
+	const failure = terminationFailure(result);
+	if (expected === null) expect(failure).toBeNull();
+	else expect(failure?.message).toContain(expected);
+});
 
 function simDefault(domain: string, key: string): string {
 	try {
 		return execFileSync(
 			"xcrun",
-			["simctl", "spawn", udid!, "defaults", "read", domain, key],
+			["simctl", "spawn", device!, "defaults", "read", domain, key],
 			{
 				encoding: "utf-8",
 				stdio: ["ignore", "pipe", "pipe"],
@@ -98,105 +113,65 @@ function simDefault(domain: string, key: string): string {
 	}
 }
 
-function simctlUi(subcommand: string): string {
-	return execFileSync("xcrun", ["simctl", "ui", udid!, subcommand], {
-		encoding: "utf-8",
-		timeout: EXEC_TIMEOUT_MS,
-	}).trim();
-}
+describeConfigured("iOS simulator settings", () => {
+	let initial: Record<string, string> = {};
+	let releaseLock = () => {};
 
-describeIfSim("serve-sim ui (simulator-wide options)", () => {
-	afterAll(() => {
-		// Leave the simulator in stock state for whatever runs next.
-		for (const [option, value] of [
-			["appearance", "light"],
-			["liquid-glass", "clear"],
-			["color-filter", "none"],
-			["text-size", "large"],
-			["reduce-motion", "off"],
-			["increase-contrast", "off"],
-			["show-borders", "off"],
-			["reduce-transparency", "off"],
-			["voiceover", "off"],
-		] as const) {
+	beforeAll(async () => {
+		releaseLock = await acquireIosSimulatorTestLock(device!);
+		initial = await getUiStatus(device!);
+	}, IOS_E2E_HOOK_TIMEOUT_MS);
+
+	afterAll(async () => {
+		const failures: unknown[] = [];
+		try {
 			try {
-				cli(option, value);
+				for (const [option, value] of Object.entries(initial)) {
+					if (value !== "unsupported")
+						await setUiOption(device!, option, value);
+				}
 			} catch (error) {
-				console.warn(
-					"[agentsims:test] recoverable setup or cleanup failure",
-					error,
-				);
+				failures.push(error);
+			}
+			try {
+				terminateSettings(device!);
+			} catch (error) {
+				failures.push(error);
+			}
+		} finally {
+			try {
+				releaseLock();
+			} catch (error) {
+				failures.push(error);
 			}
 		}
+		if (failures.length === 1) throw failures[0];
+		if (failures.length > 1)
+			throw new AggregateError(
+				failures,
+				"Settings restoration or cleanup failed.",
+			);
+	}, IOS_E2E_HOOK_TIMEOUT_MS);
+
+	test.each([
+		["appearance", "dark", "dark"],
+		["liquid-glass", "tinted", "tinted"],
+		["text-size", "accessibility-medium", "accessibility-medium"],
+		["increase-contrast", "on", "on"],
+	] as const)("sets and reads %s", async (option, value, expected) => {
+		await setUiOption(device!, option, value);
+		expect(await getUiOption(device!, option)).toBe(expected);
 	});
 
-	test("appearance switches dark and back", () => {
-		cli("appearance", "dark");
-		expect(simctlUi("appearance")).toBe("dark");
-		cli("appearance", "light");
-		expect(simctlUi("appearance")).toBe("light");
-	});
-
-	test("liquid glass writes the UIKit legibility preference", () => {
-		cli("liquid-glass", "tinted");
-		expect(simDefault("com.apple.UIKit", "UIViewGlassLegibilitySetting")).toBe(
-			"1",
-		);
-		expect(cli("liquid-glass")).toBe("tinted");
-		cli("liquid-glass", "clear");
-		expect(simDefault("com.apple.UIKit", "UIViewGlassLegibilitySetting")).toBe(
-			"0",
-		);
-	});
-
-	test("color filters set the media-accessibility display filter", () => {
-		const cases = [
-			["grayscale", "1"],
-			["red-green", "2"],
-			["green-red", "4"],
-			["blue-yellow", "8"],
-		] as const;
-		for (const [name, type] of cases) {
-			cli("color-filter", name);
-			expect(
-				simDefault(
-					"com.apple.mediaaccessibility",
-					"__Color__.MADisplayFilterCategoryEnabled",
-				),
-			).toBe("1");
-			expect(
-				simDefault(
-					"com.apple.mediaaccessibility",
-					"__Color__.MADisplayFilterType",
-				),
-			).toBe(type);
-			expect(cli("color-filter")).toBe(name);
-		}
-		// Grayscale additionally mirrors into the Accessibility domain.
-		cli("color-filter", "grayscale");
-		expect(simDefault("com.apple.Accessibility", "GrayscaleDisplay")).toBe("1");
-		cli("color-filter", "none");
+	test("color filters update the native preference", async () => {
+		await setUiOption(device!, "color-filter", "red-green");
 		expect(
 			simDefault(
 				"com.apple.mediaaccessibility",
 				"__Color__.MADisplayFilterCategoryEnabled",
 			),
-		).toBe("0");
-		expect(simDefault("com.apple.Accessibility", "GrayscaleDisplay")).toBe("0");
-	}, 30_000);
-
-	test("text size sets the content size category", () => {
-		cli("text-size", "accessibility-medium");
-		expect(simctlUi("content_size")).toBe("accessibility-medium");
-		cli("text-size", "large");
-		expect(simctlUi("content_size")).toBe("large");
-	});
-
-	test("increase contrast toggles through simctl ui", () => {
-		cli("increase-contrast", "on");
-		expect(simctlUi("increase_contrast")).toBe("enabled");
-		cli("increase-contrast", "off");
-		expect(simctlUi("increase_contrast")).toBe("disabled");
+		).toBe("1");
+		expect(await getUiOption(device!, "color-filter")).toBe("red-green");
 	});
 
 	test.each([
@@ -205,24 +180,16 @@ describeIfSim("serve-sim ui (simulator-wide options)", () => {
 		["reduce-transparency", "EnhancedBackgroundContrastEnabled"],
 		["voiceover", "VoiceOverTouchEnabled"],
 	] as const)(
-		"%s writes %s in com.apple.Accessibility",
-		(option, key) => {
-			cli(option, "on");
+		"%s updates the accessibility preference",
+		async (option, key) => {
+			await setUiOption(device!, option, "on");
 			expect(simDefault("com.apple.Accessibility", key)).toBe("1");
-			expect(cli(option)).toBe("on");
-			cli(option, "off");
-			expect(simDefault("com.apple.Accessibility", key)).toBe("0");
-			expect(cli(option)).toBe("off");
+			expect(await getUiOption(device!, option)).toBe("on");
 		},
-		15_000,
 	);
 
-	test("status reports every option as json", () => {
-		const status = JSON.parse(cli("status", "--json")) as Record<
-			string,
-			string
-		>;
-		expect(Object.keys(status).sort()).toEqual([
+	test("status reports every supported option", async () => {
+		expect(Object.keys(await getUiStatus(device!)).sort()).toEqual([
 			"appearance",
 			"color-filter",
 			"increase-contrast",

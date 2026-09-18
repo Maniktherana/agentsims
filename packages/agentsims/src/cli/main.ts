@@ -1,33 +1,30 @@
 #!/usr/bin/env bun
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Command, InvalidArgumentError } from "commander";
+import { Command, InvalidArgumentError, Option } from "commander";
 import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
 import {
-	DEVICE_BUTTONS,
+	ANDROID_DEVICE_BUTTONS,
+	DEFAULT_LONG_PRESS_DURATION_MS,
 	DEVICE_ORIENTATIONS,
-	GESTURE_PHASES,
-	parseDeviceAction,
+	IOS_DEVICE_BUTTONS,
+	validateDeviceButton,
 } from "../core/tools/input";
+import { AX_ROLES } from "../core/tools/observe/ax-view";
 import { androidSerialFromStateId } from "../core/android/device/identifiers";
 import { normalizeAndroidPermission } from "../core/android/permissions";
+import { permissionValueError } from "../core/ios/permissions";
 import {
 	AndroidPackageSchema,
 	BundleIdSchema,
 	PermissionNameSchema,
 } from "../core/tools/permissions";
-import { ApplicationCommandClient } from "./application-command-client";
+import {
+	ApplicationCommandClient,
+	CommandRequestError,
+} from "./application-command-client";
 import {
 	emptyDeviceMessage,
 	filterDeviceRows,
@@ -36,18 +33,46 @@ import {
 	type DeviceListFilter,
 	type DeviceListRow,
 } from "./device-list";
+import type { ActionResult } from "../core/tools/actions";
+import type {
+	DeviceObservation,
+	DeviceScreenshot,
+	ImageCaptureChannel,
+} from "../core/tools/observe/observe";
 import {
-	observationFileName,
+	observationForOutput,
+	renderMatches,
 	renderObservation,
-	shotsToPrune,
-	type Observation,
+	renderScreenshot,
+	screenshotForOutput,
+	type ArtifactWrite,
+	type DeviceMatches,
+	type ObserveFormat,
 } from "./observe-output";
+import { registerScrollCommands } from "./commands/scroll";
+import {
+	printActionResult,
+	watchOptions,
+	watchRequest,
+	watchTimeout,
+	type WatchFlags,
+} from "./commands/shared";
+import { writeScreenshotFile } from "./screenshots";
+import {
+	registerWaitCommands,
+	runObserveWatch,
+	watchDurationOption,
+	watchEveryOption,
+	watchSamplesOption,
+} from "./commands/wait";
 import {
 	renderAppList,
 	renderPermissionList,
 	renderServerStatus,
 	renderWebcamList,
 } from "./render";
+import { renderDeviceLogs } from "./device-logs-output";
+import { registerRunCommands } from "./commands/run";
 import {
 	formatHostDiagnostics,
 	hostDiagnosticsFor,
@@ -81,46 +106,38 @@ function version(): string {
 const json = (value: unknown): void => {
 	process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 };
-function writeObservationScreenshot(
-	observation: Observation,
+function writeCapturedImage(
+	image: ImageCaptureChannel | null,
+	kind: "observe" | "screenshot" | "action",
 	device: string,
 	out?: string,
-): string | null {
-	const base64 = observation.screenshot?.contentBase64;
-	if (!base64) return null;
-	if (out) {
-		mkdirSync(dirname(out), { recursive: true });
-		writeFileSync(out, Buffer.from(base64, "base64"));
-		return out;
-	}
-	const directory = join(tmpdir(), "agentsims", "screenshots");
-	mkdirSync(directory, { recursive: true });
-	const target = join(
-		directory,
-		observationFileName(device, observation.screenshot?.mimeType, new Date()),
-	);
-	writeFileSync(target, Buffer.from(base64, "base64"));
-	pruneScreenshots(directory);
-	return target;
-}
-
-/** Never let an agent loop fill the disk with screenshots it already read. */
-function pruneScreenshots(directory: string): void {
+): ArtifactWrite | null {
+	if (!image || image.status === "error") return null;
 	try {
-		const shots = readdirSync(directory)
-			.filter((name) => name.startsWith("observe-"))
-			.map((name) => ({
-				name,
-				modifiedMs: statSync(join(directory, name)).mtimeMs,
-			}));
-		for (const name of shotsToPrune(shots, Date.now()))
-			rmSync(join(directory, name), { force: true });
-	} catch {
-		// Pruning is best effort; never fail an observe over housekeeping.
+		return {
+			status: "ok",
+			path: writeScreenshotFile({
+				kind,
+				device,
+				content: image.value.bytes,
+				mimeType: image.value.mimeType,
+				outputPath: out,
+			}),
+		};
+	} catch (error) {
+		return {
+			status: "error",
+			error: error instanceof Error ? error.message : String(error),
+		};
 	}
 }
-const client = (url?: string) =>
-	new ApplicationCommandClient({ origin: url ?? readLocalServer()?.url });
+const client = (url?: string, timeoutMs?: number) =>
+	new ApplicationCommandClient({
+		origin: url ?? readLocalServer()?.url,
+		...(timeoutMs === undefined ? {} : { timeoutMs }),
+	});
+/** Commands in their own module receive the shared CLI seams, not globals. */
+const commandDependencies = { client, json };
 const port = (value: string) => {
 	const parsed = Number(value);
 	if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65_535)
@@ -143,22 +160,18 @@ const integer =
 			);
 		return parsed;
 	};
+const positiveInteger = (name: string) => (value: string): number => {
+	const parsed = Number(value);
+	if (!Number.isSafeInteger(parsed) || parsed < 1)
+		throw new InvalidArgumentError(`${name} must be a positive integer.`);
+	return parsed;
+};
 const logLevel = (value: string) => {
 	const parsed = value.toUpperCase();
 	if (!/^[VDIWEF]$/.test(parsed))
 		throw new InvalidArgumentError("Log level must be V, D, I, W, E, or F.");
 	return parsed;
 };
-const coordinate =
-	(name: string) =>
-	(value: string): number => {
-		const parsed = Number(value);
-		if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1)
-			throw new InvalidArgumentError(
-				`${name} must be a number between 0 and 1.`,
-			);
-		return parsed;
-	};
 const oneOf =
 	<T extends string>(name: string, values: readonly T[]) =>
 	(value: string): T => {
@@ -169,7 +182,21 @@ const cameraFace = (value: string): "front" | "back" => {
 	if (value === "front" || value === "back") return value;
 	throw new InvalidArgumentError("Camera face must be front or back.");
 };
+const AX_ROLE_HELP = AX_ROLES.join(", ");
+const TARGET_HELP =
+	'A target is a ref (@e14) or exact label ("Search"). Percent points (50%,90%) use the live screen and need no capture. Pixel points (603,1311) require --capture cN from a screenshot.';
 type DeviceFlags = { device: string; url?: string };
+type ActionFlags = DeviceFlags &
+	WatchFlags & {
+		json?: boolean;
+		screenshot?: boolean;
+	};
+type TargetFlags = ActionFlags & {
+	role?: string;
+	index?: number;
+	capture?: string;
+};
+type TypeFlags = TargetFlags & { into?: string; submit?: boolean };
 type PermissionFlags = DeviceFlags & { app: string };
 type ServerFlags = {
 	host: string;
@@ -263,10 +290,10 @@ export function createProgram(): Command {
 		});
 	program
 		.command("device-logs")
-		.alias("logcat")
 		.description("Read a recent log snapshot from an Android device")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
+		.option("--json", "Print the raw structured payload")
 		.option(
 			"--limit <count>",
 			"Maximum log lines",
@@ -289,17 +316,21 @@ export function createProgram(): Command {
 					query?: string;
 					app?: string;
 					pid?: number;
+					json?: boolean;
 				},
-			) =>
-				json(
-					await client(flags.url).deviceLogs(flags.device, {
-						limit: flags.limit,
-						level: flags.level,
-						query: flags.query,
-						package: flags.app,
-						pid: flags.pid,
-					}),
-				),
+			) => {
+				if (!androidSerialFromStateId(flags.device))
+					throw new Error("Device logs require an Android device.");
+				const payload = await client(flags.url).deviceLogs(flags.device, {
+					limit: flags.limit,
+					level: flags.level,
+					query: flags.query,
+					package: flags.app,
+					pid: flags.pid,
+				});
+				if (flags.json) return json(payload);
+				process.stdout.write(`${renderDeviceLogs(payload)}\n`);
+			},
 		);
 	const devices = program
 		.command("devices")
@@ -368,132 +399,274 @@ export function createProgram(): Command {
 			.description(description)
 			.requiredOption("-d, --device <id>")
 			.option("--url <url>");
-	const send = (flags: { device: string; url?: string }, action: unknown) =>
-		client(flags.url).actDevice(flags.device, [action]);
+	/** Every action command prints through one writer, watch frames and all. */
+	const printAction = (flags: ActionFlags, payload: ActionResult): void =>
+		printActionResult({}, flags, payload);
+	const act = async (flags: ActionFlags, action: unknown): Promise<void> => {
+		const watch = watchRequest(flags);
+		const payload = (await client(flags.url, watchTimeout(flags)).actDevice(
+			flags.device,
+			[action],
+			{
+				screenshot: flags.screenshot === true,
+				...(watch ? { watch } : {}),
+			},
+		)) as ActionResult;
+		printAction(flags, payload);
+	};
+	const actionCommand = (name: string, description: string) =>
+		deviceCommand(name, description)
+			.option("--json", "Print structured output")
+			.option("--screenshot", "Capture the screen after the action");
+	const selector = (target: string, flags: TargetFlags) => ({
+		target,
+		...(flags.capture ? { capture: flags.capture } : {}),
+		...(flags.role ? { role: flags.role } : {}),
+		...(flags.index === undefined ? {} : { index: flags.index }),
+	});
+	const targetCommand = (name: string, description: string) =>
+		actionCommand(name, description)
+			.option("--capture <id>", "Capture ID for a pixel or percent point")
+			.option("--role <role>", `Match only this role: ${AX_ROLE_HELP}`)
+			.option(
+				"--index <n>",
+				"Choose one of several matches, counted from 1",
+				positiveInteger("Index"),
+			);
 
-	deviceCommand("tap <x> <y>", "Tap a point, in screen fractions from 0 to 1")
-		.action(async (x: string, y: string, flags: DeviceFlags) =>
-			json(
-				await send(flags, {
-					type: "tap",
-					x: coordinate("x")(x),
-					y: coordinate("y")(y),
-				}),
-			),
-		);
-	deviceCommand(
-		"swipe <x1> <y1> <x2> <y2>",
-		"Swipe between two points, in screen fractions from 0 to 1",
-	)
-		.option(
+	watchOptions(
+		targetCommand("tap <target>", `Tap a target. ${TARGET_HELP}`),
+	).action(async (target: string, flags: TargetFlags) =>
+		act(flags, { type: "tap", ...selector(target, flags) }),
+	);
+	watchOptions(
+		targetCommand(
+			"long-press <target>",
+			`Press and hold a target. ${TARGET_HELP}`,
+		).option(
+			"--duration <ms>",
+			`Hold duration in milliseconds (default: ${DEFAULT_LONG_PRESS_DURATION_MS})`,
+			integer("Duration", 1, 5_000),
+		),
+	).action(
+		async (target: string, flags: TargetFlags & { duration?: number }) =>
+			act(flags, {
+				type: "long-press",
+				...selector(target, flags),
+				...(flags.duration === undefined
+					? {}
+					: { durationMs: flags.duration }),
+			}),
+	);
+	watchOptions(
+		targetCommand(
+			"swipe <from> <to>",
+			`Move one finger from one target to another. Coordinates use x,y. ${TARGET_HELP}`,
+		).option(
 			"--duration <ms>",
 			"Swipe duration in milliseconds",
 			integer("Duration", 1, 5_000),
+		),
+	)
+		.addHelpText(
+			"after",
+			`
+Direction:
+  Change x for a horizontal swipe. Change y for a vertical swipe.
+  <from> to <to> is the finger motion. Content moves in the opposite direction.
+
+Examples:
+  Finger left:  agentsims swipe 80%,50% 20%,50% -d <id>
+  Finger right: agentsims swipe 20%,50% 80%,50% -d <id>
+  Finger up:    agentsims swipe 50%,80% 50%,20% -d <id>
+  Finger down:  agentsims swipe 50%,20% 50%,80% -d <id>
+`,
 		)
 		.action(
 			async (
-				x1: string,
-				y1: string,
-				x2: string,
-				y2: string,
-				flags: DeviceFlags & { duration?: number },
+				from: string,
+				to: string,
+				flags: TargetFlags & { duration?: number },
 			) =>
-				json(
-					await send(flags, {
-						type: "swipe",
-						x1: coordinate("x1")(x1),
-						y1: coordinate("y1")(y1),
-						x2: coordinate("x2")(x2),
-						y2: coordinate("y2")(y2),
-						...(flags.duration === undefined
-							? {}
-							: { durationMs: flags.duration }),
-					}),
-				),
+				act(flags, {
+					type: "swipe",
+					from,
+					to,
+					...(flags.capture ? { capture: flags.capture } : {}),
+					...(flags.role ? { role: flags.role } : {}),
+					...(flags.index === undefined ? {} : { index: flags.index }),
+					...(flags.duration === undefined
+						? {}
+						: { durationMs: flags.duration }),
+				}),
 		);
-	deviceCommand("text <text>", "Type text into the focused field").action(
-		async (text: string, flags: DeviceFlags) =>
-			json(await send(flags, { type: "type", text })),
-	);
-	deviceCommand(
-		"button <name>",
-		`Press a hardware button: ${DEVICE_BUTTONS.join(", ")}`,
-	).action(async (name: string, flags: DeviceFlags) =>
-		json(
-			await send(flags, {
-				type: "button",
-				button: oneOf("Button", DEVICE_BUTTONS)(name),
-			}),
+	registerScrollCommands(program);
+	const typeCommand = (name: string, description: string) =>
+		actionCommand(name, description)
+			.option("--into <target>", `Field to type into. ${TARGET_HELP}`)
+			.option("--capture <id>", "Capture ID for a pixel or percent point")
+			.option("--role <role>", `Match only this role: ${AX_ROLE_HELP}`)
+			.option(
+				"--index <n>",
+				"Choose one of several matches, counted from 1",
+				positiveInteger("Index"),
+			)
+			.option("--submit", "Press Return after the text");
+	const typeText =
+		(clear: boolean) =>
+		async (text: string, flags: TypeFlags): Promise<void> =>
+			act(flags, {
+				type: "type",
+				text,
+				...(flags.into ? { into: flags.into } : {}),
+				...(flags.capture ? { capture: flags.capture } : {}),
+				...(flags.role ? { role: flags.role } : {}),
+				...(flags.index === undefined ? {} : { index: flags.index }),
+				...(clear ? { clear: true } : {}),
+				...(flags.submit ? { submit: true } : {}),
+			});
+	typeCommand(
+		"type <text>",
+		"Type into a field, then read the field back",
+	).action(typeText(false));
+	typeCommand(
+		"fill <text>",
+		"Replace a field value, then read the field back",
+	).action(typeText(true));
+	watchOptions(
+		actionCommand(
+			"press <name>",
+			`Press a hardware button. Android: ${ANDROID_DEVICE_BUTTONS.join(", ")}. iOS: ${IOS_DEVICE_BUTTONS.join(", ")}.`,
 		),
+	).action(async (name: string, flags: ActionFlags) =>
+		act(flags, {
+			type: "button",
+			button: validateDeviceButton(flags.device, name),
+		}),
 	);
-	deviceCommand(
+	actionCommand(
 		"rotate <orientation>",
 		`Rotate the device: ${DEVICE_ORIENTATIONS.join(", ")}`,
-	).action(async (orientation: string, flags: DeviceFlags) =>
-		json(
-			await send(flags, {
-				type: "rotate",
-				orientation: oneOf("Orientation", DEVICE_ORIENTATIONS)(orientation),
-			}),
-		),
+	).action(async (orientation: string, flags: ActionFlags) =>
+		act(flags, {
+			type: "rotate",
+			orientation: oneOf("Orientation", DEVICE_ORIENTATIONS)(orientation),
+		}),
 	);
-	deviceCommand(
-		"gesture <phase> <x> <y>",
-		`One phase of a held touch: ${GESTURE_PHASES.join(", ")}`,
-	).action(async (phase: string, x: string, y: string, flags: DeviceFlags) =>
-		json(
-			await send(flags, {
-				type: "gesture",
-				phase: oneOf("Phase", GESTURE_PHASES)(phase),
-				x: coordinate("x")(x),
-				y: coordinate("y")(y),
-			}),
-		),
-	);
-
+	registerRunCommands(program, { client, json });
 	program
 		.command("observe")
 		.description("Capture a screenshot and the accessibility tree")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
-		.option("--no-ax")
+		.option("--all", "Print every node, not only the useful ones")
+		.option("--frames", "Add [box=x,y,w,h] in screenshot pixels")
+		.option("--raw", "Print the platform class in place of the role")
 		.option("-o, --out <path>", "Where to write the screenshot")
-		.option("--json", "Print the raw payload, screenshot inline as base64")
+		.option(
+			"--watch <ms>",
+			"Sample the screen over this long into contact sheets",
+			watchDurationOption,
+		)
+		.option(
+			"--samples <n>",
+			"How many frames --watch samples",
+			watchSamplesOption,
+		)
+		.addOption(
+			new Option("--every <ms>", "Sample a frame this often instead")
+				.argParser(watchEveryOption)
+				.conflicts("samples"),
+		)
+		.option("--keep-frames", "Also write every sampled frame")
+		.option("--json", "Print structured output")
 		.action(
-			async (flags: {
-				device: string;
-				url?: string;
-				ax: boolean;
-				out?: string;
-				json?: boolean;
-			}) => {
-				const result = (await client(flags.url).observeDevice(
+			async (
+				flags: DeviceFlags & {
+					all?: boolean;
+					out?: string;
+					json?: boolean;
+					watch?: number;
+					samples?: number;
+					every?: number;
+					keepFrames?: boolean;
+				} & ObserveFormat,
+			) => {
+				if (flags.watch !== undefined)
+					return runObserveWatch(commandDependencies, {
+						...flags,
+						watch: flags.watch,
+					});
+				const result = (await client(flags.url).observeDevice(flags.device, {
+					all: flags.all,
+				})) as DeviceObservation;
+				const artifact = writeCapturedImage(
+					result.image,
+					"observe",
 					flags.device,
-					flags.ax,
-				)) as Observation;
-				if (flags.json) return json(result);
-				const path = writeObservationScreenshot(result, flags.device, flags.out);
-				process.stdout.write(`${renderObservation(result, path)}\n`);
+					flags.out,
+				);
+				if (
+					result.accessibility.status === "error" &&
+					result.image.status === "error"
+				)
+					process.exitCode = 1;
+				if (artifact?.status === "error") process.exitCode = 1;
+				if (flags.json) return json(observationForOutput(result, artifact));
+				process.stdout.write(
+					`${renderObservation(result, artifact, flags)}\n`,
+				);
 			},
 		);
 	program
-		.command("act <json>", { hidden: true })
-		.description("Send one input action as JSON. Prefer tap, swipe, and text.")
+		.command("screenshot [path]")
+		.description("Capture the device image without accessibility")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
-		.action(async (input: string, flags: { device: string; url?: string }) =>
-			json(
-				await client(flags.url).actDevice(flags.device, [
-					parseDeviceAction(input),
-				]),
-			),
+		.option("--json", "Print structured output")
+		.action(
+			async (
+				path: string | undefined,
+				flags: DeviceFlags & { json?: boolean },
+			) => {
+				const result = (await client(flags.url).screenshotDevice(
+					flags.device,
+				)) as DeviceScreenshot;
+				const artifact = writeCapturedImage(
+					result.image,
+					"screenshot",
+					flags.device,
+					path,
+				);
+				if (
+					result.image.status === "error" ||
+					artifact?.status === "error"
+				)
+					process.exitCode = 1;
+				if (flags.json) return json(screenshotForOutput(result, artifact));
+				process.stdout.write(`${renderScreenshot(result, artifact)}\n`);
+			},
 		);
+	registerWaitCommands(program, commandDependencies);
+	program
+		.command("find <text>")
+		.description("Print the nodes that match a label, value, or test ID")
+		.requiredOption("-d, --device <id>")
+		.option("--url <url>")
+		.option("--json", "Print structured output")
+		.action(async (text: string, flags: DeviceFlags & { json?: boolean }) => {
+			const matches = (await client(flags.url).findOnDevice(
+				flags.device,
+				text,
+			)) as DeviceMatches;
+			if (flags.json) return json(matches);
+			process.stdout.write(`${renderMatches(matches)}\n`);
+		});
 	const camera = program
 		.command("camera")
 		.description("Use a host webcam as the device camera");
 	camera
 		.command("list", { isDefault: true })
-		.alias("webcams")
 		.description("List the host webcams available to a device")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
@@ -505,7 +678,6 @@ export function createProgram(): Command {
 		});
 	camera
 		.command("use <webcam-id>")
-		.alias("webcam")
 		.description("Send a host webcam to the device camera")
 		.requiredOption("-d, --device <id>")
 		.option("--url <url>")
@@ -548,8 +720,22 @@ export function createProgram(): Command {
 			.description(description)
 			.requiredOption("-d, --device <id>")
 			.option("--url <url>");
-	const runApp = (flags: DeviceFlags, operation: string, value?: string) =>
-		client(flags.url).app(flags.device, operation, value);
+	const runApp = (
+		flags: DeviceFlags & WatchFlags & { screenshot?: boolean },
+		operation: string,
+		value?: string,
+	) => {
+		const watch = watchRequest(flags);
+		return client(flags.url, watchTimeout(flags)).app(
+			flags.device,
+			operation,
+			value,
+			{
+				screenshot: flags.screenshot === true,
+				...(watch ? { watch } : {}),
+			},
+		);
+	};
 
 	appCommand("list", "List the apps installed on a device")
 		.option("-a, --all", "Include system apps")
@@ -563,21 +749,28 @@ export function createProgram(): Command {
 		async (path: string, flags: DeviceFlags) =>
 			json(await runApp(flags, "install", path)),
 	);
-	appCommand("launch <app-id>", "Launch an installed app").action(
-		async (appId: string, flags: DeviceFlags) =>
-			json(await runApp(flags, "launch", appId)),
+	watchOptions(
+		appCommand("launch <app-id>", "Launch an installed app")
+			.option("--json", "Print structured output")
+			.option("--screenshot", "Capture the screen after the action"),
+	).action(async (appId: string, flags: ActionFlags) =>
+		printAction(flags, (await runApp(flags, "launch", appId)) as ActionResult),
 	);
-	appCommand("stop <app-id>", "Stop a running app").action(
-		async (appId: string, flags: DeviceFlags) =>
-			json(await runApp(flags, "stop", appId)),
-	);
+	appCommand("stop <app-id>", "Stop a running app")
+		.option("--json", "Print structured output")
+		.option("--screenshot", "Capture the screen after the action")
+		.action(async (appId: string, flags: ActionFlags) =>
+			printAction(flags, (await runApp(flags, "stop", appId)) as ActionResult),
+		);
 	appCommand("uninstall <app-id>", "Remove an installed app").action(
 		async (appId: string, flags: DeviceFlags) =>
 			json(await runApp(flags, "uninstall", appId)),
 	);
 	const permissions = program
 		.command("permissions")
-		.description("List, grant, revoke, or reset app permissions");
+		.description(
+			"List or change app permissions. iOS state belongs to the bundle ID and takes effect after the app requests access.",
+		);
 	const permissionCommand = (name: string, description: string) =>
 		permissions
 			.command(name)
@@ -619,7 +812,10 @@ export function createProgram(): Command {
 			process.stdout.write(`${renderPermissionList(payload)}\n`);
 		});
 	permissionCommand("grant <permission>", "Grant one permission")
-		.option("--value <value>", "iOS grant value, such as always or limited")
+		.option(
+			"--value <value>",
+			"iOS only. Values: location=always|inuse|never, photos=limited, notifications=critical. Do not use --value for camera.",
+		)
 		.action(
 			async (
 				permission: string,
@@ -627,11 +823,16 @@ export function createProgram(): Command {
 			) => {
 				if (flags.value && androidSerialFromStateId(flags.device))
 					throw new Error("--value is available only for iOS simulators.");
+				const resolvedPermission = permissionName(flags, permission);
+				if (flags.value) {
+					const error = permissionValueError(resolvedPermission, flags.value);
+					if (error) throw new Error(error);
+				}
 				json(
 					await client(flags.url).mutatePermissions(flags.device, {
 						operation: "grant",
 						bundleId: appId(flags),
-						permission: permissionName(flags, permission),
+						permission: resolvedPermission,
 						...(flags.value ? { value: flags.value } : {}),
 					}),
 				);
@@ -691,12 +892,32 @@ export function createProgram(): Command {
 export async function main(argv: string[] = process.argv): Promise<void> {
 	await createProgram().parseAsync(argv);
 }
+
+export function renderCliError(error: unknown): string {
+	if (!(error instanceof CommandRequestError))
+		return `agentsims: ${error instanceof Error ? error.message : String(error)}\n`;
+	const lines = [
+		`agentsims: ${error.code ? `${error.code}: ` : ""}${error.message}`,
+	];
+	if (error.details) {
+		lines.push(`device: ${error.details.device}`);
+		lines.push(
+			`current devices: ${error.details.currentDeviceIds.join(", ") || "none"}`,
+		);
+		lines.push(`recovery: ${error.details.recovery}`);
+	}
+	if (error.effect) lines.push(`dispatch=${error.effect}`);
+	return `${lines.join("\n")}\n`;
+}
+
+export function reportCliError(error: unknown): void {
+	process.stderr.write(renderCliError(error));
+	process.exitCode = 1;
+}
+
 if (import.meta.main)
 	try {
 		await main();
 	} catch (error) {
-		process.stderr.write(
-			`agentsims: ${error instanceof Error ? error.message : String(error)}\n`,
-		);
-		process.exitCode = 1;
+		reportCliError(error);
 	}

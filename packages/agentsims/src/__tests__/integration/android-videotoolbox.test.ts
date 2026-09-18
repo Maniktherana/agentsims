@@ -8,9 +8,13 @@ const addonPath = resolve(
 	import.meta.dir,
 	"../../../dist/native/agentsims-native.node",
 );
-test.skipIf(process.platform !== "darwin" || !existsSync(addonPath))(
+test.skipIf(process.platform !== "darwin")(
 	"VideoToolbox emits Android H.264, honors keyframe requests, resizes, and awaits shutdown",
 	async () => {
+		if (!existsSync(addonPath))
+			throw new Error(
+				`The iOS native addon is missing: ${addonPath}. Build it before this native test.`,
+			);
 		const { AndroidVideoCapture } = createRequire(import.meta.url)(addonPath);
 		const directory = mkdtempSync(join(tmpdir(), "agentsims-videotoolbox-"));
 		const path = join(directory, "rgba");

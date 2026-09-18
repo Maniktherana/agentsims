@@ -6,6 +6,19 @@ import { androidTool } from "./sdk-tools";
 import { adbText } from "./adb";
 import type { AndroidAvdCameraConfig } from "./types";
 
+export type AndroidBootWaitResult =
+	| { ready: true }
+	| { ready: false; error: string };
+
+type AndroidBootWaitOptions = {
+	execute?: (args: string[], timeout: number) => Promise<string>;
+	now?: () => number;
+	delay?: (milliseconds: number) => Promise<void>;
+};
+
+const ANDROID_BOOT_POLL_INTERVAL_MS = 1_000;
+const ANDROID_BOOT_PROBE_TIMEOUT_MS = 3_000;
+
 export interface AndroidAvdInfo {
 	name: string;
 	displayName?: string;
@@ -47,6 +60,63 @@ function emulatorText(args: string[], timeout?: number): Promise<string> {
 					: resolve(stdout),
 		),
 	);
+}
+
+export async function waitForAndroidBoot(
+	serial: string,
+	deadline: number,
+	options: AndroidBootWaitOptions = {},
+): Promise<AndroidBootWaitResult> {
+	const execute = options.execute ?? adbText;
+	const now = options.now ?? Date.now;
+	const delay =
+		options.delay ??
+		((milliseconds: number) =>
+			new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+	let lastFailure = "Android did not report boot completion";
+
+	while (now() < deadline) {
+		const probeTimeout = Math.max(
+			1,
+			Math.min(ANDROID_BOOT_PROBE_TIMEOUT_MS, deadline - now()),
+		);
+		try {
+			const bootCompleted = (
+				await execute(
+					["-s", serial, "shell", "getprop", "sys.boot_completed"],
+					probeTimeout,
+				)
+			).trim();
+			if (bootCompleted === "1") {
+				if (now() >= deadline) break;
+				const windowService = (
+					await execute(
+						["-s", serial, "shell", "service", "check", "window"],
+						Math.max(
+							1,
+							Math.min(ANDROID_BOOT_PROBE_TIMEOUT_MS, deadline - now()),
+						),
+					)
+				).trim();
+				if (/^Service window:\s*found$/i.test(windowService)) {
+					return { ready: true };
+				}
+				lastFailure = windowService || "Android window service is unavailable";
+			} else {
+				lastFailure = bootCompleted
+					? `sys.boot_completed returned ${JSON.stringify(bootCompleted)}`
+					: "sys.boot_completed is empty";
+			}
+		} catch (error) {
+			lastFailure = error instanceof Error ? error.message : String(error);
+		}
+
+		const remaining = deadline - now();
+		if (remaining <= 0) break;
+		await delay(Math.min(ANDROID_BOOT_POLL_INTERVAL_MS, remaining));
+	}
+
+	return { ready: false, error: lastFailure };
 }
 function parseIni(text: string): Record<string, string> {
 	const result: Record<string, string> = {};
@@ -217,15 +287,19 @@ export function launchAndroidAvd(
 	name: string,
 	camera?: { front?: string; back?: string },
 	invalidateDiscovery: () => void = () => {},
-): void {
+): Promise<void> {
 	invalidateDiscovery();
 	androidAvdSnapshot.at = 0;
-	const child = spawn(
-		androidEmulatorCommand(),
-		["-avd", name, ...androidCameraStartupArgs(camera)],
-		{ detached: true, stdio: "ignore" },
-	);
-	child.unref();
+	return new Promise((resolve, reject) => {
+		const child = spawn(
+			androidEmulatorCommand(),
+			["-avd", name, ...androidCameraStartupArgs(camera)],
+			{ detached: true, stdio: "ignore" },
+		);
+		child.once("error", reject);
+		child.once("spawn", resolve);
+		child.unref();
+	});
 }
 
 export type AndroidCameraFace = "front" | "back";

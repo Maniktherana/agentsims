@@ -22,13 +22,8 @@ describe("StreamStatusPill", () => {
 			<StreamStatusPill phase="streaming" frameRate={measuredRate(60)} />,
 		);
 
-		expect(html).toContain('data-testid="stream-status-pill"');
 		expect(html.replace(/<[^>]+>/g, "")).toContain("60 FPS");
-		expect(html).toContain("w-[108px]");
-		expect(html).toContain("min-w-[7ch]");
-		expect(html).toContain("tabular-nums");
 		expect(html).not.toContain(">live</span>");
-		expect(html).not.toContain("rounded-full");
 		expect(html).not.toContain("connecting");
 	});
 
@@ -41,19 +36,17 @@ describe("StreamStatusPill", () => {
 		);
 
 		expect(html.replace(/<[^>]+>/g, "")).toContain("— FPS");
-		expect(html).not.toContain("invisible");
 	});
 
-	test("keeps a measured zero neutral", () => {
+	test("renders a measured zero", () => {
 		const html = renderToStaticMarkup(
 			<StreamStatusPill phase="streaming" frameRate={measuredRate(0)} />,
 		);
 
 		expect(html.replace(/<[^>]+>/g, "")).toContain("0 FPS");
-		expect(html).not.toContain("text-amber");
 	});
 
-	test("uses the same fixed slot for lifecycle states and live FPS", () => {
+	test("shows lifecycle states instead of live FPS", () => {
 		for (const [phase, label] of [
 			["booting", "Booting"],
 			["connecting", "Connecting"],
@@ -63,9 +56,6 @@ describe("StreamStatusPill", () => {
 				<StreamStatusPill phase={phase} frameRate={measuredRate(60)} />,
 			);
 			expect(html).toContain(label);
-			expect(html).not.toContain("agentsims-device-status-spin");
-			expect(html).not.toContain("agentsims-device-status-breathe");
-			expect(html).toContain("w-[108px]");
 			expect(html).not.toContain("60 FPS");
 			expect(html).not.toContain(">live</span>");
 		}

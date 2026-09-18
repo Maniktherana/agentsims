@@ -54,6 +54,7 @@ function androidAxTraits(attrs: Record<string, string>): string[] | undefined {
 		["checked", "checked"],
 		["selected", "selected"],
 		["password", "password"],
+		["editable", "editable"],
 	];
 	const traits = traitAttributes
 		.filter(([attribute]) => attrs[attribute] === "true")
@@ -108,34 +109,6 @@ function androidXmlNodes(xml: string): AndroidXmlNodeToken[] {
 	return nodes;
 }
 
-function screenFromAndroidElements(
-	elements: AxElement[],
-	fallback: { width: number; height: number },
-): { width: number; height: number } {
-	// The helper orders application windows from base to topmost layer. That
-	// first app root is the authoritative AX viewport: hidden descendants and
-	// inactive windows can retain stale, off-screen layout bounds and must not
-	// enlarge the simulated display.
-	const roots = elements.filter((element) => !element.path.includes("."));
-	const viewport =
-		roots.find((element) => element.windowType === 1) ?? roots[0];
-	if (viewport && viewport.frame.width > 0 && viewport.frame.height > 0) {
-		return {
-			width: Math.max(1, viewport.frame.x + viewport.frame.width),
-			height: Math.max(1, viewport.frame.y + viewport.frame.height),
-		};
-	}
-
-	let right = 0;
-	let bottom = 0;
-	for (const element of elements) {
-		right = Math.max(right, element.frame.x + element.frame.width);
-		bottom = Math.max(bottom, element.frame.y + element.frame.height);
-	}
-	if (right > 0 && bottom > 0) return { width: right, height: bottom };
-	return fallback;
-}
-
 function clampAndroidFrameToScreen(
 	frame: AxRect,
 	screen: { width: number; height: number },
@@ -162,6 +135,7 @@ export interface AndroidAxSnapshotDependencies {
 	readFastXml?: (serial: string, mode: AndroidAxMode) => Promise<string>;
 	readFallbackXml?: (serial: string) => Promise<string>;
 	readScreenConfig?: (serial: string) => Promise<AndroidScreenConfig>;
+	screen?: Pick<AndroidScreenConfig, "width" | "height">;
 	mode?: AndroidAxMode;
 }
 
@@ -188,6 +162,9 @@ export async function collectAndroidAxSnapshot(
 		dependencies.readScreenConfig ?? getAndroidScreenConfig;
 	try {
 		const xml = await readXml(serial);
+		const config =
+			dependencies.screen ?? (await readScreenConfig(serial));
+		const screen = { width: config.width, height: config.height };
 		const elements: AxElement[] = [];
 		for (const { attrs, path } of androidXmlNodes(xml)) {
 			const frame = boundsToRect(attrs.bounds);
@@ -195,22 +172,33 @@ export async function collectAndroidAxSnapshot(
 			// them in the raw tree so paths remain an exact representation of the
 			// native hierarchy; overlay eligibility belongs to browser consumers.
 			if (!frame) continue;
-			const label = attrs["content-desc"] || attrs.text || "";
+			// An empty field reports its hint as its text, and a filled field would
+			// otherwise report one string as both its name and its value.
+			const editable = attrs.editable === "true";
+			const hint = attrs["hint-text"] === "true";
+			const text = hint ? "" : attrs.text || "";
+			const label =
+				attrs["content-desc"] || (editable ? (hint ? attrs.text || "" : "") : text);
 			const role = attrs.class || "android.view.View";
 			const nativeId = attrs["resource-id"] || undefined;
 			const windowId = optionalInteger(attrs["window-id"]);
+			const sourceId = optionalInteger(attrs["source-id"]);
 			const windowLayer = optionalInteger(attrs["window-layer"]);
 			const windowType = optionalInteger(attrs["window-type"]);
 			elements.push({
-				id: nativeId || `${serial}:${path}`,
+				id:
+					windowId !== undefined && sourceId !== undefined
+						? `${windowId}:${sourceId}`
+						: nativeId || `${serial}:${path}`,
 				path,
 				label,
-				value: attrs.text || "",
+				value: text,
 				role,
 				type: role,
 				enabled: attrs.enabled !== "false",
 				visibleToUser: attrs["visible-to-user"] !== "false",
 				...(windowId === undefined ? {} : { windowId }),
+				...(sourceId === undefined ? {} : { sourceId }),
 				...(windowLayer === undefined ? {} : { windowLayer }),
 				...(windowType === undefined ? {} : { windowType }),
 				...(attrs["window-active"] === undefined
@@ -226,14 +214,12 @@ export async function collectAndroidAxSnapshot(
 			});
 		}
 		if (elements.length === 0) {
-			const config = await readScreenConfig(serial);
 			return {
-				screen: { width: config.width, height: config.height },
+				screen,
 				elements,
 				errors: ["UIAutomator returned no accessibility elements"],
 			};
 		}
-		const screen = screenFromAndroidElements(elements, { width: 1, height: 1 });
 		return {
 			screen,
 			elements: elements.map((element) => ({

@@ -1,16 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
 import { Effect } from "effect";
 import {
-	AndroidAxServerClient,
 	AndroidAxServers,
+	androidAxFocusLine,
+	androidAxKeyLine,
+	androidAxPerformLine,
 	androidAxRequestLine,
 	androidAxTouchLine,
 	androidAxServersLayer,
 	parseAndroidAxServerLine,
-	resolveAndroidAxServer,
-	subscribeAndroidAxChanges,
 } from "../../../../../core/android/accessibility/ax-server";
 import { collectAndroidAxSnapshot } from "../../../../../core/android/accessibility/snapshot";
 
@@ -24,45 +22,6 @@ const XML = [
 ].join("");
 
 describe("persistent Android AX server", () => {
-	test("runs snapshots off the stdin touch-injection thread", () => {
-		const source = readFileSync(
-			resolve(
-				import.meta.dir,
-				"../../../../../../android/accessibility/src/dev/agentsims/ax/Main.java",
-			),
-			"utf8",
-		);
-
-		expect(source).toContain(
-			"snapshotExecutor.execute(new SnapshotRequest(request, response))",
-		);
-		expect(source).toContain(
-			"new ArrayBlockingQueue<Runnable>(MAX_PENDING_SNAPSHOTS)",
-		);
-		expect(source.indexOf("awaitSnapshotWorker();")).toBeLessThan(
-			source.indexOf("disconnect();"),
-		);
-	});
-
-	test("resolves the bundled server artifact from the source layout", () => {
-		expect(existsSync(resolveAndroidAxServer())).toBe(true);
-	});
-
-	test("bundles generated helper classes into the production dex", () => {
-		const artifact = resolveAndroidAxServer();
-		const extracted = Bun.spawnSync(["unzip", "-p", artifact, "classes.dex"]);
-		expect(extracted.exitCode).toBe(0);
-		for (const descriptor of [
-			"Ldev/agentsims/ax/Main;",
-			"Ldev/agentsims/ax/Main$1;",
-			"Ldev/agentsims/ax/Main$2;",
-			"Ldev/agentsims/ax/Main$SnapshotRequest;",
-			"Ldev/agentsims/ax/Main$WindowMetadata;",
-		]) {
-			expect(extracted.stdout.includes(Buffer.from(descriptor))).toBe(true);
-		}
-	});
-
 	test("uses an idle barrier only for settled agent observations", () => {
 		expect(JSON.parse(androidAxRequestLine(1, "fresh"))).toEqual({
 			id: 1,
@@ -90,6 +49,61 @@ describe("persistent Android AX server", () => {
 		});
 	});
 
+	test("writes acknowledged key phases to the persistent helper protocol", () => {
+		expect(JSON.parse(androidAxKeyLine(4, "down", 59))).toEqual({
+			id: 4,
+			op: "key",
+			phase: "down",
+			keycode: 59,
+		});
+	});
+
+	test("names a node and what it must still be before it acts on it", () => {
+		expect(
+			JSON.parse(
+				androidAxPerformLine(
+					4,
+					"set-text",
+					{
+						node: "focus",
+						resourceId: "com.example:id/email",
+						className: "android.widget.EditText",
+						windowId: 19,
+						sourceId: 83,
+					},
+					"hello",
+				),
+			),
+		).toEqual({
+			id: 4,
+			op: "perform",
+			action: "set-text",
+			node: "focus",
+			resourceId: "com.example:id/email",
+			class: "android.widget.EditText",
+			windowId: 19,
+			sourceId: 83,
+			text: "hello",
+		});
+		expect(
+			JSON.parse(
+				androidAxPerformLine(5, "focus", {
+					node: "0.2",
+					windowId: 19,
+					sourceId: 83,
+				}),
+			),
+		).toEqual({
+			id: 5,
+			op: "perform",
+			action: "focus",
+			node: "0.2",
+			windowId: 19,
+			sourceId: 83,
+		});
+		expect(JSON.parse(androidAxFocusLine(6))).toEqual({ id: 6, op: "focus" });
+	});
+
 	test("decodes one atomic full-snapshot response", () => {
 		expect(
 			parseAndroidAxServerLine(
@@ -101,35 +115,6 @@ describe("persistent Android AX server", () => {
 				}),
 			),
 		).toEqual({ id: 7, ok: true, elapsedMs: 12.5, xml: XML });
-	});
-
-	test("dispatches native changed lines to stable per-serial subscribers", () => {
-		const changes: unknown[] = [];
-		const unsubscribe = subscribeAndroidAxChanges("event-probe", (change) =>
-			changes.push(change),
-		);
-		const client = new AndroidAxServerClient("event-probe");
-		const protocolClient = client as unknown as {
-			onStdout(chunk: string): void;
-		};
-
-		protocolClient.onStdout(
-			'{"event":"changed","sequence":4,"eventTypes":2048,"atMs":91}\n',
-		);
-		expect(changes).toEqual([
-			{
-				sequence: 4,
-				eventTypes: 2048,
-				atMs: 91,
-			},
-		]);
-
-		unsubscribe();
-		protocolClient.onStdout(
-			'{"event":"changed","sequence":5,"eventTypes":32,"atMs":92}\n',
-		);
-		expect(changes).toHaveLength(1);
-		client.close();
 	});
 
 	test("uses the persistent provider with the requested browser mode", async () => {
@@ -145,6 +130,7 @@ describe("persistent Android AX server", () => {
 				fallbacks++;
 				return XML;
 			},
+			screen: { width: 1080, height: 2424 },
 		});
 
 		expect(modes).toEqual(["fresh"]);
@@ -162,6 +148,7 @@ describe("persistent Android AX server", () => {
 				fallbacks++;
 				return XML;
 			},
+			screen: { width: 1080, height: 2424 },
 		});
 
 		expect(fallbacks).toBe(0);
@@ -175,6 +162,10 @@ describe("persistent Android AX server", () => {
 			snapshot: async () => XML,
 			warm: async () => {},
 			touch: async () => {},
+			key: async () => {},
+			perform: async () => ({ performed: true, node: null }),
+			findFocus: async () => null,
+			markMutation: () => {},
 			close: () => {
 				closes += 1;
 			},

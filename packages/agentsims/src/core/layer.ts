@@ -43,7 +43,6 @@ export function coreServicesLayer(basePath: string) {
 	const lifecycle = DeviceLifecycleLive.pipe(
 		Layer.provideMerge(Layer.merge(sessions, stateStore)),
 	);
-	const devices = DevicesLive.pipe(Layer.provideMerge(lifecycle));
 	const foregroundApps = foregroundAppsLayer(
 		Effect.gen(function* () {
 			const iosSessions = yield* IosSessions;
@@ -69,6 +68,10 @@ export function coreServicesLayer(basePath: string) {
 			};
 		}),
 	).pipe(Layer.provide(sessions));
+	const devices = DevicesLive.pipe(
+		Layer.provideMerge(lifecycle),
+		Layer.provide(foregroundApps),
+	);
 	const androidTools = AndroidToolsLive.pipe(Layer.provide(devices));
 	const androidDevTools = AndroidDevToolsLive.pipe(
 		Layer.provide(AndroidCdpAdapterLive),

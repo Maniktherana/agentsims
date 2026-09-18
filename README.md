@@ -84,13 +84,16 @@ agentsims status [--json]
 agentsims logs [--follow]
 agentsims device-logs --device <android-device> [--limit <count>] [--level <level>]
 agentsims devices [list [--all|--inactive|--json]|show <device>|boot <device>|shutdown <device>]
-agentsims observe --device <device> [-o <path>] [--no-ax] [--json]
-agentsims tap <x> <y> --device <device>
-agentsims swipe <x1> <y1> <x2> <y2> [--duration <ms>] --device <device>
-agentsims text <text> --device <device>
-agentsims button <name> --device <device>
+agentsims observe --device <device> [-o <path>] [--all] [--frames] [--raw] [--json]
+agentsims screenshot [path] --device <device> [--json]
+agentsims find <text> --device <device>
+agentsims tap <target> [--capture <id>] [--role <role>] [--index <n>] --device <device>
+agentsims swipe <from> <to> [--capture <id>] [--duration <ms>] --device <device>
+agentsims type <text> [--into <target>] [--submit] [--role <role>] [--index <n>] --device <device>
+agentsims fill <text> [--into <target>] [--submit] [--role <role>] [--index <n>] --device <device>
+agentsims press <name> --device <device>
 agentsims rotate <orientation> --device <device>
-agentsims gesture <phase> <x> <y> --device <device>
+  every input command also takes [--screenshot] [--json]
 agentsims camera [list|use <webcam>|stop] --device <device>
 agentsims app [list [--all]|install <path>|launch|stop|uninstall <app-id>] --device <device>
 agentsims permissions [list|grant|revoke|reset <permission>] --device <device> --app <app-id>
@@ -116,52 +119,122 @@ use the default local address.
 
 ### Observe and control a device
 
-`observe` saves the screenshot and prints its path, the screen size, and the
-accessibility tree:
+`observe` captures the accessibility tree and an image as one observation. It
+saves the image to a file and prints both channel results. One channel can fail
+while the other still supplies evidence.
 
 ```sh
 npx agentsims observe --device android:emulator-5554
 ```
 
 ```text
-screen    /tmp/agentsims/observe-android_emulator-5554-2026-09-15T17-29-52-324Z.png  1080×2424 portrait
-elements  20
+observe  device=android:emulator-5554  platform=android  observation=s1  capture=c1  started=2026-09-17T01:00:00.000Z  completed=2026-09-17T01:00:00.020Z
+accessibility  ok  captured=2026-09-17T01:00:00.000Z  observation=s1
+image  ok  captured=2026-09-17T01:00:00.010Z  capture=c1  1080×2400  observation=s1
+artifact  ok  path=/tmp/agentsims/screenshots/observe-android_emulator-5554.png
+context  app=com.example.app  orientation=portrait  generation=7  changed=no
+elements  8 shown / 10 total  (--all for the rest)
 
-Application  [0,0 402×874]
-  StaticText  "10:59 PM"  [50,22 48×22]
-  Button  "Settings"  [306,389 68×91]
+- textbox "Email" [ref=e3] [focused] [testid=com.example:id/email]: a@b.co
+- securetextbox "Password" [ref=e4]
+- button "Sign in" [ref=e5] [long-press] [testid=com.example:id/submit]
+- list [ref=e6] [scrollable]
+  - switch "Autoplay" [ref=e7] [checked]
 ```
 
-Use `-o <path>` to choose where the screenshot lands, `--no-ax` for the picture
-alone, and `--json` for the full payload with the screenshot inline as base64.
+Each `[ref=eN]` is valid only for the current observation on that device. A new
+observation or any input invalidates old refs. The command rejects a stale ref
+before it sends input.
 
-Tap coordinates use values from `0` to `1`:
+Use `-o <path>` to choose where the image lands, `--all` for the nodes that
+pruning removed, `--frames` to add `[box=x,y,w,h]` in image pixels, `--raw` for
+the platform class, and `--json` for structured output. The JSON output omits
+image bytes. It reports the saved file in a separate `artifact` result.
+
+Use `screenshot` when you need pixels without an accessibility read:
 
 ```sh
-npx agentsims tap 0.5 0.7 --device android:emulator-5554
-npx agentsims swipe 0.5 0.8 0.5 0.2 --duration 300 \
-  --device android:emulator-5554
-npx agentsims text "Buy milk" --device android:emulator-5554
-npx agentsims button home --device android:emulator-5554
+npx agentsims screenshot /tmp/current.png --device android:emulator-5554
+```
+
+This command does not read the accessibility tree or foreground app. Its
+capture ID is valid only while that capture is current. `capture=none` means
+the pixels are evidence, but they cannot authorize a later coordinate action.
+
+`find` prints the nodes that match a label, a value, or a test ID:
+
+```sh
+npx agentsims find "Sign in" --device android:emulator-5554
+```
+
+A target is a ref or an exact label. Prefer these semantic targets:
+
+```sh
+npx agentsims tap @e5 --device android:emulator-5554
+npx agentsims tap "Sign in" --device android:emulator-5554
+npx agentsims tap "Search" --role button --index 2 --device android:emulator-5554
+npx agentsims type "Buy milk" --into "Task" --device android:emulator-5554
+npx agentsims fill "Buy milk" --into @e14 --device android:emulator-5554
+npx agentsims press home --device android:emulator-5554
 npx agentsims rotate landscape_left --device android:emulator-5554
 ```
 
-Use `gesture` when a touch must stay down across several steps:
+When two nodes match a label, the command fails and lists both refs. Add
+`--index` or use a ref.
+
+Use a point only when semantics cannot name the target. Bind it to the current
+image with `--capture`. Points can use image pixels or percentages:
 
 ```sh
-npx agentsims gesture begin 0.5 0.8 --device android:emulator-5554
-npx agentsims gesture move 0.5 0.5 --device android:emulator-5554
-npx agentsims gesture end 0.5 0.2 --device android:emulator-5554
+npx agentsims tap 603,1311 --capture c1 --device android:emulator-5554
+npx agentsims swipe 50%,80% 50%,20% --capture c1 --duration 300 \
+  --device android:emulator-5554
 ```
+
+Every input command returns two separate results:
+
+- `dispatch` says whether input reached the platform: `accepted`, `none`, or
+  `unknown`.
+- `verification` says whether the observed state is `matched`, `mismatch`,
+  `unavailable`, or `not_applicable`.
+
+`dispatch accepted` does not prove that the app changed. Read `verification`
+and the returned accessibility state. If dispatch is `unknown`, do not retry
+automatically. Observe first because the action can have happened.
+
+```sh
+npx agentsims tap "Sign in" --device android:emulator-5554
+```
+
+```text
+action  tap button "Sign in" @e5 at 540,1200 px
+dispatch  accepted  The device accepted every input frame.
+verification  not_applicable  Generic input has no operation-specific success verifier.
+accessibility  ok  captured=2026-09-17T01:00:01.000Z  observation=s2
+image  not_requested
+```
+
+Actions always read post-action accessibility. They add an image only when you
+request `--screenshot`, use a coordinate, AX fails or is unusable, the
+foreground or window changes, or a perception action leaves AX unchanged.
+This keeps screenshots available without making every action capture one.
 
 For scripts and agents, use this cycle:
 
 ```text
-devices → observe → act → observe
+devices → observe → act on a current ref or label → read dispatch and verification
 ```
 
-Always inspect the new screen after an action. A successful command only means
-that Agentsims sent the input.
+Observe again when the returned state is not enough, after uncertain dispatch,
+or before using a new target. A keyboard or modal can cover a valid target.
+Close it or select the visible control, then observe again.
+
+On iOS 27, the legacy CoreSimulator accessibility provider can return only the
+application root for an unfocused stock app when VoiceOver is off. VoiceOver
+can expose the tree, but it intercepts taps. Focused-field fill and follow-up
+type have matched native readback proof. Clean unfocused semantic targeting is
+not verified on this path. The guest AXRuntime/XCTAutomationSupport backend is
+deferred.
 
 ### Manage apps
 
@@ -220,7 +293,9 @@ npx agentsims permissions reset --device android:emulator-5554 \
 `reset` without a permission returns every runtime permission of the app to its
 default state, and reports the permissions that the system or a policy holds
 fixed. The app must declare a runtime permission before Agentsims can change
-it. `--value` applies to iOS only.
+it. `--value` applies to iOS grant only. Camera takes no value. Location accepts
+`always`, `inuse`, or `never`; photos accepts `limited`; notifications accepts
+`critical`.
 
 Read a bounded Android log snapshot when visible evidence is not enough:
 
@@ -371,9 +446,28 @@ cd packages/agentsims
 bun run typecheck
 bun run lint
 bun test
+bun run build:android:ax
 bun run build
 bun run verify:package
 ```
+
+Pull-request CI uses `bun run test:ci` for the device-free source suite, then
+builds and verifies the fresh package. `bun test` also lists the explicit
+native opt-in cases as skips when their gate variables are absent.
+
+Ordinary CI does not inspect ambient devices. The native release gate requires
+explicit IDs for one booted iOS simulator, one Android emulator, and one
+physical Android device:
+
+```sh
+AGENTSIMS_E2E_IOS_DEVICE=<simulator-udid> \
+AGENTSIMS_E2E_ANDROID_EMULATOR=<emulator-serial> \
+AGENTSIMS_E2E_ANDROID_PHYSICAL_DEVICE=<device-serial> \
+bun run test:native
+```
+
+The requested gate fails when an ID or fresh native artifact is missing. It
+does not turn a missing prerequisite into a passing skip.
 
 Run the source build:
 

@@ -6,7 +6,7 @@ import net from "net";
 
 const HELPER_PATH = join(
 	import.meta.dir,
-	"../../../dist/simcam/serve-sim-camera-helper",
+	"../../../dist/simcam/agentsims-camera-helper",
 );
 
 const SIMCAM_MAGIC = 0x53434d31;
@@ -28,7 +28,7 @@ function helperReady(): boolean {
 }
 
 const platformOk = process.platform === "darwin";
-const shouldRun = platformOk && helperReady();
+const shouldRun = platformOk && process.env.AGENTSIMS_E2E_SHM === "1";
 
 interface ShmHandle {
 	ptr: unknown;
@@ -266,12 +266,16 @@ describeIf("SimCameraHelper shm probe", () => {
 	const TAG = `${process.pid.toString(36)}${Date.now().toString(36)}`.slice(
 		-10,
 	);
-	const SHM_NAME = `/sscam-tst-${TAG}`;
-	const SOCKET_PATH = `/tmp/sscam-tst-${TAG}.sock`;
+	const SHM_NAME = `/agentsims-tst-${TAG}`;
+	const SOCKET_PATH = `/tmp/agentsims-tst-${TAG}.sock`;
 	let helper: ChildProcessByStdio<null, null, null> | null = null;
 	let helperStderr = "";
 
 	beforeAll(async () => {
+		if (!helperReady())
+			throw new Error(
+				`The camera helper is missing: ${HELPER_PATH}. Build it before this native test.`,
+			);
 		helper = spawn(
 			HELPER_PATH,
 			["--shm", SHM_NAME, "--socket", SOCKET_PATH, "--source", "placeholder"],
@@ -441,8 +445,11 @@ describeIf("SimCameraHelper shm probe", () => {
 
 	test("shutdown unmaps shm so a fresh shm_open returns -1 (ENOENT)", async () => {
 		if (!helper) return;
-		const exited = new Promise<number | null>((resolve) => {
-			helper!.once("exit", (code) => resolve(code ?? null));
+		const exited = new Promise<{
+			code: number | null;
+			signal: NodeJS.Signals | null;
+		}>((resolve) => {
+			helper!.once("exit", (code, signal) => resolve({ code, signal }));
 		});
 		try {
 			await sendHelperCommand(SOCKET_PATH, { action: "shutdown" });
@@ -456,7 +463,10 @@ describeIf("SimCameraHelper shm probe", () => {
 			exited,
 			new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 3000)),
 		]);
-		expect(exitCode).not.toBe("timeout");
+		if (exitCode === "timeout" || exitCode.code !== 0)
+			throw new Error(
+				`Camera helper shutdown failed (${JSON.stringify(exitCode)}).\n${helperStderr}`,
+			);
 		helper = null;
 
 		const sys = await loadFfi();

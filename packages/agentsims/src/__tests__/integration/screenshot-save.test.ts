@@ -16,7 +16,7 @@ async function withServer<T>(
 	try {
 		return await fn(origin);
 	} finally {
-		server.stop();
+		await server.stop();
 	}
 }
 

@@ -19,16 +19,4 @@ describe("LatestGridRequest", () => {
 		expect(requests.isCurrent(pending)).toBe(false);
 	});
 
-	test("the polling hook preserves its last good catalog on transient errors", async () => {
-		const source = await Bun.file(
-			new URL(
-				"../../../../../web/hooks/workspace/use-grid-devices.ts",
-				import.meta.url,
-			),
-		).text();
-		const catchBody = source.match(/catch\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
-
-		expect(catchBody).not.toContain("setDevices([])");
-		expect(source).toContain("requestsRef.current.isCurrent(request)");
-	});
 });

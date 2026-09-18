@@ -3,19 +3,22 @@ import {
 	AndroidEmulatorInput,
 	AndroidEmulatorSession,
 	type AndroidEmulatorConfig,
+	type AndroidStreamFrame,
 	type AvccSubscriberSink,
 } from "./emulator-controller";
 import {
 	AndroidDeviceScreenrecordSession,
 	type AndroidDeviceStreamConfig,
 } from "./device-screenrecord";
-export type { AvccSubscriberSink } from "./emulator-controller";
+export type {
+	AndroidStreamFrame,
+	AvccSubscriberSink,
+} from "./emulator-controller";
 
 export type AndroidTransportConfig =
 	| AndroidEmulatorConfig
 	| AndroidDeviceStreamConfig;
 export type AndroidTouchPhase = "begin" | "move" | "end" | "cancel";
-export type AndroidButtonPhase = "down" | "up" | "press";
 
 export interface AndroidTransport {
 	readonly backend: "emulator-controller" | "adb-screenrecord";
@@ -29,6 +32,8 @@ export interface AndroidTransport {
 	close(): void | Promise<void>;
 	attachAvccSink(sink: AvccSubscriberSink): Promise<() => void>;
 	resetVideo(): boolean;
+	/** The newest frame, when the backend keeps a readable frame buffer. */
+	captureFrame?(): AndroidStreamFrame | null;
 	setPresentationGeneration?(generation: number): void;
 	injectTouch(
 		phase: AndroidTouchPhase,
@@ -54,7 +59,6 @@ export interface AndroidTransport {
 		width?: number,
 		height?: number,
 	): boolean;
-	injectKeycode?(keycode: number, phase?: AndroidButtonPhase): boolean;
 	rotateDevice?(): boolean;
 }
 

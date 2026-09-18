@@ -1,186 +1,70 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "child_process";
-import { existsSync } from "fs";
-import { join } from "path";
 import {
 	acquireIosSimulatorTestLock,
 	IOS_E2E_HOOK_TIMEOUT_MS,
 } from "../helpers/ios-e2e-lock";
-import { parseDetachedOutput } from "../helpers/detached-output";
-
-/**
- * Regression test for the in-process HID path (napi migration, #108).
- *
- * HID injection used to run in a spawned `serve-sim-bin` helper, so a malformed
- * input message could at worst crash that helper. Now HID runs in-process: the
- * N-API binding throws synchronously when a JS value can't be coerced to its
- * native parameter type (e.g. a touch whose `type` is missing →
- * "Could not convert parameter 0 to type String"), and an unhandled throw takes
- * down the WHOLE server — killing the live stream and, if it lands mid-gesture,
- * leaving the guest with a stuck finger that wedges all touch until reboot.
- *
- * `NativeHid` now guards every native call, so a bad frame is ignored instead of
- * fatal. This test sends a malformed touch frame (tag 0x03, JSON with no `type`)
- * straight down the real `/ws` HID protocol and asserts the server is still
- * serving afterward — and that it still accepts a well-formed touch.
- */
-
-// Drives the built CLI (dist/serve-sim.js) so the test exercises the shipped
-// artifact — the same one CI builds before this directory runs.
-const CLI = join(import.meta.dir, "../../../dist/serve-sim.js");
+import {
+	explicitIosDevice,
+	startOwnedE2EServer,
+	type OwnedE2EServer,
+} from "../helpers/native-e2e";
 
 const WS_TAG_TOUCH = 0x03;
+const describeConfigured = explicitIosDevice ? describe : describe.skip;
 
-function firstBootedIosSim(): string | null {
-	try {
-		const out = execFileSync(
-			"xcrun",
-			["simctl", "list", "devices", "booted", "-j"],
-			{ encoding: "utf-8" },
-		);
-		const data = JSON.parse(out) as {
-			devices: Record<string, Array<{ udid: string; state: string }>>;
-		};
-		for (const [runtime, devices] of Object.entries(data.devices)) {
-			if (!/iOS/i.test(runtime)) continue;
-			for (const d of devices) if (d.state === "Booted") return d.udid;
-		}
-	} catch (error) {
-		console.warn(
-			"[agentsims:test] recoverable setup or cleanup failure",
-			error,
-		);
-	}
-	return null;
+function frame(payload: unknown): Uint8Array {
+	const body = new TextEncoder().encode(JSON.stringify(payload));
+	const value = new Uint8Array(body.length + 1);
+	value[0] = WS_TAG_TOUCH;
+	value.set(body, 1);
+	return value;
 }
 
-/** Open `/ws`, send one `[tag][JSON]` frame, then close. Resolves on close. */
-function sendHidFrame(
-	wsUrl: string,
-	tag: number,
-	payload: unknown,
+async function sendFrames(
+	url: string,
+	values: readonly unknown[],
 ): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const ws = new WebSocket(wsUrl);
-		ws.binaryType = "arraybuffer";
-		ws.onopen = () => {
-			const json = new TextEncoder().encode(JSON.stringify(payload));
-			const msg = new Uint8Array(1 + json.length);
-			msg[0] = tag;
-			msg.set(json, 1);
-			ws.send(msg);
-			setTimeout(() => {
-				ws.close();
-				resolve();
-			}, 50);
+	await new Promise<void>((resolve, reject) => {
+		const socket = new WebSocket(url);
+		socket.binaryType = "arraybuffer";
+		socket.onerror = () => reject(new Error(`Failed to connect to ${url}.`));
+		socket.onclose = () => resolve();
+		socket.onopen = () => {
+			for (const value of values) socket.send(frame(value));
+			socket.close();
 		};
-		ws.onerror = () => reject(new Error(`failed to connect ${wsUrl}`));
 	});
 }
 
-const bootedUdid = firstBootedIosSim();
-// Needs a booted iOS sim and the built CLI; CI builds serve-sim first.
-const describeIfSim = bootedUdid && existsSync(CLI) ? describe : describe.skip;
+describeConfigured("native malformed HID input", () => {
+	let server: OwnedE2EServer;
+	let releaseLock = () => {};
 
-describeIfSim(
-	`serve-sim malformed HID input (booted sim ${bootedUdid ?? "<skipped>"})`,
-	() => {
-		let wsUrl: string;
-		let configUrl: string;
-		let releaseTestLock = () => {};
+	beforeAll(async () => {
+		releaseLock = await acquireIosSimulatorTestLock(explicitIosDevice!);
+		server = await startOwnedE2EServer();
+	}, IOS_E2E_HOOK_TIMEOUT_MS);
 
-		beforeAll(async () => {
-			releaseTestLock = await acquireIosSimulatorTestLock(bootedUdid!);
-			try {
-				execFileSync("node", [CLI, "stop"], { stdio: "pipe" });
-			} catch (error) {
-				console.warn(
-					"[agentsims:test] recoverable setup or cleanup failure",
-					error,
-				);
-			}
-
-			const startPort = 40_000 + Math.floor(Math.random() * 20_000);
-			const detach = spawnSync(
-				"node",
-				[CLI, "start", "--detach", "-p", String(startPort)],
-				{
-					encoding: "utf-8",
-					stdio: ["ignore", "pipe", "inherit"],
-					timeout: 45_000,
-				},
-			);
-			if (detach.status !== 0 || !detach.stdout) {
-				throw new Error(
-					`serve-sim --detach failed (exit=${detach.status} signal=${detach.signal})\n` +
-						`stdout: ${detach.stdout ?? "<none>"}`,
-				);
-			}
-			const state = parseDetachedOutput<{ url: string }>(detach.stdout);
-			const helperUrl = `${state.url}/helper/${encodeURIComponent(bootedUdid!)}`;
-			wsUrl = helperUrl.replace(/^http/, "ws") + "/ws";
-			configUrl = `${helperUrl}/config`;
-
-			// `--detach` returns once the child is spawned, but on a cold CI runner the
-			// server may not be listening yet. Poll /config until it answers so the
-			// test's "still alive" checks measure crashes, not a slow cold start.
-			const deadline = Date.now() + 20_000;
-			while (Date.now() < deadline) {
-				try {
-					if ((await fetch(configUrl)).ok) break;
-				} catch (error) {
-					console.warn(
-						"[agentsims:test] recoverable setup or cleanup failure",
-						error,
-					);
-				}
-				await new Promise((r) => setTimeout(r, 250));
-			}
-		}, IOS_E2E_HOOK_TIMEOUT_MS);
-
-		afterAll(() => {
-			try {
-				try {
-					execFileSync("node", [CLI, "stop"], { stdio: "pipe" });
-				} catch (error) {
-					console.warn(
-						"[agentsims:test] recoverable setup or cleanup failure",
-						error,
-					);
-				}
-			} finally {
-				releaseTestLock();
-			}
-		}, 30_000);
-
-		async function serverAlive(): Promise<boolean> {
-			try {
-				return (await fetch(configUrl)).ok;
-			} catch {
-				return false;
-			}
+	afterAll(async () => {
+		try {
+			await server?.stop();
+		} finally {
+			releaseLock();
 		}
+	}, IOS_E2E_HOOK_TIMEOUT_MS);
 
-		test("a malformed touch frame does not crash the server", async () => {
-			expect(await serverAlive()).toBe(true);
-
-			// `{x, y}` with no `type` → the native touch() binding throws on the
-			// non-string first parameter. Pre-fix this propagated and killed the server.
-			await sendHidFrame(wsUrl, WS_TAG_TOUCH, { x: 0.5, y: 0.5 });
-
-			// Give an uncaught-exception crash time to take the process down.
-			await new Promise((r) => setTimeout(r, 750));
-			expect(await serverAlive()).toBe(true);
-
-			// The server still accepts a well-formed touch after the bad frame.
-			await sendHidFrame(wsUrl, WS_TAG_TOUCH, {
-				type: "begin",
-				x: 0.5,
-				y: 0.5,
-			});
-			await sendHidFrame(wsUrl, WS_TAG_TOUCH, { type: "end", x: 0.5, y: 0.5 });
-			await new Promise((r) => setTimeout(r, 250));
-			expect(await serverAlive()).toBe(true);
-		}, 30_000);
-	},
-);
+	test("a malformed touch leaves the native session reachable", async () => {
+		const helper = `${server.origin}/helper/${encodeURIComponent(explicitIosDevice!)}`;
+		await sendFrames(helper.replace(/^http/, "ws") + "/ws", [
+			{ x: 0.5, y: 0.5 },
+			{ type: "begin", x: 0.5, y: 0.5 },
+			{ type: "end", x: 0.5, y: 0.5 },
+		]);
+		const response = await fetch(`${helper}/config`);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			width: expect.any(Number),
+			height: expect.any(Number),
+		});
+	}, 30_000);
+});

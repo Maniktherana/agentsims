@@ -250,7 +250,10 @@ async function response(
 					session.subscribeAvcc(sink),
 				);
 			case "screenshot.png":
-				return bytes(await session.captureScreenshot(), "image/jpeg");
+				{
+					const screenshot = await session.captureScreenshot();
+					return bytes(screenshot.bytes, screenshot.mimeType);
+				}
 			case "config":
 				return json(session.screenConfig());
 			case "health":

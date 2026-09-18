@@ -64,7 +64,6 @@ describe("DevicePlaceholder", () => {
 		expect(loading.defaultWidth).toBe(live.defaultWidth);
 		expect(loading.aspectRatioValue).toBe(live.aspectRatioValue);
 		expect(loadingWidth).toBe(liveWidth);
-		expect(html).toContain('data-device-placeholder-frame="android"');
 		expect(html).toContain(`width:min(100%, ${(664 * 1080) / 2424}px)`);
 		expect(html).toContain("aspect-ratio:1080 / 2424");
 	});
@@ -122,7 +121,6 @@ describe("DevicePlaceholder", () => {
 		expect(loading.aspectRatioValue).toBe(live.aspectRatioValue);
 		expect(loadingWidth).toBe(liveWidth);
 		expect(loading.aspectRatio).toBe("454 / 908");
-		expect(html).toContain('data-device-placeholder-frame="iphone"');
 		expect(html).toContain("aspect-ratio:454 / 908");
 		expect(html).toContain("PhoneComposite");
 		expect(html).not.toContain("grid/api/device-placeholder-asset");

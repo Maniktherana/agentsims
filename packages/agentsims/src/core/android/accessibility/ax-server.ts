@@ -20,6 +20,52 @@ const MAX_PROTOCOL_BUFFER_BYTES = 16 * 1024 * 1024;
 
 export type AndroidAxMode = "latest" | "fresh" | "settled";
 export type AndroidAxTouchPhase = "begin" | "move" | "end" | "cancel";
+export type AndroidAxKeyPhase = "down" | "up";
+export type AndroidNodeAction = "set-text" | "focus";
+
+/** A node the host read in a snapshot, or the field that has input focus. */
+export type AndroidNodeRef = {
+	/** A snapshot path such as `0.3.1`, or `focus`. */
+	node: string;
+	resourceId?: string;
+	className?: string;
+	windowId: number;
+	sourceId: number;
+};
+
+/** One step of a node's parent chain. Older helpers report no chain. */
+/** One ancestor of an acted-on node, identified as the helper identifies every node. */
+export type AndroidNodeLink = {
+	windowId: number;
+	sourceId: number;
+};
+
+export type AndroidNodeDescription = {
+	class: string;
+	resourceId: string;
+	text: string;
+	contentDesc: string;
+	editable: boolean;
+	/** True when `text` is the hint of an empty field, not its value. */
+	hintText: boolean;
+	password: boolean;
+	focused: boolean;
+	enabled: boolean;
+	windowId: number;
+	sourceId: number;
+	selectionStart: number;
+	selectionEnd: number;
+	bounds: string;
+	/** The parent chain, direct parent first, up to the window root. */
+	ancestors: AndroidNodeLink[];
+};
+
+export type AndroidNodeResult = {
+	performed: boolean;
+	node: AndroidNodeDescription | null;
+	/** The node the helper acted on, described before the action. */
+	requested: AndroidNodeDescription | null;
+};
 
 type AndroidAxResponse = {
 	ready?: boolean;
@@ -31,6 +77,9 @@ type AndroidAxResponse = {
 	ok?: boolean;
 	elapsedMs?: number;
 	xml?: string;
+	node?: AndroidNodeDescription | null;
+	requested?: AndroidNodeDescription | null;
+	performed?: boolean;
 	error?: string;
 };
 
@@ -78,8 +127,8 @@ export function subscribeAndroidAxChanges(
 	};
 }
 
-type PendingSnapshot = {
-	resolve(xml: string): void;
+type PendingRequest = {
+	resolve(response: AndroidAxResponse): void;
 	reject(error: Error): void;
 	timer: ReturnType<typeof setTimeout>;
 };
@@ -154,12 +203,43 @@ export function androidAxRequestLine(id: number, mode: AndroidAxMode): string {
 	})}\n`;
 }
 
+export function androidAxPerformLine(
+	id: number,
+	action: AndroidNodeAction,
+	target: AndroidNodeRef,
+	text?: string,
+): string {
+	return `${JSON.stringify({
+		id,
+		op: "perform",
+		action,
+		node: target.node,
+		...(target.resourceId ? { resourceId: target.resourceId } : {}),
+		...(target.className ? { class: target.className } : {}),
+		windowId: target.windowId,
+		sourceId: target.sourceId,
+		...(text === undefined ? {} : { text }),
+	})}\n`;
+}
+
+export function androidAxFocusLine(id: number): string {
+	return `${JSON.stringify({ id, op: "focus" })}\n`;
+}
+
 export function androidAxTouchLine(
 	phase: AndroidAxTouchPhase,
 	x: number,
 	y: number,
 ): string {
 	return `${JSON.stringify({ op: "touch", phase, x, y })}\n`;
+}
+
+export function androidAxKeyLine(
+	id: number,
+	phase: AndroidAxKeyPhase,
+	keycode: number,
+): string {
+	return `${JSON.stringify({ id, op: "key", phase, keycode })}\n`;
 }
 
 export function parseAndroidAxServerLine(line: string): AndroidAxResponse {
@@ -174,31 +254,71 @@ export function parseAndroidAxServerLine(line: string): AndroidAxResponse {
 export class AndroidAxServerClient {
 	private child: ChildProcessWithoutNullStreams | null = null;
 	private startPromise: Promise<void> | null = null;
-	private snapshotInFlight: Promise<string> | null = null;
-	private latestXml: string | null = null;
+	private readonly snapshotsInFlight = new Map<
+		AndroidAxMode,
+		{ generation: number; promise: Promise<string>; key: object }
+	>();
+	private latestSnapshot: { generation: number; xml: string } | null = null;
+	private mutationGeneration = 0;
 	private stdoutBuffer = "";
 	private stderrTail = "";
 	private nextRequestId = 1;
 	private retryNotBefore = 0;
 	private ready: { resolve(): void; reject(error: Error): void } | null = null;
-	private readonly pending = new Map<number, PendingSnapshot>();
+	private readonly pending = new Map<number, PendingRequest>();
 	private closed = false;
 
 	constructor(public readonly serial: string) {}
 
 	snapshot(mode: AndroidAxMode = "fresh"): Promise<string> {
-		if (mode === "latest" && this.latestXml)
-			return Promise.resolve(this.latestXml);
-		// The helper has one UiAutomation worker. Coalesce every request mode so
-		// settled and fresh callers cannot queue overlapping full-tree captures.
-		if (this.snapshotInFlight) return this.snapshotInFlight;
+		const generation = this.mutationGeneration;
+		if (
+			mode === "latest" &&
+			this.latestSnapshot?.generation === generation
+		)
+			return Promise.resolve(this.latestSnapshot.xml);
+		const compatible = this.snapshotsInFlight.get(mode);
+		if (compatible?.generation === generation) return compatible.promise;
 
-		const capture = this.requestSnapshot(mode);
-		const inFlight = capture.finally(() => {
-			if (this.snapshotInFlight === inFlight) this.snapshotInFlight = null;
-		});
-		this.snapshotInFlight = inFlight;
-		return inFlight;
+		const key = {};
+		const promise = (async () => {
+			try {
+				const xml = await this.requestSnapshot(mode);
+				if (this.mutationGeneration === generation)
+					this.latestSnapshot = { generation, xml };
+				return xml;
+			} finally {
+				if (this.snapshotsInFlight.get(mode)?.key === key)
+					this.snapshotsInFlight.delete(mode);
+			}
+		})();
+		this.snapshotsInFlight.set(mode, { generation, promise, key });
+		return promise;
+	}
+
+	markMutation(): void {
+		this.mutationGeneration += 1;
+		this.latestSnapshot = null;
+	}
+
+	async perform(
+		action: AndroidNodeAction,
+		target: AndroidNodeRef,
+		text?: string,
+	): Promise<AndroidNodeResult> {
+		const response = await this.request((id) =>
+			androidAxPerformLine(id, action, target, text),
+		);
+		return {
+			performed: response.performed === true,
+			node: response.node ?? null,
+			requested: response.requested ?? null,
+		};
+	}
+
+	async findFocus(): Promise<AndroidNodeDescription | null> {
+		const response = await this.request(androidAxFocusLine);
+		return response.node ?? null;
 	}
 
 	async warm(): Promise<void> {
@@ -224,6 +344,13 @@ export class AndroidAxServerClient {
 		});
 	}
 
+	async key(phase: AndroidAxKeyPhase, keycode: number): Promise<void> {
+		await this.request(
+			(id) => androidAxKeyLine(id, phase, keycode),
+			"key input",
+		);
+	}
+
 	close(): void {
 		if (this.closed) return;
 		this.closed = true;
@@ -235,11 +362,28 @@ export class AndroidAxServerClient {
 		this.startPromise = null;
 		if (child) {
 			child.stdin.end();
-			child.kill();
+			const timer = setTimeout(() => {
+				if (child.exitCode === null && child.signalCode === null) child.kill();
+			}, 250);
+			timer.unref();
 		}
 	}
 
 	private async requestSnapshot(mode: AndroidAxMode): Promise<string> {
+		const response = await this.request(
+			(id) => androidAxRequestLine(id, mode),
+			`${mode} snapshot`,
+		);
+		if (typeof response.xml !== "string")
+			throw new Error("Android AX snapshot returned no tree");
+		return response.xml;
+	}
+
+	/** One request, one answer. The helper answers every id it accepts. */
+	private async request(
+		line: (id: number) => string,
+		what = "request",
+	): Promise<AndroidAxResponse> {
 		await this.ensureStarted();
 		const child = this.child;
 		if (!child || child.killed || !child.stdin.writable) {
@@ -247,14 +391,14 @@ export class AndroidAxServerClient {
 		}
 
 		const id = this.nextRequestId++;
-		return new Promise<string>((resolvePromise, reject) => {
+		return new Promise<AndroidAxResponse>((resolvePromise, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
-				reject(new Error(`Android AX ${mode} snapshot timed out`));
+				reject(new Error(`Android AX ${what} timed out`));
 				this.failChild(new Error("Android AX server stopped responding"));
 			}, SNAPSHOT_TIMEOUT_MS);
 			this.pending.set(id, { resolve: resolvePromise, reject, timer });
-			child.stdin.write(androidAxRequestLine(id, mode), (error) => {
+			child.stdin.write(line(id), (error) => {
 				if (!error) return;
 				const pending = this.pending.get(id);
 				if (!pending) return;
@@ -393,14 +537,11 @@ export class AndroidAxServerClient {
 			if (!pending) continue;
 			clearTimeout(pending.timer);
 			this.pending.delete(response.id!);
-			if (response.ok && typeof response.xml === "string") {
-				this.latestXml = response.xml;
-				pending.resolve(response.xml);
-			} else {
+			if (response.ok) pending.resolve(response);
+			else
 				pending.reject(
-					new Error(response.error || "Android AX snapshot failed"),
+					new Error(response.error || "Android AX request failed"),
 				);
-			}
 		}
 	}
 
@@ -440,7 +581,14 @@ export class AndroidAxServerClient {
 
 type AndroidAxClient = Pick<
 	AndroidAxServerClient,
-	"snapshot" | "warm" | "touch" | "close"
+	| "snapshot"
+	| "warm"
+	| "touch"
+	| "key"
+	| "perform"
+	| "findFocus"
+	| "markMutation"
+	| "close"
 >;
 
 class AndroidAxServerRegistry {
@@ -477,6 +625,27 @@ class AndroidAxServerRegistry {
 		return this.get(serial).touch(phase, x, y);
 	}
 
+	key(serial: string, phase: AndroidAxKeyPhase, keycode: number): Promise<void> {
+		return this.get(serial).key(phase, keycode);
+	}
+
+	perform(
+		serial: string,
+		action: AndroidNodeAction,
+		target: AndroidNodeRef,
+		text?: string,
+	): Promise<AndroidNodeResult> {
+		return this.get(serial).perform(action, target, text);
+	}
+
+	findFocus(serial: string): Promise<AndroidNodeDescription | null> {
+		return this.get(serial).findFocus();
+	}
+
+	markMutation(serial: string): void {
+		this.get(serial).markMutation();
+	}
+
 	close(serial: string): void {
 		const client = this.clients.get(serial);
 		if (!client) return;
@@ -499,6 +668,21 @@ export type AndroidAxServersService = {
 		x: number,
 		y: number,
 	): Effect.Effect<void, unknown>;
+	key(
+		serial: string,
+		phase: AndroidAxKeyPhase,
+		keycode: number,
+	): Effect.Effect<void, unknown>;
+	perform(
+		serial: string,
+		action: AndroidNodeAction,
+		target: AndroidNodeRef,
+		text?: string,
+	): Effect.Effect<AndroidNodeResult, unknown>;
+	findFocus(
+		serial: string,
+	): Effect.Effect<AndroidNodeDescription | null, unknown>;
+	markMutation(serial: string): Effect.Effect<void>;
 	close(serial: string): Effect.Effect<void>;
 };
 export class AndroidAxServers extends Context.Tag(
@@ -531,6 +715,23 @@ export const androidAxServersLayer = (
 							try: () => registry.touch(serial, phase, x, y),
 							catch: (error) => error,
 						}),
+					key: (serial, phase, keycode) =>
+						Effect.tryPromise({
+							try: () => registry.key(serial, phase, keycode),
+							catch: (error) => error,
+						}),
+					perform: (serial, action, target, text) =>
+						Effect.tryPromise({
+							try: () => registry.perform(serial, action, target, text),
+							catch: (error) => error,
+						}),
+					findFocus: (serial) =>
+						Effect.tryPromise({
+							try: () => registry.findFocus(serial),
+							catch: (error) => error,
+						}),
+					markMutation: (serial) =>
+						Effect.sync(() => registry.markMutation(serial)),
 					close: (serial) => Effect.sync(() => registry.close(serial)),
 				}),
 			),

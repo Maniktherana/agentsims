@@ -13,11 +13,14 @@ import android.content.res.Resources;
 import android.util.DisplayMetrics;
 import android.util.Base64;
 import java.io.ByteArrayOutputStream;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -30,8 +33,10 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -39,6 +44,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
@@ -50,13 +56,12 @@ import org.json.JSONObject;
  * normal traversal a few milliseconds instead of seconds.
  */
 public final class Main {
-  private static final int MAX_NODES = Integer.MAX_VALUE;
-  private static final int MAX_DEPTH = 80;
   private static final long SETTLED_IDLE_MS = 100;
   private static final long SETTLED_TIMEOUT_MS = 2000;
   private static final long CHANGE_DEBOUNCE_MS = 12;
   private static final long CHANGE_MAX_LATENCY_MS = 50;
   private static final int MAX_PENDING_SNAPSHOTS = 1;
+  /** Parent steps that a field action reports. A field sits near its layout. */
   private static final int RELEVANT_EVENT_TYPES =
     AccessibilityEvent.TYPE_VIEW_CLICKED |
     AccessibilityEvent.TYPE_VIEW_SELECTED |
@@ -83,6 +88,7 @@ public final class Main {
   private static boolean changeScheduled;
   private static volatile boolean snapshotInProgress;
   private static long touchDownTimeMs;
+  private static final Map<Integer, Long> keyDownTimesMs = new HashMap<>();
 
   private static final Runnable emitPendingChange = new Runnable() {
     @Override
@@ -148,11 +154,21 @@ public final class Main {
           }
           long id = request.getLong("id");
           response.put("id", id);
-          if (!"snapshot".equals(operation)) {
+          if ("key".equals(operation)) {
+            injectKey(request);
+            response.put("ok", true);
+            emit(response);
+            continue;
+          }
+          Runnable work;
+          if ("snapshot".equals(operation)) work = new SnapshotRequest(request, response);
+          else if ("perform".equals(operation) || "focus".equals(operation)) {
+            work = new NodeRequest(request, response);
+          } else {
             throw new IllegalArgumentException("Unsupported operation");
           }
           try {
-            snapshotExecutor.execute(new SnapshotRequest(request, response));
+            snapshotExecutor.execute(work);
           } catch (RejectedExecutionException error) {
             response.put("ok", false);
             response.put("error", "Too many pending snapshot requests");
@@ -215,6 +231,263 @@ public final class Main {
       }
       emit(response);
     }
+  }
+
+  private static final class NodeRequest implements Runnable {
+    private final JSONObject request;
+    private final JSONObject response;
+
+    NodeRequest(JSONObject request, JSONObject response) {
+      this.request = request;
+      this.response = response;
+    }
+
+    @Override
+    public void run() {
+      AccessibilityNodeInfo node = null;
+      try {
+        boolean focusOnly = "focus".equals(request.optString("op"));
+        if (focusOnly) {
+          node = automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+          response.put("ok", true);
+          response.put("node", node == null ? JSONObject.NULL : describeNode(node));
+        } else {
+          String reference = request.optString("node");
+          node = resolveExpectedNode(reference, request);
+          String action = request.optString("action");
+          NodeIdentity identity = NodeIdentity.fromRequest(request);
+          if (identity == null || !identity.matches(node)) throw changedField();
+          JSONObject requested = describeNode(node);
+          boolean performed =
+            ("focus".equals(action) && hasInputFocus(identity)) ||
+            perform(node, request);
+          node.recycle();
+          node = null;
+          // A refused action is a proven no-op. Report it, so that the host can
+          // tap the field once instead of failing the text operation.
+          node = automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+          response.put("ok", true);
+          response.put("performed", performed);
+          // The host compares both nodes. Android can focus the editable node
+          // inside the request, or the layout around it.
+          response.put("requested", requested);
+          response.put("node", node == null ? JSONObject.NULL : describeNode(node));
+        }
+      } catch (Throwable error) {
+        try {
+          response.put("ok", false);
+          response.put("error", errorMessage(error));
+        } catch (Throwable ignored) {}
+      } finally {
+        if (node != null) node.recycle();
+      }
+      emit(response);
+    }
+  }
+
+  private static AccessibilityNodeInfo resolveExpectedNode(
+    String reference,
+    JSONObject request
+  ) {
+    AccessibilityNodeInfo node = resolveNode(reference);
+    if (node == null) throw changedField();
+    NodeIdentity expected = NodeIdentity.fromRequest(request);
+    if (
+      expected == null ||
+      !expected.matches(node) ||
+      (request.has("resourceId") &&
+        !request.optString("resourceId").equals(text(node.getViewIdResourceName()))) ||
+      (request.has("class") &&
+        !request.optString("class").equals(text(node.getClassName())))
+    ) {
+      node.recycle();
+      throw changedField();
+    }
+    return node;
+  }
+
+  private static boolean hasInputFocus(NodeIdentity expected) {
+    AccessibilityNodeInfo focused = automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+    if (focused == null) return false;
+    try {
+      return expected.matches(focused);
+    } finally {
+      focused.recycle();
+    }
+  }
+
+  private static IllegalStateException changedField() {
+    return new IllegalStateException("Android field changed. Run observe again");
+  }
+
+  private static boolean perform(AccessibilityNodeInfo node, JSONObject request) {
+    String action = request.optString("action");
+    if ("set-text".equals(action)) {
+      Bundle arguments = new Bundle();
+      arguments.putCharSequence(
+        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+        request.optString("text", "")
+      );
+      return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
+    }
+    if ("focus".equals(action)) return node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+    throw new IllegalArgumentException("Unsupported node action");
+  }
+
+  private static JSONObject describeNode(AccessibilityNodeInfo node) throws Exception {
+    Rect bounds = new Rect();
+    node.getBoundsInScreen(bounds);
+    return new JSONObject()
+      .put("class", text(node.getClassName()))
+      .put("resourceId", text(node.getViewIdResourceName()))
+      .put("text", text(node.getText()))
+      .put("contentDesc", text(node.getContentDescription()))
+      .put("editable", node.isEditable())
+      .put("hintText", showsHintText(node))
+      .put("password", node.isPassword())
+      .put("focused", node.isFocused())
+      .put("enabled", node.isEnabled())
+      .put("windowId", node.getWindowId())
+      .put("sourceId", node.hashCode())
+      .put("selectionStart", node.getTextSelectionStart())
+      .put("selectionEnd", node.getTextSelectionEnd())
+      .put("bounds", "[" + bounds.left + "," + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]")
+      .put("ancestors", ancestorChain(node));
+  }
+
+  /**
+   * The parent chain as identities, direct parent first, up to the root.
+   * Android can focus a node inside or around the one the host named, so the
+   * host decides relationship from these identities. A visited set guards
+   * against a cyclic parent link.
+   */
+  private static JSONArray ancestorChain(AccessibilityNodeInfo node) throws Exception {
+    JSONArray chain = new JSONArray();
+    Set<Long> visited = new HashSet<>();
+    visited.add(identityKey(node));
+    AccessibilityNodeInfo current = node.getParent();
+    while (current != null && visited.add(identityKey(current))) {
+      chain.put(
+        new JSONObject()
+          .put("windowId", current.getWindowId())
+          .put("sourceId", current.hashCode())
+      );
+      AccessibilityNodeInfo parent = current.getParent();
+      current.recycle();
+      current = parent;
+    }
+    if (current != null) current.recycle();
+    return chain;
+  }
+
+  private static long identityKey(AccessibilityNodeInfo node) {
+    return (((long) node.getWindowId()) << 32) ^ (node.hashCode() & 0xffffffffL);
+  }
+
+  private static final class NodeIdentity {
+    final int windowId;
+    final int sourceId;
+
+    NodeIdentity(int windowId, int sourceId) {
+      this.windowId = windowId;
+      this.sourceId = sourceId;
+    }
+
+    static NodeIdentity fromRequest(JSONObject request) {
+      if (!request.has("windowId") || !request.has("sourceId")) {
+        return null;
+      }
+      return new NodeIdentity(
+        request.optInt("windowId"),
+        request.optInt("sourceId")
+      );
+    }
+
+    boolean matches(AccessibilityNodeInfo node) {
+      return
+        windowId == node.getWindowId() &&
+        sourceId == node.hashCode();
+    }
+  }
+
+  /** An empty field reports its hint as text from API 26. That is not a value. */
+  private static boolean showsHintText(AccessibilityNodeInfo node) {
+    return android.os.Build.VERSION.SDK_INT >= 26 && node.isShowingHintText();
+  }
+
+  private static String text(CharSequence value) {
+    return value == null ? "" : value.toString();
+  }
+
+  /** `focus`, or the dotted path of the snapshot that the host read. */
+  private static AccessibilityNodeInfo resolveNode(String reference) {
+    if ("focus".equals(reference)) {
+      return automation.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+    }
+    String[] parts = reference.split("\\.");
+    int index;
+    try {
+      index = Integer.parseInt(parts[0]);
+    } catch (NumberFormatException error) {
+      throw new IllegalArgumentException("Node must be a snapshot path or focus");
+    }
+    List<RootWindow> roots = collectRoots();
+    AccessibilityNodeInfo node = null;
+    boolean includeInvisible = true;
+    try {
+      if (!roots.isEmpty()) {
+        if (index < 0 || index >= roots.size()) return null;
+        RootWindow window = roots.get(index);
+        node = AccessibilityNodeInfo.obtain(window.root);
+        includeInvisible = window.includeInvisible;
+      }
+    } finally {
+      for (RootWindow window : roots) window.root.recycle();
+    }
+    if (node == null) {
+      if (index != 0) return null;
+      node = automation.getRootInActiveWindow();
+    }
+    List<AccessibilityNodeInfo> parents = new ArrayList<>();
+    Set<AccessibilityNodeInfo> ancestors = new HashSet<>();
+    try {
+      for (int depth = 1; node != null && depth < parts.length; depth++) {
+        parents.add(node);
+        ancestors.add(node);
+        node = childAt(node, parts[depth], includeInvisible, ancestors);
+      }
+    } finally {
+      for (AccessibilityNodeInfo parent : parents) parent.recycle();
+    }
+    return node;
+  }
+
+  private static AccessibilityNodeInfo childAt(
+    AccessibilityNodeInfo node,
+    String part,
+    boolean includeInvisible,
+    Set<AccessibilityNodeInfo> ancestors
+  ) {
+    int wanted;
+    try {
+      wanted = Integer.parseInt(part);
+    } catch (NumberFormatException error) {
+      throw new IllegalArgumentException("Node must be a snapshot path or focus");
+    }
+    int emitted = 0;
+    int childCount = node.getChildCount();
+    for (int index = 0; index < childCount; index++) {
+      AccessibilityNodeInfo child = node.getChild(index);
+      if (child == null) continue;
+      if (ancestors.contains(child) || !emits(child, includeInvisible)) {
+        child.recycle();
+        continue;
+      }
+      if (emitted == wanted) return child;
+      emitted++;
+      child.recycle();
+    }
+    return null;
   }
 
   private static JSONObject appMetadata(String packageName) throws Exception {
@@ -313,6 +586,7 @@ public final class Main {
     }
     if (automation != null) {
       try {
+        releaseHeldKeys();
         automation.setOnAccessibilityEventListener(null);
         Method disconnect = UiAutomation.class.getDeclaredMethod("disconnect");
         disconnect.setAccessible(true);
@@ -398,6 +672,91 @@ public final class Main {
     if (!accepted) throw new IllegalStateException("Android rejected the touch event");
   }
 
+  private static void injectKey(JSONObject request) throws Exception {
+    String phase = request.getString("phase");
+    int action;
+    if ("down".equals(phase)) action = KeyEvent.ACTION_DOWN;
+    else if ("up".equals(phase)) action = KeyEvent.ACTION_UP;
+    else throw new IllegalArgumentException("Unsupported key phase");
+    injectKeyEvent(action, request.getInt("keycode"));
+  }
+
+  private static void injectKeyEvent(int action, int keycode) {
+    long eventTimeMs = SystemClock.uptimeMillis();
+    Long heldDownTime = keyDownTimesMs.get(keycode);
+    boolean newlyHeld = action == KeyEvent.ACTION_DOWN && heldDownTime == null;
+    if (newlyHeld) {
+      heldDownTime = eventTimeMs;
+      keyDownTimesMs.put(keycode, heldDownTime);
+    }
+    if (heldDownTime == null) heldDownTime = eventTimeMs;
+
+    int metaState = heldModifierMetaState();
+    KeyEvent event = new KeyEvent(
+      heldDownTime,
+      eventTimeMs,
+      action,
+      keycode,
+      0,
+      KeyEvent.normalizeMetaState(metaState),
+      KeyCharacterMap.VIRTUAL_KEYBOARD,
+      0,
+      KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY,
+      InputDevice.SOURCE_KEYBOARD
+    );
+    boolean accepted = automation.injectInputEvent(event, false);
+    if (!accepted) {
+      if (newlyHeld) keyDownTimesMs.remove(keycode);
+      throw new IllegalStateException("Android rejected the key event");
+    }
+    if (action == KeyEvent.ACTION_UP) keyDownTimesMs.remove(keycode);
+  }
+
+  private static int heldModifierMetaState() {
+    int state = 0;
+    for (int keycode : keyDownTimesMs.keySet()) {
+      switch (keycode) {
+        case KeyEvent.KEYCODE_SHIFT_LEFT:
+          state |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_SHIFT_RIGHT:
+          state |= KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_RIGHT_ON;
+          break;
+        case KeyEvent.KEYCODE_CTRL_LEFT:
+          state |= KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_CTRL_RIGHT:
+          state |= KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_RIGHT_ON;
+          break;
+        case KeyEvent.KEYCODE_ALT_LEFT:
+          state |= KeyEvent.META_ALT_ON | KeyEvent.META_ALT_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_ALT_RIGHT:
+          state |= KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON;
+          break;
+        case KeyEvent.KEYCODE_META_LEFT:
+          state |= KeyEvent.META_META_ON | KeyEvent.META_META_LEFT_ON;
+          break;
+        case KeyEvent.KEYCODE_META_RIGHT:
+          state |= KeyEvent.META_META_ON | KeyEvent.META_META_RIGHT_ON;
+          break;
+        default:
+          break;
+      }
+    }
+    return state;
+  }
+
+  private static void releaseHeldKeys() {
+    List<Integer> keys = new ArrayList<>(keyDownTimesMs.keySet());
+    for (int keycode : keys) {
+      try {
+        injectKeyEvent(KeyEvent.ACTION_UP, keycode);
+      } catch (Throwable ignored) {}
+    }
+    keyDownTimesMs.clear();
+  }
+
   private static String snapshotXml() {
     // Immediately after a UiAutomation connection is established Android can
     // transiently report neither windows nor an active root. Retry only that
@@ -415,8 +774,7 @@ public final class Main {
     StringBuilder xml = new StringBuilder(64 * 1024);
     xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
     xml.append("<hierarchy rotation=\"0\">");
-    int[] count = new int[] {0};
-    int roots = appendInteractiveWindows(xml, count);
+    int roots = appendInteractiveWindows(xml);
     if (roots == 0) {
       AccessibilityNodeInfo root = automation.getRootInActiveWindow();
       if (root == null) return null;
@@ -424,7 +782,13 @@ public final class Main {
         // A single-window Compose/RN sheet can mark the underlying app nodes
         // invisible without removing them. The helper returns the complete raw
         // hierarchy; browser hit-target eligibility is a UI concern.
-        appendNode(xml, root, 0, count, true, null);
+        appendNode(
+          xml,
+          root,
+          true,
+          null,
+          new HashSet<AccessibilityNodeInfo>()
+        );
       } finally {
         root.recycle();
       }
@@ -433,9 +797,30 @@ public final class Main {
     return xml.toString();
   }
 
-  private static int appendInteractiveWindows(StringBuilder xml, int[] count) {
+  private static int appendInteractiveWindows(StringBuilder xml) {
+    List<RootWindow> roots = collectRoots();
+    int appended = 0;
+    try {
+      for (RootWindow window : roots) {
+        if (appendNode(
+          xml,
+          window.root,
+          window.includeInvisible,
+          window.metadata,
+          new HashSet<AccessibilityNodeInfo>()
+        )) appended++;
+      }
+    } finally {
+      for (RootWindow window : roots) window.root.recycle();
+    }
+    return appended;
+  }
+
+  /** The window order that gives every node its snapshot path. */
+  private static List<RootWindow> collectRoots() {
+    List<RootWindow> roots = new ArrayList<>();
     List<AccessibilityWindowInfo> windows = automation.getWindows();
-    if (windows == null || windows.isEmpty()) return 0;
+    if (windows == null || windows.isEmpty()) return roots;
 
     List<AccessibilityWindowInfo> ordered = new ArrayList<>(windows);
     Collections.sort(ordered, new Comparator<AccessibilityWindowInfo>() {
@@ -446,30 +831,31 @@ public final class Main {
       }
     });
 
-    Set<String> rootsSeen = new HashSet<>();
-    int roots = 0;
+    Set<AccessibilityNodeInfo> rootsSeen = new HashSet<>();
     try {
       for (AccessibilityWindowInfo window : ordered) {
-        if (count[0] >= MAX_NODES) break;
         AccessibilityNodeInfo root = window.getRoot();
         if (root == null) continue;
-        try {
-          if (!shouldIncludeWindow(window, root)) continue;
-          String signature = root.getWindowId() + ":" + root.hashCode();
-          if (!rootsSeen.add(signature)) continue;
-          WindowMetadata metadata = new WindowMetadata(window);
-          // Preserve inactive base windows and invisible descendants within an
-          // active app window. RN/Compose sheets frequently hide the underlying
-          // semantics in-place; filtering here produced the 10-node
-          // FrameLayout-only regression. Consumers retain visible-to-user and
-          // decide which nodes are eligible for hover/hit testing themselves.
-          boolean includeInvisible =
-            window.getType() == AccessibilityWindowInfo.TYPE_APPLICATION;
-          appendNode(xml, root, 0, count, includeInvisible, metadata);
-          roots++;
-        } finally {
+        boolean includeInvisible =
+          window.getType() == AccessibilityWindowInfo.TYPE_APPLICATION;
+        if (
+          !shouldIncludeWindow(window, root) ||
+          !rootsSeen.add(root) ||
+          !emits(root, includeInvisible)
+        ) {
           root.recycle();
+          continue;
         }
+        // Preserve inactive base windows and invisible descendants within an
+        // active app window. RN/Compose sheets frequently hide the underlying
+        // semantics in-place; filtering here produced the 10-node
+        // FrameLayout-only regression. Consumers retain visible-to-user and
+        // decide which nodes are eligible for hover/hit testing themselves.
+        roots.add(new RootWindow(
+          root,
+          new WindowMetadata(window),
+          includeInvisible
+        ));
       }
     } finally {
       for (AccessibilityWindowInfo window : windows) window.recycle();
@@ -493,73 +879,97 @@ public final class Main {
     return !"com.android.systemui".equals(name) && !name.contains("inputmethod");
   }
 
-  private static void appendNode(
+  private static boolean appendNode(
     StringBuilder xml,
     AccessibilityNodeInfo node,
-    int depth,
-    int[] count,
     boolean includeInvisible,
-    WindowMetadata window
+    WindowMetadata window,
+    Set<AccessibilityNodeInfo> ancestors
   ) {
-    if (
-      node == null ||
-      depth > MAX_DEPTH ||
-      count[0] >= MAX_NODES ||
-      (!includeInvisible && !node.isVisibleToUser())
-    ) return;
-    count[0]++;
-    Rect bounds = new Rect();
-    node.getBoundsInScreen(bounds);
-
-    xml.append("<node");
-    if (depth == 0 && window != null) {
-      attribute(xml, "window-id", window.id);
-      attribute(xml, "window-layer", window.layer);
-      attribute(xml, "window-type", window.type);
-      attribute(xml, "window-active", window.active);
-      attribute(xml, "window-focused", window.focused);
-    }
-    attribute(xml, "text", node.getText());
-    attribute(xml, "resource-id", node.getViewIdResourceName());
-    attribute(xml, "class", node.getClassName());
-    attribute(xml, "package", node.getPackageName());
-    attribute(xml, "content-desc", node.getContentDescription());
-    attribute(xml, "checkable", node.isCheckable());
-    attribute(xml, "checked", node.isChecked());
-    attribute(xml, "clickable", node.isClickable());
-    attribute(xml, "enabled", node.isEnabled());
-    attribute(xml, "focusable", node.isFocusable());
-    attribute(xml, "focused", node.isFocused());
-    attribute(xml, "scrollable", node.isScrollable());
-    attribute(xml, "long-clickable", node.isLongClickable());
-    attribute(xml, "password", node.isPassword());
-    attribute(xml, "selected", node.isSelected());
-    attribute(xml, "visible-to-user", node.isVisibleToUser());
-    attribute(xml, "bounds", "[" + bounds.left + "," + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]");
-    xml.append('>');
-
-    int childCount = node.getChildCount();
-    for (int index = 0; index < childCount && count[0] < MAX_NODES; index++) {
-      AccessibilityNodeInfo child = node.getChild(index);
-      if (child == null) continue;
-      try {
-        appendNode(xml, child, depth + 1, count, includeInvisible, null);
-      } finally {
-        child.recycle();
+    if (!emits(node, includeInvisible) || !ancestors.add(node)) return false;
+    try {
+      Rect bounds = new Rect();
+      node.getBoundsInScreen(bounds);
+      xml.append("<node");
+      attribute(xml, "window-id", node.getWindowId());
+      if (window != null) {
+        attribute(xml, "window-layer", window.layer);
+        attribute(xml, "window-type", window.type);
+        attribute(xml, "window-active", window.active);
+        attribute(xml, "window-focused", window.focused);
       }
+      attribute(xml, "text", node.getText());
+      attribute(xml, "resource-id", node.getViewIdResourceName());
+      attribute(xml, "source-id", node.hashCode());
+      attribute(xml, "class", node.getClassName());
+      attribute(xml, "package", node.getPackageName());
+      attribute(xml, "content-desc", node.getContentDescription());
+      attribute(xml, "checkable", node.isCheckable());
+      attribute(xml, "checked", node.isChecked());
+      attribute(xml, "clickable", node.isClickable());
+      attribute(xml, "enabled", node.isEnabled());
+      attribute(xml, "focusable", node.isFocusable());
+      attribute(xml, "focused", node.isFocused());
+      attribute(xml, "scrollable", node.isScrollable());
+      attribute(xml, "long-clickable", node.isLongClickable());
+      attribute(xml, "password", node.isPassword());
+      attribute(xml, "hint-text", showsHintText(node));
+      attribute(xml, "editable", node.isEditable());
+      attribute(xml, "selected", node.isSelected());
+      attribute(xml, "visible-to-user", node.isVisibleToUser());
+      attribute(xml, "bounds", "[" + bounds.left + "," + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]");
+      xml.append('>');
+
+      int childCount = node.getChildCount();
+      for (int index = 0; index < childCount; index++) {
+        AccessibilityNodeInfo child = node.getChild(index);
+        if (child == null) continue;
+        try {
+          appendNode(
+            xml,
+            child,
+            includeInvisible,
+            null,
+            ancestors
+          );
+        } finally {
+          child.recycle();
+        }
+      }
+      xml.append("</node>");
+      return true;
+    } finally {
+      ancestors.remove(node);
     }
-    xml.append("</node>");
+  }
+
+  /** One rule for which nodes the snapshot prints and which paths resolve. */
+  private static boolean emits(
+    AccessibilityNodeInfo node,
+    boolean includeInvisible
+  ) {
+    return node != null && (includeInvisible || node.isVisibleToUser());
+  }
+
+  private static final class RootWindow {
+    final AccessibilityNodeInfo root;
+    final WindowMetadata metadata;
+    final boolean includeInvisible;
+
+    RootWindow(AccessibilityNodeInfo root, WindowMetadata metadata, boolean includeInvisible) {
+      this.root = root;
+      this.metadata = metadata;
+      this.includeInvisible = includeInvisible;
+    }
   }
 
   private static final class WindowMetadata {
-    final int id;
     final int layer;
     final int type;
     final boolean active;
     final boolean focused;
 
     WindowMetadata(AccessibilityWindowInfo window) {
-      id = window.getId();
       layer = window.getLayer();
       type = window.getType();
       active = window.isActive();

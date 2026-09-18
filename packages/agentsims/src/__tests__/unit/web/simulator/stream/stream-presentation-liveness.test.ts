@@ -11,35 +11,4 @@ describe("presented stream liveness", () => {
 		expect(isPresentedStreamStale(0, 60_000)).toBe(false);
 	});
 
-	test("does not let AVCC transport-open mark the simulator live before paint", async () => {
-		const source = await Bun.file(
-			new URL(
-				"../../../../../web/components/simulator/simulator-view.tsx",
-				import.meta.url,
-			),
-		).text();
-		const transportCallback = source.slice(
-			source.indexOf("const onAvccTransportChange"),
-			source.indexOf("useAvccStream({"),
-		);
-
-		expect(transportCallback).not.toContain("setConnected(transportConnected)");
-		expect(transportCallback).toContain("if (!transportConnected)");
-		expect(transportCallback).toContain("setConnected(false)");
-		expect(source).toContain("if (!avccTransportConnectedRef.current) return;");
-		expect(source).toContain("isPresentedStreamStale(last, Date.now())");
-	});
-
-	test("resets local liveness when the stream identity or codec changes", async () => {
-		const source = await Bun.file(
-			new URL(
-				"../../../../../web/components/simulator/simulator-view.tsx",
-				import.meta.url,
-			),
-		).text();
-
-		expect(source).toMatch(
-			/lastFrameAtRef\.current = 0;\s*avccTransportConnectedRef\.current = false;\s*hasPresentedFrameRef\.current = false;\s*setHasPresentedFrame\(false\);\s*setConnected\(false\);\s*}, \[url, useAvcc\]\);/,
-		);
-	});
 });

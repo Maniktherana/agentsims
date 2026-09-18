@@ -57,6 +57,22 @@ export function allPermissionNames(): string[] {
 	return ["notifications", "location", ...Object.keys(TCC_SERVICES)];
 }
 
+function permissionValueList(values: string[]): string {
+	if (values.length === 1) return values[0]!;
+	return `${values.slice(0, -1).join(", ")}, or ${values.at(-1)}`;
+}
+
+export function permissionValueError(
+	permission: string,
+	value: string,
+): string | null {
+	const spec = resolvePermission(permission);
+	if (!spec) return `Unknown permission: ${permission}.`;
+	if (!spec.values) return `${permission} does not take --value.`;
+	if (spec.values.includes(value)) return null;
+	return `Invalid --value for ${permission}: ${value}. Use ${permissionValueList(spec.values)}.`;
+}
+
 // ─── Simulator paths ───
 
 function simLibraryDir(udid: string): string {
@@ -423,8 +439,9 @@ export async function setPermission(
 ): Promise<void> {
 	const spec = resolvePermission(permission);
 	if (!spec) throw new Error(`Unknown permission: ${permission}`);
-	if (value !== undefined && !spec.values?.includes(value)) {
-		throw new Error(`Invalid value for ${permission}: ${value}`);
+	if (value !== undefined) {
+		const error = permissionValueError(permission, value);
+		if (error) throw new Error(error);
 	}
 	await applyOne(udid, verb, permission, value, bundleId);
 }

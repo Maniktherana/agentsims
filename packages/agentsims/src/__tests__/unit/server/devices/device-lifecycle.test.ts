@@ -159,6 +159,7 @@ describe("device lifecycle reconciliation", () => {
 		const lifecycle = new DeviceLifecycle(
 			async () => ({ error: null, stdout: "", stderr: "" }),
 			{
+				waitForAndroidBoot: async () => ({ ready: true }),
 				getAndroidSession: async (serial) => {
 					calls.push(`session:${serial}`);
 					return {
@@ -182,6 +183,90 @@ describe("device lifecycle reconciliation", () => {
 			"transport:emulator-5554",
 			"state:android:emulator-5554",
 		]);
+	});
+
+	test("waits for emulator readiness before starting transport once", async () => {
+		let finishReadiness!: () => void;
+		const ready = new Promise<void>((resolve) => {
+			finishReadiness = resolve;
+		});
+		let transportStarts = 0;
+		const lifecycle = new DeviceLifecycle(
+			async () => ({ error: null, stdout: "", stderr: "" }),
+			{
+				waitForAndroidBoot: async () => {
+					await ready;
+					return { ready: true };
+				},
+				getAndroidSession: async () => ({
+					startTransport: async () => {
+						transportStarts += 1;
+					},
+				}),
+				writeDeviceState: async () => {},
+			},
+		);
+
+		const start = lifecycle.start("android:emulator-5554", 3200, "/");
+		await Promise.resolve();
+		expect(transportStarts).toBe(0);
+
+		finishReadiness();
+		expect(await start).toEqual({
+			error: null,
+			device: "android:emulator-5554",
+		});
+		expect(transportStarts).toBe(1);
+	});
+
+	test("does not start transport when emulator readiness permanently fails", async () => {
+		let sessions = 0;
+		const lifecycle = new DeviceLifecycle(
+			async () => ({ error: null, stdout: "", stderr: "" }),
+			{
+				waitForAndroidBoot: async () => ({
+					ready: false,
+					error: "Service window: not found",
+				}),
+				getAndroidSession: async () => {
+					sessions += 1;
+					return { startTransport: async () => {} };
+				},
+			},
+		);
+
+		expect(await lifecycle.start("android:emulator-5554", 3200, "/")).toEqual(
+			{
+				error:
+					"Android device emulator-5554 did not become ready: Service window: not found",
+				device: "android:emulator-5554",
+			},
+		);
+		expect(sessions).toBe(0);
+	});
+
+	test("preserves an emulator transport failure without retrying it", async () => {
+		let transportStarts = 0;
+		const lifecycle = new DeviceLifecycle(
+			async () => ({ error: null, stdout: "", stderr: "" }),
+			{
+				waitForAndroidBoot: async () => ({ ready: true }),
+				getAndroidSession: async () => ({
+					startTransport: async () => {
+						transportStarts += 1;
+						throw new Error("controller socket closed during handshake");
+					},
+				}),
+			},
+		);
+
+		expect(await lifecycle.start("android:emulator-5554", 3200, "/")).toEqual(
+			{
+				error: "controller socket closed during handshake",
+				device: "android:emulator-5554",
+			},
+		);
+		expect(transportStarts).toBe(1);
 	});
 
 	test("starts a physical Android device through the same session path", async () => {
