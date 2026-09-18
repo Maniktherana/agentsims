@@ -13,6 +13,7 @@ it observed, and you decide what that means.
 - [scroll](#scroll)
 - [type and fill](#type-and-fill)
 - [press and rotate](#press-and-rotate)
+- [Watch while the action runs](#watch-while-the-action-runs)
 - [run: label-addressed sequences](#run-label-addressed-sequences)
 - [Conditional images](#conditional-images)
 - [Read the result](#read-the-result)
@@ -228,6 +229,26 @@ no public Back command; use the app's visible Back control.
 Orientations are `portrait`, `portrait_upside_down`, `landscape_left`, and
 `landscape_right`. A rotation is an accepted mutation, so it invalidates earlier
 refs and captures. Read the post-action state before the next target.
+
+## Watch while the action runs
+
+```sh
+agentsims tap "Play" --watch 9000 --every 250 --region @e12 -d "$DEVICE"
+agentsims app launch com.example.player --watch 6000 --samples 24 -d "$DEVICE"
+```
+
+`tap`, `long-press`, `swipe`, `drag`, `press`, and `app launch` take the same
+timed-observation options as `observe`: `--watch <ms>`, `--samples <n>` or
+`--every <ms>`, `--region <@eN|"label"|x,y,w,h>`, and `--keep-frames`. Sampling
+starts the moment the input is dispatched, inside the same command, before the
+post-action read, so it catches content that begins on the action itself: a video
+that starts playing when you tap Play, an animation, a toast that appears and
+goes. A separate `observe --watch` afterwards is a second command that starts
+late and misses the beginning. The action result then carries the `sheet` lines
+and their paths, and the `frame` lines, alongside its usual dispatch,
+verification, accessibility, and image evidence. Read the sheets in order; frame
+indices are global across them. The options and the output are documented in
+[observe.md](observe.md#timed-observation).
 
 ## run: label-addressed sequences
 

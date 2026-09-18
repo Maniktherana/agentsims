@@ -20,7 +20,8 @@ implements the Agent Skills standard. One `SKILL.md` serves all of them.
   rotation, with the hardware names that each platform accepts.
 - Walk a whole list with `scroll --to-end --collect` before counting anything.
 - Wait for a screen state with `wait`, and sample a changing screen with
-  `observe --watch`, instead of sleeping.
+  `--watch`, instead of sleeping — on the action itself when the content starts
+  on that action.
 - Run a short label-addressed sequence with `run` instead of chaining commands.
 - Install, launch, stop, and remove apps, and read filtered Android logs.
 - Test app permissions on both platforms, camera input, appearance, locale,
@@ -38,7 +39,11 @@ type       fill        press      rotate
 app        permissions camera     doctor
 ```
 
-`observe --watch <ms> [--samples <n>]` writes a contact sheet of timed frames.
+`observe --watch <ms> [--samples <n> | --every <ms>] [--region <@eN|"label"|x,y,w,h>]
+[--keep-frames]` writes contact sheets of timed frames. The same options are on
+`tap`, `long-press`, `swipe`, `drag`, `press` and `app launch`, where sampling
+starts the moment the input is dispatched, so content that begins on the action
+is caught from its first frame.
 `wait --for|--gone <text> | --stable` blocks on a screen state.
 `scroll <down|up|left|right> [--in <target>] [--to-end --collect <selector>]`
 walks a region and returns the deduplicated items it found. `run <file|->`
@@ -120,13 +125,13 @@ build-mobile-apps/
     └── device-control.md           # apps, Android logs, app permissions, camera
 ```
 
-`SKILL.md` stays under 200 lines and holds what every device task needs: the
+`SKILL.md` stays under 210 lines and holds what every device task needs: the
 loop, reading roles and states, points, reading the result, lists, waiting,
-sequences, the command table, recovery, and finishing. The references follow the
-loop. `observe.md` and `input.md` cover the two halves that every device task
-uses, including the coordinate convention and every flag of `scroll`, `wait`,
-`observe --watch` and `run`. `device-control.md` holds the occasional rest. Every
-reference is one level deep from `SKILL.md`.
+sequences, the command table, recovery, app patterns, and finishing. The
+references follow the loop. `observe.md` and `input.md` cover the two halves that
+every device task uses, including the coordinate convention and every flag of
+`scroll`, `wait`, `--watch` and `run`. `device-control.md` holds the occasional
+rest. Every reference is one level deep from `SKILL.md`.
 
 ## Maintenance
 

@@ -13,7 +13,7 @@ decide what to do; the CLI does not choose an action for you.
 - [Read the tree](#read-the-tree)
 - [Search with find](#search-with-find)
 - [Wait for a screen state](#wait-for-a-screen-state)
-- [Watch something that changes](#watch-something-that-changes)
+- [Timed observation](#timed-observation)
 - [When channels disagree](#when-channels-disagree)
 - [iOS 27 limitation](#ios-27-limitation)
 - [React Native source context](#react-native-source-context)
@@ -174,27 +174,62 @@ and exits 1 when the condition never held:
 wait  for="Saved"  satisfied=yes  elapsed=1200ms  polls=3
 ```
 
-## Watch something that changes
+## Timed observation
 
 ```sh
-agentsims observe --watch 8000 --samples 6 -d "$DEVICE"
+agentsims observe --watch 8000 --samples 8 -d "$DEVICE"
+agentsims observe --watch 9000 --every 250 --region @e12 -d "$DEVICE"
+agentsims observe --watch 4000 --every 200 --region 0,420,1080,608 --keep-frames -d "$DEVICE"
 ```
 
-`--watch <ms>` samples the screen over that long, up to 120000 ms, and writes one
-contact-sheet PNG of evenly spaced frames with a digit badge in each cell.
-`--samples <n>` sets the frame count, 1 to 16, and defaults to 4. Use it for
-anything that changes over time: video playback, animation, a timer, a progress
-bar, a splash screen.
+`--watch <ms>` samples the screen over that long, up to 120000 ms, and composites
+the frames into contact sheets. Use it for anything that changes over time: video
+playback, animation, a timer, a progress bar, a splash screen.
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `--watch <ms>` | sample for this long, 1 to 120000 | off |
+| `--samples <n>` | frame count, spaced evenly over the window, 1 to 600 | 4 |
+| `--every <ms>` | fixed interval between frames; `--every 250` samples four times a second | off |
+| `--region <@eN\|"label"\|x,y,w,h>` | crop every frame to that node's box or that pixel box before compositing | the whole screen |
+| `--keep-frames` | also write every frame as its own PNG and print its path | off |
+
+`--samples` and `--every` are mutually exclusive; passing both is refused. There is
+no sample cap of practical concern, so ask for the frames the content needs rather
+than spacing too few over a long window. `--region` crops before compositing, so
+text inside a small video area stays large instead of shrinking into a cell.
+
+`tap`, `long-press`, `swipe`, `drag`, `press`, and `app launch` take the same four
+options, and there sampling starts the moment the input is dispatched. Content that
+begins on your action belongs on that action, not on a later `observe --watch`; see
+[input.md](input.md).
 
 ```text
-watch  device=android:emulator-5554  platform=android  started=2026-09-17T01:00:00.000Z
-frames  6 over 8000ms  sheet=/tmp/agentsims/screenshots/observe-android_emulator-5554.png  grid=3x2 cell=540x1200
-frame  0  at=0ms  540×1200  capture=c4
+watch  device=android:emulator-5554  platform=android  window=9000ms  frames=36  every=250ms
+sheet  1  frames=0–15  grid=4x4  cell=640x360  path=/tmp/agentsims/screenshots/watch-1.png
+sheet  2  frames=16–31  grid=4x4  cell=640x360  path=/tmp/agentsims/screenshots/watch-2.png
+sheet  3  frames=32–35  grid=2x2  cell=640x360  path=/tmp/agentsims/screenshots/watch-3.png
+frame  0  at=0ms
+frame  1  at=250ms
+frame  2  at=500ms
+warning  requested interval 250ms, achieved 410ms
 ```
 
-Open the `sheet=` path with the image tool and compare the badged frames. A
-single observation cannot show motion, so do not describe motion from one frame.
-The trailing observation in the same output is the state the watch ended on.
+Every cell is at least 640 px wide unless the frame itself is narrower. Frame
+indices are global across sheets, so `frames=16–31` on sheet 2 continues sheet 1.
+Open every `path=` with the image tool, in sheet order, and read the frames in
+index order. A single observation cannot show motion, so do not describe motion
+from one frame. With `--keep-frames`, each frame also gets its own PNG path in the
+output; read those when a cell is too small to be sure of a word.
+
+The warning names the requested and the achieved interval when capture could not
+keep up. When it appears, the timings are approximate: replay with a larger
+`--every` or a tighter `--region` instead of guessing what an unreadable frame
+showed.
+
+Frames carry no capture IDs and cannot authorize a point action. Only the final
+observation printed in the same output is actionable: its refs and its capture.
+That trailing observation is also the state the watch ended on.
 
 ## When channels disagree
 
