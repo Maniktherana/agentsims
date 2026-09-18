@@ -39,14 +39,6 @@ const DIGITS: readonly (readonly string[])[] = [
 	["###", "#.#", "###", "..#", "###"],
 ];
 
-/** A box in screenshot pixels. */
-export interface FrameRegion {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-}
-
 /** Packed 8-bit RGB. Every frame reaches the compositor in this shape. */
 export interface FrameImage {
 	width: number;
@@ -204,38 +196,6 @@ export function encodeFramePng(image: FrameImage): Uint8Array {
 		},
 		{ zlib: SHEET_ZLIB },
 	);
-}
-
-/** A region the frame cannot hold is cut down to the part that it can. */
-export function clampFrameRegion(
-	region: FrameRegion,
-	width: number,
-	height: number,
-): FrameRegion | null {
-	const x = Math.max(0, Math.min(Math.round(region.x), width));
-	const y = Math.max(0, Math.min(Math.round(region.y), height));
-	const right = Math.max(x, Math.min(Math.round(region.x + region.width), width));
-	const bottom = Math.max(
-		y,
-		Math.min(Math.round(region.y + region.height), height),
-	);
-	if (right - x < 1 || bottom - y < 1) return null;
-	return { x, y, width: right - x, height: bottom - y };
-}
-
-export function cropFrameImage(
-	image: FrameImage,
-	region: FrameRegion,
-): FrameImage {
-	const data = new Uint8Array(region.width * region.height * 3);
-	for (let row = 0; row < region.height; row += 1) {
-		const from = ((region.y + row) * image.width + region.x) * 3;
-		data.set(
-			image.data.subarray(from, from + region.width * 3),
-			row * region.width * 3,
-		);
-	}
-	return { width: region.width, height: region.height, data };
 }
 
 /** Nearest neighbour keeps the sheet cheap. Legibility comes from the size. */

@@ -42,13 +42,6 @@ function setWatchParams(
 	query.set("watch", String(watch.durationMs));
 	if (watch.samples !== undefined) query.set("samples", String(watch.samples));
 	if (watch.everyMs !== undefined) query.set("every", String(watch.everyMs));
-	if (watch.region !== undefined)
-		query.set(
-			"region",
-			typeof watch.region === "string"
-				? watch.region
-				: `${watch.region.x},${watch.region.y},${watch.region.width},${watch.region.height}`,
-		);
 	if (watch.keepFrames) query.set("keepFrames", "1");
 }
 
@@ -188,7 +181,6 @@ export class ApplicationCommandClient {
 			durationMs: number;
 			samples?: number;
 			everyMs?: number;
-			region?: string;
 			keepFrames?: boolean;
 		},
 	): Promise<unknown> {
@@ -197,7 +189,6 @@ export class ApplicationCommandClient {
 			query.set("samples", String(options.samples));
 		if (options.everyMs !== undefined)
 			query.set("every", String(options.everyMs));
-		if (options.region !== undefined) query.set("region", options.region);
 		if (options.keepFrames) query.set("keepFrames", "1");
 		return this.request(
 			`/device/${encodeURIComponent(deviceId)}/watch?${query}`,

@@ -768,32 +768,6 @@ test("a watched tap samples from dispatch, before the settle read", async () => 
 	]);
 });
 
-test("a watched region is read before the action kills the ref", async () => {
-	const { client } = await start({
-		trees: { [ANDROID]: [androidSignInSnapshot, androidSignInSnapshot] },
-	});
-	const before = (await client.observeDevice(ANDROID)) as {
-		view: { refs: Record<string, string> };
-	};
-	const ref = Object.entries(before.view.refs).find(
-		([, id]) => id === "autoplay",
-	)![0];
-
-	const result = (await client.actDevice(
-		ANDROID,
-		[{ type: "tap", target: `@${ref}` }],
-		{ watch: { durationMs: 0, samples: 2, region: `@${ref}` } },
-	)) as {
-		dispatch: { status: string };
-		watch: { frames: Array<{ width: number; height: number }> };
-	};
-
-	expect(result.dispatch.status).toBe("accepted");
-	// The Autoplay switch is 1000x120 in screenshot pixels.
-	expect(result.watch.frames.map((frame) => frame.width)).toEqual([1000, 1000]);
-	expect(result.watch.frames.map((frame) => frame.height)).toEqual([120, 120]);
-});
-
 test("a refused tap never samples", async () => {
 	const { client, events, screenshots } = await start();
 	await client.observeDevice(ANDROID);

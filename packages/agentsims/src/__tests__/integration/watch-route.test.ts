@@ -109,7 +109,6 @@ describe("watch and wait routes", () => {
 		expect(watch.platform).toBe("android");
 		expect(watch.durationMs).toBe(0);
 		expect(watch.requestedSamples).toBe(4);
-		expect(watch.region).toBeNull();
 		expect(watch.frames.map((frame) => frame.index)).toEqual([0, 1, 2, 3]);
 		expect(watch.frames.every((frame) => frame.atMs >= 0)).toBe(true);
 		// The fake session has no live buffer, so the frames are screenshots.
@@ -153,22 +152,6 @@ describe("watch and wait routes", () => {
 		// 40x90 cells fit 45 columns across, so one sheet still holds 30.
 		expect(sampled.sheets).toHaveLength(1);
 		expect(sampled.sheets[0]!.frames).toHaveLength(30);
-	});
-
-	test("crops every frame to a named region", async () => {
-		const origin = await startServer([]);
-		const client = new ApplicationCommandClient({ origin });
-
-		const watch = (await client.watchDevice(DEVICE, {
-			durationMs: 0,
-			samples: 2,
-			region: "5,10,20,30",
-		})) as DeviceWatch;
-
-		expect(watch.region).toEqual({ x: 5, y: 10, width: 20, height: 30 });
-		expect(watch.frames.map((frame) => frame.width)).toEqual([20, 20]);
-		expect(watch.frames.map((frame) => frame.height)).toEqual([30, 30]);
-		expect(watch.sheets[0]).toMatchObject({ cellWidth: 20, cellHeight: 30 });
 	});
 
 	test("rejects a watch request outside the documented bounds", async () => {
@@ -240,14 +223,15 @@ describe("action watch route", () => {
 		const result = (await client.actDevice(
 			DEVICE,
 			[{ type: "tap", target: "50%,50%" }],
-			{ watch: { durationMs: 0, samples: 3, region: "0,0,20,30" } },
+			{ watch: { durationMs: 0, samples: 3 } },
 		)) as ActionResult;
 
 		expect(result.dispatch.status).toBe("accepted");
 		expect(result.watch?.frames).toHaveLength(3);
-		expect(result.watch?.frames.map((frame) => frame.width)).toEqual([
-			20, 20, 20,
-		]);
+		// Every frame is the whole screen; nothing is cropped.
+		const widths = result.watch?.frames.map((frame) => frame.width) ?? [];
+		expect(new Set(widths).size).toBe(1);
+		expect(widths[0]).toBeGreaterThan(20);
 		expect(result.watch?.sheets).toHaveLength(1);
 		expect(Buffer.isBuffer(result.watch?.sheets[0]?.png)).toBe(true);
 	});

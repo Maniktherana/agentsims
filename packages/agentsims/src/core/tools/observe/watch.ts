@@ -7,16 +7,12 @@ import { flattenAxView, type AxViewNode } from "./ax-view";
 import { capturedImage, type SessionScreenshot } from "./capture";
 import {
 	buildContactSheetsAsync,
-	clampFrameRegion,
-	cropFrameImage,
-	decodeFrameImage,
 	encodeFramePng,
 	frameSheetGrid,
 	rgbaFrameImage,
 	scaleFrameImage,
 	type ContactSheetSource,
 	type FrameImage,
-	type FrameRegion,
 } from "./contact-sheet";
 import {
 	observeDevice,
@@ -25,10 +21,8 @@ import {
 	type ObserveDependencies,
 	isStructuralOnly,
 } from "./observe";
-import type { DeviceSnapshot } from "./snapshot-store";
-import { isRefTarget, matchAxNodes } from "./targets";
+import { matchAxNodes } from "./targets";
 
-export type { FrameRegion };
 
 /** Ten minutes of screen is the longest window the sampler accepts. */
 export const WATCH_MAX_DURATION_MS = 600_000;
@@ -55,7 +49,6 @@ export type SampleOptions = {
 	durationMs: number;
 	samples?: number;
 	everyMs?: number;
-	region?: FrameRegion;
 	keepFrames?: boolean;
 };
 
@@ -92,8 +85,6 @@ export type WatchOptions = {
 	durationMs: number;
 	samples?: number;
 	everyMs?: number;
-	/** A ref, an exact label, or `x,y,w,h` in screenshot pixels. */
-	region?: string;
 	keepFrames?: boolean;
 };
 
@@ -106,7 +97,6 @@ export type DeviceWatch = {
 	requestedSamples: number;
 	requestedIntervalMs: number;
 	achievedIntervalMs: number;
-	region: FrameRegion | null;
 	frames: SampledFrame[];
 	sheets: FrameSheet[];
 	observation: DeviceObservation;
@@ -273,21 +263,7 @@ export function sampleDeviceFrames(
 		const warnings = [...plan.warnings];
 		const frames: SampledFrame[] = [];
 		const sources: ContactSheetSource[] = [];
-		const region = options.region ?? null;
 		let streaming = typeof session.captureFrame === "function";
-		let regionWarned = false;
-		const cropTo = (image: FrameImage): FrameImage => {
-			if (!region) return image;
-			const box = clampFrameRegion(region, image.width, image.height);
-			if (box) return cropFrameImage(image, box);
-			if (!regionWarned) {
-				regionWarned = true;
-				warnings.push(
-					`The region ${region.x},${region.y},${region.width},${region.height} is outside the ${image.width}×${image.height} frame. The whole frame is used.`,
-				);
-			}
-			return image;
-		};
 
 		for (const [index, atMs] of watchSchedule(
 			options.durationMs,
@@ -311,7 +287,7 @@ export function sampleDeviceFrames(
 				continue;
 			}
 			if (grab.kind === "frame") {
-				const image = cropTo(rgbaFrameImage(grab.rgba, grab.width, grab.height));
+				const image = rgbaFrameImage(grab.rgba, grab.width, grab.height);
 				frames.push({
 					index,
 					atMs: elapsed,
@@ -328,32 +304,6 @@ export function sampleDeviceFrames(
 				shot = capturedImage(grab.shot);
 			} catch (error) {
 				warnings.push(`Frame ${index} failed: ${messageOf(error)}`);
-				continue;
-			}
-			if (region && shot.mimeType !== "image/png") {
-				if (!regionWarned) {
-					regionWarned = true;
-					warnings.push(
-						`A ${shot.mimeType} frame cannot be cropped. The whole frame is used.`,
-					);
-				}
-			} else if (region) {
-				let image: FrameImage;
-				try {
-					image = cropTo(decodeFrameImage(shot.bytes));
-				} catch (error) {
-					warnings.push(`Frame ${index} failed: ${messageOf(error)}`);
-					continue;
-				}
-				frames.push({
-					index,
-					atMs: elapsed,
-					width: image.width,
-					height: image.height,
-					source: "screenshot",
-					...(options.keepFrames ? { png: encodeFramePng(image) } : {}),
-				});
-				sources.push(sheetSource(index, image));
 				continue;
 			}
 			frames.push({
@@ -418,80 +368,6 @@ export function sampleDeviceFrames(
 	});
 }
 
-const REGION_BOX =
-	/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/;
-
-/** `x,y,w,h` in screenshot pixels. Anything else names a node. */
-export function parseFrameRegion(target: string): FrameRegion | null {
-	const match = REGION_BOX.exec(target.trim());
-	if (!match) return null;
-	const [x, y, width, height] = match.slice(1).map(Number) as [
-		number,
-		number,
-		number,
-		number,
-	];
-	if (width < 1 || height < 1) return null;
-	return {
-		x: Math.round(x),
-		y: Math.round(y),
-		width: Math.round(width),
-		height: Math.round(height),
-	};
-}
-
-function boxOf(node: AxViewNode): FrameRegion {
-	return {
-		x: Math.round(node.box.x),
-		y: Math.round(node.box.y),
-		width: Math.round(node.box.width),
-		height: Math.round(node.box.height),
-	};
-}
-
-/**
- * A region names a box the sampler crops to. A ref or a label is read from
- * the snapshot that the caller can see now, before the window starts.
- */
-export function resolveWatchRegion(
-	dependencies: WatchDependencies,
-	device: string,
-	target: string,
-): Effect.Effect<FrameRegion, ApplicationCommandError> {
-	const wanted = target.trim();
-	const box = parseFrameRegion(wanted);
-	if (box) return Effect.succeed(box);
-	return Effect.gen(function* () {
-		let view: DeviceSnapshot | null = dependencies.store.current(device);
-		if (!view) {
-			const observation = yield* observeDevice(dependencies, device, {
-				screenshot: false,
-			});
-			view = observation.view;
-		}
-		if (!view)
-			return yield* invalid(
-				`The region ${wanted} could not be read. Run observe`,
-			);
-		if (isRefTarget(wanted)) {
-			const resolved = dependencies.store.resolveRef(device, wanted);
-			if (!resolved.ok)
-				return yield* invalid(
-					`The region ref ${wanted} is not addressable in snapshot ${resolved.current?.id ?? "none"}. Run observe`,
-				);
-			return boxOf(resolved.node);
-		}
-		const matches = matchAxNodes(view.nodes, wanted);
-		if (matches.length === 0)
-			return yield* invalid(`No node matches the region ${wanted}`);
-		if (matches.length > 1)
-			return yield* invalid(
-				`${matches.length} nodes match the region ${wanted}. Name one node or a box`,
-			);
-		return boxOf(matches[0]!);
-	});
-}
-
 export function watchDevice(
 	dependencies: WatchDependencies,
 	device: string,
@@ -507,16 +383,10 @@ export function watchDevice(
 		if ("error" in plan) return yield* invalid(plan.error);
 		const clock = dependencies.clock ?? wallClock;
 		const startedAt = clock.now();
-		// The crop is read from the snapshot the caller already has, so a ref
-		// still means what it meant when the caller read it.
-		const region = options.region
-			? yield* resolveWatchRegion(dependencies, device, options.region)
-			: null;
 		const sampling = yield* sampleDeviceFrames(dependencies, device, {
 			durationMs: options.durationMs,
 			...(options.samples === undefined ? {} : { samples: options.samples }),
 			...(options.everyMs === undefined ? {} : { everyMs: options.everyMs }),
-			...(region ? { region } : {}),
 			...(options.keepFrames ? { keepFrames: true } : {}),
 		});
 		// The refs an agent acts on must describe the screen after the last
@@ -533,7 +403,6 @@ export function watchDevice(
 			requestedSamples: plan.samples,
 			requestedIntervalMs: sampling.requestedIntervalMs,
 			achievedIntervalMs: sampling.achievedIntervalMs,
-			region,
 			frames: sampling.frames,
 			sheets: sampling.sheets,
 			observation,

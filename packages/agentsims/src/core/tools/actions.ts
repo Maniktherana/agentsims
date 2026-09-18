@@ -24,9 +24,7 @@ import {
 } from "./observe/observe";
 import type { DeviceSnapshot } from "./observe/snapshot-store";
 import {
-	resolveWatchRegion,
 	sampleDeviceFrames,
-	type FrameRegion,
 	type FrameSampling,
 	type SampleOptions,
 	type WatchClock,
@@ -49,14 +47,8 @@ import {
 	type TextVerification,
 } from "./text-input";
 
-/**
- * Watch the screen from the moment the input lands. The region is a box, or a
- * ref or a label that the runner reads before dispatch, while it still means
- * something.
- */
-export type ActionWatch = Omit<SampleOptions, "region"> & {
-	region?: FrameRegion | string;
-};
+/** Watch the whole screen from the moment the input lands. */
+export type ActionWatch = SampleOptions;
 
 export type ActionOptions = {
 	/** Always capture the screen after the action. */
@@ -156,7 +148,7 @@ type ActionState = {
 	verification: ActionVerification;
 	resolved: ResolvedAction[];
 	text?: TextEntry;
-	/** The sample request, with its region already read from the screen. */
+	/** The sample request for a watched action. */
 	watch?: SampleOptions;
 	post?: PostActionState;
 	/** Generic input verifies itself after the read. It keeps its own before. */
@@ -714,23 +706,11 @@ export function makeDeviceActionRunner(
 		now: () => Date.now(),
 		sleep: (milliseconds) => settlePause(milliseconds),
 	};
-	/**
-	 * A ref or a label dies with the action that mutates the screen, so the
-	 * crop is read before dispatch, from the snapshot the caller can see.
-	 */
 	const watchFor = (
-		device: string,
+		_device: string,
 		watch: ActionWatch | undefined,
-	): Effect.Effect<SampleOptions | undefined, ApplicationCommandError> => {
-		if (!watch) return Effect.succeed(undefined);
-		const { region, ...rest } = watch;
-		if (region === undefined) return Effect.succeed(rest);
-		if (typeof region !== "string") return Effect.succeed({ ...rest, region });
-		return resolveWatchRegion(dependencies, device, region).pipe(
-			Effect.map((box) => ({ ...rest, region: box })),
-			Effect.mapError((error) => withActionEffect(error, "none")),
-		);
-	};
+	): Effect.Effect<SampleOptions | undefined, ApplicationCommandError> =>
+		Effect.succeed(watch);
 	const sample = (device: string, watch: SampleOptions) =>
 		sampleDeviceFrames(
 			{ ...dependencies, clock: watchClock },
@@ -1027,8 +1007,6 @@ export function makeDeviceActionRunner(
 								},
 								catch: (cause) => withActionEffect(cause, "none"),
 							}));
-						// The region reads the same snapshot the targets did. The
-						// check before dispatch publishes new refs over it.
 						watch = yield* watchFor(device, options.watch);
 						if (request.semanticTargets.length > 0) {
 							const fresh = yield* observeDevice(dependencies, device, {
@@ -1130,7 +1108,6 @@ export function makeDeviceActionRunner(
 			Effect.gen(function* () {
 				const beforeView = dependencies.store.current(device);
 				const beforeSnapshot = dependencies.store.normalized(device);
-				// The region is read while the screen the caller saw is still up.
 				const prepared = yield* watchFor(device, options.watch).pipe(
 					Effect.match({
 						onFailure: (error) => ({ ok: false as const, error }),

@@ -230,72 +230,6 @@ describe("frame sampling", () => {
 		expect(asked).toBe(1);
 	});
 
-	test("crops every frame to the region", async () => {
-		const { dependencies } = harness([screenSnapshot(["Playing"])], {
-			stream: { width: 1080, height: 2400 },
-		});
-
-		const sampling = await Effect.runPromise(
-			sampleDeviceFrames(dependencies, DEVICE, {
-				durationMs: 0,
-				samples: 2,
-				region: { x: 40, y: 80, width: 500, height: 300 },
-				keepFrames: true,
-			}),
-		);
-
-		expect(sampling.frames.map((frame) => frame.width)).toEqual([500, 500]);
-		expect(sampling.frames.map((frame) => frame.height)).toEqual([300, 300]);
-		expect(sampling.sheets).toHaveLength(1);
-		expect(sampling.sheets[0]).toMatchObject({
-			columns: 2,
-			rows: 1,
-			cellWidth: 500,
-			cellHeight: 300,
-		});
-		const kept = decodePng(sampling.frames[0]!.png!);
-		expect({ width: kept.width, height: kept.height }).toEqual({
-			width: 500,
-			height: 300,
-		});
-	});
-
-	test("clamps a region that runs off the frame and says so", async () => {
-		const { dependencies } = harness([screenSnapshot(["Playing"])], {
-			stream: { width: 200, height: 400 },
-		});
-
-		const sampling = await Effect.runPromise(
-			sampleDeviceFrames(dependencies, DEVICE, {
-				durationMs: 0,
-				samples: 1,
-				region: { x: 150, y: 350, width: 400, height: 400 },
-			}),
-		);
-
-		expect(sampling.frames[0]).toMatchObject({ width: 50, height: 50 });
-		expect(sampling.warnings).toEqual([]);
-	});
-
-	test("warns and keeps the whole frame when the region misses it", async () => {
-		const { dependencies } = harness([screenSnapshot(["Playing"])], {
-			stream: { width: 200, height: 400 },
-		});
-
-		const sampling = await Effect.runPromise(
-			sampleDeviceFrames(dependencies, DEVICE, {
-				durationMs: 0,
-				samples: 2,
-				region: { x: 900, y: 900, width: 100, height: 100 },
-			}),
-		);
-
-		expect(sampling.frames[0]).toMatchObject({ width: 200, height: 400 });
-		expect(sampling.warnings).toEqual([
-			"The region 900,900,100,100 is outside the 200×400 frame. The whole frame is used.",
-		]);
-	});
-
 	test("keeps every frame as PNG when asked", async () => {
 		const { dependencies } = harness([screenSnapshot(["Playing"])]);
 
@@ -381,7 +315,6 @@ describe("watch", () => {
 		);
 		expect(watch.durationMs).toBe(8000);
 		expect(watch.requestedSamples).toBe(8);
-		expect(watch.region).toBeNull();
 		expect(watch.sheets).toHaveLength(1);
 		expect(watch.sheets[0]).toMatchObject({ index: 0, columns: 8, rows: 1 });
 		expect(watch.observation.view?.id).toBeTruthy();
@@ -392,55 +325,6 @@ describe("watch", () => {
 		expect(events.at(-1)?.kind).toBe("accessibility");
 	});
 
-	test("reads a region ref from the snapshot before the window", async () => {
-		const { dependencies } = harness([screenSnapshot(["Playing", "Title"])], {
-			stream: { width: 1080, height: 2400 },
-		});
-
-		const watch = await Effect.runPromise(
-			watchDevice(dependencies, DEVICE, {
-				durationMs: 0,
-				samples: 1,
-				region: "Title",
-			}),
-		);
-
-		expect(watch.region).toEqual({ x: 0, y: 100, width: 1080, height: 80 });
-		expect(watch.frames[0]).toMatchObject({ width: 1080, height: 80 });
-	});
-
-	test("takes a box region in screenshot pixels", async () => {
-		const { dependencies } = harness([screenSnapshot(["Playing"])], {
-			stream: { width: 1080, height: 2400 },
-		});
-
-		const watch = await Effect.runPromise(
-			watchDevice(dependencies, DEVICE, {
-				durationMs: 0,
-				samples: 1,
-				region: "10,20,300,400",
-			}),
-		);
-
-		expect(watch.region).toEqual({ x: 10, y: 20, width: 300, height: 400 });
-		expect(watch.frames[0]).toMatchObject({ width: 300, height: 400 });
-	});
-
-	test("refuses a region that names no node", async () => {
-		const { dependencies } = harness([screenSnapshot(["Playing"])]);
-
-		const failure = await Effect.runPromise(
-			Effect.either(
-				watchDevice(dependencies, DEVICE, {
-					durationMs: 0,
-					samples: 1,
-					region: "Missing",
-				}),
-			),
-		);
-
-		expect(failure._tag).toBe("Left");
-	});
 });
 
 describe("wait polling", () => {

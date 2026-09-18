@@ -66,7 +66,6 @@ const WATCH_OPTIONS = [
 	"--watch",
 	"--samples",
 	"--every",
-	"--region",
 	"--keep-frames",
 ];
 
@@ -119,7 +118,6 @@ test("action and app help shows the supported options", () => {
 
 test.each([
 	["tap", ["tap", "@e1", "--samples", "4"], "--samples needs --watch <ms>."],
-	["press", ["press", "home", "--region", "0,0,10,10"], "--region needs --watch <ms>."],
 	["drag", ["drag", "@e1", "@e2", "--keep-frames"], "--keep-frames needs --watch <ms>."],
 ])("%s refuses sampling flags without a window", async (_name, args) => {
 	await expect(
@@ -154,7 +152,6 @@ test("timed observation help lists the sampling and waiting options", () => {
 	expect(observe).toContain("--watch");
 	expect(observe).toContain("--samples");
 	expect(observe).toContain("--every");
-	expect(observe).toContain("--region");
 	expect(observe).toContain("--keep-frames");
 	expect(observe).toContain("--frames");
 

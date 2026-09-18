@@ -227,9 +227,6 @@ export function renderWatch(
 	artifacts: WatchArtifacts,
 	format: ObserveFormat = {},
 ): string {
-	const region = watch.region
-		? `  region=${watch.region.x},${watch.region.y},${watch.region.width},${watch.region.height}`
-		: "";
 	const lines = [
 		[
 			"watch",
@@ -237,7 +234,7 @@ export function renderWatch(
 			`platform=${watch.platform}`,
 			`started=${time(watch.startedAt)}`,
 		].join("  "),
-		`frames  ${watch.frames.length} over ${watch.durationMs}ms  ${frameSummary(watch)}${region}`,
+		`frames  ${watch.frames.length} over ${watch.durationMs}ms  ${frameSummary(watch)}`,
 		...frameLines(watch, artifacts),
 		...warningLines(watch.warnings),
 		renderObservation(watch.observation, null, format),

@@ -178,8 +178,8 @@ wait  for="Saved"  satisfied=yes  elapsed=1200ms  polls=3
 
 ```sh
 agentsims observe --watch 8000 --samples 8 -d "$DEVICE"
-agentsims observe --watch 9000 --every 250 --region @e12 -d "$DEVICE"
-agentsims observe --watch 4000 --every 200 --region 0,420,1080,608 --keep-frames -d "$DEVICE"
+agentsims observe --watch 9000 --every 250 -d "$DEVICE"
+agentsims observe --watch 4000 --every 200 --keep-frames -d "$DEVICE"
 ```
 
 `--watch <ms>` samples the screen over that long, up to 120000 ms, and composites
@@ -191,12 +191,11 @@ playback, animation, a timer, a progress bar, a splash screen.
 | `--watch <ms>` | sample for this long, 1 to 120000 | off |
 | `--samples <n>` | frame count, spaced evenly over the window, 1 to 600 | 4 |
 | `--every <ms>` | fixed interval between frames; `--every 250` samples four times a second | off |
-| `--region <@eN\|"label"\|x,y,w,h>` | crop every frame to that node's box or that pixel box before compositing | the whole screen |
 | `--keep-frames` | also write every frame as its own PNG and print its path | off |
 
 `--samples` and `--every` are mutually exclusive; passing both is refused. There is
 no sample cap of practical concern, so ask for the frames the content needs rather
-than spacing too few over a long window. `--region` crops before compositing, so
+than spacing too few over a long window. Every frame is the whole screen, so
 text inside a small video area stays large instead of shrinking into a cell.
 
 `tap`, `long-press`, `swipe`, `drag`, `press`, and `app launch` take the same four
@@ -224,7 +223,7 @@ output; read those when a cell is too small to be sure of a word.
 
 The warning names the requested and the achieved interval when capture could not
 keep up. When it appears, the timings are approximate: replay with a larger
-`--every` or a tighter `--region` instead of guessing what an unreadable frame
+`--every`, or `--keep-frames` to open single frames, instead of guessing what an unreadable frame
 showed.
 
 Frames carry no capture IDs and cannot authorize a point action. Only the final

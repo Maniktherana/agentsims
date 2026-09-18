@@ -36,7 +36,6 @@ const watchQuery = z.object({
 	watch: z.coerce.number().int(),
 	samples: z.coerce.number().int().optional(),
 	every: z.coerce.number().int().optional(),
-	region: z.string().optional(),
 	keepFrames: z.string().optional(),
 });
 /** An action can watch the screen from the moment its input lands. */
@@ -45,7 +44,6 @@ const actionQuery = z.object({
 	watch: z.coerce.number().int().optional(),
 	samples: z.coerce.number().int().optional(),
 	every: z.coerce.number().int().optional(),
-	region: z.string().optional(),
 	keepFrames: z.string().optional(),
 });
 const actionOptions = (url: URL) =>
@@ -65,7 +63,6 @@ const actionOptions = (url: URL) =>
 								? {}
 								: { samples: query.samples }),
 							...(query.every === undefined ? {} : { everyMs: query.every }),
-							...(query.region === undefined ? {} : { region: query.region }),
 							...(query.keepFrames === "1" ? { keepFrames: true } : {}),
 						},
 					}),
@@ -206,7 +203,6 @@ export const commandRoutes = HttpRouter.empty.pipe(
 					durationMs: query.watch,
 					...(query.samples === undefined ? {} : { samples: query.samples }),
 					...(query.every === undefined ? {} : { everyMs: query.every }),
-					...(query.region === undefined ? {} : { region: query.region }),
 					...(query.keepFrames === "1" ? { keepFrames: true } : {}),
 				});
 			}),

@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { decode as decodePng, encode as encodePng } from "fast-png";
 import {
 	buildContactSheetsAsync,
-	clampFrameRegion,
-	cropFrameImage,
 	frameSheetGrid,
 	rgbaFrameImage,
 	CONTACT_SHEET_SEPARATOR,
@@ -204,34 +202,3 @@ describe("contact sheets", () => {
 	});
 });
 
-describe("frame regions", () => {
-	test("clamps a region to the frame and refuses an empty one", () => {
-		expect(clampFrameRegion({ x: 10, y: 20, width: 30, height: 40 }, 100, 100)).toEqual(
-			{ x: 10, y: 20, width: 30, height: 40 },
-		);
-		expect(clampFrameRegion({ x: 80, y: 80, width: 40, height: 40 }, 100, 100)).toEqual(
-			{ x: 80, y: 80, width: 20, height: 20 },
-		);
-		expect(
-			clampFrameRegion({ x: 120, y: 10, width: 40, height: 40 }, 100, 100),
-		).toBeNull();
-		expect(
-			clampFrameRegion({ x: -40, y: -40, width: 20, height: 20 }, 100, 100),
-		).toBeNull();
-	});
-
-	test("crops the pixels the region names", () => {
-		const image = rgbaFrameImage(new Uint8Array(4 * 4 * 4).fill(0), 4, 4);
-		// Paint the pixel at 2,3 so the crop can be recognised.
-		const target = (3 * 4 + 2) * 3;
-		image.data[target] = 200;
-		image.data[target + 1] = 100;
-		image.data[target + 2] = 50;
-
-		const cropped = cropFrameImage(image, { x: 2, y: 3, width: 2, height: 1 });
-
-		expect(cropped.width).toBe(2);
-		expect(cropped.height).toBe(1);
-		expect(Array.from(cropped.data.subarray(0, 3))).toEqual([200, 100, 50]);
-	});
-});

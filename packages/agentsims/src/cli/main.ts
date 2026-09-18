@@ -578,10 +578,6 @@ Examples:
 				.argParser(watchEveryOption)
 				.conflicts("samples"),
 		)
-		.option(
-			"--region <target>",
-			"Crop every frame to a ref, an exact label, or x,y,w,h",
-		)
 		.option("--keep-frames", "Also write every sampled frame")
 		.option("--json", "Print structured output")
 		.action(
@@ -593,7 +589,6 @@ Examples:
 					watch?: number;
 					samples?: number;
 					every?: number;
-					region?: string;
 					keepFrames?: boolean;
 				} & ObserveFormat,
 			) => {

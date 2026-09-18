@@ -43,7 +43,6 @@ export type WatchFlags = {
 	watch: number;
 	samples?: number;
 	every?: number;
-	region?: string;
 	keepFrames?: boolean;
 	out?: string;
 	json?: boolean;
@@ -172,7 +171,6 @@ export async function runObserveWatch(
 			durationMs,
 			...(flags.samples === undefined ? {} : { samples: flags.samples }),
 			...(flags.every === undefined ? {} : { everyMs: flags.every }),
-			...(flags.region === undefined ? {} : { region: flags.region }),
 			...(flags.keepFrames ? { keepFrames: true } : {}),
 		})) as DeviceWatch;
 	const artifacts = writeWatchArtifacts(

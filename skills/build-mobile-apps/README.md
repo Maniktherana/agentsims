@@ -39,7 +39,7 @@ type       fill        press      rotate
 app        permissions camera     doctor
 ```
 
-`observe --watch <ms> [--samples <n> | --every <ms>] [--region <@eN|"label"|x,y,w,h>]
+`observe --watch <ms> [--samples <n> | --every <ms>]
 [--keep-frames]` writes contact sheets of timed frames. The same options are on
 `tap`, `long-press`, `swipe`, `drag`, `press` and `app launch`, where sampling
 starts the moment the input is dispatched, so content that begins on the action

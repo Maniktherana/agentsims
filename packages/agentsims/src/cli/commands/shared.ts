@@ -34,7 +34,6 @@ export type WatchFlags = {
 	watch?: number;
 	samples?: number;
 	every?: number;
-	region?: string;
 	keepFrames?: boolean;
 };
 export type ActionFlags = DeviceFlags &
@@ -67,10 +66,6 @@ export function watchOptions(command: Command): Command {
 				.argParser(watchEveryOption)
 				.conflicts("samples"),
 		)
-		.option(
-			"--region <target>",
-			"Crop every frame to a ref, an exact label, or x,y,w,h",
-		)
 		.option("--keep-frames", "Also write every sampled frame");
 }
 
@@ -80,7 +75,6 @@ export function watchRequest(flags: WatchFlags): ActionOptions["watch"] {
 		const named = [
 			flags.samples === undefined ? null : "--samples",
 			flags.every === undefined ? null : "--every",
-			flags.region === undefined ? null : "--region",
 			flags.keepFrames ? "--keep-frames" : null,
 		].filter((name): name is string => name !== null);
 		if (named.length > 0)
@@ -91,7 +85,6 @@ export function watchRequest(flags: WatchFlags): ActionOptions["watch"] {
 		durationMs: flags.watch,
 		...(flags.samples === undefined ? {} : { samples: flags.samples }),
 		...(flags.every === undefined ? {} : { everyMs: flags.every }),
-		...(flags.region === undefined ? {} : { region: flags.region }),
 		...(flags.keepFrames ? { keepFrames: true } : {}),
 	};
 }

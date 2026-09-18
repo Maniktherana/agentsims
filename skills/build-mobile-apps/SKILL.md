@@ -61,7 +61,7 @@ uncertain.
 | Do | Command |
 |---|---|
 | See the screen | `observe [-o <path>] [--all] [--frames] [--raw]` (tree + image), `screenshot [path]`, `find <text>` |
-| Watch it change | `observe --watch <ms> [--every <ms> \| --samples <n>] [--region <target>]`, `wait --for\|--gone <text> \| --stable` |
+| Watch it change | `observe --watch <ms> [--every <ms> \| --samples <n>] [--keep-frames]`, `wait --for\|--gone <text> \| --stable` |
 | Touch | `tap <target>`, `long-press <target> [--duration <ms>]`, `swipe <from> <to>`, `drag <from> <to>` |
 | Type | `fill <text> --into <target> [--submit]` (replace), `type <text> --into <target>` (insert) |
 | Keys and device | `press home\|back\|app-switch\|power\|volume-up\|volume-down`, `rotate portrait\|landscape` |
@@ -217,16 +217,16 @@ Content that starts on your action is watched from that action: add `--watch` to
 second late and misses the start.
 
 1. Open the file so the player is up, then pause it (a tap on the video shows controls).
-2. `observe --frames` and read the total duration from the `m:ss` labels by the seek bar,
-   plus the `[box=x,y,w,h]` of the video surface.
+2. `observe` and read the total duration from the `m:ss` labels by the seek bar.
 3. Drag the seek thumb to the left edge until the position reads `0:00`.
-4. `agentsims tap "Play" --watch <duration+1500> --every 250 --region x,y,w,h -d "$D"`
+4. `agentsims tap "Play" --watch <duration+1500> --every 250 -d "$D"`
 5. Open every `sheet` path in order. Indices are global. Write down each distinct text
    in the order it first appears; repeated frames are one entry.
 6. If a frame is unreadable or the achieved-interval warning appears, replay with a
-   tighter `--region` or a larger `--every`. Do not guess a missing word.
+   larger `--every`, or `--keep-frames` and open the single frames. Do not guess a
+   missing word.
 
-`--every 250` samples four times a second; `--region` keeps small text large.
+`--every 250` samples four times a second. Every frame is the whole screen.
 
 ### Controls with no accessibility node
 
