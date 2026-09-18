@@ -385,6 +385,76 @@ test("action output names a long press", () => {
 	expect(output).toContain("action  long-press 25.0%,75.0%");
 });
 
+test("a watched action prints its sheets, its kept frames, and its warnings", () => {
+	const output = renderActionResult(
+		{
+			device: "android:emulator-5554",
+			dispatch: { status: "accepted", reason: "Input frames were accepted." },
+			verification: {
+				status: "not_applicable",
+				reason: "Observed after the action.",
+				observed: null,
+			},
+			resolved: [{ type: "tap", from: { x: 0.5, y: 0.5, ref: "e3" } }],
+			accessibility: { status: "error", capturedAt: 1, error: "AX unavailable" },
+			view: null,
+			image: null,
+			captureReason: null,
+			warnings: [],
+			watch: {
+				frames: [
+					{
+						index: 0,
+						atMs: 0,
+						width: 40,
+						height: 90,
+						source: "screenshot" as const,
+					},
+					{
+						index: 1,
+						atMs: 260,
+						width: 40,
+						height: 90,
+						source: "screenshot" as const,
+						png: new Uint8Array(4),
+					},
+				],
+				sheets: [
+					{
+						index: 0,
+						frames: [0, 1],
+						png: new Uint8Array(8),
+						columns: 2,
+						rows: 1,
+						cellWidth: 40,
+						cellHeight: 90,
+						width: 80,
+						height: 90,
+					},
+				],
+				requestedIntervalMs: 250,
+				achievedIntervalMs: 260,
+				warnings: ["Frames arrived every 260 ms, not every 250 ms."],
+			},
+		},
+		null,
+		{},
+		{
+			sheets: [{ status: "ok", path: "/tmp/action-sheet.png" }],
+			frames: [null, { status: "ok", path: "/tmp/action-frame-1.png" }],
+		},
+	);
+	expect(output).toContain(
+		"watch  2 frames  source=screenshot  every=250ms  achieved=260ms  size=40×90",
+	);
+	expect(output).toContain(
+		"sheet  0  frames=0–1  grid=2x1  cell=40x90  path=/tmp/action-sheet.png",
+	);
+	expect(output).toContain("frame  1  at=260ms  path=/tmp/action-frame-1.png");
+	expect(output).not.toContain("frame  0  at=");
+	expect(output).toContain("warning  Frames arrived every 260 ms");
+});
+
 test("scroll output names the region, the travel, and the collected items", () => {
 	const output = renderScrollResult({
 		device: "android:emulator-5554",

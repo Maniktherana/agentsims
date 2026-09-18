@@ -24,6 +24,14 @@ import {
 } from "./observe/observe";
 import type { DeviceSnapshot } from "./observe/snapshot-store";
 import {
+	resolveWatchRegion,
+	sampleDeviceFrames,
+	type FrameRegion,
+	type FrameSampling,
+	type SampleOptions,
+	type WatchClock,
+} from "./observe/watch";
+import {
 	describeAxNode,
 	isPointTarget,
 	revalidateActionTargets,
@@ -41,9 +49,20 @@ import {
 	type TextVerification,
 } from "./text-input";
 
+/**
+ * Watch the screen from the moment the input lands. The region is a box, or a
+ * ref or a label that the runner reads before dispatch, while it still means
+ * something.
+ */
+export type ActionWatch = Omit<SampleOptions, "region"> & {
+	region?: FrameRegion | string;
+};
+
 export type ActionOptions = {
 	/** Always capture the screen after the action. */
 	screenshot?: boolean;
+	/** Sample frames from dispatch, before the post-action read. */
+	watch?: ActionWatch;
 	/**
 	 * Coordinates a server-side tool resolved itself, such as the swipe scroll
 	 * computes from a container box. The runner dispatches them as they are.
@@ -85,6 +104,8 @@ export type ActionResult = {
 	settledMs?: number;
 	/** False when the tree was still changing at the settle limit. */
 	settled?: boolean;
+	/** Frames sampled from dispatch. Present only when the caller asked. */
+	watch?: FrameSampling;
 	/** Present for a type action. TEXT owns its final verification contract. */
 	text?: TextEntry;
 };
@@ -135,6 +156,8 @@ type ActionState = {
 	verification: ActionVerification;
 	resolved: ResolvedAction[];
 	text?: TextEntry;
+	/** The sample request, with its region already read from the screen. */
+	watch?: SampleOptions;
 	post?: PostActionState;
 	/** Generic input verifies itself after the read. It keeps its own before. */
 	input?: { before: DeviceSnapshot | null };
@@ -686,6 +709,42 @@ export function makeDeviceActionRunner(
 		);
 	const settlePause: Pause =
 		pause ?? ((milliseconds) => Effect.sleep(`${milliseconds} millis`));
+	// The sampler keeps the runner's clock, so a test never sleeps for real.
+	const watchClock: WatchClock = {
+		now: () => Date.now(),
+		sleep: (milliseconds) => settlePause(milliseconds),
+	};
+	/**
+	 * A ref or a label dies with the action that mutates the screen, so the
+	 * crop is read before dispatch, from the snapshot the caller can see.
+	 */
+	const watchFor = (
+		device: string,
+		watch: ActionWatch | undefined,
+	): Effect.Effect<SampleOptions | undefined, ApplicationCommandError> => {
+		if (!watch) return Effect.succeed(undefined);
+		const { region, ...rest } = watch;
+		if (region === undefined) return Effect.succeed(rest);
+		if (typeof region !== "string") return Effect.succeed({ ...rest, region });
+		return resolveWatchRegion(dependencies, device, region).pipe(
+			Effect.map((box) => ({ ...rest, region: box })),
+			Effect.mapError((error) => withActionEffect(error, "none")),
+		);
+	};
+	const sample = (device: string, watch: SampleOptions) =>
+		sampleDeviceFrames(
+			{ ...dependencies, clock: watchClock },
+			device,
+			watch,
+		).pipe(
+			Effect.match({
+				onFailure: (error): { sampling: null; warning: string } => ({
+					sampling: null,
+					warning: `The watch after the action failed: ${messageOf(error)}`,
+				}),
+				onSuccess: (sampling) => ({ sampling, warning: null }),
+			}),
+		);
 	/**
 	 * A read taken the instant input lands can show the screen before it
 	 * transitions. Re-read until two consecutive trees match, within a bound,
@@ -762,6 +821,9 @@ export function makeDeviceActionRunner(
 					...(state.text ? { text: state.text } : {}),
 				};
 			}
+			// Content that starts on the action has to be watched from the
+			// action, so the frames come before the read that waits it out.
+			const watched = state.watch ? yield* sample(device, state.watch) : null;
 			const settledRead = state.post ? null : yield* readSettledPost(device);
 			let post = state.post ?? settledRead!.post;
 			const afterSnapshot = dependencies.store.normalized(device);
@@ -796,10 +858,14 @@ export function makeDeviceActionRunner(
 				view: post.view,
 				image,
 				captureReason: reason,
-				warnings: post.warnings,
+				warnings: [
+					...post.warnings,
+					...(watched?.warning ? [watched.warning] : []),
+				],
 				...(settledRead
 					? { settledMs: settledRead.settledMs, settled: settledRead.settled }
 					: {}),
+				...(watched?.sampling ? { watch: watched.sampling } : {}),
 				...(state.text ? { text: state.text } : {}),
 			};
 		});
@@ -930,6 +996,7 @@ export function makeDeviceActionRunner(
 						};
 					}
 				} else {
+					let watch: SampleOptions | undefined;
 					const attempted = yield* Effect.gen(function* () {
 						const config = coordinate
 							? yield* dependencies.resolveSession(device).pipe(
@@ -960,6 +1027,9 @@ export function makeDeviceActionRunner(
 								},
 								catch: (cause) => withActionEffect(cause, "none"),
 							}));
+						// The region reads the same snapshot the targets did. The
+						// check before dispatch publishes new refs over it.
+						watch = yield* watchFor(device, options.watch);
 						if (request.semanticTargets.length > 0) {
 							const fresh = yield* observeDevice(dependencies, device, {
 								screenshot: false,
@@ -1019,6 +1089,7 @@ export function makeDeviceActionRunner(
 								},
 								resolved: attempted.resolved,
 								input: { before: beforeView },
+								...(watch ? { watch } : {}),
 							}
 						: {
 								dispatch: {
@@ -1034,6 +1105,8 @@ export function makeDeviceActionRunner(
 								},
 								resolved: [],
 								input: { before: beforeView },
+								// A lost dispatch may still have landed, so it is watched.
+								...(watch ? { watch } : {}),
 							};
 				}
 				return yield* finish(
@@ -1057,12 +1130,21 @@ export function makeDeviceActionRunner(
 			Effect.gen(function* () {
 				const beforeView = dependencies.store.current(device);
 				const beforeSnapshot = dependencies.store.normalized(device);
-				const attempted = yield* effect.pipe(
+				// The region is read while the screen the caller saw is still up.
+				const prepared = yield* watchFor(device, options.watch).pipe(
 					Effect.match({
 						onFailure: (error) => ({ ok: false as const, error }),
-						onSuccess: () => ({ ok: true as const }),
+						onSuccess: (watch) => ({ ok: true as const, watch }),
 					}),
 				);
+				const attempted = prepared.ok
+					? yield* effect.pipe(
+							Effect.match({
+								onFailure: (error) => ({ ok: false as const, error }),
+								onSuccess: () => ({ ok: true as const }),
+							}),
+						)
+					: { ok: false as const, error: prepared.error };
 				const failureStatus = attempted.ok
 					? null
 					: operationFailureStatus(attempted.error);
@@ -1084,6 +1166,7 @@ export function makeDeviceActionRunner(
 						observed: null,
 					},
 					resolved: [],
+					...(prepared.ok && prepared.watch ? { watch: prepared.watch } : {}),
 				};
 				return yield* finish(
 					device,

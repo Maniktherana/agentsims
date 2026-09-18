@@ -11,7 +11,11 @@ import {
 	describeSequenceStep,
 	type SequenceResult,
 } from "../core/tools/sequence";
-import type { DeviceWait, DeviceWatch } from "../core/tools/observe/watch";
+import type {
+	DeviceWait,
+	DeviceWatch,
+	FrameSampling,
+} from "../core/tools/observe/watch";
 import type {
 	ResolvedAction,
 	ResolvedPoint,
@@ -191,17 +195,41 @@ function frameRange(frames: readonly number[]): string {
 	return first === last ? `${first}` : `${first}\u2013${last}`;
 }
 
+/** What the sampler got: the source, the spacing it kept, and the frame size. */
+function frameSummary(sampling: FrameSampling): string {
+	const first = sampling.frames[0];
+	const size = first ? `  size=${first.width}\u00d7${first.height}` : "";
+	return `source=${first ? first.source : "none"}  every=${sampling.requestedIntervalMs}ms  achieved=${sampling.achievedIntervalMs}ms${size}`;
+}
+
+/** One line per sheet, then one per frame the caller asked to keep. */
+function frameLines(
+	sampling: FrameSampling,
+	artifacts: WatchArtifacts,
+): string[] {
+	return [
+		...sampling.sheets.map(
+			(sheet, index) =>
+				`sheet  ${sheet.index}  frames=${frameRange(sheet.frames)}  grid=${sheet.columns}x${sheet.rows}  cell=${sheet.cellWidth}x${sheet.cellHeight}  ${pathText(artifacts.sheets[index])}`,
+		),
+		...sampling.frames.flatMap((frame, index) =>
+			artifacts.frames[index]
+				? [
+						`frame  ${frame.index}  at=${frame.atMs}ms  ${pathText(artifacts.frames[index])}`,
+					]
+				: [],
+		),
+	];
+}
+
 export function renderWatch(
 	watch: DeviceWatch,
 	artifacts: WatchArtifacts,
 	format: ObserveFormat = {},
 ): string {
-	const first = watch.frames[0];
-	const source = first ? first.source : "none";
 	const region = watch.region
 		? `  region=${watch.region.x},${watch.region.y},${watch.region.width},${watch.region.height}`
 		: "";
-	const size = first ? `  size=${first.width}\u00d7${first.height}` : "";
 	const lines = [
 		[
 			"watch",
@@ -209,18 +237,8 @@ export function renderWatch(
 			`platform=${watch.platform}`,
 			`started=${time(watch.startedAt)}`,
 		].join("  "),
-		`frames  ${watch.frames.length} over ${watch.durationMs}ms  source=${source}  every=${watch.requestedIntervalMs}ms  achieved=${watch.achievedIntervalMs}ms${size}${region}`,
-		...watch.sheets.map(
-			(sheet, index) =>
-				`sheet  ${sheet.index}  frames=${frameRange(sheet.frames)}  grid=${sheet.columns}x${sheet.rows}  cell=${sheet.cellWidth}x${sheet.cellHeight}  ${pathText(artifacts.sheets[index])}`,
-		),
-		...watch.frames.flatMap((frame, index) =>
-			artifacts.frames[index]
-				? [
-						`frame  ${frame.index}  at=${frame.atMs}ms  ${pathText(artifacts.frames[index])}`,
-					]
-				: [],
-		),
+		`frames  ${watch.frames.length} over ${watch.durationMs}ms  ${frameSummary(watch)}${region}`,
+		...frameLines(watch, artifacts),
 		...warningLines(watch.warnings),
 		renderObservation(watch.observation, null, format),
 	];
@@ -394,11 +412,14 @@ interface ActionSections {
 	warnings: string[];
 }
 
+const NO_WATCH_ARTIFACTS: WatchArtifacts = { sheets: [], frames: [] };
+
 function actionSections(
 	result: ActionResult,
 	artifact: ArtifactWrite | null,
 	format: ObserveFormat,
 	resolved: boolean,
+	watch: WatchArtifacts | null,
 ): ActionSections {
 	const lines = resolved
 		? result.resolved.map((action) => `action  ${renderActionLine(action)}`)
@@ -430,6 +451,12 @@ function actionSections(
 	else lines.push("image  not_requested");
 	const artifactLine = renderArtifact(artifact);
 	if (artifactLine) lines.push(artifactLine);
+	if (result.watch) {
+		lines.push(
+			`watch  ${result.watch.frames.length} frames  ${frameSummary(result.watch)}`,
+		);
+		lines.push(...frameLines(result.watch, watch ?? NO_WATCH_ARTIFACTS));
+	}
 	return {
 		head: lines,
 		tree: result.view
@@ -437,6 +464,7 @@ function actionSections(
 			: ["elements  none"],
 		warnings: warningLines([
 			...result.warnings,
+			...(result.watch?.warnings ?? []),
 			...(result.view?.warnings ?? []),
 		]),
 	};
@@ -454,8 +482,9 @@ export function renderActionResult(
 	result: ActionResult,
 	artifact: ArtifactWrite | null = null,
 	format: ObserveFormat = {},
+	watch: WatchArtifacts | null = null,
 ): string {
-	const sections = actionSections(result, artifact, format, true);
+	const sections = actionSections(result, artifact, format, true, watch);
 	return [...sections.head, ...sections.tree, ...sections.warnings].join("\n");
 }
 
@@ -483,8 +512,15 @@ export function renderScrollResult(
 	result: ScrollResult,
 	artifact: ArtifactWrite | null = null,
 	format: ObserveFormat = {},
+	watch: WatchArtifacts | null = null,
 ): string {
-	const sections = actionSections(result.action, artifact, format, false);
+	const sections = actionSections(
+		result.action,
+		artifact,
+		format,
+		false,
+		watch,
+	);
 	const collected = result.items
 		? [
 				`collected  ${result.count} items  selector=${result.selector ?? ""}`,
@@ -574,22 +610,32 @@ export function screenshotForOutput(
 	};
 }
 
+/** Image bytes never travel in the printed payload. Byte counts and paths do. */
+function samplingForOutput(
+	sampling: FrameSampling,
+	artifacts: WatchArtifacts,
+): unknown {
+	return {
+		...sampling,
+		frames: sampling.frames.map((frame, index) => ({
+			...frame,
+			png: frame.png ? frame.png.byteLength : null,
+			artifact: artifacts.frames[index] ?? null,
+		})),
+		sheets: sampling.sheets.map((sheet, index) => ({
+			...sheet,
+			png: sheet.png.byteLength,
+			artifact: artifacts.sheets[index] ?? null,
+		})),
+	};
+}
+
 export function watchForOutput(
 	watch: DeviceWatch,
 	artifacts: WatchArtifacts,
 ): unknown {
 	return {
-		...watch,
-		frames: watch.frames.map((frame, index) => ({
-			...frame,
-			png: frame.png ? frame.png.byteLength : null,
-			artifact: artifacts.frames[index] ?? null,
-		})),
-		sheets: watch.sheets.map((sheet, index) => ({
-			...sheet,
-			png: sheet.png.byteLength,
-			artifact: artifacts.sheets[index] ?? null,
-		})),
+		...(samplingForOutput(watch, artifacts) as object),
 		observation: observationForOutput(watch.observation, null),
 	};
 }
@@ -604,11 +650,15 @@ export function waitForOutput(wait: DeviceWait): unknown {
 export function actionForOutput(
 	result: ActionResult,
 	artifact: ArtifactWrite | null,
+	watch: WatchArtifacts | null = null,
 ): unknown {
 	return {
 		...result,
 		accessibility: accessibilityForOutput(result.accessibility),
 		image: result.image ? imageForOutput(result.image) : null,
+		...(result.watch
+			? { watch: samplingForOutput(result.watch, watch ?? NO_WATCH_ARTIFACTS) }
+			: {}),
 		artifact,
 	};
 }
@@ -616,6 +666,10 @@ export function actionForOutput(
 export function scrollForOutput(
 	result: ScrollResult,
 	artifact: ArtifactWrite | null,
+	watch: WatchArtifacts | null = null,
 ): unknown {
-	return { ...result, action: actionForOutput(result.action, artifact) };
+	return {
+		...result,
+		action: actionForOutput(result.action, artifact, watch),
+	};
 }

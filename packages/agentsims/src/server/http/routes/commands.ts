@@ -9,6 +9,7 @@ import {
 	CameraWebcamSelectionSchema,
 	MediaRouteActionSchema,
 } from "../../../core/tools/media";
+import type { ActionOptions } from "../../../core/tools/actions";
 import { Devices } from "../../../core/tools/devices/devices";
 import {
 	DeviceLifecycleService,
@@ -38,6 +39,38 @@ const watchQuery = z.object({
 	region: z.string().optional(),
 	keepFrames: z.string().optional(),
 });
+/** An action can watch the screen from the moment its input lands. */
+const actionQuery = z.object({
+	screenshot: z.string().optional(),
+	watch: z.coerce.number().int().optional(),
+	samples: z.coerce.number().int().optional(),
+	every: z.coerce.number().int().optional(),
+	region: z.string().optional(),
+	keepFrames: z.string().optional(),
+});
+const actionOptions = (url: URL) =>
+	Effect.gen(function* () {
+		const query = yield* decodeInput(
+			actionQuery,
+			Object.fromEntries(url.searchParams),
+		);
+		return {
+			screenshot: query.screenshot === "1",
+			...(query.watch === undefined
+				? {}
+				: {
+						watch: {
+							durationMs: query.watch,
+							...(query.samples === undefined
+								? {}
+								: { samples: query.samples }),
+							...(query.every === undefined ? {} : { everyMs: query.every }),
+							...(query.region === undefined ? {} : { region: query.region }),
+							...(query.keepFrames === "1" ? { keepFrames: true } : {}),
+						},
+					}),
+		} satisfies ActionOptions;
+	});
 const waitQuery = z.object({
 	for: z.string().optional(),
 	gone: z.string().optional(),
@@ -221,9 +254,11 @@ export const commandRoutes = HttpRouter.empty.pipe(
 					actionsBody,
 					yield* requestJson(request),
 				);
-				return yield* (yield* Devices).act(yield* pathDevice, body.actions, {
-					screenshot: url.searchParams.get("screenshot") === "1",
-				});
+				return yield* (yield* Devices).act(
+					yield* pathDevice,
+					body.actions,
+					yield* actionOptions(url),
+				);
 			}),
 		),
 	),
@@ -281,7 +316,7 @@ export const commandRoutes = HttpRouter.empty.pipe(
 							operation: input.operation,
 							expected: input.value,
 						},
-						{ screenshot: url.searchParams.get("screenshot") === "1" },
+						yield* actionOptions(url),
 					);
 				return yield* operation;
 			}),

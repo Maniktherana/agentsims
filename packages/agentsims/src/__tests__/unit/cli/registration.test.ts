@@ -14,6 +14,12 @@ function program() {
 	return root;
 }
 
+/** The refusal names the flags that were given, in the order they are read. */
+function message(args: readonly string[]): string {
+	const named = args.filter((value) => value.startsWith("--"));
+	return `${named.join(", ")} needs --watch <ms>.`;
+}
+
 function command(name: string): Command {
 	const value = program().commands.find((item) => item.name() === name);
 	if (!value) throw new Error(`Missing command: ${name}`);
@@ -55,16 +61,25 @@ test("the public command surface is canonical", () => {
 	expect(command("camera").commands.find((item) => item.name() === "use")?.aliases()).toEqual([]);
 });
 
+/** An action that can watch its own effect takes the same five flags. */
+const WATCH_OPTIONS = [
+	"--watch",
+	"--samples",
+	"--every",
+	"--region",
+	"--keep-frames",
+];
+
 test("action and app help shows the supported options", () => {
 	const expected: Record<string, string[]> = {
-		tap: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index"],
-		"long-press": ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
-		swipe: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
+		tap: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", ...WATCH_OPTIONS],
+		"long-press": ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration", ...WATCH_OPTIONS],
+		swipe: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration", ...WATCH_OPTIONS],
 		scroll: ["--device", "--url", "--json", "--in", "--amount", "--duration", "--to-end", "--collect", "--max-pages"],
-		drag: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration"],
+		drag: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration", ...WATCH_OPTIONS],
 		type: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
 		fill: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
-		press: ["--device", "--url", "--json", "--screenshot"],
+		press: ["--device", "--url", "--json", "--screenshot", ...WATCH_OPTIONS],
 		rotate: ["--device", "--url", "--json", "--screenshot"],
 	};
 	for (const [name, options] of Object.entries(expected))
@@ -83,13 +98,55 @@ test("action and app help shows the supported options", () => {
 	expect(runHelp).toContain("- for standard input");
 
 	const app = command("app");
-	for (const name of ["launch", "stop"])
-		expect(app.commands.find((item) => item.name() === name)?.options.map((option) => option.long)).toEqual([
-			"--device",
-			"--url",
-			"--json",
-			"--screenshot",
-		]);
+	const appOptions = (name: string) =>
+		app.commands
+			.find((item) => item.name() === name)
+			?.options.map((option) => option.long);
+	expect(appOptions("launch")).toEqual([
+		"--device",
+		"--url",
+		"--json",
+		"--screenshot",
+		...WATCH_OPTIONS,
+	]);
+	expect(appOptions("stop")).toEqual([
+		"--device",
+		"--url",
+		"--json",
+		"--screenshot",
+	]);
+});
+
+test.each([
+	["tap", ["tap", "@e1", "--samples", "4"], "--samples needs --watch <ms>."],
+	["press", ["press", "home", "--region", "0,0,10,10"], "--region needs --watch <ms>."],
+	["drag", ["drag", "@e1", "@e2", "--keep-frames"], "--keep-frames needs --watch <ms>."],
+])("%s refuses sampling flags without a window", async (_name, args) => {
+	await expect(
+		program().parseAsync([...args, "-d", "android:emulator-5554"], {
+			from: "user",
+		}),
+	).rejects.toThrow(message(args));
+});
+
+test("a watched action takes a sample count or an interval, never both", async () => {
+	await expect(
+		program().parseAsync(
+			[
+				"tap",
+				"@e1",
+				"-d",
+				"android:emulator-5554",
+				"--watch",
+				"9000",
+				"--samples",
+				"8",
+				"--every",
+				"250",
+			],
+			{ from: "user" },
+		),
+	).rejects.toThrow(/cannot be used with option/);
 });
 
 test("timed observation help lists the sampling and waiting options", () => {

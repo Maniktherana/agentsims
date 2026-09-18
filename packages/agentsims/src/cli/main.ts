@@ -40,9 +40,7 @@ import type {
 	ImageCaptureChannel,
 } from "../core/tools/observe/observe";
 import {
-	actionForOutput,
 	observationForOutput,
-	renderActionResult,
 	renderMatches,
 	renderObservation,
 	renderScreenshot,
@@ -52,6 +50,13 @@ import {
 	type ObserveFormat,
 } from "./observe-output";
 import { registerScrollCommands } from "./commands/scroll";
+import {
+	printActionResult,
+	watchOptions,
+	watchRequest,
+	watchTimeout,
+	type WatchFlags,
+} from "./commands/shared";
 import { writeScreenshotFile } from "./screenshots";
 import {
 	registerWaitCommands,
@@ -181,10 +186,11 @@ const AX_ROLE_HELP = AX_ROLES.join(", ");
 const TARGET_HELP =
 	'A target is a ref (@e14) or exact label ("Search"). Percent points (50%,90%) use the live screen and need no capture. Pixel points (603,1311) require --capture cN from a screenshot.';
 type DeviceFlags = { device: string; url?: string };
-type ActionFlags = DeviceFlags & {
-	json?: boolean;
-	screenshot?: boolean;
-};
+type ActionFlags = DeviceFlags &
+	WatchFlags & {
+		json?: boolean;
+		screenshot?: boolean;
+	};
 type TargetFlags = ActionFlags & {
 	role?: string;
 	index?: number;
@@ -393,23 +399,18 @@ export function createProgram(): Command {
 			.description(description)
 			.requiredOption("-d, --device <id>")
 			.option("--url <url>");
-	const printAction = (flags: ActionFlags, payload: ActionResult): void => {
-		const artifact = writeCapturedImage(payload.image, "action", flags.device);
-		if (
-			payload.dispatch.status !== "accepted" ||
-			payload.verification.status === "mismatch" ||
-			payload.text?.submit.status === "suppressed" ||
-			artifact?.status === "error"
-		)
-			process.exitCode = 1;
-		if (flags.json) return json(actionForOutput(payload, artifact));
-		process.stdout.write(`${renderActionResult(payload, artifact)}\n`);
-	};
+	/** Every action command prints through one writer, watch frames and all. */
+	const printAction = (flags: ActionFlags, payload: ActionResult): void =>
+		printActionResult({}, flags, payload);
 	const act = async (flags: ActionFlags, action: unknown): Promise<void> => {
-		const payload = (await client(flags.url).actDevice(
+		const watch = watchRequest(flags);
+		const payload = (await client(flags.url, watchTimeout(flags)).actDevice(
 			flags.device,
 			[action],
-			{ screenshot: flags.screenshot === true },
+			{
+				screenshot: flags.screenshot === true,
+				...(watch ? { watch } : {}),
+			},
 		)) as ActionResult;
 		printAction(flags, payload);
 	};
@@ -433,41 +434,40 @@ export function createProgram(): Command {
 				positiveInteger("Index"),
 			);
 
-	targetCommand("tap <target>", `Tap a target. ${TARGET_HELP}`).action(
-		async (target: string, flags: TargetFlags) =>
-			act(flags, { type: "tap", ...selector(target, flags) }),
+	watchOptions(
+		targetCommand("tap <target>", `Tap a target. ${TARGET_HELP}`),
+	).action(async (target: string, flags: TargetFlags) =>
+		act(flags, { type: "tap", ...selector(target, flags) }),
 	);
-	targetCommand(
-		"long-press <target>",
-		`Press and hold a target. ${TARGET_HELP}`,
-	)
-		.option(
+	watchOptions(
+		targetCommand(
+			"long-press <target>",
+			`Press and hold a target. ${TARGET_HELP}`,
+		).option(
 			"--duration <ms>",
 			`Hold duration in milliseconds (default: ${DEFAULT_LONG_PRESS_DURATION_MS})`,
 			integer("Duration", 1, 5_000),
-		)
-		.action(
-			async (
-				target: string,
-				flags: TargetFlags & { duration?: number },
-			) =>
-				act(flags, {
-					type: "long-press",
-					...selector(target, flags),
-					...(flags.duration === undefined
-						? {}
-						: { durationMs: flags.duration }),
-				}),
-		);
-	targetCommand(
-		"swipe <from> <to>",
-		`Move one finger from one target to another. Coordinates use x,y. ${TARGET_HELP}`,
-	)
-		.option(
+		),
+	).action(
+		async (target: string, flags: TargetFlags & { duration?: number }) =>
+			act(flags, {
+				type: "long-press",
+				...selector(target, flags),
+				...(flags.duration === undefined
+					? {}
+					: { durationMs: flags.duration }),
+			}),
+	);
+	watchOptions(
+		targetCommand(
+			"swipe <from> <to>",
+			`Move one finger from one target to another. Coordinates use x,y. ${TARGET_HELP}`,
+		).option(
 			"--duration <ms>",
 			"Swipe duration in milliseconds",
 			integer("Duration", 1, 5_000),
-		)
+		),
+	)
 		.addHelpText(
 			"after",
 			`
@@ -533,9 +533,11 @@ Examples:
 		"fill <text>",
 		"Replace a field value, then read the field back",
 	).action(typeText(true));
-	actionCommand(
-		"press <name>",
-		`Press a hardware button. Android: ${ANDROID_DEVICE_BUTTONS.join(", ")}. iOS: ${IOS_DEVICE_BUTTONS.join(", ")}.`,
+	watchOptions(
+		actionCommand(
+			"press <name>",
+			`Press a hardware button. Android: ${ANDROID_DEVICE_BUTTONS.join(", ")}. iOS: ${IOS_DEVICE_BUTTONS.join(", ")}.`,
+		),
 	).action(async (name: string, flags: ActionFlags) =>
 		act(flags, {
 			type: "button",
@@ -724,13 +726,21 @@ Examples:
 			.requiredOption("-d, --device <id>")
 			.option("--url <url>");
 	const runApp = (
-		flags: DeviceFlags & { screenshot?: boolean },
+		flags: DeviceFlags & WatchFlags & { screenshot?: boolean },
 		operation: string,
 		value?: string,
-	) =>
-		client(flags.url).app(flags.device, operation, value, {
-			screenshot: flags.screenshot === true,
-		});
+	) => {
+		const watch = watchRequest(flags);
+		return client(flags.url, watchTimeout(flags)).app(
+			flags.device,
+			operation,
+			value,
+			{
+				screenshot: flags.screenshot === true,
+				...(watch ? { watch } : {}),
+			},
+		);
+	};
 
 	appCommand("list", "List the apps installed on a device")
 		.option("-a, --all", "Include system apps")
@@ -744,15 +754,13 @@ Examples:
 		async (path: string, flags: DeviceFlags) =>
 			json(await runApp(flags, "install", path)),
 	);
-	appCommand("launch <app-id>", "Launch an installed app")
-		.option("--json", "Print structured output")
-		.option("--screenshot", "Capture the screen after the action")
-		.action(async (appId: string, flags: ActionFlags) =>
-			printAction(
-				flags,
-				(await runApp(flags, "launch", appId)) as ActionResult,
-			),
-		);
+	watchOptions(
+		appCommand("launch <app-id>", "Launch an installed app")
+			.option("--json", "Print structured output")
+			.option("--screenshot", "Capture the screen after the action"),
+	).action(async (appId: string, flags: ActionFlags) =>
+		printAction(flags, (await runApp(flags, "launch", appId)) as ActionResult),
+	);
 	appCommand("stop <app-id>", "Stop a running app")
 		.option("--json", "Print structured output")
 		.option("--screenshot", "Capture the screen after the action")

@@ -1,5 +1,9 @@
 import { Command, InvalidArgumentError } from "commander";
-import type { DeviceWait, DeviceWatch } from "../../core/tools/observe/watch";
+import type {
+	DeviceWait,
+	DeviceWatch,
+	FrameSampling,
+} from "../../core/tools/observe/watch";
 import {
 	WAIT_DEFAULT_INTERVAL_MS,
 	WAIT_DEFAULT_TIMEOUT_MS,
@@ -18,7 +22,7 @@ import {
 	type ObserveFormat,
 	type WatchArtifacts,
 } from "../observe-output";
-import { writeScreenshotFile } from "../screenshots";
+import { writeScreenshotFile, type ScreenshotKind } from "../screenshots";
 
 /**
  * `watch` and `wait` are the timed half of observation. They share this
@@ -98,6 +102,7 @@ function numbered(path: string, index: number): string {
 }
 
 function writeImage(
+	kind: ScreenshotKind,
 	device: string,
 	content: Uint8Array,
 	outputPath?: string,
@@ -106,7 +111,7 @@ function writeImage(
 		return {
 			status: "ok",
 			path: writeScreenshotFile({
-				kind: "observe",
+				kind,
 				device,
 				content,
 				mimeType: "image/png",
@@ -121,20 +126,38 @@ function writeImage(
 	}
 }
 
-function writeWatchArtifacts(watch: DeviceWatch, out?: string): WatchArtifacts {
-	const sheets = watch.sheets.map((sheet, index) =>
-		writeImage(watch.device, sheet.png, out ? numbered(out, index) : undefined),
+/**
+ * Sheets and kept frames take the same artifact path, whether the sampling
+ * came from `observe --watch` or from an action that watched its own effect.
+ */
+export function writeWatchArtifacts(
+	device: string,
+	sampling: FrameSampling,
+	options: { kind?: ScreenshotKind; out?: string } = {},
+): WatchArtifacts {
+	const kind = options.kind ?? "observe";
+	const out = options.out;
+	const sheets = sampling.sheets.map((sheet, index) =>
+		writeImage(kind, device, sheet.png, out ? numbered(out, index) : undefined),
 	);
-	const frames = watch.frames.map((frame) =>
+	const frames = sampling.frames.map((frame) =>
 		frame.png
 			? writeImage(
-					watch.device,
+					kind,
+					device,
 					frame.png,
-					out ? numbered(out, watch.sheets.length + frame.index) : undefined,
+					out ? numbered(out, sampling.sheets.length + frame.index) : undefined,
 				)
 			: null,
 	);
 	return { sheets, frames };
+}
+
+/** An artifact that never reached the disk is a failed command. */
+export function watchArtifactsFailed(artifacts: WatchArtifacts): boolean {
+	return [...artifacts.sheets, ...artifacts.frames].some(
+		(artifact) => artifact?.status === "error",
+	);
 }
 
 /** `observe --watch` delegates here so the timed path stays in one module. */
@@ -152,13 +175,12 @@ export async function runObserveWatch(
 			...(flags.region === undefined ? {} : { region: flags.region }),
 			...(flags.keepFrames ? { keepFrames: true } : {}),
 		})) as DeviceWatch;
-	const artifacts = writeWatchArtifacts(result, flags.out);
-	if (
-		result.frames.length === 0 ||
-		[...artifacts.sheets, ...artifacts.frames].some(
-			(artifact) => artifact?.status === "error",
-		)
-	)
+	const artifacts = writeWatchArtifacts(
+		result.device,
+		result,
+		flags.out ? { out: flags.out } : {},
+	);
+	if (result.frames.length === 0 || watchArtifactsFailed(artifacts))
 		process.exitCode = 1;
 	if (flags.json) return dependencies.json(watchForOutput(result, artifacts));
 	output(dependencies, renderWatch(result, artifacts, flags));

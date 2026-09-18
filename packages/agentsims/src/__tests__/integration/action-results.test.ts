@@ -37,6 +37,9 @@ type Behaviour = {
 
 async function start(behaviour: Behaviour = {}) {
 	const frames: Array<{ device: string; input: unknown }> = [];
+	// Every read of the device, in order. A watch has to sample before the
+	// settle read, so the order is the evidence.
+	const events: string[] = [];
 	const reads = new Map<string, number>();
 	const appReads = new Map<string, number>();
 	const screenshots = new Map<string, number>();
@@ -65,6 +68,7 @@ async function start(behaviour: Behaviour = {}) {
 					});
 				},
 				captureScreenshot: async () => {
+					events.push("screenshot");
 					const call = (screenshots.get(device) ?? 0) + 1;
 					screenshots.set(device, call);
 					await behaviour.onScreenshot?.(device, call);
@@ -79,6 +83,7 @@ async function start(behaviour: Behaviour = {}) {
 				},
 				readConfig: async () => screens[device as keyof typeof screens],
 				readAccessibility: async () => {
+					events.push("read");
 					const index = reads.get(device) ?? 0;
 					reads.set(device, index + 1);
 					if (behaviour.failAccessibilityAt?.[device]?.includes(index))
@@ -101,6 +106,7 @@ async function start(behaviour: Behaviour = {}) {
 		client: new ApplicationCommandClient({ origin }),
 		service,
 		frames,
+		events,
 		reads,
 		screenshots,
 		dispatchCalls: () => dispatchCalls,
@@ -724,6 +730,115 @@ test("a screen that keeps changing reports an unsettled read at the limit", asyn
 
 	expect(result.settled).toBe(false);
 	expect(result.settledMs).toBe(1500);
+});
+
+test("a watched tap samples from dispatch, before the settle read", async () => {
+	const { client, events } = await start({
+		trees: { [ANDROID]: [androidSignInSnapshot, androidSignInSnapshot] },
+	});
+	const before = (await client.observeDevice(ANDROID)) as {
+		view: { refs: Record<string, string> };
+	};
+	const ref = Object.entries(before.view.refs).find(
+		([, id]) => id === "autoplay",
+	)![0];
+	events.length = 0;
+
+	const result = (await client.actDevice(
+		ANDROID,
+		[{ type: "tap", target: `@${ref}` }],
+		{ watch: { durationMs: 50, samples: 3 } },
+	)) as {
+		dispatch: { status: string };
+		watch: { frames: unknown[]; sheets: unknown[] };
+		settled: boolean;
+	};
+
+	expect(result.dispatch.status).toBe("accepted");
+	expect(result.watch.frames).toHaveLength(3);
+	expect(result.watch.sheets).toHaveLength(1);
+	// The check before dispatch reads, then the sampler runs, then the
+	// post-action read waits the screen out.
+	expect(events.slice(0, 5)).toEqual([
+		"read",
+		"screenshot",
+		"screenshot",
+		"screenshot",
+		"read",
+	]);
+});
+
+test("a watched region is read before the action kills the ref", async () => {
+	const { client } = await start({
+		trees: { [ANDROID]: [androidSignInSnapshot, androidSignInSnapshot] },
+	});
+	const before = (await client.observeDevice(ANDROID)) as {
+		view: { refs: Record<string, string> };
+	};
+	const ref = Object.entries(before.view.refs).find(
+		([, id]) => id === "autoplay",
+	)![0];
+
+	const result = (await client.actDevice(
+		ANDROID,
+		[{ type: "tap", target: `@${ref}` }],
+		{ watch: { durationMs: 0, samples: 2, region: `@${ref}` } },
+	)) as {
+		dispatch: { status: string };
+		watch: { frames: Array<{ width: number; height: number }> };
+	};
+
+	expect(result.dispatch.status).toBe("accepted");
+	// The Autoplay switch is 1000x120 in screenshot pixels.
+	expect(result.watch.frames.map((frame) => frame.width)).toEqual([1000, 1000]);
+	expect(result.watch.frames.map((frame) => frame.height)).toEqual([120, 120]);
+});
+
+test("a refused tap never samples", async () => {
+	const { client, events, screenshots } = await start();
+	await client.observeDevice(ANDROID);
+	const shots = screenshots.get(ANDROID) ?? 0;
+	events.length = 0;
+
+	const result = (await client.actDevice(
+		ANDROID,
+		[{ type: "tap", target: "@e999999" }],
+		{ watch: { durationMs: 0, samples: 4 } },
+	)) as { dispatch: { status: string }; watch?: unknown };
+
+	expect(result.dispatch.status).toBe("none");
+	expect(result.watch).toBeUndefined();
+	expect(screenshots.get(ANDROID) ?? 0).toBe(shots);
+	expect(events).toEqual([]);
+});
+
+test("an app launch watches the screen the launch fills", async () => {
+	const test = await start({
+		apps: { [ANDROID]: ["com.before", "com.after", "com.after"] },
+	});
+	await test.client.observeDevice(ANDROID);
+	test.events.length = 0;
+
+	const result = await Effect.runPromise(
+		test.service.operation(
+			ANDROID,
+			Effect.succeed(undefined),
+			{
+				kind: "foreground_app",
+				operation: "launch",
+				expected: "com.after",
+			},
+			{ watch: { durationMs: 0, samples: 2 } },
+		),
+	);
+
+	expect(result.dispatch.status).toBe("accepted");
+	expect(result.watch?.frames).toHaveLength(2);
+	expect(test.events.slice(0, 3)).toEqual([
+		"screenshot",
+		"screenshot",
+		"read",
+	]);
 });
 
 test("a refusal performs no settle reads", async () => {

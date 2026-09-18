@@ -1,5 +1,5 @@
-import { InvalidArgumentError, type Command } from "commander";
-import type { ActionResult } from "../../core/tools/actions";
+import { InvalidArgumentError, Option, type Command } from "commander";
+import type { ActionOptions, ActionResult } from "../../core/tools/actions";
 import type { ImageCaptureChannel } from "../../core/tools/observe/observe";
 import { ApplicationCommandClient } from "../application-command-client";
 import { readLocalServer } from "../local-server";
@@ -8,8 +8,16 @@ import {
 	renderActionResult,
 	type ArtifactWrite,
 	type ObserveFormat,
+	type WatchArtifacts,
 } from "../observe-output";
 import { writeScreenshotFile } from "../screenshots";
+import {
+	watchArtifactsFailed,
+	watchDurationOption,
+	watchEveryOption,
+	watchSamplesOption,
+	writeWatchArtifacts,
+} from "./wait";
 
 /**
  * Registration helpers shared by the command files. They mirror the small
@@ -22,10 +30,86 @@ export type CommandDependencies = {
 };
 
 export type DeviceFlags = { device: string; url?: string };
-export type ActionFlags = DeviceFlags & {
-	json?: boolean;
-	screenshot?: boolean;
+export type WatchFlags = {
+	watch?: number;
+	samples?: number;
+	every?: number;
+	region?: string;
+	keepFrames?: boolean;
 };
+export type ActionFlags = DeviceFlags &
+	WatchFlags & {
+		json?: boolean;
+		screenshot?: boolean;
+	};
+
+/** Leave the server time to answer after the sampling window closes. */
+const WATCH_GRACE_MS = 15_000;
+
+/**
+ * Watch the screen from the moment the input lands. A separate observe starts
+ * too late for content that begins on the action.
+ */
+export function watchOptions(command: Command): Command {
+	return command
+		.option(
+			"--watch <ms>",
+			"Sample the screen from dispatch for this long",
+			watchDurationOption,
+		)
+		.option(
+			"--samples <n>",
+			"How many frames --watch samples",
+			watchSamplesOption,
+		)
+		.addOption(
+			new Option("--every <ms>", "Sample a frame this often instead")
+				.argParser(watchEveryOption)
+				.conflicts("samples"),
+		)
+		.option(
+			"--region <target>",
+			"Crop every frame to a ref, an exact label, or x,y,w,h",
+		)
+		.option("--keep-frames", "Also write every sampled frame");
+}
+
+/** The sampling the action asks for. The other flags need a window to fill. */
+export function watchRequest(flags: WatchFlags): ActionOptions["watch"] {
+	if (flags.watch === undefined) {
+		const named = [
+			flags.samples === undefined ? null : "--samples",
+			flags.every === undefined ? null : "--every",
+			flags.region === undefined ? null : "--region",
+			flags.keepFrames ? "--keep-frames" : null,
+		].filter((name): name is string => name !== null);
+		if (named.length > 0)
+			throw new InvalidArgumentError(`${named.join(", ")} needs --watch <ms>.`);
+		return undefined;
+	}
+	return {
+		durationMs: flags.watch,
+		...(flags.samples === undefined ? {} : { samples: flags.samples }),
+		...(flags.every === undefined ? {} : { everyMs: flags.every }),
+		...(flags.region === undefined ? {} : { region: flags.region }),
+		...(flags.keepFrames ? { keepFrames: true } : {}),
+	};
+}
+
+/** A watched action holds the connection open for the whole window. */
+export function watchTimeout(flags: WatchFlags): number | undefined {
+	return flags.watch === undefined ? undefined : flags.watch + WATCH_GRACE_MS;
+}
+
+/** The sheets and kept frames of an action that watched its own effect. */
+export function writeActionWatch(
+	result: ActionResult,
+	device: string,
+): WatchArtifacts | null {
+	return result.watch
+		? writeWatchArtifacts(device, result.watch, { kind: "action" })
+		: null;
+}
 
 export function commandClient(
 	url?: string,
@@ -126,12 +210,14 @@ export function writeActionImage(
 export function actionExitCode(
 	result: ActionResult,
 	artifact: ArtifactWrite | null,
+	watch: WatchArtifacts | null = null,
 ): void {
 	if (
 		result.dispatch.status !== "accepted" ||
 		result.verification.status === "mismatch" ||
 		result.text?.submit.status === "suppressed" ||
-		artifact?.status === "error"
+		artifact?.status === "error" ||
+		(watch !== null && watchArtifactsFailed(watch))
 	)
 		process.exitCode = 1;
 }
@@ -144,7 +230,9 @@ export function printActionResult(
 ): void {
 	const write = writerOf(dependencies);
 	const artifact = writeActionImage(result.image, flags.device);
-	actionExitCode(result, artifact);
-	if (flags.json) return printJson(write, actionForOutput(result, artifact));
-	write(`${renderActionResult(result, artifact, format)}\n`);
+	const watch = writeActionWatch(result, flags.device);
+	actionExitCode(result, artifact, watch);
+	if (flags.json)
+		return printJson(write, actionForOutput(result, artifact, watch));
+	write(`${renderActionResult(result, artifact, format, watch)}\n`);
 }

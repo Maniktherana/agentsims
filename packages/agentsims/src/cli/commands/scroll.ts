@@ -20,6 +20,9 @@ import {
 	positiveIntegerOption,
 	printActionResult,
 	printJson,
+	watchOptions,
+	watchRequest,
+	watchTimeout,
 	writeActionImage,
 	writerOf,
 	type ActionFlags,
@@ -118,44 +121,53 @@ Examples:
 			write(`${renderScrollResult(result, artifact)}\n`);
 		});
 
-	deviceCommand(
-		program,
-		"drag <from> <to>",
-		"Move one finger slowly between two targets, for a slider or a reorder",
-	)
-		.option("--json", "Print structured output")
-		.option("--screenshot", "Capture the screen after the action")
-		.option("--capture <id>", "Capture ID for a pixel or percent point")
-		.option("--role <role>", `Match only this role: ${AX_ROLES.join(", ")}`)
-		.option(
-			"--index <n>",
-			"Choose one of several matches, counted from 1",
-			positiveIntegerOption("Index"),
+	watchOptions(
+		deviceCommand(
+			program,
+			"drag <from> <to>",
+			"Move one finger slowly between two targets, for a slider or a reorder",
 		)
-		.option(
-			"--duration <ms>",
-			`Drag duration in milliseconds (default: ${DEFAULT_DRAG_DURATION_MS})`,
-			integerOption("Duration", 1, 5_000),
-			DEFAULT_DRAG_DURATION_MS,
-		)
-		.action(async (from: string, to: string, flags: DragFlags) => {
-			const result = (await client(flags.url).actDevice(
-				flags.device,
-				[
-					{
-						type: "swipe",
-						from,
-						to,
-						durationMs: flags.duration,
-						...(flags.capture ? { capture: flags.capture } : {}),
-						...(flags.role ? { role: flags.role } : {}),
-						...(flags.index === undefined ? {} : { index: flags.index }),
-					},
-				],
-				{ screenshot: flags.screenshot === true },
-			)) as ActionResult;
-			printActionResult(dependencies, flags, result);
-		});
+			.option("--json", "Print structured output")
+			.option("--screenshot", "Capture the screen after the action")
+			.option("--capture <id>", "Capture ID for a pixel or percent point")
+			.option("--role <role>", `Match only this role: ${AX_ROLES.join(", ")}`)
+			.option(
+				"--index <n>",
+				"Choose one of several matches, counted from 1",
+				positiveIntegerOption("Index"),
+			)
+			.option(
+				"--duration <ms>",
+				`Drag duration in milliseconds (default: ${DEFAULT_DRAG_DURATION_MS})`,
+				integerOption("Duration", 1, 5_000),
+				DEFAULT_DRAG_DURATION_MS,
+			),
+	).action(async (from: string, to: string, flags: DragFlags) => {
+		const watch = watchRequest(flags);
+		const timeoutMs = watchTimeout(flags);
+		const result = (await client(
+			flags.url,
+			timeoutMs === undefined ? {} : { timeoutMs },
+		).actDevice(
+			flags.device,
+			[
+				{
+					type: "swipe",
+					from,
+					to,
+					durationMs: flags.duration,
+					...(flags.capture ? { capture: flags.capture } : {}),
+					...(flags.role ? { role: flags.role } : {}),
+					...(flags.index === undefined ? {} : { index: flags.index }),
+				},
+			],
+			{
+				screenshot: flags.screenshot === true,
+				...(watch ? { watch } : {}),
+			},
+		)) as ActionResult;
+		printActionResult(dependencies, flags, result);
+	});
 
 	return program;
 }

@@ -33,6 +33,25 @@ export class CommandRequestError extends Error {
 	}
 }
 
+/** The action watch travels as query parameters, like the observe watch. */
+function setWatchParams(
+	query: URLSearchParams,
+	watch: ActionOptions["watch"],
+): void {
+	if (!watch) return;
+	query.set("watch", String(watch.durationMs));
+	if (watch.samples !== undefined) query.set("samples", String(watch.samples));
+	if (watch.everyMs !== undefined) query.set("every", String(watch.everyMs));
+	if (watch.region !== undefined)
+		query.set(
+			"region",
+			typeof watch.region === "string"
+				? watch.region
+				: `${watch.region.x},${watch.region.y},${watch.region.width},${watch.region.height}`,
+		);
+	if (watch.keepFrames) query.set("keepFrames", "1");
+}
+
 export type DeviceLogOptions = {
 	limit?: number;
 	level?: string;
@@ -221,6 +240,7 @@ export class ApplicationCommandClient {
 	): Promise<unknown> {
 		const query = new URLSearchParams();
 		if (options.screenshot) query.set("screenshot", "1");
+		setWatchParams(query, options.watch);
 		const search = query.size > 0 ? `?${query}` : "";
 		return this.request(
 			`/device/${encodeURIComponent(deviceId)}/act${search}`,
@@ -260,9 +280,12 @@ export class ApplicationCommandClient {
 		value?: string,
 		options: ActionOptions = {},
 	): Promise<unknown> {
-		const query = options.screenshot ? "?screenshot=1" : "";
+		const query = new URLSearchParams();
+		if (options.screenshot) query.set("screenshot", "1");
+		setWatchParams(query, options.watch);
+		const search = query.size > 0 ? `?${query}` : "";
 		return this.request(
-			`/device/${encodeURIComponent(deviceId)}/app${query}`,
+			`/device/${encodeURIComponent(deviceId)}/app${search}`,
 			{
 				method: "POST",
 				body: JSON.stringify({

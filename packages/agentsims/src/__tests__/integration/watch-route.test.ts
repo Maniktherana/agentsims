@@ -7,6 +7,7 @@ import { encode as encodePng } from "fast-png";
 import { ApplicationCommandClient } from "../../cli/application-command-client";
 import { createProgram } from "../../cli/main";
 import { makeDeviceService } from "../../core/tools/devices/devices";
+import type { ActionResult } from "../../core/tools/actions";
 import type { DeviceWatch } from "../../core/tools/observe/watch";
 import type { PreviewServer } from "../../server/http/server";
 import { androidSignInSnapshot } from "../fixtures/ax-view-snapshots";
@@ -33,7 +34,7 @@ function png(level: number, width = 40, height = 90): Buffer {
 	);
 }
 
-async function startServer(labels: readonly string[][]) {
+async function startServer(labels: readonly string[][], apps = false) {
 	let reads = 0;
 	let shots = 0;
 	const service = makeDeviceService(
@@ -86,7 +87,10 @@ async function startServer(labels: readonly string[][]) {
 			}),
 		() => Effect.succeed("com.example.app"),
 	);
-	const started = await startTestServer({ deviceCommands: service });
+	const started = await startTestServer({
+		deviceCommands: service,
+		...(apps ? { apps: { execute: () => Effect.void } } : {}),
+	});
 	servers.push(started.server);
 	return started.origin;
 }
@@ -228,6 +232,50 @@ describe("watch and wait routes", () => {
 	});
 });
 
+describe("action watch route", () => {
+	test("an action takes the sampling query and returns its frames", async () => {
+		const origin = await startServer([]);
+		const client = new ApplicationCommandClient({ origin });
+
+		const result = (await client.actDevice(
+			DEVICE,
+			[{ type: "tap", target: "50%,50%" }],
+			{ watch: { durationMs: 0, samples: 3, region: "0,0,20,30" } },
+		)) as ActionResult;
+
+		expect(result.dispatch.status).toBe("accepted");
+		expect(result.watch?.frames).toHaveLength(3);
+		expect(result.watch?.frames.map((frame) => frame.width)).toEqual([
+			20, 20, 20,
+		]);
+		expect(result.watch?.sheets).toHaveLength(1);
+		expect(Buffer.isBuffer(result.watch?.sheets[0]?.png)).toBe(true);
+	});
+
+	test("an app launch takes the same query and keeps its frames", async () => {
+		const origin = await startServer([], true);
+		const client = new ApplicationCommandClient({ origin });
+
+		const result = (await client.app(DEVICE, "launch", "com.example.app", {
+			watch: { durationMs: 0, everyMs: 50, keepFrames: true },
+		})) as ActionResult;
+
+		expect(result.watch?.frames).toHaveLength(1);
+		expect(Buffer.isBuffer(result.watch?.frames[0]?.png)).toBe(true);
+	});
+
+	test("an action without a watch query returns no frames", async () => {
+		const origin = await startServer([]);
+		const client = new ApplicationCommandClient({ origin });
+
+		const result = (await client.actDevice(DEVICE, [
+			{ type: "tap", target: "50%,50%" },
+		])) as ActionResult;
+
+		expect(result.watch).toBeUndefined();
+	});
+});
+
 describe("watch and wait commands", () => {
 	test("observe --watch writes one sheet and wait exits 1 on a timeout", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "agentsims-watch-"));
@@ -284,6 +332,31 @@ describe("watch and wait commands", () => {
 			expect(readdirSync(directory)).toHaveLength(1 + 1 + 2);
 			expect(kept).toContain("frame  0  at=");
 			expect(kept).toContain("frame  1  at=");
+
+			lines.length = 0;
+			await createProgram()
+				.exitOverride()
+				.parseAsync(
+					[
+						"tap",
+						"50%,50%",
+						"-d",
+						DEVICE,
+						"--url",
+						origin,
+						"--watch",
+						"0",
+						"--samples",
+						"2",
+					],
+					{ from: "user" },
+				);
+			const tapped = lines.join("");
+			expect(tapped).toContain("watch  2 frames  source=screenshot");
+			expect(tapped).toContain(
+				`sheet  0  frames=0\u20131  grid=2x1  cell=40x90  path=${directory}`,
+			);
+			expect(process.exitCode).toBe(0);
 
 			lines.length = 0;
 			await createProgram()
