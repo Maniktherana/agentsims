@@ -50,6 +50,7 @@ export const AX_STATES = [
 	"scrollable",
 	"long-press",
 	"offscreen",
+	"heading",
 ] as const;
 export type AxState = (typeof AX_STATES)[number];
 
@@ -70,6 +71,18 @@ export interface AxViewNode {
 	box: AxRect;
 	/** Element centre as a 0-1 fraction of the screen, the input frame unit. */
 	point: { x: number; y: number };
+	/** The spoken state a screen reader announces, when the node has one. */
+	state?: string;
+	error?: string;
+	hint?: string;
+	placeholder?: string;
+	/** Row and column counts of a list or grid, offscreen items included. */
+	collection?: { rows: number; cols: number };
+	/** Zero-based position in the enclosing list or grid, with its totals. */
+	item?: { row: number; col: number; rows?: number; cols?: number };
+	actions?: string[];
+	selection?: { start: number; end: number };
+	maxLength?: number;
 	children: AxViewNode[];
 }
 
@@ -151,6 +164,7 @@ export function axStatesOf(element: AxElement): AxState[] {
 	if (hasTrait(element, "scrollable")) states.push("scrollable");
 	if (hasTrait(element, "long press")) states.push("long-press");
 	if (element.visibleToUser === false) states.push("offscreen");
+	if (element.heading === true) states.push("heading");
 	return states;
 }
 
@@ -189,7 +203,11 @@ function nestElements(
 	const byPath = new Map<string, TreeNode>();
 	const roots: TreeNode[] = [];
 	for (const element of elements) {
-		const label = element.label.trim();
+		// A control with no name of its own takes the caption that labels it,
+		// the pane title it represents, or the placeholder it shows.
+		const label =
+			element.label.trim() ||
+			(element.labeledBy ?? element.paneTitle ?? element.placeholder ?? "").trim();
 		const role = axRoleOf(element, platform);
 		const fieldValue =
 			role === "textbox" || role === "securetextbox" || role === "combobox";
@@ -223,7 +241,9 @@ function nestElements(
 }
 
 function isNamed(node: TreeNode): boolean {
-	return Boolean(node.label || node.value || node.element.testId);
+	return Boolean(
+		node.label || node.value || node.element.testId || node.element.collection,
+	);
 }
 
 /** Rule 1: an actionable node, a named node, or a node the agent can scroll. */
@@ -335,8 +355,19 @@ export function buildAxView(input: AxViewInput): AxViewResult {
 				.filter((node): node is TreeNode => node !== null);
 	const refs: Record<string, string> = {};
 	let shown = 0;
-	const toView = (node: TreeNode): AxViewNode => {
+	const toView = (
+		node: TreeNode,
+		parentCollection?: { rows: number; cols: number },
+	): AxViewNode => {
 		const ref = input.nextRef();
+		const element = node.element;
+		const item = element.item
+			? {
+					row: element.item.row,
+					col: element.item.col,
+					...(parentCollection ? { rows: parentCollection.rows, cols: parentCollection.cols } : {}),
+				}
+			: undefined;
 		refs[ref] = node.element.id;
 		shown += 1;
 		const frame = node.element.frame;
@@ -369,10 +400,25 @@ export function buildAxView(input: AxViewInput): AxViewResult {
 						? (frame.y + frame.height / 2) / axScreen.height
 						: 0,
 			},
-			children: node.children.map(toView),
+			...(element.state ? { state: element.state } : {}),
+			...(element.error ? { error: element.error } : {}),
+			...(element.hint ? { hint: element.hint } : {}),
+			...(element.placeholder && element.placeholder !== node.label
+				? { placeholder: element.placeholder }
+				: {}),
+			...(element.collection ? { collection: element.collection } : {}),
+			...(item ? { item } : {}),
+			...(element.actions && element.actions.length > 0
+				? { actions: element.actions }
+				: {}),
+			...(element.selection ? { selection: element.selection } : {}),
+			...(element.maxLength !== undefined ? { maxLength: element.maxLength } : {}),
+			children: node.children.map((child) =>
+				toView(child, element.collection ?? parentCollection),
+			),
 		};
 	};
-	const nodes = kept.map(toView);
+	const nodes = kept.map((node) => toView(node));
 	return {
 		nodes,
 		shown,

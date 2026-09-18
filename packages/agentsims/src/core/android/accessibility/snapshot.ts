@@ -79,6 +79,60 @@ function rangeOf(attrs: Record<string, string>): AxRange | undefined {
 	return { current, min, max };
 }
 
+type ElementDetails = Pick<
+	AxElement,
+	| "placeholder"
+	| "hint"
+	| "state"
+	| "error"
+	| "paneTitle"
+	| "heading"
+	| "labeledBy"
+	| "collection"
+	| "item"
+	| "actions"
+	| "selection"
+	| "maxLength"
+>;
+
+/** Everything the helper reports beyond name, value, and traits. */
+function detailsOf(
+	attrs: Record<string, string>,
+	placeholder: string,
+): ElementDetails {
+	const details: ElementDetails = {};
+	if (placeholder) details.placeholder = placeholder;
+	if (attrs.tooltip) details.hint = attrs.tooltip;
+	if (attrs["state-desc"]) details.state = attrs["state-desc"];
+	if (attrs.error) details.error = attrs.error;
+	if (attrs["pane-title"]) details.paneTitle = attrs["pane-title"];
+	if (attrs.heading === "true") details.heading = true;
+	if (attrs["labeled-by"]) details.labeledBy = attrs["labeled-by"];
+	const rows = optionalInteger(attrs["collection-rows"]);
+	const cols = optionalInteger(attrs["collection-cols"]);
+	if (rows !== undefined && cols !== undefined)
+		details.collection = { rows, cols };
+	const row = optionalInteger(attrs["item-row"]);
+	const col = optionalInteger(attrs["item-col"]);
+	if (row !== undefined && col !== undefined) {
+		const rowSpan = optionalInteger(attrs["item-row-span"]);
+		const colSpan = optionalInteger(attrs["item-col-span"]);
+		details.item = {
+			row,
+			col,
+			...(rowSpan === undefined ? {} : { rowSpan }),
+			...(colSpan === undefined ? {} : { colSpan }),
+		};
+	}
+	if (attrs.actions) details.actions = attrs.actions.split(",").filter(Boolean);
+	const start = optionalInteger(attrs["selection-start"]);
+	const end = optionalInteger(attrs["selection-end"]);
+	if (start !== undefined && end !== undefined) details.selection = { start, end };
+	const maxLength = optionalInteger(attrs["max-length"]);
+	if (maxLength !== undefined) details.maxLength = maxLength;
+	return details;
+}
+
 function boundsToRect(bounds: string | undefined) {
 	const match = bounds?.match(/\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/);
 	if (!match) return null;
@@ -203,6 +257,7 @@ export async function collectAndroidAxSnapshot(
 			const windowLayer = optionalInteger(attrs["window-layer"]);
 			const windowType = optionalInteger(attrs["window-type"]);
 			const range = rangeOf(attrs);
+			const details = detailsOf(attrs, hint ? attrs.text || "" : "");
 			elements.push({
 				id:
 					windowId !== undefined && sourceId !== undefined
@@ -230,6 +285,7 @@ export async function collectAndroidAxSnapshot(
 				nativeId,
 				traits: androidAxTraits(attrs),
 				...(range ? { range } : {}),
+				...details,
 			});
 		}
 		if (elements.length === 0) {

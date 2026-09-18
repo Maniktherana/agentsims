@@ -16,6 +16,37 @@ interface RawAxeNode {
 	children: unknown[];
 	focused?: boolean;
 	selection?: { start: number; end: number };
+	AXSelected?: boolean;
+	AXPlaceholder?: string | null;
+	AXHelp?: string | null;
+	AXSubrole?: string | null;
+	AXMinValue?: number | null;
+	AXMaxValue?: number | null;
+	AXNumberValue?: number | null;
+}
+
+/** The attributes beyond name and value that the bridge reports. */
+function iosDetails(node: RawAxeNode): Partial<AxElement> {
+	const details: Partial<AxElement> = {};
+	const traits: string[] = [];
+	if (node.focused === true) traits.push("focused");
+	if (node.AXSelected === true) traits.push("selected");
+	if (traits.length > 0) details.traits = traits;
+	if (node.AXPlaceholder) details.placeholder = node.AXPlaceholder;
+	if (node.AXHelp) details.hint = node.AXHelp;
+	if (node.AXSubrole) details.subrole = node.AXSubrole;
+	if (
+		typeof node.AXMinValue === "number" &&
+		typeof node.AXMaxValue === "number" &&
+		typeof node.AXNumberValue === "number"
+	)
+		details.range = {
+			current: node.AXNumberValue,
+			min: node.AXMinValue,
+			max: node.AXMaxValue,
+		};
+	if (node.selection) details.selection = node.selection;
+	return details;
 }
 
 function rawAxeNode(value: unknown): RawAxeNode | null {
@@ -94,7 +125,7 @@ function normalizeAxTree(roots: unknown[]): AxSnapshot {
 		return {
 			id: counts.get(identity) === 1 ? identity : path,
 			path,
-			label: node.AXLabel ?? "",
+			label: node.AXLabel ?? node.AXPlaceholder ?? "",
 			value: node.AXValue ?? "",
 			role: node.role_description,
 			type: node.type,
@@ -102,7 +133,7 @@ function normalizeAxTree(roots: unknown[]): AxSnapshot {
 			frame: node.frame,
 			testId: node.AXUniqueId ?? undefined,
 			nativeId: node.AXUniqueId ?? undefined,
-			...(node.focused === true ? { traits: ["focused"] } : {}),
+			...iosDetails(node),
 		};
 	});
 

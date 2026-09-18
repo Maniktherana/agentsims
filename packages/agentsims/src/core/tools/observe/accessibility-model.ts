@@ -71,6 +71,30 @@ export interface AxElement {
 	nativeId?: string;
 	/** Present when the platform reports a value range for the control. */
 	range?: AxRange;
+	/** Text a field shows while empty. */
+	placeholder?: string;
+	/** Help or tooltip text the platform attaches to the control. */
+	hint?: string;
+	/** The spoken state a screen reader announces, such as "On" or "50%". */
+	state?: string;
+	/** Validation text a field shows. */
+	error?: string;
+	/** The title of a pane or region this node represents. */
+	paneTitle?: string;
+	heading?: boolean;
+	/** The caption node that names this control, by its text. */
+	labeledBy?: string;
+	/** Row and column counts of a list or grid, including offscreen items. */
+	collection?: { rows: number; cols: number };
+	/** The zero-based position of an item inside its list or grid. */
+	item?: { row: number; col: number; rowSpan?: number; colSpan?: number };
+	/** Platform actions the node accepts beyond tap and long press. */
+	actions?: string[];
+	/** Cursor or selection inside an editable field. */
+	selection?: { start: number; end: number };
+	maxLength?: number;
+	/** A platform subrole, such as an iOS AXSubrole with its prefix removed. */
+	subrole?: string;
 	traits?: string[];
 	source?: AxSourceContext;
 }

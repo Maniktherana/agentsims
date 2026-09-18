@@ -89,6 +89,42 @@ describe("iOS accessibility normalization", () => {
 		expect(iosAxSnapshot(raw)).toEqual(expected);
 	});
 
+	test("selection, placeholder, help, subrole, and ranges come through", () => {
+		const raw = [
+			rawNode("root", "Application", screen, {
+				children: [
+					rawNode("tab", "Button", { x: 0, y: 800, width: 100, height: 60 }, {
+						AXLabel: "Library",
+						AXSelected: true,
+						AXSubrole: "TabButton",
+					}),
+					rawNode("search", "SearchField", { x: 0, y: 0, width: 402, height: 44 }, {
+						AXPlaceholder: "Search settings",
+						AXHelp: "Type to filter",
+					}),
+					rawNode("volume", "Slider", { x: 0, y: 100, width: 402, height: 44 }, {
+						AXLabel: "Volume",
+						AXValue: "50%",
+						AXMinValue: 0,
+						AXMaxValue: 1,
+						AXNumberValue: 0.5,
+					}),
+				],
+			}),
+		];
+		const [, tab, search, volume] = iosAxSnapshot(raw).elements;
+		expect(tab).toMatchObject({ traits: ["selected"], subrole: "TabButton" });
+		expect(search).toMatchObject({
+			label: "Search settings",
+			placeholder: "Search settings",
+			hint: "Type to filter",
+		});
+		expect(volume).toMatchObject({
+			value: "50%",
+			range: { current: 0.5, min: 0, max: 1 },
+		});
+	});
+
 	test("keeps empty and error payload behavior", () => {
 		const empty = { screen: { width: 1, height: 1 }, elements: [] };
 		expect(iosAxSnapshot([])).toEqual(empty);

@@ -586,6 +586,29 @@ final class AccessibilityBridge: NSObject {
         if let focused = boolValue(element, selector: "isAccessibilityFocused") {
             dict["focused"] = focused
         }
+        if let selected = boolValue(element, key: "accessibilitySelected"), selected {
+            dict["AXSelected"] = true
+        }
+        if let placeholder = stringValue(element, key: "accessibilityPlaceholderValue") {
+            dict["AXPlaceholder"] = placeholder
+        }
+        if let help = stringValue(element, key: "accessibilityHelp") {
+            dict["AXHelp"] = help
+        }
+        if let subrole = stringValue(element, key: "accessibilitySubrole") {
+            dict["AXSubrole"] = subrole.hasPrefix(Self.axPrefix)
+                ? String(subrole.dropFirst(Self.axPrefix.count))
+                : subrole
+        }
+        // Sliders and steppers carry a numeric range; a value alone says nothing.
+        if let minimum = numberValue(element, key: "accessibilityMinValue"),
+           let maximum = numberValue(element, key: "accessibilityMaxValue") {
+            dict["AXMinValue"] = minimum
+            dict["AXMaxValue"] = maximum
+            if let current = numberValue(element, key: "accessibilityValue") {
+                dict["AXNumberValue"] = current
+            }
+        }
         if ["TextField", "SearchField", "TextArea", "SecureTextField", "ComboBox"].contains(role),
            let selection = selectedTextRange(element) {
             dict["selection"] = selection
@@ -642,6 +665,12 @@ final class AccessibilityBridge: NSObject {
 
     private func boolValue(_ obj: NSObject, key: String) -> Bool? {
         if let n = obj.value(forKey: key) as? NSNumber { return n.boolValue }
+        return nil
+    }
+
+    private func numberValue(_ obj: NSObject, key: String) -> Double? {
+        guard obj.responds(to: NSSelectorFromString(key)) else { return nil }
+        if let n = obj.value(forKey: key) as? NSNumber { return n.doubleValue }
         return nil
     }
 

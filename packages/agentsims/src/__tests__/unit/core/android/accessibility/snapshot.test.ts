@@ -30,6 +30,43 @@ async function snapshotFromXml(value: string) {
 }
 
 describe("Android accessibility elements", () => {
+	test("the helper's extra attributes land as element details", async () => {
+		const snapshot = await snapshotFromXml(
+			[
+				'<?xml version="1.0" encoding="UTF-8"?>',
+				'<hierarchy rotation="0">',
+				'<node class="androidx.recyclerview.widget.RecyclerView" bounds="[0,0][1080,2400]" scrollable="true" collection-rows="30" collection-cols="1" actions="scroll-forward">',
+				'<node class="android.widget.LinearLayout" content-desc="Butternut Squash Soup" bounds="[0,100][1080,300]" clickable="true" item-row="4" item-col="0" actions="expand,dismiss"></node>',
+				'<node class="android.widget.EditText" bounds="[0,400][1080,500]" editable="true" text="Email" hint-text="true" labeled-by="Work email" error="Required" selection-start="0" selection-end="0" max-length="64"></node>',
+				'<node class="android.widget.Switch" content-desc="Wi-Fi" bounds="[0,600][1080,700]" checkable="true" checked="true" state-desc="On" tooltip="Toggle wireless" heading="true" pane-title="Network"></node>',
+				"</node>",
+				"</hierarchy>",
+			].join(""),
+		);
+		const [list, item, field, toggle] = snapshot.elements;
+		expect(list).toMatchObject({
+			collection: { rows: 30, cols: 1 },
+			actions: ["scroll-forward"],
+		});
+		expect(item).toMatchObject({
+			item: { row: 4, col: 0 },
+			actions: ["expand", "dismiss"],
+		});
+		expect(field).toMatchObject({
+			placeholder: "Email",
+			labeledBy: "Work email",
+			error: "Required",
+			selection: { start: 0, end: 0 },
+			maxLength: 64,
+		});
+		expect(toggle).toMatchObject({
+			state: "On",
+			hint: "Toggle wireless",
+			heading: true,
+			paneTitle: "Network",
+		});
+	});
+
 	test("a ranged control reports its current, minimum, and maximum", async () => {
 		const snapshot = await snapshotFromXml(
 			[

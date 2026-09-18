@@ -923,6 +923,53 @@ public final class Main {
         attribute(xml, "range-min", numberText(range.getMin()));
         attribute(xml, "range-max", numberText(range.getMax()));
       }
+      if (android.os.Build.VERSION.SDK_INT >= 30) {
+        CharSequence state = node.getStateDescription();
+        if (state != null && state.length() > 0) attribute(xml, "state-desc", state);
+      }
+      CharSequence error = node.getError();
+      if (error != null && error.length() > 0) attribute(xml, "error", error);
+      if (android.os.Build.VERSION.SDK_INT >= 28) {
+        CharSequence tooltip = node.getTooltipText();
+        if (tooltip != null && tooltip.length() > 0) attribute(xml, "tooltip", tooltip);
+        CharSequence pane = node.getPaneTitle();
+        if (pane != null && pane.length() > 0) attribute(xml, "pane-title", pane);
+        if (node.isHeading()) attribute(xml, "heading", true);
+      }
+      AccessibilityNodeInfo.CollectionInfo collection = node.getCollectionInfo();
+      if (collection != null) {
+        attribute(xml, "collection-rows", collection.getRowCount());
+        attribute(xml, "collection-cols", collection.getColumnCount());
+      }
+      AccessibilityNodeInfo.CollectionItemInfo item = node.getCollectionItemInfo();
+      if (item != null) {
+        attribute(xml, "item-row", item.getRowIndex());
+        attribute(xml, "item-col", item.getColumnIndex());
+        if (item.getRowSpan() > 1) attribute(xml, "item-row-span", item.getRowSpan());
+        if (item.getColumnSpan() > 1) attribute(xml, "item-col-span", item.getColumnSpan());
+      }
+      String actions = actionNames(node);
+      if (!actions.isEmpty()) attribute(xml, "actions", actions);
+      if (node.isEditable()) {
+        int selectionStart = node.getTextSelectionStart();
+        int selectionEnd = node.getTextSelectionEnd();
+        if (selectionStart >= 0 && selectionEnd >= 0) {
+          attribute(xml, "selection-start", selectionStart);
+          attribute(xml, "selection-end", selectionEnd);
+        }
+        int maxLength = node.getMaxTextLength();
+        if (maxLength > 0) attribute(xml, "max-length", maxLength);
+      }
+      AccessibilityNodeInfo labeledBy = node.getLabeledBy();
+      if (labeledBy != null) {
+        try {
+          CharSequence caption = labeledBy.getText();
+          if (caption == null || caption.length() == 0) caption = labeledBy.getContentDescription();
+          if (caption != null && caption.length() > 0) attribute(xml, "labeled-by", caption);
+        } finally {
+          labeledBy.recycle();
+        }
+      }
       attribute(xml, "bounds", "[" + bounds.left + "," + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]");
       xml.append('>');
 
@@ -981,6 +1028,35 @@ public final class Main {
       active = window.isActive();
       focused = window.isFocused();
     }
+  }
+
+  /** The actions a reader can take beyond tap and long press, as a comma list. */
+  private static String actionNames(AccessibilityNodeInfo node) {
+    StringBuilder names = new StringBuilder();
+    for (AccessibilityNodeInfo.AccessibilityAction action : node.getActionList()) {
+      String name = actionName(action.getId());
+      if (name == null) continue;
+      if (names.length() > 0) names.append(',');
+      names.append(name);
+    }
+    return names.toString();
+  }
+
+  private static String actionName(int id) {
+    if (id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) return "scroll-forward";
+    if (id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) return "scroll-backward";
+    if (id == AccessibilityNodeInfo.ACTION_EXPAND) return "expand";
+    if (id == AccessibilityNodeInfo.ACTION_COLLAPSE) return "collapse";
+    if (id == AccessibilityNodeInfo.ACTION_DISMISS) return "dismiss";
+    if (android.os.Build.VERSION.SDK_INT >= 23) {
+      if (id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId()) return "scroll-up";
+      if (id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId()) return "scroll-down";
+      if (id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.getId()) return "scroll-left";
+      if (id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.getId()) return "scroll-right";
+    }
+    if (android.os.Build.VERSION.SDK_INT >= 24
+        && id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId()) return "set-progress";
+    return null;
   }
 
   /** A whole number prints without a fraction; anything else keeps Float's shortest form. */

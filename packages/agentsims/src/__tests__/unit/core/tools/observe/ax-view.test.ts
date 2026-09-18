@@ -552,3 +552,54 @@ describe("ranged controls", () => {
 		expect(valueOf("Rating")).toBe("50% (3 in 1–5)");
 	});
 });
+
+describe("node details", () => {
+	test("list items learn their position from the enclosing collection", () => {
+		const snapshot: AxSnapshot = {
+			screen: { width: 1080, height: 2400 },
+			elements: [
+				axElement("0", "androidx.recyclerview.widget.RecyclerView", {
+					frame: { x: 0, y: 0, width: 1080, height: 2400 },
+					traits: ["scrollable"],
+					collection: { rows: 30, cols: 1 },
+					actions: ["scroll-forward"],
+				}),
+				axElement("0.0", "android.widget.LinearLayout", {
+					label: "Butternut Squash Soup",
+					frame: { x: 0, y: 100, width: 1080, height: 200 },
+					traits: ["clickable"],
+					item: { row: 4, col: 0 },
+				}),
+				axElement("0.1", "android.widget.EditText", {
+					frame: { x: 0, y: 400, width: 1080, height: 100 },
+					traits: ["editable", "focused"],
+					placeholder: "Email",
+					labeledBy: "Work email",
+					error: "Required",
+					selection: { start: 3, end: 3 },
+				}),
+				axElement("0.2", "android.widget.TextView", {
+					label: "Network",
+					frame: { x: 0, y: 600, width: 1080, height: 100 },
+					heading: true,
+					state: "Expanded",
+				}),
+			],
+		};
+		const nodes = flattenAxView(view(snapshot, "android").nodes);
+		const list = nodes.find((node) => node.role === "list");
+		expect(list).toMatchObject({ collection: { rows: 30, cols: 1 }, actions: ["scroll-forward"] });
+		expect(nodes.find((node) => node.label === "Butternut Squash Soup")).toMatchObject({
+			item: { row: 4, col: 0, rows: 30, cols: 1 },
+		});
+		expect(nodes.find((node) => node.role === "textbox")).toMatchObject({
+			label: "Work email",
+			placeholder: "Email",
+			error: "Required",
+			selection: { start: 3, end: 3 },
+		});
+		const heading = nodes.find((node) => node.label === "Network");
+		expect(heading?.states).toContain("heading");
+		expect(heading?.state).toBe("Expanded");
+	});
+});

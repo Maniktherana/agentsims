@@ -58,7 +58,42 @@ export function renderAxNode(
 		: "";
 	const testId = node.testId ? ` [testid=${node.testId}]` : "";
 	const value = node.value ? `: ${oneLine(node.value)}` : "";
-	return `${"  ".repeat(depth)}- ${role}${label} [ref=${node.ref}]${states}${box}${testId}${value}`;
+	return `${"  ".repeat(depth)}- ${role}${label} [ref=${node.ref}]${states}${renderNodeDetails(node)}${box}${testId}${value}`;
+}
+
+/**
+ * What the platform knows about a node beyond its name, value, and states:
+ * the spoken state, an error, a hint, where it sits in a list, what it can
+ * do, and where the cursor is. Each detail is one bracket so a reader can
+ * skip the ones that do not matter.
+ */
+function renderNodeDetails(node: AxViewNode): string {
+	const details: string[] = [];
+	if (node.state) details.push(`state=${quoted(oneLine(node.state))}`);
+	if (node.error) details.push(`error=${quoted(oneLine(node.error))}`);
+	if (node.hint) details.push(`hint=${quoted(oneLine(node.hint))}`);
+	if (node.placeholder)
+		details.push(`placeholder=${quoted(oneLine(node.placeholder))}`);
+	if (node.collection) {
+		details.push(`rows=${node.collection.rows}`);
+		if (node.collection.cols > 1) details.push(`cols=${node.collection.cols}`);
+	}
+	if (node.item) {
+		const { row, col, rows, cols } = node.item;
+		details.push(`row=${row + 1}${rows === undefined ? "" : `/${rows}`}`);
+		if ((cols ?? 1) > 1 || col > 0)
+			details.push(`col=${col + 1}${cols === undefined ? "" : `/${cols}`}`);
+	}
+	if (node.actions && node.actions.length > 0)
+		details.push(`actions=${node.actions.join(",")}`);
+	if (node.selection)
+		details.push(
+			node.selection.start === node.selection.end
+				? `cursor=${node.selection.start}`
+				: `selection=${node.selection.start}-${node.selection.end}`,
+		);
+	if (node.maxLength !== undefined) details.push(`max=${node.maxLength}`);
+	return details.map((detail) => ` [${detail}]`).join("");
 }
 
 export function renderAxNodes(

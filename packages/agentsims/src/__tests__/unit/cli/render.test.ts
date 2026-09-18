@@ -230,6 +230,72 @@ test("AX nodes render refs, hierarchy, frames, and raw roles", () => {
 		.toBe('no node matches "missing" in observation o1');
 });
 
+test("AX nodes render their details as one bracket each", () => {
+	const base = {
+		rawRole: "x",
+		states: [],
+		box: { x: 0, y: 0, width: 10, height: 10 },
+		point: { x: 0.5, y: 0.5 },
+		children: [],
+	};
+	const nodes = [
+		{
+			...base,
+			ref: "e1",
+			id: "list",
+			path: "0",
+			role: "list",
+			label: "Recipes",
+			value: "",
+			collection: { rows: 30, cols: 1 },
+			actions: ["scroll-forward"],
+			children: [
+				{
+					...base,
+					ref: "e2",
+					id: "row",
+					path: "0.0",
+					role: "cell",
+					label: "Butternut Squash Soup",
+					value: "",
+					item: { row: 4, col: 0, rows: 30, cols: 1 },
+				},
+				{
+					...base,
+					ref: "e3",
+					id: "field",
+					path: "0.1",
+					role: "textbox",
+					label: "Work email",
+					value: "a@b",
+					placeholder: "Email",
+					error: "Required",
+					selection: { start: 3, end: 3 },
+					maxLength: 64,
+				},
+				{
+					...base,
+					ref: "e4",
+					id: "toggle",
+					path: "0.2",
+					role: "switch",
+					label: "Wi-Fi",
+					value: "",
+					states: ["checked"],
+					state: "On",
+					hint: "Toggle wireless",
+				},
+			],
+		},
+	];
+	expect(renderAxNodes(nodes)).toEqual([
+		'- list "Recipes" [ref=e1] [rows=30] [actions=scroll-forward]',
+		'  - cell "Butternut Squash Soup" [ref=e2] [row=5/30]',
+		'  - textbox "Work email" [ref=e3] [error="Required"] [placeholder="Email"] [cursor=3] [max=64]: a@b',
+		'  - switch "Wi-Fi" [ref=e4] [checked] [state="On"] [hint="Toggle wireless"]',
+	]);
+});
+
 test("AX node text keeps its line breaks visible", () => {
 	const nodes = [{
 		ref: "e2",
