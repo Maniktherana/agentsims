@@ -168,9 +168,11 @@ collected  37 items  selector=cell
   cell "Water" [ref=e32]
 ```
 
-Never count or enumerate a list from one screen. Use `--to-end --collect`, then
-reason over the deduplicated list it returns. `endReached=no` means the walk
-stopped at `--max-pages`, so the list is partial: say so, or scroll further.
+Count directly when the relevant filtered tree is complete. Associate each value with its
+enclosing row instead of counting matching child strings globally. Otherwise use
+`--to-end --collect`; it preserves legitimate identical rows and removes only overlap between
+adjacent pages. `endReached=no` means the walk stopped at `--max-pages`, so the list is partial:
+say so, or scroll further.
 
 ## type and fill
 

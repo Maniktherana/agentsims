@@ -142,8 +142,12 @@ So a settings row reads as one node with its own state. A ref on an inert node
 dispatches with a warning that names its clickable container. `[offscreen]` means
 the node is not visible to the user: scroll it into view before acting on it.
 
-Never count a list from one screen. Use `scroll --to-end --collect <selector>`
-and reason over the deduplicated list it returns.
+Count directly when a relevant filtered tree proves it is complete. An explicit row total,
+or a view with every matching row and no clipped, offscreen, or continuing content, is enough.
+Associate each value with its enclosing row instead of counting matching child strings
+globally. When the relevant result is incomplete, use
+`scroll --to-end --collect <selector>`; collection preserves legitimate identical rows and
+removes only adjacent-page overlap.
 
 ## Search with find
 

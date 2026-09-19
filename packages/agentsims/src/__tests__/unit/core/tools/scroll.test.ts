@@ -423,10 +423,10 @@ describe("scroll to the end", () => {
 		expect(result.endReached).toBe(false);
 	});
 
-	test("collect unions overlapping pages into one deduplicated list", async () => {
-		const first = listSnapshot(["Alpha", "Beta", "Gamma"]);
-		const second = listSnapshot(["Gamma", "Delta", "Epsilon"]);
-		const third = listSnapshot(["Epsilon", "Zeta"]);
+	test("collect removes page overlap without removing duplicate rows", async () => {
+		const first = listSnapshot(["Alpha", "Repeat", "Repeat"]);
+		const second = listSnapshot(["Repeat", "Beta", "Gamma"]);
+		const third = listSnapshot(["Gamma", "Delta"]);
 		const scroll = harness([first, second, third, third]);
 
 		const result = await scroll.run({
@@ -441,11 +441,11 @@ describe("scroll to the end", () => {
 		expect(result.count).toBe(6);
 		expect(result.items?.map((item) => item.text)).toEqual([
 			"Alpha",
+			"Repeat",
+			"Repeat",
 			"Beta",
 			"Gamma",
 			"Delta",
-			"Epsilon",
-			"Zeta",
 		]);
 	});
 

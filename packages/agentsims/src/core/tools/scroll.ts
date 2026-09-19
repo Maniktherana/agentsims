@@ -323,6 +323,54 @@ export function scrollItemKey(item: ScrollItem): string {
 	);
 }
 
+interface CollectedScrollItem {
+	item: ScrollItem;
+	position: string | null;
+}
+
+function collectedScrollItem(node: AxViewNode): CollectedScrollItem {
+	return {
+		item: scrollItem(node),
+		position: node.item ? `${node.item.row}:${node.item.col}` : null,
+	};
+}
+
+function sameCollectedItem(
+	left: CollectedScrollItem,
+	right: CollectedScrollItem,
+): boolean {
+	if (left.position && right.position) return left.position === right.position;
+	return scrollItemKey(left.item) === scrollItemKey(right.item);
+}
+
+/** Merge only the repeated edge shared by adjacent pages. */
+function mergeCollectedPage(
+	items: CollectedScrollItem[],
+	page: readonly CollectedScrollItem[],
+	direction: ScrollDirection,
+): void {
+	if (items.length === 0) {
+		items.push(...page);
+		return;
+	}
+	const backwards = direction === "up" || direction === "left";
+	const before = backwards ? page : items;
+	const after = backwards ? items : page;
+	const limit = Math.min(before.length, after.length);
+	let overlap = 0;
+	for (let size = 1; size <= limit; size += 1) {
+		const start = before.length - size;
+		if (
+			before
+				.slice(start)
+				.every((item, index) => sameCollectedItem(item, after[index]!))
+		)
+			overlap = size;
+	}
+	if (backwards) items.unshift(...page.slice(0, page.length - overlap));
+	else items.push(...page.slice(overlap));
+}
+
 /** Two pages with the same container text mean the scroll reached the end. */
 export function containerText(
 	view: DeviceSnapshot,
@@ -428,13 +476,16 @@ export function scrollDevice(
 			resolvedActions: resolvedSwipe(swipe, travel, container),
 		};
 
-		const items = new Map<string, ScrollItem>();
+		const items: CollectedScrollItem[] = [];
 		const collect = (page: DeviceSnapshot): void => {
 			if (!request.collect) return;
-			for (const node of collectAxNodes(page.nodes, request.collect, container.path)) {
-				const item = scrollItem(node);
-				items.set(scrollItemKey(item), item);
-			}
+			mergeCollectedPage(
+				items,
+				collectAxNodes(page.nodes, request.collect, container.path).map(
+					collectedScrollItem,
+				),
+				request.direction,
+			);
 		};
 		let signature = containerText(view, container.path);
 		let pages = 0;
@@ -455,11 +506,11 @@ export function scrollDevice(
 			if (action.dispatch.status !== "accepted") break;
 			const page = action.view;
 			if (!page) break;
-			collect(page);
 			const next = containerText(page, container.path);
 			// One unchanged page can be a swipe the app absorbed. Two in a row
 			// mean the region has no more content.
 			if (next === signature) {
+				if (!request.toEnd) collect(page);
 				unchanged += 1;
 				if (unchanged >= 2 || !request.toEnd) {
 					endReached = true;
@@ -468,6 +519,7 @@ export function scrollDevice(
 				continue;
 			}
 			unchanged = 0;
+			collect(page);
 			pages += 1;
 			signature = next;
 		}
@@ -490,8 +542,8 @@ export function scrollDevice(
 			pages,
 			endReached,
 			selector: request.collect ?? null,
-			count: request.collect ? items.size : null,
-			items: request.collect ? [...items.values()] : null,
+			count: request.collect ? items.length : null,
+			items: request.collect ? items.map(({ item }) => item) : null,
 			action,
 		};
 	});
