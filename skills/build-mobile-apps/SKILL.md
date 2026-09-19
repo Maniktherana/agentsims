@@ -37,6 +37,9 @@ and never substitute another device without saying so.
 build → install → launch → observe → act → read the result → decide → ↺
 ```
 
+Before acting, identify the requested end state. Preserve exact names, text, numbers, dates,
+filters, counts, and ordering from the task.
+
 1. `observe`. One bounded observation returns the accessibility tree and an image, with
    an observation ID such as `s12` and a capture ID such as `c12`.
 2. Reason from the tree. Open the image only when the tree cannot show what you need:
@@ -206,9 +209,9 @@ agentsims scroll down --to-end --collect text --in @e14 -d "$D"
 
 Prefer the app's relevant filter or sorted view. Count directly when the current tree proves
 that view is complete: `[rows=30]` gives the total including offscreen rows, or every relevant
-row is present with no clipped, offscreen, or continuing content. Associate values with their
-enclosing row; for example, inspect each task row's due-date child instead of counting weekday
-strings globally. When the relevant result is incomplete, use `--to-end --collect`.
+row is present with no clipped, offscreen, or continuing content. Associate child values with
+their enclosing row instead of counting matching child labels globally. When the relevant
+result is incomplete, use `--to-end --collect`.
 
 `scroll` needs no capture; `--amount <pct>` sets how far one page moves.
 `--to-end --collect <testid|role|label>` returns every matching row inside the region across
@@ -282,19 +285,17 @@ named location.
 
 Gather enough evidence for the question. Use a complete relevant filtered view directly;
 collect only when that view is incomplete. Open an item when the answer needs its fields, then
-answer in exactly the format the task asks for. Read the status-bar clock in the tree before
-any reasoning about today, this week, or next week.
+answer in exactly the format the task asks for.
 
 ## Finish
 
 Check the property the task changed: label and role for a control, matched readback for
 text, the foreground app and screen for navigation, the saved image for a visual change.
-Your last call is `observe`. Quote the node or readback that proves the end state. Read
-the status-bar clock in that tree before any reasoning about dates, and never invent a
-time budget the device did not show you. Run the repository's checks, remove temporary
-instrumentation, and stop only processes this task started. Report the user-visible
-result, each device and state exercised, the dispatch and verification evidence, image
-evidence when the claim is visual, and every branch that stays unverified.
+Your last call is `observe`. Quote the node or readback that proves the end state. Run the
+repository's checks, remove temporary instrumentation, and stop only processes this task
+started. Report the user-visible result, each device and state exercised, the dispatch and
+verification evidence, image evidence when the claim is visual, and every branch that stays
+unverified.
 
 ## References
 
