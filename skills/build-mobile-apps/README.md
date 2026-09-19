@@ -18,7 +18,7 @@ implements the Agent Skills standard. One `SKILL.md` serves all of them.
   without a screenshot.
 - Send taps, long presses, swipes, drags, scrolls, text, hardware buttons, and
   rotation, with the hardware names that each platform accepts.
-- Walk a whole list with `scroll --to-end --collect` before counting anything.
+- Count a complete filtered accessibility view directly; collect only when it is incomplete.
 - Wait for a screen state with `wait`, and sample a changing screen with
   `--watch`, instead of sleeping — on the action itself when the content starts
   on that action.
@@ -46,7 +46,7 @@ starts the moment the input is dispatched, so content that begins on the action
 is caught from its first frame.
 `wait --for|--gone <text> | --stable` blocks on a screen state.
 `scroll <down|up|left|right> [--in <target>] [--to-end --collect <selector>]`
-walks a region and returns the deduplicated items it found. `run <file|->`
+walks a region, removes adjacent-page overlap, and preserves identical rows. `run <file|->`
 executes up to 25 label-addressed steps, each after a fresh observation.
 
 ## The device loop

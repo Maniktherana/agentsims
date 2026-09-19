@@ -48,7 +48,8 @@ build → install → launch → observe → act → read the result → decide 
 5. Read the result: `dispatch`, `verification`, the new tree with new refs, and an image
    when pixels add evidence.
 6. Decide the next step from that result. Do not reuse old refs. Do not repeat an action
-   unchanged. Observe again when the returned tree is not enough.
+   unchanged. Observe again when the returned tree is not enough. Stop when the evidence
+   answers the question or proves the requested final state.
 
 The tree drives the normal loop. Pixels cover what the tree cannot represent. Native
 readback verifies text. You remain the planner.
@@ -203,14 +204,19 @@ every line is evidence, not just the last. Literal newlines in text are rejected
 agentsims scroll down --to-end --collect text --in @e14 -d "$D"
 ```
 
-Never count, enumerate, or say "that is all of them" from one screen. A list that prints
-`[rows=30]` has told you its length, offscreen items included; without it, collect first,
-then reason. `scroll` needs no capture; `--amount <pct>` sets how far one page moves.
-`--to-end --collect <testid|role|label>` returns every row inside that region across pages,
-deduplicated, with `count` and `endReached` (`collected  37 items  selector=text`).
-A row named by its title is a `generic`, so collect rows with `generic` or their test ID;
-`--collect text` returns only the texts left inside them. `endReached=no` means a partial
-list: keep going or raise `--max-pages` before you answer.
+Prefer the app's relevant filter or sorted view. Count directly when the current tree proves
+that view is complete: `[rows=30]` gives the total including offscreen rows, or every relevant
+row is present with no clipped, offscreen, or continuing content. Associate values with their
+enclosing row; for example, inspect each task row's due-date child instead of counting weekday
+strings globally. When the relevant result is incomplete, use `--to-end --collect`.
+
+`scroll` needs no capture; `--amount <pct>` sets how far one page moves.
+`--to-end --collect <testid|role|label>` returns every matching row inside the region across
+pages, preserves legitimate identical rows, and removes only the overlap between adjacent
+pages. It reports `count` and `endReached` (`collected  37 items  selector=text`). A row named
+by its title is a `generic`, so collect rows with `generic` or their test ID; `--collect text`
+returns only the texts left inside them. `endReached=no` means a partial list: keep going or
+raise `--max-pages` before you answer.
 
 ### Waiting
 
@@ -274,9 +280,10 @@ named location.
 
 ### Questions
 
-Gather the evidence first: `collect` the whole list, open the item, read the field. Then
-answer in exactly the format the task asks for. Read the status-bar clock in the tree
-before any reasoning about today, this week, or next week.
+Gather enough evidence for the question. Use a complete relevant filtered view directly;
+collect only when that view is incomplete. Open an item when the answer needs its fields, then
+answer in exactly the format the task asks for. Read the status-bar clock in the tree before
+any reasoning about today, this week, or next week.
 
 ## Finish
 
