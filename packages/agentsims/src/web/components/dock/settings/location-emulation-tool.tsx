@@ -377,14 +377,14 @@ export function LocationEmulationTool({
 							strokeWidth={2}
 							className="shrink-0 text-white/45"
 						/>
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Location
 						</span>
 					</div>
 					{open ? (
 						<span
 							data-location-status
-							className="min-w-0 text-[11px] text-white/55 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
+							className="min-w-0 text-[12px] text-white/55 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
 						>
 							<span
 								className="size-1.5 rounded-full shrink-0 [transition:background_0.2s,box-shadow_0.2s]"
@@ -422,10 +422,10 @@ export function LocationEmulationTool({
 							value: t.id,
 							label: t.name,
 						}))}
-						className="h-8 w-full rounded-[8px] border border-white/8 bg-white/[0.04] py-0 px-2 leading-none text-[12px] text-white/90 [transition:background_0.12s,border-color_0.12s] hover:border-[rgba(255,255,255,0.16)] hover:bg-white/[0.07] focus:border-[rgba(255,255,255,0.24)] focus:bg-white/[0.08] focus:outline-none"
+						className="w-full"
 					/>
 				</div>
-				<div className="text-[10px] text-white/45">{trail.description}</div>
+				<div className="text-[11px] text-white/45">{trail.description}</div>
 			</div>
 
 			<div className="relative w-full rounded-[10px] overflow-hidden bg-[#0a0a0c] border border-white/[0.06] [aspect-ratio:16/11]">
@@ -441,11 +441,11 @@ export function LocationEmulationTool({
 
 			<div className="flex gap-1.5">
 				<Button
-					variant="plain"
-					size="custom"
+					variant={playing ? "raised" : "flat"}
+					size="lg"
 					type="button"
 					onClick={onPlayPause}
-					className={`flex-1 flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border-none h-9 px-2.5 font-[inherit] text-[12px] font-semibold ${playing ? "bg-white/[0.16] text-white enabled:hover:bg-white/[0.22]" : "bg-success-emerald text-[#062018] enabled:hover:brightness-[1.08]"}`}
+					className="flex-1"
 					aria-pressed={playing}
 					title={playing ? "Pause" : "Play"}
 				>
@@ -455,11 +455,10 @@ export function LocationEmulationTool({
 					<TextMorph>{playing ? "Pause" : "Play"}</TextMorph>
 				</Button>
 				<Button
-					variant="plain"
-					size="custom"
+					variant="raised"
+					size="lg"
 					type="button"
 					onClick={onStop}
-					className="flex cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-white/12 bg-transparent h-9 px-3 font-[inherit] text-[12px] font-medium text-white/85 enabled:hover:border-white/20 enabled:hover:bg-white/[0.06] enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
 					disabled={playback.status === "idle" && playback.arc === 0}
 					title="Stop and clear simulated location"
 				>
@@ -483,8 +482,7 @@ export function LocationEmulationTool({
 					/>
 				</div>
 				<Button
-					variant="plain"
-					size="custom"
+					variant={multiplier > 1 ? "raised" : "flat"}
 					type="button"
 					onClick={() => {
 						const idx = SPEED_MULTIPLIERS.indexOf(multiplier);
@@ -492,7 +490,7 @@ export function LocationEmulationTool({
 							SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!;
 						setMultiplier(next);
 					}}
-					className={`flex min-w-[56px] cursor-pointer items-center justify-center gap-1 rounded-[8px] border px-2.5 font-[inherit] text-[11px] font-semibold active:scale-[0.97] ${multiplier > 1 ? "bg-white border-white text-[#0a0a0c] hover:bg-white/[0.88] hover:border-white/[0.88] hover:text-[#0a0a0c]" : "bg-white/[0.04] border-white/8 text-white/85 hover:bg-white/[0.09] hover:border-[rgba(255,255,255,0.18)] hover:text-white"}`}
+					className="min-w-[56px]"
 					aria-label={`Speed ${multiplier}× — tap to cycle`}
 					title={`Speed ${multiplier}× — tap to cycle`}
 				>
@@ -541,7 +539,7 @@ export function LocationEmulationTool({
 					).map(([name, label, min, max, value]) => (
 						<label
 							key={name}
-							className="flex min-w-24 flex-1 flex-col gap-1 text-[10px] text-white/45"
+							className="flex min-w-24 flex-1 flex-col gap-1 text-[11px] text-white/45"
 						>
 							{label}
 							<Input
@@ -556,11 +554,9 @@ export function LocationEmulationTool({
 						</label>
 					))}
 					<Button
-						variant="plain"
-						size="custom"
+						variant="raised"
 						type="submit"
 						disabled={settingLocation}
-						className="cursor-pointer rounded-[8px] border border-white/12 bg-transparent h-8 px-3 text-[12px] text-white/85 enabled:hover:bg-white/[0.06] disabled:opacity-40"
 					>
 						Set location
 					</Button>
@@ -568,7 +564,7 @@ export function LocationEmulationTool({
 			)}
 
 			{error && (
-				<div className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
+				<div className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[12px] text-danger-soft">
 					{error}
 				</div>
 			)}
@@ -587,10 +583,10 @@ const Stat = memo(function Stat({
 }) {
 	return (
 		<div className="flex min-w-0 flex-col gap-0.5 rounded-[8px] bg-white/[0.035] px-[7px] py-[5px]">
-			<div className="text-[9px] uppercase tracking-[0.06em] text-white/45">
+			<div className="text-[10px] uppercase tracking-[0.06em] text-white/45">
 				{label}
 			</div>
-			<div className="text-[12px] font-mono text-white overflow-hidden text-ellipsis whitespace-nowrap">
+			<div className="text-[13px] font-mono text-white overflow-hidden text-ellipsis whitespace-nowrap">
 				<NumberMorph>{value}</NumberMorph>
 			</div>
 		</div>
@@ -621,7 +617,7 @@ function Segmented<T extends string>({
 						key={o.value}
 						type="button"
 						onClick={() => onChange(o.value)}
-						className={`flex-1 flex items-center justify-center border-none rounded-[5px] py-[5px] px-2 text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.12s,color_0.12s] min-h-[22px] ${active ? "bg-white/[0.12] text-white" : "bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white/90"}`}
+						className={`flex-1 flex items-center justify-center border-none rounded-[5px] py-[5px] px-2 text-[12px] font-medium cursor-pointer font-[inherit] [transition:background_0.12s,color_0.12s] min-h-[22px] ${active ? "bg-white/[0.12] text-white" : "bg-transparent text-white/60 hover:bg-white/[0.05] hover:text-white/90"}`}
 						aria-pressed={active}
 						aria-label={o.icon ? o.label : undefined}
 						title={o.icon ? o.label : undefined}
@@ -638,10 +634,10 @@ function ElevationBadges({ prepared }: { prepared: PreparedTrail }) {
 	if (prepared.rawMaxAlt - prepared.rawMinAlt < 5) return null;
 	return (
 		<>
-			<div className="absolute top-2 left-2.5 bg-panel-overlay text-white/85 text-[10px] font-mono px-1.5 py-0.5 rounded-[5px] flex items-center tracking-[0.02em] border border-white/[0.06]">
+			<div className="absolute top-2 left-2.5 bg-panel-overlay text-white/85 text-[11px] font-mono px-1.5 py-0.5 rounded-[5px] flex items-center tracking-[0.02em] border border-white/[0.06]">
 				<ArrowGlyph dir="up" /> {formatElevation(prepared.rawMaxAlt)}
 			</div>
-			<div className="absolute top-2 right-2.5 bg-panel-overlay text-white/85 text-[10px] font-mono px-1.5 py-0.5 rounded-[5px] flex items-center tracking-[0.02em] border border-white/[0.06]">
+			<div className="absolute top-2 right-2.5 bg-panel-overlay text-white/85 text-[11px] font-mono px-1.5 py-0.5 rounded-[5px] flex items-center tracking-[0.02em] border border-white/[0.06]">
 				<ArrowGlyph dir="down" /> {formatElevation(prepared.rawMinAlt)}
 			</div>
 		</>

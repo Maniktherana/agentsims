@@ -1,6 +1,9 @@
 import { Check, ShieldCheck, X } from "lucide-react";
+import { TextMorph } from "torph/react";
+import { ReloadIcon } from "../../icons/index";
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { Button } from "../../ui/button";
+import { ButtonGroup } from "../../ui/button-group";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { PermBtn } from "./app-permissions-tool";
 import {
@@ -58,7 +61,7 @@ export function AndroidAppPermissionsTool({
 	}, [load, refreshRevision]);
 
 	const apply = useCallback(
-		async (permission: string, operation: "grant" | "revoke") => {
+		async (permission: string, operation: "grant" | "revoke" | "reset") => {
 			if (!packageName) return;
 			setPending(`${permission}:${operation}`);
 			try {
@@ -109,7 +112,7 @@ export function AndroidAppPermissionsTool({
 							strokeWidth={2}
 							className="shrink-0 text-white/45"
 						/>
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Permissions
 						</span>
 					</div>
@@ -118,31 +121,31 @@ export function AndroidAppPermissionsTool({
 			}
 		>
 			{!packageName ? (
-				<p className="px-1 py-2 text-[11px] text-white/45">
+				<p className="px-1 py-2 text-[12px] text-white/45">
 					Open an app to change its permissions.
 				</p>
 			) : runtime.length === 0 ? (
-				<p className="px-1 py-2 text-[11px] text-white/45">
+				<p className="px-1 py-2 text-[12px] text-white/45">
 					{error ?? `${packageName} declares no runtime permissions.`}
 				</p>
 			) : (
 				<>
 					{error && (
-						<p className="px-1 pb-2 text-[11px] text-[#f87171]">{error}</p>
+						<p className="px-1 pb-2 text-[12px] text-[#f87171]">{error}</p>
 					)}
 					<div className="flex flex-col gap-1">
 						{runtime.map((entry) => (
 							<div
 								key={entry.permission}
-								className="grid [grid-template-columns:1fr_auto] items-center gap-2"
+								className="grid min-h-9 [grid-template-columns:1fr_auto] items-center gap-2 px-0.5 py-1"
 							>
 								<span
-									className="truncate text-[11px] text-white/70"
+									className="truncate text-[13px] text-white/80"
 									title={entry.permission}
 								>
 									{permissionLabel(entry.permission)}
 								</span>
-								<div className="flex items-center gap-1">
+								<ButtonGroup aria-label={permissionLabel(entry.permission)}>
 									<PermBtn
 										active={entry.granted}
 										pending={pending === `${entry.permission}:grant`}
@@ -150,7 +153,7 @@ export function AndroidAppPermissionsTool({
 										variant="grant"
 										title="Grant"
 									>
-										<Check size={11} strokeWidth={3} />
+										<Check size={14} strokeWidth={2.5} />
 									</PermBtn>
 									<PermBtn
 										active={!entry.granted}
@@ -159,22 +162,33 @@ export function AndroidAppPermissionsTool({
 										variant="revoke"
 										title="Revoke"
 									>
-										<X size={11} strokeWidth={3} />
+										<X size={14} strokeWidth={2.5} />
 									</PermBtn>
-								</div>
+									<PermBtn
+										active={false}
+										pending={pending === `${entry.permission}:reset`}
+										onClick={() => apply(entry.permission, "reset")}
+										variant="reset"
+										title="Reset"
+									>
+										<ReloadIcon size={14} strokeWidth={2.2} />
+									</PermBtn>
+								</ButtonGroup>
 							</div>
 						))}
 					</div>
 					<div className="flex justify-end pt-2">
 						<Button
-							variant="plain"
-							size="custom"
+							variant="raised"
+							size="compact"
 							onClick={resetAll}
 							disabled={pending === "__all__"}
-							className="bg-transparent border border-white/12 text-white/70 h-6 text-[10px] px-2 rounded-[5px] cursor-pointer uppercase tracking-[0.04em]"
+							className="uppercase tracking-[0.04em]"
 							title="agentsims permissions reset"
 						>
-							{pending === "__all__" ? "Resetting" : "Reset all"}
+							<TextMorph>
+								{pending === "__all__" ? "Resetting" : "Reset all"}
+							</TextMorph>
 						</Button>
 					</div>
 				</>

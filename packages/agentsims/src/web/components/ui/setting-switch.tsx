@@ -1,4 +1,6 @@
-// iOS-style toggle switch shared across the settings sidebar and tool panels.
+import { Switch } from "./switch";
+
+// Preserve the settings API while Base UI owns switch interaction and state.
 export function SettingSwitch({
 	label,
 	checked,
@@ -11,25 +13,11 @@ export function SettingSwitch({
 	onChange: (next: boolean) => void;
 }) {
 	return (
-		<button
-			type="button"
-			role="switch"
-			aria-checked={checked}
+		<Switch
 			aria-label={label}
+			checked={checked}
 			disabled={disabled}
-			onClick={() => onChange(!checked)}
-			className={`relative h-[18px] w-8 shrink-0 rounded-full border-none p-0 [transition:background_0.15s] ${
-				disabled
-					? "cursor-default bg-white/20"
-					: checked
-						? "cursor-pointer bg-accent"
-						: "cursor-pointer bg-white/20"
-			}`}
-		>
-			<span
-				className={`absolute top-[2px] size-[14px] rounded-full [transition:left_0.15s] ${disabled ? "bg-white/50" : "bg-white"}`}
-				style={{ left: checked ? 16 : 2 }}
-			/>
-		</button>
+			onCheckedChange={onChange}
+		/>
 	);
 }

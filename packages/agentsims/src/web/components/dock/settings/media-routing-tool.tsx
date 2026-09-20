@@ -244,17 +244,17 @@ export function MediaRoutingSection({
 									strokeWidth={2}
 									className="shrink-0 text-white/45"
 								/>
-								<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+								<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 									Camera
 								</span>
 							</div>
 							{restartRequired && (
-								<span className="shrink-0 text-[10px] font-medium text-amber-200/70">
+								<span className="shrink-0 text-[11px] font-medium text-amber-200/70">
 									Restart required
 								</span>
 							)}
 							{!restartRequired && cameraDraftDirty && (
-								<span className="shrink-0 text-[10px] font-medium text-amber-200/70">
+								<span className="shrink-0 text-[11px] font-medium text-amber-200/70">
 									Apply changes
 								</span>
 							)}
@@ -401,8 +401,7 @@ export function MediaRoutingSection({
 
 							{cameraDraftDirty && (
 								<Button
-									variant="plain"
-									size="custom"
+									variant="raised"
 									type="button"
 									disabled={pending !== null}
 									onClick={() =>
@@ -415,7 +414,6 @@ export function MediaRoutingSection({
 											"android-camera",
 										)
 									}
-									className="flex h-8 items-center justify-center gap-1.5 rounded-[8px] bg-white/[0.09] px-2 text-[11px] font-semibold text-white/82 [transition:background,scale] duration-150 hover:bg-white/[0.13] active:scale-[0.98] disabled:opacity-50"
 								>
 									Apply camera changes
 								</Button>
@@ -425,12 +423,10 @@ export function MediaRoutingSection({
 
 					{restartRequired && (
 						<Button
-							variant="plain"
-							size="custom"
+							variant="flat"
 							type="button"
 							disabled={pending !== null}
 							onClick={() => onApply({ action: "restart-device" }, "restart")}
-							className="flex h-8 items-center justify-center gap-1.5 rounded-[8px] bg-accent px-2 text-[11px] font-semibold text-white [transition:filter,scale] duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
 						>
 							<RefreshCw
 								size={13}
@@ -455,12 +451,12 @@ export function MediaRoutingSection({
 							strokeWidth={2}
 							className="shrink-0 text-white/45"
 						/>
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Audio
 						</span>
 					</div>
 				}
-				bodyClassName="flex flex-col gap-1.5"
+				bodyClassName="flex flex-col gap-1"
 				data-media-group="audio"
 			>
 				<MediaRouteRow
@@ -545,7 +541,7 @@ export function MediaRoutingSection({
 					/>
 				) : null}
 				{physicalAndroid && (
-					<div className="rounded-[8px] bg-white/[0.035] px-2.5 py-2 text-[10px] leading-[1.4] text-white/42">
+					<div className="rounded-[8px] bg-white/[0.035] px-2.5 py-2 text-[11px] leading-[1.4] text-white/42">
 						Physical Android audio is device-owned. Agentsims mirrors the device
 						but cannot replace its hardware route.
 					</div>
@@ -560,7 +556,7 @@ function MediaError({ message }: { message: string }) {
 	return (
 		<div
 			role="alert"
-			className="rounded-[8px] bg-red-500/10 px-2.5 py-2 text-[11px] font-medium text-red-200/85"
+			className="rounded-[8px] bg-red-500/10 px-2.5 py-2 text-[12px] font-medium text-red-200/85"
 		>
 			Media controls unavailable: {message}
 		</div>
@@ -860,8 +856,7 @@ function MicrophoneTestRow({
 					/>
 				</span>
 				<Button
-					variant="plain"
-					size="custom"
+					variant="flat"
 					type="button"
 					aria-pressed={testing}
 					disabled={disabled || starting}
@@ -872,7 +867,6 @@ function MicrophoneTestRow({
 									void start();
 								}
 					}
-					className="h-8 shrink-0 rounded-[7px] bg-white/[0.07] px-2 text-[10px] font-semibold text-white/78 transition-[background-color,transform] duration-100 hover:bg-white/[0.11] active:scale-[0.96] disabled:opacity-45"
 				>
 					<TextMorph>
 						{starting ? "Starting" : testing ? "Stop" : "Test"}
@@ -896,13 +890,12 @@ function TinyAction({
 }) {
 	return (
 		<Button
-			variant="plain"
-			size="custom"
+			variant="flat"
+			size="compact"
 			type="button"
 			disabled={disabled}
 			title={title}
 			onClick={onClick}
-			className="flex h-6 items-center justify-center rounded-[6px] border-0 bg-white/[0.055] px-1 text-[10px] font-medium text-white/70 hover:bg-white/[0.09] hover:text-white/90 disabled:opacity-40"
 		>
 			{label}
 		</Button>

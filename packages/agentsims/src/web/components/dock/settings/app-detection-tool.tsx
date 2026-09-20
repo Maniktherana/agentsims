@@ -175,12 +175,12 @@ export function AppDetectionTool({
 			}
 		>
 			{details.error && (
-				<div className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
+				<div className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[12px] text-danger-soft">
 					{details.error}
 				</div>
 			)}
 
-			<dl className="m-0 flex flex-col gap-1.5">
+			<dl className="m-0 flex flex-col gap-1">
 				{!isAndroid && (
 					<Row
 						label="Version"
@@ -268,12 +268,12 @@ export function AppSummaryLabel({
 	displayName?: string;
 }) {
 	return (
-		<div className="min-w-0 flex-1 leading-tight text-left">
-			<div className="truncate text-[13px] font-semibold text-white/92">
+		<div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+			<div className="truncate text-[13px] font-semibold leading-4 text-white/92">
 				{displayName ?? fallbackAppDisplayName(bundleId)}
 			</div>
 			<div
-				className="truncate font-mono text-[10px] text-white/50"
+				className="truncate font-mono text-[11px] leading-[14px] text-white/50"
 				title={bundleId}
 			>
 				{bundleId}
@@ -295,9 +295,9 @@ function Row({
 }) {
 	return (
 		<div className="group flex items-baseline gap-2 min-w-0">
-			<dt className="m-0 text-[11px] text-white/50 w-21 shrink-0">{label}</dt>
+			<dt className="m-0 text-[12px] text-white/50 w-21 shrink-0">{label}</dt>
 			<dd
-				className={`m-0 text-white/90 flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap relative ${mono ? "font-mono text-[11px]" : "text-[12px]"}`}
+				className={`m-0 text-white/90 flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap relative ${mono ? "font-mono text-[12px]" : "text-[13px]"}`}
 				title={value}
 			>
 				{value}

@@ -65,6 +65,9 @@ await viteBuild({
 	base: "/__SIM_PREVIEW_BASE__/",
 	logLevel: "warn",
 	plugins: [react(), tailwindcss()],
+	resolve: {
+		alias: { "@": resolve(root, "src/web") },
+	},
 	build: {
 		outDir: preview,
 		minify: true,

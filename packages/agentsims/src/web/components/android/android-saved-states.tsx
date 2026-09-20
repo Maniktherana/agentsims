@@ -84,7 +84,7 @@ export function AndroidSavedStates({
 			summary={
 				<div className="flex min-w-0 items-center gap-2">
 					<Save size={14} strokeWidth={2} className="shrink-0 text-white/45" />
-					<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+					<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 						Device snapshots
 					</span>
 				</div>
@@ -97,7 +97,7 @@ export function AndroidSavedStates({
 					void mutate("save", name.trim());
 				}}
 			>
-				<label className="flex min-w-32 flex-1 flex-col gap-1 text-[11px] text-white/60">
+				<label className="flex min-w-32 flex-1 flex-col gap-1 text-[12px] text-white/60">
 					Snapshot name
 					<Input
 						name="state-name"
@@ -116,12 +116,12 @@ export function AndroidSavedStates({
 					Save snapshot
 				</Button>
 			</form>
-			<p className="text-[10px] text-white/45">
+			<p className="text-[11px] text-white/45">
 				Use letters, numbers, dots, dashes, or underscores. Restore replaces the
 				current emulator state.
 			</p>
 			<div className="flex items-center justify-between gap-2">
-				<span className="text-[11px] text-white/50" role="status">
+				<span className="text-[12px] text-white/50" role="status">
 					<TextMorph>
 						{loading
 							? "Loading snapshots"
@@ -140,7 +140,7 @@ export function AndroidSavedStates({
 			</div>
 			{error && (
 				<p
-					className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft"
+					className="rounded-[8px] bg-danger/10 px-2.5 py-2 text-[12px] text-danger-soft"
 					role="alert"
 				>
 					Could not load snapshots: {error}
@@ -171,7 +171,7 @@ export function SavedStateList({
 }) {
 	if (states.length === 0)
 		return (
-			<p className="py-2 text-[11px] text-white/50">
+			<p className="py-2 text-[12px] text-white/50">
 				No snapshots yet. Save the current device state to return to it later.
 			</p>
 		);
@@ -183,10 +183,10 @@ export function SavedStateList({
 					className="flex flex-wrap items-center gap-2 border-t border-white/[0.07] py-2 first:border-t-0"
 				>
 					<div className="min-w-24 flex-1">
-						<p className="m-0 break-words text-[12px] text-white/90">
+						<p className="m-0 break-words text-[13px] text-white/90">
 							{state.name}
 						</p>
-						<p className="m-0 mt-0.5 text-[10px] text-white/45">
+						<p className="m-0 mt-0.5 text-[11px] text-white/45">
 							{savedStateDate(state.savedAt)}
 							{state.size ? ` · ${state.size}` : ""}
 						</p>

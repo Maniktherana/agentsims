@@ -69,12 +69,12 @@ export function StreamFrameRateHistory({
 	return (
 		<div data-stream-fps-history="" className="flex flex-col gap-2">
 			<div className="flex items-baseline justify-between gap-3 px-0.5">
-				<span className="text-[10px] font-medium uppercase tracking-[0.08em] text-white/38">
+				<span className="text-[11px] font-medium uppercase tracking-[0.08em] text-white/38">
 					Recent · 30 sec
 				</span>
 				<output
 					aria-label="Current captured simulator frame rate"
-					className="min-w-[7ch] text-right font-mono text-[11px] font-medium tabular-nums text-white/72"
+					className="min-w-[7ch] text-right font-mono text-[12px] font-medium tabular-nums text-white/72"
 				>
 					<TextMorph>{`${fps === null ? "—" : Math.round(fps)} FPS`}</TextMorph>
 				</output>
@@ -104,7 +104,7 @@ export function StreamFrameRateHistory({
 					padding={{ top: 10, right: 54, bottom: 24, left: 12 }}
 				/>
 			</div>
-			<p className="px-0.5 text-[11px] leading-snug text-white/52">
+			<p className="px-0.5 text-[12px] leading-snug text-white/52">
 				Captured FPS measures frames Agentsims receives from the simulator, not
 				necessarily the app’s actual render rate.
 			</p>
@@ -164,7 +164,7 @@ export function StreamSettingsTool({
 							strokeWidth={2}
 							className="shrink-0 text-white/45"
 						/>
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Stream
 						</span>
 					</div>
@@ -184,7 +184,7 @@ export function StreamSettingsTool({
 								onChange={(v) => onPreferenceChange(v as CodecPreference)}
 							/>
 						</SettingRow>
-						<p className="text-[11px] text-white/55 leading-snug px-0.5">
+						<p className="text-[12px] text-white/55 leading-snug px-0.5">
 							{!avccSupported
 								? "This browser can't decode H.264, so the stream uses MJPEG."
 								: downgraded

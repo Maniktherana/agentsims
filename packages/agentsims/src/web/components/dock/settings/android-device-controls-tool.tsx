@@ -262,15 +262,15 @@ function DeviceControls({
 		<>
 			{error && (
 				<div
-					className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft"
+					className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[12px] text-danger-soft"
 					role="alert"
 				>
 					<span className="min-w-0">Could not read device state: {error}</span>
 					<Button
-						variant="plain"
-						size="custom"
+						variant="raised"
+						size="sm"
 						type="button"
-						className="h-7 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 px-2"
+						className="text-danger-soft"
 						disabled={loading}
 						onClick={() => void refresh(true)}
 					>

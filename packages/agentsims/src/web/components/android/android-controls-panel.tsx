@@ -443,7 +443,7 @@ function ToolSection({
 			summary={
 				<div className="flex min-w-0 items-center gap-2">
 					<span className="shrink-0 text-white/45">{icon}</span>
-					<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+					<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 						{title}
 					</span>
 				</div>

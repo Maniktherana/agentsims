@@ -100,17 +100,17 @@ export function SettingRow({
 }) {
 	return (
 		<div
-			className={`grid min-h-9 min-w-0 grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 ${className}`}
+			className={`grid min-h-9 min-w-0 grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2.5 ${className}`}
 			data-setting-row={label}
 		>
 			<span className="flex size-[18px] items-center justify-center text-white">
 				{icon}
 			</span>
-			<span className="min-w-0 text-[12px] text-white/90">
+			<span className="min-w-0 text-[13px] text-white/90">
 				<span className={`block truncate ${labelClassName}`}>{label}</span>
 				{description && (
 					<span
-						className="mt-0.5 block truncate text-[10px] font-medium text-white/42"
+						className="mt-0.5 block truncate text-[12px] font-medium text-white/42"
 						title={descriptionTitle ?? description}
 					>
 						{description}
@@ -254,7 +254,7 @@ export function SettingSelect({
 			options={options}
 			disabled={disabled}
 			onChange={onChange}
-			className={`h-6 min-w-0 max-w-[150px] rounded-[8px] border border-white/10 bg-white/[0.06] px-2 py-0 text-[12px] leading-none text-white/90 disabled:text-white/40 ${className}`}
+			className={`max-w-[150px] ${className}`}
 		/>
 	);
 }
@@ -535,7 +535,7 @@ export function SimulatorSettingsTool({
 							strokeWidth={2}
 							className="shrink-0 text-white/45"
 						/>
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Simulator
 						</span>
 					</div>
@@ -544,27 +544,26 @@ export function SimulatorSettingsTool({
 			}
 		>
 			{!supported ? (
-				<div className="text-white/45 text-[11px] px-0.5 py-1">
+				<div className="text-white/45 text-[12px] px-0.5 py-1">
 					Simulator settings are available on iOS simulators only.
 				</div>
 			) : (
 				<>
 					{error && (
-						<div className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
+						<div className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[12px] text-danger-soft">
 							<span className="min-w-0">{error}</span>
 							<Button
-								variant="plain"
-								size="custom"
+								variant="raised"
 								type="button"
 								onClick={() => void refresh()}
-								className="h-8 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 bg-transparent px-2 text-[11px] text-danger-soft"
+								className="text-danger-soft"
 							>
 								Retry
 							</Button>
 						</div>
 					)}
 
-					<div className="flex flex-col gap-1.5">
+					<div className="flex flex-col gap-1">
 						<SettingRow icon={I.appearance} label="Appearance">
 							<SettingSelect
 								label="Appearance"

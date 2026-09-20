@@ -20,7 +20,7 @@ export function DevToolsTargetPicker({
 			}))}
 			onChange={onSelectTarget}
 			matchTriggerWidth
-			className="h-7 w-full min-w-0 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[12px] text-white/88 outline-none [transition-property:background-color,border-color] duration-100 hover:bg-white/[0.07] focus-visible:border-white/25 focus-visible:ring-2 focus-visible:ring-white/20"
+			className="w-full"
 		/>
 	);
 }

@@ -6,7 +6,7 @@ import type { AndroidStatus } from "../../../../core/android/device/types";
 import { SettingRow } from "./simulator-settings-tool";
 
 const STATUS_VALUE =
-	"min-w-0 max-w-[190px] truncate text-right text-[12px] font-medium tabular-nums text-white/72";
+	"min-w-0 max-w-[190px] truncate text-right text-[13px] font-medium tabular-nums text-white/72";
 
 function androidSerial(udid: string) {
 	return udid.startsWith("android:") ? udid.slice("android:".length) : udid;
@@ -111,9 +111,9 @@ export function AndroidControlsStatus({
 	return (
 		<div
 			data-android-controls={loading ? "loading" : "ready"}
-			className="flex flex-col gap-1.5"
+			className="flex flex-col gap-1"
 		>
-			<div data-android-metadata className="flex flex-col gap-1.5">
+			<div data-android-metadata className="flex flex-col gap-0.5">
 				<SettingRow
 					icon={<Smartphone size={14} strokeWidth={2} />}
 					label="Device"
@@ -127,7 +127,7 @@ export function AndroidControlsStatus({
 					</span>
 				</SettingRow>
 				<SettingRow
-					icon={<span className="text-[10px] font-semibold">OS</span>}
+					icon={<span className="text-[11px] font-semibold">OS</span>}
 					label="Version"
 				>
 					<span className={STATUS_VALUE}>
@@ -148,11 +148,11 @@ export function AndroidControlsStatus({
 					</span>
 				</SettingRow>
 				<SettingRow
-					icon={<span className="text-[10px] font-semibold">ID</span>}
+					icon={<span className="text-[11px] font-semibold">ID</span>}
 					label="Device ID"
 				>
 					<code
-						className="min-w-0 max-w-[150px] truncate rounded-[8px] bg-white/[0.05] px-2 py-1 text-[10px] font-medium text-white/48"
+						className="min-w-0 max-w-[150px] truncate rounded-[8px] bg-white/[0.05] px-2 py-1 text-[11px] font-medium text-white/48"
 						title={androidSerial(udid)}
 					>
 						{androidSerial(udid)}
@@ -161,18 +161,16 @@ export function AndroidControlsStatus({
 			</div>
 			{error && (
 				<div
-					className="flex items-center justify-between gap-2 rounded-[8px] bg-red-500/10 px-2.5 py-2 text-[11px] font-medium text-red-200/80"
+					className="flex items-center justify-between gap-2 rounded-[8px] bg-red-500/10 px-2.5 py-2 text-[12px] font-medium text-red-200/80"
 					role="alert"
 				>
 					<span className="min-w-0">
 						Could not load Android details: {error}
 					</span>
 					<Button
-						variant="plain"
-						size="custom"
+						variant="raised"
 						type="button"
 						onClick={onRefresh}
-						className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] bg-white/[0.06] px-2 text-[10px] text-white/70 [transition:background,color,transform] duration-100 hover:bg-white/[0.1] hover:text-white active:scale-[0.97]"
 						disabled={loading}
 					>
 						<RefreshCw

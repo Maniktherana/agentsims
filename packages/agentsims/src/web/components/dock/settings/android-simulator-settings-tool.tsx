@@ -236,22 +236,21 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 						strokeWidth={2}
 						className="shrink-0 text-white/45"
 					/>
-					<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+					<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 						Simulator
 					</span>
 				</div>
 			}
-			bodyClassName="flex flex-col gap-1.5"
+			bodyClassName="flex flex-col gap-1"
 		>
 			{error && (
-				<div className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[11px] text-danger-soft">
+				<div className="flex items-center justify-between gap-2 rounded-[8px] bg-danger/10 px-2.5 py-2 text-[12px] text-danger-soft">
 					<span className="min-w-0">Android settings unavailable: {error}</span>
 					<Button
-						variant="plain"
-						size="custom"
+						variant="raised"
 						type="button"
 						onClick={() => void refresh()}
-						className="h-8 shrink-0 cursor-pointer rounded-[8px] border border-danger/30 bg-transparent px-2 text-[11px] text-danger-soft"
+						className="text-danger-soft"
 					>
 						Retry
 					</Button>

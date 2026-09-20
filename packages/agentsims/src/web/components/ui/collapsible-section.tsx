@@ -14,7 +14,7 @@ export function CollapsibleSection({
 	summary,
 	children,
 	summaryClassName = "",
-	bodyClassName = "flex flex-col gap-2.5",
+	bodyClassName = "flex flex-col gap-1",
 	className = "",
 	...dataProps
 }: {
@@ -35,7 +35,7 @@ export function CollapsibleSection({
 			className={`lem-section mx-3 mt-2 overflow-hidden rounded-[10px] border border-white/[0.07] bg-white/[0.025] last:mb-3 ${className}`}
 			{...dataProps}
 		>
-			<summary className="lem-toggle flex min-h-11 w-full cursor-pointer select-none items-center gap-2 px-3 text-white/90">
+			<summary className="lem-toggle flex min-h-11 w-full cursor-pointer select-none items-center gap-2 rounded-[9px] px-3 text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/30">
 				<div
 					data-collapsible-summary-content
 					className={`min-w-0 flex-1 ${summaryClassName}`}

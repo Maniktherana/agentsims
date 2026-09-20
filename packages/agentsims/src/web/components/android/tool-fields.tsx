@@ -17,13 +17,17 @@ export function ToolField({
 export function ToolSection({
 	title,
 	children,
+	divided = true,
 }: {
 	title: string;
 	children: ReactNode;
+	divided?: boolean;
 }) {
 	return (
-		<section className="space-y-2 border-b border-current/10 pb-4">
-			<h3 className="text-xs font-medium">{title}</h3>
+		<section
+			className={`space-y-2 pb-4 last:pb-0 ${divided ? "border-b border-current/10 last:border-b-0" : ""}`}
+		>
+			<h3 className="text-[13px] font-medium">{title}</h3>
 			{children}
 		</section>
 	);

@@ -1,4 +1,6 @@
+import { TextMorph } from "torph/react";
 import { Button } from "../../ui/button";
+import { ButtonGroup } from "../../ui/button-group";
 import { useSettingsRefresh } from "./settings-refresh";
 import {
 	useCallback,
@@ -144,7 +146,7 @@ export function AppPermissionsTool({
 							strokeWidth={2}
 							className="shrink-0 text-white/45"
 						/>
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Permissions
 						</span>
 					</div>
@@ -153,19 +155,13 @@ export function AppPermissionsTool({
 			}
 		>
 			{error && (
-				<div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md">
+				<div className="bg-danger/10 border border-danger/20 text-danger-soft text-[12px] px-2 py-1.5 rounded-md">
 					{error}
 				</div>
 			)}
 
 			<div className="relative">
-				<div
-					className="max-h-[260px] overflow-y-auto flex flex-col gap-1 py-2 [scrollbar-width:thin]"
-					style={{
-						maskImage:
-							"linear-gradient(to bottom, transparent, black 14px, black calc(100% - 14px), transparent)",
-					}}
-				>
+				<div className="scroll-fade-y scroll-fade-6 max-h-[260px] overflow-y-auto flex flex-col gap-1 py-2 [scrollbar-width:thin]">
 					{PERMISSION_SERVICES.map(({ key, label }) => {
 						const current = state[key];
 						return (
@@ -173,14 +169,10 @@ export function AppPermissionsTool({
 								key={key}
 								className="flex items-center justify-between gap-2 px-0.5 py-1"
 							>
-								<span className="text-[12px] text-white/90 overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0">
+								<span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-white/90">
 									{label}
 								</span>
-								<div
-									className="flex h-7 shrink-0 items-center gap-0.5 bg-white/[0.04] border border-white/8 rounded-md p-0.5"
-									role="group"
-									aria-label={label}
-								>
+								<ButtonGroup className="shrink-0" aria-label={label}>
 									<PermBtn
 										active={current === "grant"}
 										pending={pending === `${key}:grant`}
@@ -188,7 +180,7 @@ export function AppPermissionsTool({
 										variant="grant"
 										title="Allow"
 									>
-										<Check size={11} strokeWidth={3} />
+										<Check size={14} strokeWidth={2.5} />
 									</PermBtn>
 									<PermBtn
 										active={current === "revoke"}
@@ -197,7 +189,7 @@ export function AppPermissionsTool({
 										variant="revoke"
 										title="Deny"
 									>
-										<X size={11} strokeWidth={3} />
+										<X size={14} strokeWidth={2.5} />
 									</PermBtn>
 									<PermBtn
 										active={false}
@@ -206,9 +198,9 @@ export function AppPermissionsTool({
 										variant="reset"
 										title="Reset"
 									>
-										<ReloadIcon size={11} strokeWidth={2.4} />
+										<ReloadIcon size={14} strokeWidth={2.2} />
 									</PermBtn>
-								</div>
+								</ButtonGroup>
 							</div>
 						);
 					})}
@@ -217,14 +209,16 @@ export function AppPermissionsTool({
 
 			<div className="flex justify-end">
 				<Button
-					variant="plain"
-					size="custom"
+					variant="raised"
+					size="compact"
 					onClick={resetAll}
 					disabled={pending === "__all__"}
-					className="bg-transparent border border-white/12 text-white/70 h-6 text-[10px] px-2 rounded-[5px] cursor-pointer uppercase tracking-[0.04em]"
+					className="uppercase tracking-[0.04em]"
 					title="agentsims permissions reset all"
 				>
-					{pending === "__all__" ? "Resetting" : "Reset all"}
+					<TextMorph>
+						{pending === "__all__" ? "Resetting" : "Reset all"}
+					</TextMorph>
 				</Button>
 			</div>
 		</CollapsibleSection>
@@ -246,7 +240,7 @@ export function AppPermissionsLoading() {
 						strokeWidth={2}
 						className="shrink-0 text-white/45"
 					/>
-					<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+					<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 						Permissions
 					</span>
 				</div>
@@ -285,15 +279,14 @@ export function PermBtn({
 				: "var(--agentsims-accent)";
 	return (
 		<Button
-			variant="plain"
-			size="custom"
+			variant="ghost"
+			size="icon-xs"
 			onClick={onClick}
 			disabled={pending}
 			title={title}
 			aria-label={title}
-			className="w-6 h-5.5 flex items-center justify-center border-none rounded p-0 cursor-pointer [transition:background_0.12s,color_0.12s]"
 			style={{
-				background: active ? `${accent}22` : "transparent",
+				background: active ? "rgba(255,255,255,0.08)" : "transparent",
 				color: active ? accent : "rgba(255,255,255,0.55)",
 				opacity: pending ? 0.5 : 1,
 			}}

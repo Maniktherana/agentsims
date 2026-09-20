@@ -10,3 +10,6 @@ coverage
 target
 .artifacts
 .claude
+.pi
+.agents
+skills-lock.json

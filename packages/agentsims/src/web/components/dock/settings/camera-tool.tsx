@@ -134,7 +134,7 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
 				: null;
 	return (
 		<span
-			className="text-[11px] text-white/55 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none"
+			className="text-[12px] text-white/55 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none"
 			data-camera-pill-state={state}
 		>
 			{dotClass && <span className={dotClass} />}
@@ -146,7 +146,7 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
 export function CameraTestPatternHint() {
 	return (
 		<p
-			className="m-0 text-center text-[10px] leading-[1.5] text-white/45"
+			className="m-0 text-center text-[11px] leading-[1.5] text-white/45"
 			data-camera-test-pattern-hint
 		>
 			Test-pattern feed
@@ -168,15 +168,15 @@ export function CameraMediaPreview({
 	sourceKind,
 }: CameraMediaPreviewProps) {
 	if (mode === "uploading") {
-		return <span className="text-[11px] text-white/55">Uploading</span>;
+		return <span className="text-[12px] text-white/55">Uploading</span>;
 	}
 	if (mode === "file") {
 		return (
 			<>
-				<div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-white/55 bg-white/[0.06] border border-white/8 px-[7px] py-[2px] rounded-full">
+				<div className="shrink-0 text-[10px] tracking-[0.1em] uppercase text-white/55 bg-white/[0.06] border border-white/8 px-[7px] py-[2px] rounded-full">
 					{sourceKind === "video" ? "Video" : "Image"}
 				</div>
-				<span className="flex-1 min-w-0 truncate text-[12px] text-white/90 font-mono">
+				<span className="flex-1 min-w-0 truncate text-[13px] text-white/90 font-mono">
 					{fileName ?? ""}
 				</span>
 			</>
@@ -185,17 +185,17 @@ export function CameraMediaPreview({
 	if (mode === "webcam") {
 		return (
 			<>
-				<div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-white/55 bg-white/[0.06] border border-white/8 px-[7px] py-[2px] rounded-full">
+				<div className="shrink-0 text-[10px] tracking-[0.1em] uppercase text-white/55 bg-white/[0.06] border border-white/8 px-[7px] py-[2px] rounded-full">
 					Webcam
 				</div>
-				<span className="flex-1 min-w-0 truncate text-[12px] text-white/90 font-mono">
+				<span className="flex-1 min-w-0 truncate text-[13px] text-white/90 font-mono">
 					{webcamName ?? ""}
 				</span>
 			</>
 		);
 	}
 	return (
-		<span className="text-[12px] text-white/85 font-medium">Test pattern</span>
+		<span className="text-[13px] text-white/85 font-medium">Test pattern</span>
 	);
 }
 
@@ -208,8 +208,8 @@ export function CameraInlineBanner({
 }) {
 	const classes =
 		kind === "warning"
-			? "bg-warning/10 border border-warning/25 text-warning-soft text-[11px] px-2 py-1.5 rounded-md break-words"
-			: "bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md break-words";
+			? "bg-warning/10 border border-warning/25 text-warning-soft text-[12px] px-2 py-1.5 rounded-md break-words"
+			: "bg-danger/10 border border-danger/20 text-danger-soft text-[12px] px-2 py-1.5 rounded-md break-words";
 	return (
 		<div
 			className={classes}
@@ -899,14 +899,13 @@ export function CameraTool({
 					description={droppedFileName ?? "Image or video"}
 				>
 					<Button
-						variant="plain"
-						size="custom"
+						variant="raised"
+						size="compact"
 						type="button"
 						onClick={openFilePicker}
 						disabled={uploading || isBusy}
-						className="h-6 rounded-[7px] border border-white/10 bg-white/[0.06] px-2 text-[11px] font-medium text-white/80 hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
 					>
-						{droppedFileName ? "Replace" : "Choose File"}
+						<TextMorph>{droppedFileName ? "Replace" : "Choose File"}</TextMorph>
 					</Button>
 				</SettingRow>
 			)}
@@ -944,12 +943,11 @@ export function CameraTool({
 							}}
 						/>
 						<Button
-							variant="plain"
-							size="custom"
+							variant="ghost"
+							size="icon-xs"
 							type="button"
 							onClick={() => void refreshWebcams()}
 							disabled={webcamLoading}
-							className="grid size-6 shrink-0 place-items-center rounded-[6px] border-0 bg-transparent p-0 text-white/50 hover:bg-white/[0.06] hover:text-white/90 disabled:opacity-40"
 							aria-label="Refresh webcams"
 							title="Refresh webcams"
 						>
@@ -983,14 +981,14 @@ export function CameraTool({
 
 					{showFile && !uploading && (
 						<Button
-							variant="plain"
-							size="custom"
+							variant="ghost"
+							size="icon-xs"
 							data-clear-media
 							onClick={(event) => {
 								event.stopPropagation();
 								clearMedia();
 							}}
-							className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-white/55 hover:text-white/90 cursor-pointer p-0"
+							className="size-5"
 							aria-label="Clear media source"
 							title="Use test pattern"
 						>
@@ -1001,7 +999,7 @@ export function CameraTool({
 			)}
 
 			{!bundleId && (
-				<div className="rounded-[7px] bg-white/[0.035] px-2.5 py-2 text-[10px] leading-[1.4] text-white/48">
+				<div className="rounded-[7px] bg-white/[0.035] px-2.5 py-2 text-[11px] leading-[1.4] text-white/48">
 					Open an app on the simulator to enable Start Camera.
 				</div>
 			)}
@@ -1020,11 +1018,10 @@ export function CameraTool({
 
 			<div className="flex items-stretch">
 				<Button
-					variant="plain"
-					size="custom"
+					variant="raised"
 					onClick={primary.onClick}
 					disabled={primaryDisabled}
-					className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] border-0 bg-white/[0.09] px-2 text-[11px] font-semibold text-white/82 hover:bg-white/[0.13] disabled:opacity-50"
+					className="flex-1"
 					title={
 						primary.kind === "stop"
 							? "Stop the camera helper and terminate injected apps"
@@ -1067,7 +1064,7 @@ export function CameraTool({
 							strokeWidth={2}
 							className="shrink-0 text-white/45"
 						/>
-						<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+						<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 							Camera
 						</span>
 					</div>

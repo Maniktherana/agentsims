@@ -1,19 +1,128 @@
-import {
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-	type KeyboardEvent,
-} from "react";
-import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
-import { Button } from "./button";
+import * as React from "react";
+import { Select as SelectPrimitive } from "@base-ui/react/select";
+import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { cn } from "cn";
+import { Chevron } from "../icons/index";
 
-// Custom <select> replacement in the device-picker dropdown style. Native
-// option popups are drawn by the host browser and ignore the page color
-// scheme in embedded webviews (Codex, VS Code), so the popup is plain DOM.
-// Portaled to <body> with fixed positioning because the tools panel scrolls
-// and the collapsible sections clip overflow.
+const SelectRoot = SelectPrimitive.Root;
+
+function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+	return (
+		<SelectPrimitive.Value
+			data-slot="select-value"
+			className={cn("flex min-w-0 flex-1 truncate whitespace-nowrap text-start", className)}
+			{...props}
+		/>
+	);
+}
+
+function SelectTrigger({
+	className,
+	children,
+	...props
+}: SelectPrimitive.Trigger.Props) {
+	return (
+		<SelectPrimitive.Trigger
+			data-slot="select-trigger"
+			className={cn(
+				"flex h-8 min-w-0 items-center justify-between gap-2 overflow-hidden rounded-[8px] bg-[var(--agentsims-button-raised)] px-2.5 text-[13px] leading-none text-white/90 shadow-[var(--agentsims-button-raised-shadow)] outline-none [transition-property:background-color,box-shadow] duration-150 enabled:hover:bg-[var(--agentsims-button-raised-hover)] focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#181818] disabled:cursor-not-allowed disabled:opacity-40",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+			<SelectPrimitive.Icon render={<Chevron open={false} />} />
+		</SelectPrimitive.Trigger>
+	);
+}
+
+function SelectContent({
+	className,
+	children,
+	matchTriggerWidth = false,
+	...props
+}: SelectPrimitive.Popup.Props & { matchTriggerWidth?: boolean }) {
+	return (
+		<SelectPrimitive.Portal>
+			<SelectPrimitive.Positioner
+				side="bottom"
+				sideOffset={4}
+				align="end"
+				className="isolate z-[80]"
+			>
+				<SelectPrimitive.Popup
+					data-slot="select-content"
+					className={cn(
+						"relative max-h-[min(360px,var(--available-height))] min-w-(--anchor-width) origin-(--transform-origin) overflow-hidden rounded-[10px] bg-[#202020] p-1 text-[13px] text-white/90 shadow-[0_12px_32px_rgba(0,0,0,0.5),inset_0_0_0_1px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none",
+						matchTriggerWidth ? "w-(--anchor-width)" : "w-max",
+						className,
+					)}
+					{...props}
+				>
+					<SelectScrollUpButton />
+					<SelectPrimitive.List className="scroll-fade-y scroll-fade-6 max-h-[calc(min(360px,var(--available-height))-3rem)] overflow-y-auto">
+						{children}
+					</SelectPrimitive.List>
+					<SelectScrollDownButton />
+				</SelectPrimitive.Popup>
+			</SelectPrimitive.Positioner>
+		</SelectPrimitive.Portal>
+	);
+}
+
+function SelectItem({
+	className,
+	children,
+	...props
+}: SelectPrimitive.Item.Props) {
+	return (
+		<SelectPrimitive.Item
+			data-slot="select-item"
+			className={cn(
+				"relative flex h-8 w-full cursor-default items-center rounded-[7px] py-0 pe-8 ps-2.5 text-start outline-none select-none focus:bg-white/[0.08] data-selected:text-white data-disabled:pointer-events-none data-disabled:opacity-40",
+				className,
+			)}
+			{...props}
+		>
+			<SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">
+				{children}
+			</SelectPrimitive.ItemText>
+			<SelectPrimitive.ItemIndicator className="pointer-events-none absolute end-2 grid size-4 place-items-center text-accent">
+				<HugeiconsIcon icon={Tick02Icon} strokeWidth={2} className="size-3.5" />
+			</SelectPrimitive.ItemIndicator>
+		</SelectPrimitive.Item>
+	);
+}
+
+function SelectScrollUpButton(
+	props: React.ComponentProps<typeof SelectPrimitive.ScrollUpArrow>,
+) {
+	return (
+		<SelectPrimitive.ScrollUpArrow
+			data-slot="select-scroll-up-button"
+			className="sticky top-0 z-10 flex h-6 w-full items-center justify-center bg-[#202020] text-white/55"
+			{...props}
+		>
+			<Chevron open />
+		</SelectPrimitive.ScrollUpArrow>
+	);
+}
+
+function SelectScrollDownButton(
+	props: React.ComponentProps<typeof SelectPrimitive.ScrollDownArrow>,
+) {
+	return (
+		<SelectPrimitive.ScrollDownArrow
+			data-slot="select-scroll-down-button"
+			className="sticky bottom-0 z-10 flex h-6 w-full items-center justify-center bg-[#202020] text-white/55"
+			{...props}
+		>
+			<Chevron open={false} />
+		</SelectPrimitive.ScrollDownArrow>
+	);
+}
+
 export function Select({
 	label,
 	value,
@@ -31,187 +140,33 @@ export function Select({
 	className?: string;
 	matchTriggerWidth?: boolean;
 }) {
-	const [open, setOpen] = useState(false);
-	const triggerRef = useRef<HTMLButtonElement | null>(null);
-	const popupRef = useRef<HTMLDivElement | null>(null);
-	const [pos, setPos] = useState<{
-		top: number;
-		left: number;
-		width: number;
-		maxHeight: number;
-	} | null>(null);
-
-	const place = () => {
-		const rect = triggerRef.current?.getBoundingClientRect();
-		if (!rect) return;
-		setPos({
-			top: rect.bottom + 4,
-			left: rect.left,
-			width: rect.width,
-			maxHeight: 360,
-		});
-	};
-
-	useLayoutEffect(() => {
-		if (open) place();
-	}, [open]);
-
-	// Second pass once the popup has a size: keep it inside the viewport (the
-	// settings triggers sit near the panel's right edge and the option list is
-	// wider than the trigger).
-	useLayoutEffect(() => {
-		if (!open || !pos) return;
-		const popup = popupRef.current;
-		const trigger = triggerRef.current?.getBoundingClientRect();
-		if (!popup || !trigger) return;
-		const margin = 8;
-		const maxLeft = window.innerWidth - popup.offsetWidth - margin;
-		const below = window.innerHeight - trigger.bottom - margin - 4;
-		const above = trigger.top - margin - 4;
-		const opensAbove = popup.scrollHeight > below && above > below;
-		const maxHeight = Math.max(1, Math.min(360, opensAbove ? above : below));
-		const height = Math.min(popup.offsetHeight, maxHeight);
-		const top = Math.max(
-			margin,
-			opensAbove ? trigger.top - height - 4 : trigger.bottom + 4,
-		);
-		const left = Math.max(margin, Math.min(trigger.left, maxLeft));
-		if (pos.top !== top || pos.left !== left || pos.maxHeight !== maxHeight)
-			setPos({ ...pos, top, left, maxHeight });
-	}, [open, pos]);
-
-	useEffect(() => {
-		if (!open) return;
-		const close = () => setOpen(false);
-		const onDown = (e: MouseEvent) => {
-			const t = e.target as Node;
-			if (!popupRef.current?.contains(t) && !triggerRef.current?.contains(t))
-				close();
-		};
-		// Capture-phase so scrolls inside the tools panel (which don't bubble to
-		// window) keep the popup glued to its trigger. Repositioning rather than
-		// dismissing matters because focusing the trigger can itself scroll it
-		// into view, which would otherwise close the popup as it opens.
-		const onScroll = (e: Event) => {
-			if (!popupRef.current?.contains(e.target as Node)) place();
-		};
-		window.addEventListener("mousedown", onDown);
-		window.addEventListener("scroll", onScroll, true);
-		window.addEventListener("resize", close);
-		return () => {
-			window.removeEventListener("mousedown", onDown);
-			window.removeEventListener("scroll", onScroll, true);
-			window.removeEventListener("resize", close);
-		};
-	}, [open]);
-
-	// Focus the selected option once per open — keyed off `pos` because the
-	// popup only exists after placement, but guarded so scroll repositions
-	// don't yank focus back from arrow-key navigation.
-	const focusedThisOpen = useRef(false);
-	useEffect(() => {
-		if (!open) {
-			focusedThisOpen.current = false;
-			return;
-		}
-		if (!pos || focusedThisOpen.current) return;
-		const items =
-			popupRef.current?.querySelectorAll<HTMLButtonElement>("[role=option]");
-		if (!items?.length) return;
-		focusedThisOpen.current = true;
-		const idx = options.findIndex((o) => o.value === value);
-		items[Math.max(idx, 0)]?.focus();
-	}, [open, pos, options, value]);
-
-	const onPopupKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-		const items = [
-			...(popupRef.current?.querySelectorAll<HTMLButtonElement>(
-				"[role=option]",
-			) ?? []),
-		];
-		const idx = items.indexOf(document.activeElement as HTMLButtonElement);
-		if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-			e.preventDefault();
-			const next =
-				e.key === "ArrowDown"
-					? Math.min(idx + 1, items.length - 1)
-					: Math.max(idx - 1, 0);
-			items[next]?.focus();
-		} else if (e.key === "Escape") {
-			e.preventDefault();
-			setOpen(false);
-			triggerRef.current?.focus();
-		}
-	};
-
-	const selected = options.find((o) => o.value === value);
-
 	return (
-		<>
-			<Button
-				variant="plain"
-				size="custom"
-				ref={triggerRef}
-				type="button"
-				aria-label={label}
-				aria-haspopup="listbox"
-				aria-expanded={open}
-				disabled={disabled}
-				onClick={() => setOpen((o) => !o)}
-				className={`text-left font-[inherit] cursor-pointer disabled:cursor-default ${className ?? ""}`}
-			>
-				<span className="flex w-full min-w-0 items-center justify-between gap-2">
-					<span className="min-w-0 flex-1 truncate">
-						{selected?.label ?? value}
-					</span>
-					<ChevronDown
-						size={12}
-						strokeWidth={2}
-						className={`shrink-0 text-white/45 [transition:transform_120ms_ease,color_100ms_ease] ${
-							open ? "rotate-180 text-white/70" : ""
-						}`}
-						aria-hidden="true"
-					/>
-				</span>
-			</Button>
-			{open &&
-				pos &&
-				createPortal(
-					<div
-						ref={popupRef}
-						role="listbox"
-						aria-label={label}
-						onKeyDown={onPopupKeyDown}
-						style={{
-							top: pos.top,
-							left: pos.left,
-							maxHeight: pos.maxHeight,
-							maxWidth: "calc(100vw - 16px)",
-							...(matchTriggerWidth
-								? { width: pos.width }
-								: { minWidth: pos.width }),
-						}}
-						className="fixed z-[80] max-h-90 overflow-y-auto rounded-[10px] border border-white/12 bg-panel p-1 text-[12px] text-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
-					>
-						{options.map((o) => (
-							<button
-								key={o.value}
-								type="button"
-								role="option"
-								aria-selected={o.value === value}
-								onClick={() => {
-									onChange(o.value);
-									setOpen(false);
-									triggerRef.current?.focus();
-								}}
-								className={`block w-full overflow-hidden text-ellipsis text-left font-[inherit] px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap transition-colors hover:bg-white/8 focus-visible:bg-white/8 outline-none ${o.value === value ? "text-accent" : ""}`}
-							>
-								{o.label}
-							</button>
-						))}
-					</div>,
-					document.body,
-				)}
-		</>
+		<SelectRoot
+			value={value}
+			items={options}
+			disabled={disabled}
+			onValueChange={(next) => {
+				if (next !== null) onChange(next);
+			}}
+		>
+			<SelectTrigger aria-label={label} className={className}>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent matchTriggerWidth={matchTriggerWidth}>
+				{options.map((option) => (
+					<SelectItem key={option.value} value={option.value}>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</SelectRoot>
 	);
 }
+
+export {
+	SelectContent,
+	SelectItem,
+	SelectRoot,
+	SelectTrigger,
+	SelectValue,
+};
