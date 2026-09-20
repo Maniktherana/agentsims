@@ -514,6 +514,14 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 		),
 	),
 	HttpRouter.get(
+		"/traces/directory",
+		commandResponse(
+			Effect.gen(function* () {
+				return { directory: (yield* Traces).directory() };
+			}),
+		),
+	),
+	HttpRouter.get(
 		"/traces/:trace",
 		commandResponse(
 			Effect.gen(function* () {

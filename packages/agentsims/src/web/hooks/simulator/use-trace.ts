@@ -19,6 +19,8 @@ export interface TraceCall {
 
 export interface TraceSummary {
 	id: string;
+	device: string;
+	platform: "ios" | "android";
 	directory: string;
 	name: string | null;
 	startedAt: string;
@@ -28,6 +30,8 @@ export interface TraceSummary {
 
 export interface TraceDetail {
 	id: string;
+	device: string;
+	platform: "ios" | "android";
 	startedAt: string;
 	name: string | null;
 	calls: TraceCall[];
@@ -60,9 +64,12 @@ export function parseTraceSummaries(value: unknown): TraceSummary[] {
 		const trace = record(entry);
 		const id = text(trace?.id);
 		if (!trace || !id) return [];
+		const platform = trace.platform;
 		return [
 			{
 				id,
+				device: text(trace.device) ?? "Unknown device",
+				platform: platform === "android" ? "android" : "ios",
 				directory: text(trace.directory) ?? "",
 				name: text(trace.name),
 				startedAt: text(trace.startedAt) ?? "",
@@ -82,6 +89,8 @@ export function parseTraceDetail(value: unknown): TraceDetail | null {
 	const calls = Array.isArray(body.calls) ? body.calls : [];
 	return {
 		id,
+		device: text(header.device) ?? "Unknown device",
+		platform: header.platform === "android" ? "android" : "ios",
 		startedAt: text(header.startedAt) ?? "",
 		name: text(header.name),
 		endedAt: text(record(body.end)?.endedAt),
@@ -116,9 +125,24 @@ export function traceScreenshotUrl(
 	return `/traces/${encodeURIComponent(traceId)}/${screenshot}`;
 }
 
+export function traceListPath(
+	device: string,
+	scope: "device" | "all",
+): string {
+	return scope === "all"
+		? "/traces"
+		: `/traces?device=${encodeURIComponent(device)}`;
+}
+
+class TraceHttpError extends Error {
+	constructor(readonly status: number) {
+		super(`Trace request failed (${status}).`);
+	}
+}
+
 async function readJson(path: string, signal: AbortSignal): Promise<unknown> {
 	const response = await fetch(path, { cache: "no-store", signal });
-	if (!response.ok) throw new Error(`${path} returned ${response.status}`);
+	if (!response.ok) throw new TraceHttpError(response.status);
 	return response.json();
 }
 
@@ -135,6 +159,7 @@ export interface TraceController {
 export function useTrace(
 	device: string | null | undefined,
 	open: boolean,
+	scope: "device" | "all" = "device",
 ): TraceController {
 	const [traces, setTraces] = useState<TraceSummary[]>([]);
 	const [pickedId, setPickedId] = useState<string | null>(null);
@@ -150,16 +175,21 @@ export function useTrace(
 
 	const loadList = useCallback(
 		async (forDevice: string, signal: AbortSignal) => {
-			setTraces(
-				parseTraceSummaries(
-					await readJson(
-						`/traces?device=${encodeURIComponent(forDevice)}`,
-						signal,
+			try {
+				setTraces(
+					parseTraceSummaries(
+						await readJson(traceListPath(forDevice, scope), signal),
 					),
-				),
-			);
+				);
+			} catch (cause) {
+				if (cause instanceof TraceHttpError && cause.status === 404) {
+					setTraces([]);
+					return;
+				}
+				throw cause;
+			}
 		},
-		[],
+		[scope],
 	);
 
 	const loadActive = useCallback(
@@ -211,8 +241,18 @@ export function useTrace(
 				);
 				setError(null);
 			} catch (cause) {
-				if (!controller.signal.aborted)
-					setError(cause instanceof Error ? cause.message : String(cause));
+				if (controller.signal.aborted) return;
+				if (cause instanceof TraceHttpError && cause.status === 404) {
+					setTraces((current) =>
+						current.filter((entry) => entry.id !== selectedId),
+					);
+					setPickedId(null);
+					setActiveId((current) => (current === selectedId ? null : current));
+					setDetail(null);
+					setError(null);
+					return;
+				}
+				setError(cause instanceof Error ? cause.message : String(cause));
 			}
 		})();
 		return () => controller.abort();

@@ -54,15 +54,15 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
 					? selected || active
 						? "border-white/[0.12] bg-white/[0.075] text-white"
 						: tone === "danger"
-							? "border-transparent text-white/45 hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-300"
-							: "border-transparent text-white/55 hover:border-white/[0.1] hover:bg-white/[0.06] hover:text-white"
+							? "border-transparent text-white/45 hover:bg-red-500/10 hover:text-red-300"
+							: "border-transparent text-white/55 hover:bg-white/[0.06] hover:text-white"
 					: active
 						? "border-white/[0.14] bg-white/[0.1] text-white"
 						: selected
 							? "border-white/[0.12] bg-white/[0.08] text-white"
 							: tone === "danger"
-								? "border-transparent text-white/45 hover:border-red-400/20 hover:bg-red-500/10 hover:text-red-300"
-								: "border-transparent text-white/55 hover:border-white/10 hover:bg-white/[0.07] hover:text-white";
+								? "border-transparent text-white/45 hover:bg-red-500/10 hover:text-red-300"
+								: "border-transparent text-white/55 hover:bg-white/[0.07] hover:text-white";
 		const sizeClass =
 			size === "compact"
 				? "size-[34px] rounded-md"

@@ -148,6 +148,8 @@ describe("trace HTTP JSON", () => {
 		).toEqual([
 			{
 				id: "t-2",
+				device: "UDID",
+				platform: "ios",
 				directory: "/home/u/.agentsims/traces/t-2",
 				name: "checkout",
 				startedAt: "2026-09-19T10:20:00.000Z",
@@ -195,6 +197,8 @@ describe("trace HTTP JSON", () => {
 			end: { endedAt: "2026-09-19T10:16:00.000Z", calls: 2 },
 		});
 		expect(detail?.id).toBe("t-1");
+		expect(detail?.device).toBe("UDID");
+		expect(detail?.platform).toBe("ios");
 		expect(detail?.endedAt).toBe("2026-09-19T10:16:00.000Z");
 		expect(detail?.calls).toHaveLength(2);
 		expect(detail?.calls[1]?.status).toBe("ok");

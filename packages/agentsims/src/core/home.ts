@@ -3,7 +3,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export function agentsimsHome(): string {
-	return process.env.AGENTSIMS_HOME || join(homedir(), ".agentsims");
+	return (
+		process.env.AGENTSIMS_HOME_DIR ??
+		process.env.AGENTSIMS_HOME ??
+		join(homedir(), ".agentsims")
+	);
 }
 
 function directory(name: string): string {

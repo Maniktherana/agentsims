@@ -1,6 +1,8 @@
-import { Check, Copy } from "lucide-react";
+import { Copy } from "lucide-react";
+import { BadgeCheckIcon } from "../icons/badge-check";
 import { useEffect, useState, type MouseEvent } from "react";
 import { IconButton, type IconButtonProps } from "./icon-button";
+import { IconSwap } from "./state-transitions";
 import { notify } from "./toast";
 
 const COPIED_MS = 1500;
@@ -31,11 +33,13 @@ export function CopyButton({
 				);
 			}}
 		>
-			{copied ? (
-				<Check size={12} strokeWidth={2} className="text-success" />
-			) : (
-				<Copy size={12} strokeWidth={2} />
-			)}
+			<IconSwap state={copied ? "copied" : "copy"}>
+				{copied ? (
+					<BadgeCheckIcon size={12} className="text-white/72" />
+				) : (
+					<Copy size={12} strokeWidth={2} />
+				)}
+			</IconSwap>
 		</IconButton>
 	);
 }

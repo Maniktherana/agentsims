@@ -1,5 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -52,6 +59,13 @@ test("an action batch is traced under its leading action", () => {
 	expect(actionCommand([{ type: "long-press" }])).toBe("long-press");
 	expect(actionCommand([{ type: "nonsense" }])).toBe("act");
 	expect(actionCommand([])).toBe("act");
+});
+
+test("an empty trace directory lists no traces", async () => {
+	const root = newRoot();
+	const traces = service(root);
+	expect(traces.directory()).toBe(root);
+	expect(await Effect.runPromise(traces.list())).toEqual([]);
 });
 
 test("tracing off returns the command effect untouched", () => {
@@ -176,6 +190,31 @@ test("a trace records every call, its screenshot, and its end", async () => {
 		traces.screenshot(started.id, "000002.png"),
 	);
 	expect(Array.from(png)).toEqual([7, 7, 7]);
+});
+
+test("a copied trace uses its directory name as the public id", async () => {
+	const root = newRoot();
+	const directoryId = "copied-trace";
+	const directory = join(root, directoryId);
+	mkdirSync(directory, { recursive: true });
+	writeFileSync(
+		join(directory, "trace.jsonl"),
+		`${JSON.stringify({
+			type: "trace",
+			version: 1,
+			id: "original-trace",
+			device: DEVICE,
+			platform: "ios",
+			startedAt: "2026-09-20T08:00:00.000Z",
+			name: "Copied",
+		})}\n`,
+	);
+
+	const traces = service(root);
+	const listed = await Effect.runPromise(traces.list());
+	expect(listed[0]?.id).toBe(directoryId);
+	const document = await Effect.runPromise(traces.read(directoryId));
+	expect(document.trace.id).toBe(directoryId);
 });
 
 test("one device holds one trace, and stop needs one to be open", async () => {

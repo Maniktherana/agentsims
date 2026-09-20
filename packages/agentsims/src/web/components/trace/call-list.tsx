@@ -1,4 +1,20 @@
 import {
+	Box,
+	Camera,
+	Clock,
+	Eye,
+	Keyboard,
+	MousePointer2,
+	Move,
+	Play,
+	RotateCw,
+	Search,
+	Wrench,
+	ChevronUp,
+	type LucideIcon,
+} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -7,25 +23,26 @@ import {
 } from "react";
 import type { TraceCommand } from "../../../core/tools/traces/trace-file";
 import type { TraceCall, TraceCallStatus } from "../../hooks/simulator/use-trace";
+import { IconSwap } from "../ui/state-transitions";
 import { TraceCallDetail, renderCallOutput } from "./call-detail";
 
-/** The row whose vertical extent holds the centre line of the list viewport. */
-export function activeIndexAtCenter(
-	rowTops: number[],
-	rowHeights: number[],
+const DETAIL_TRANSITION = {
+	duration: 0.16,
+	ease: [0.22, 1, 0.36, 1] as const,
+};
+
+/** Map the list's scroll range to a call. Top is first; bottom is last. */
+export function activeIndexFromScroll(
 	scrollTop: number,
+	scrollHeight: number,
 	viewportHeight: number,
+	callCount: number,
 ): number {
-	if (rowTops.length === 0) return -1;
-	const centre = scrollTop + viewportHeight / 2;
-	let last = 0;
-	for (let index = 0; index < rowTops.length; index += 1) {
-		const top = rowTops[index] ?? 0;
-		if (top > centre) break;
-		if (centre < top + (rowHeights[index] ?? 0)) return index;
-		last = index;
-	}
-	return last;
+	if (callCount <= 1) return 0;
+	const range = Math.max(0, scrollHeight - viewportHeight);
+	if (range === 0) return 0;
+	const progress = Math.max(0, Math.min(1, scrollTop / range));
+	return Math.round(progress * (callCount - 1));
 }
 
 export function formatCallDuration(durationMs: number): string {
@@ -67,28 +84,43 @@ export function callSummary(call: TraceCall): string {
 		: line;
 }
 
-const STATUS_DOT: Record<TraceCallStatus, string> = {
-	ok: "bg-success",
-	refused: "bg-warning",
-	error: "bg-danger",
+const STATUS_TEXT: Record<TraceCallStatus, { label: string; className: string }> = {
+	ok: { label: "OK", className: "text-success" },
+	refused: { label: "Refused", className: "text-warning" },
+	error: { label: "Error", className: "text-danger" },
 };
+
+function commandIcon(command: string): LucideIcon {
+	if (command === "observe" || command === "watch") return Eye;
+	if (command === "find") return Search;
+	if (command === "screenshot") return Camera;
+	if (command === "wait") return Clock;
+	if (command === "tap" || command === "long-press") return MousePointer2;
+	if (command === "type" || command === "key" || command === "button") return Keyboard;
+	if (command === "scroll" || command === "swipe" || command === "gesture") return Move;
+	if (command === "run" || command === "act") return Play;
+	if (command === "rotate") return RotateCw;
+	if (command.startsWith("app:")) return Box;
+	return Wrench;
+}
 
 export function TraceCallList({
 	traceId,
+	device,
 	calls,
 	onActiveIndexChange,
 }: {
 	traceId: string;
+	device: string;
 	calls: TraceCall[];
 	onActiveIndexChange: (index: number) => void;
 }) {
+	const reducedMotion = useReducedMotion();
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const rowsRef = useRef<(HTMLDivElement | null)[]>([]);
 	const frameRef = useRef<number | null>(null);
 	const atBottomRef = useRef(false);
 	const selfScrollRef = useRef(false);
-	// A call record never changes once written, so its summary is worth keeping:
-	// deriving it renders the whole CLI output for the call.
 	const summariesRef = useRef(new Map<number, string>());
 	const [scrollIndex, setScrollIndex] = useState(0);
 	const [viewportHeight, setViewportHeight] = useState(0);
@@ -99,23 +131,18 @@ export function TraceCallList({
 	const measure = useCallback(() => {
 		const list = scrollRef.current;
 		if (!list) return;
-		const tops: number[] = [];
-		const heights: number[] = [];
-		for (const row of rowsRef.current) {
-			if (!row) continue;
-			tops.push(row.offsetTop);
-			heights.push(row.offsetHeight);
-		}
 		setViewportHeight(list.clientHeight);
 		setScrollIndex(
-			Math.max(
-				0,
-				activeIndexAtCenter(tops, heights, list.scrollTop, list.clientHeight),
+			activeIndexFromScroll(
+				list.scrollTop,
+				list.scrollHeight,
+				list.clientHeight,
+				calls.length,
 			),
 		);
 		atBottomRef.current =
 			list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
-	}, []);
+	}, [calls.length]);
 
 	const onScroll = () => {
 		if (selfScrollRef.current) selfScrollRef.current = false;
@@ -161,6 +188,13 @@ export function TraceCallList({
 		if (list.scrollTop !== before) selfScrollRef.current = true;
 	};
 
+	const selectIndex = (index: number) => {
+		const next = Math.max(0, Math.min(calls.length - 1, index));
+		setSelected(next);
+		setPinned(true);
+		reveal(next);
+	};
+
 	const summaryFor = (call: TraceCall): string => {
 		const cached = summariesRef.current.get(call.seq);
 		if (cached !== undefined) return cached;
@@ -179,71 +213,91 @@ export function TraceCallList({
 				const current = selected ?? scrollIndex;
 				if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 					event.preventDefault();
-					const next = Math.max(
-						0,
-						Math.min(
-							calls.length - 1,
-							current + (event.key === "ArrowDown" ? 1 : -1),
-						),
-					);
-					setSelected(next);
-					setPinned(true);
-					reveal(next);
+					selectIndex(current + (event.key === "ArrowDown" ? 1 : -1));
 				} else if (event.key === "Enter") {
 					event.preventDefault();
-					setSelected(current);
-					setPinned(true);
+					selectIndex(current);
 					setExpanded(expanded === current ? null : current);
 				}
 			}}
-			className="relative h-full min-h-0 overflow-y-auto outline-none [scrollbar-width:thin]"
+			className="h-full min-h-0 overflow-y-auto outline-none [scrollbar-width:thin]"
 		>
-			{calls.map((call, index) => (
-				<div
-					key={call.seq}
-					ref={(element) => {
-						rowsRef.current[index] = element;
-					}}
-				>
-					<button
-						type="button"
-						aria-expanded={expanded === index}
-						onClick={() => {
-							setSelected(index);
-							setPinned(true);
-							setExpanded(expanded === index ? null : index);
+			<div className="sticky top-0 z-10 grid h-7 grid-cols-[18px_76px_minmax(0,1fr)_58px] items-center gap-2 border-b border-white/[0.06] bg-[var(--agentsims-panel-bg,#181818)] px-2 text-[10px] font-medium uppercase tracking-[0.06em] text-white/30">
+				<span />
+				<span>Tool</span>
+				<span>Details</span>
+				<span className="text-end">Status</span>
+			</div>
+			{calls.map((call, index) => {
+				const CommandIcon = commandIcon(call.command);
+				return (
+					<div
+						key={call.seq}
+						ref={(element) => {
+							rowsRef.current[index] = element;
 						}}
-						className={`flex h-8 w-full items-center gap-2 border-l-2 px-2 text-left font-mono text-[12px] [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] motion-reduce:transition-none ${
-							selected === index
-								? "border-accent bg-panel"
-								: "border-transparent hover:bg-panel"
-						}`}
+						className={index % 2 === 1 ? "bg-white/[0.018]" : undefined}
 					>
-						<span
-							aria-hidden="true"
-							className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[call.status]}`}
-						/>
-						<span className="w-[3ch] shrink-0 text-right text-white/40">
-							{call.seq}
-						</span>
-						<span className="shrink-0 font-semibold text-white/90">
-							{call.command}
-						</span>
-						<span className="min-w-0 flex-1 truncate text-white/45">
-							{summaryFor(call)}
-						</span>
-						<span className="shrink-0 text-white/40">
-							{formatCallDuration(call.durationMs)}
-						</span>
-					</button>
-					{expanded === index && (
-						<TraceCallDetail
-							call={call}
-							maxHeight={Math.round(viewportHeight * 0.6)}
-						/>
-					)}
-				</div>
-			))}
+						<button
+							type="button"
+							aria-current={activeIndex === index ? "true" : undefined}
+							aria-expanded={expanded === index}
+							onClick={() => {
+								selectIndex(index);
+								setExpanded(expanded === index ? null : index);
+							}}
+							className={`grid h-8 w-full grid-cols-[18px_76px_minmax(0,1fr)_58px] items-center gap-2 px-2 text-start text-[12px] outline-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/25 motion-reduce:transition-none ${
+								activeIndex === index
+									? "bg-white/[0.055]"
+									: "hover:bg-white/[0.03]"
+							}`}
+						>
+							<span aria-hidden="true" className="grid place-items-center text-white/42">
+								<IconSwap state={expanded === index ? "open" : "closed"}>
+									{expanded === index ? (
+										<ChevronUp size={13} strokeWidth={1.8} />
+									) : (
+										<CommandIcon size={13} strokeWidth={1.8} />
+									)}
+								</IconSwap>
+							</span>
+							<span className="truncate font-semibold text-white/82">
+								{call.command}
+							</span>
+							<span className="truncate text-white/42">
+								{summaryFor(call)}
+							</span>
+							<span
+								className={`text-end text-[10px] font-semibold uppercase tracking-[0.04em] ${STATUS_TEXT[call.status].className}`}
+							>
+								{STATUS_TEXT[call.status].label}
+							</span>
+						</button>
+						<AnimatePresence initial={false}>
+							{expanded === index && (
+								<motion.div
+									key="detail"
+									initial={reducedMotion ? false : { height: 0, opacity: 0 }}
+									animate={{ height: "auto", opacity: 1 }}
+									exit={
+										reducedMotion
+											? { opacity: 0 }
+											: { height: 0, opacity: 0 }
+									}
+									transition={reducedMotion ? { duration: 0 } : DETAIL_TRANSITION}
+									className="overflow-hidden"
+								>
+									<TraceCallDetail
+										call={call}
+										device={device}
+										maxHeight={Math.round(viewportHeight * 0.6)}
+									/>
+								</motion.div>
+							)}
+						</AnimatePresence>
+					</div>
+				);
+			})}
 		</div>
 	);
 }

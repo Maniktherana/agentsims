@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
-	TraceCallList,
-	activeIndexAtCenter,
+	activeIndexFromScroll,
 	callSummary,
 	formatCallDuration,
 } from "../../../../../web/components/trace/call-list";
+import { screenshotIndexForCall } from "../../../../../web/components/trace/screenshot";
 import {
 	callOutputText,
 	callRequestLine,
+	traceCommandLine,
 } from "../../../../../web/components/trace/call-detail";
-import { traceOptionLabel } from "../../../../../web/components/trace/panel";
+import { selectedTraceId } from "../../../../../web/components/trace/panel";
 import type { TraceCall } from "../../../../../web/hooks/simulator/use-trace";
 
 function call(partial: Partial<TraceCall>): TraceCall {
@@ -44,26 +44,16 @@ const ACTION_RESULT = {
 	warnings: [],
 };
 
-describe("activeIndexAtCenter", () => {
-	const tops = [0, 32, 64, 96, 128];
-	const heights = [32, 32, 32, 32, 32];
-
-	test("finds the row the centre line crosses", () => {
-		expect(activeIndexAtCenter(tops, heights, 0, 64)).toBe(1);
-		expect(activeIndexAtCenter(tops, heights, 0, 160)).toBe(2);
-		expect(activeIndexAtCenter(tops, heights, 64, 64)).toBe(3);
+describe("activeIndexFromScroll", () => {
+	test("maps the top and bottom of the scroll range to the first and last calls", () => {
+		expect(activeIndexFromScroll(0, 1_000, 100, 100)).toBe(0);
+		expect(activeIndexFromScroll(450, 1_000, 100, 100)).toBe(50);
+		expect(activeIndexFromScroll(900, 1_000, 100, 100)).toBe(99);
 	});
 
-	test("clamps above the first row and below the last", () => {
-		expect(activeIndexAtCenter(tops, heights, -100, 10)).toBe(0);
-		expect(activeIndexAtCenter(tops, heights, 400, 200)).toBe(4);
-		expect(activeIndexAtCenter([], [], 0, 400)).toBe(-1);
-	});
-
-	test("follows rows that an expansion made taller", () => {
-		expect(activeIndexAtCenter([0, 32, 232], [32, 200, 32], 0, 200)).toBe(1);
-		expect(activeIndexAtCenter([0, 32, 232], [32, 200, 32], 100, 100)).toBe(1);
-		expect(activeIndexAtCenter([0, 32, 232], [32, 200, 32], 200, 100)).toBe(2);
+	test("keeps the first call active when the list does not overflow", () => {
+		expect(activeIndexFromScroll(0, 100, 100, 12)).toBe(0);
+		expect(activeIndexFromScroll(0, 100, 100, 0)).toBe(0);
 	});
 });
 
@@ -150,6 +140,21 @@ describe("call detail", () => {
 	test("the request line reads the command and its compact JSON", () => {
 		expect(callRequestLine(call({}))).toBe('tap {"text":"Save"}');
 		expect(callRequestLine(call({ request: null }))).toBe("tap");
+		expect(
+			traceCommandLine(
+				call({ command: "app:list", request: { operation: "list" } }),
+				"android:pixel",
+			),
+		).toBe("agentsims app list -d android:pixel");
+		expect(
+			traceCommandLine(
+				call({
+					command: "tap",
+					request: { actions: [{ type: "tap", target: "Back to menu" }] },
+				}),
+				"android:pixel",
+			),
+		).toBe("agentsims tap 'Back to menu' -d android:pixel");
 	});
 
 	test("the output is the text the CLI printed", () => {
@@ -162,50 +167,37 @@ describe("call detail", () => {
 	});
 });
 
-describe("trace rows", () => {
-	test("a row shows status, seq, command, summary and duration", () => {
-		const html = renderToStaticMarkup(
-			<TraceCallList
-				traceId="t-1"
-				calls={[
-					call({ seq: 1, command: "tap", result: ACTION_RESULT }),
-					call({ seq: 2, command: "fill", status: "refused", result: null }),
-				]}
-				onActiveIndexChange={() => {}}
-			/>,
-		);
-		expect(html).toContain("bg-success");
-		expect(html).toContain("bg-warning");
-		expect(html).toContain("tap");
-		expect(html).toContain("412ms");
-		expect(html).not.toContain("<pre");
-	});
-
+describe("trace formatting", () => {
 	test("durations stay short", () => {
 		expect(formatCallDuration(412)).toBe("412ms");
 		expect(formatCallDuration(1520)).toBe("1.5s");
 	});
 });
 
+describe("trace screenshots", () => {
+	test("a call without a screenshot uses the previous capture", () => {
+		expect(
+			screenshotIndexForCall(
+				[
+					call({ seq: 1, screenshot: "screenshots/000001.png" }),
+					call({ seq: 2, screenshot: null }),
+				],
+				1,
+			),
+		).toBe(0);
+	});
+});
+
 describe("trace picker", () => {
-	test("an option names the trace, its size and whether it runs", () => {
+	test("accepts only a direct child of the trace library", () => {
 		expect(
-			traceOptionLabel({
-				id: "t-1",
-				name: "checkout",
-				startedAt: "2026-09-19T10:15:00.000Z",
-				endedAt: null,
-				calls: 12,
-			}),
-		).toContain("checkout · ");
-		expect(
-			traceOptionLabel({
-				id: "t-1",
-				name: null,
-				startedAt: "2026-09-19T10:15:00.000Z",
-				endedAt: "2026-09-19T10:19:00.000Z",
-				calls: 12,
-			}),
-		).toContain("12 calls");
+			selectedTraceId(
+				"/tmp/custom home/traces",
+				"/tmp/custom home/traces/my-trace/\n",
+			),
+		).toBe("my-trace");
+		expect(() =>
+			selectedTraceId("/tmp/custom home/traces", "/tmp/other/my-trace"),
+		).toThrow();
 	});
 });

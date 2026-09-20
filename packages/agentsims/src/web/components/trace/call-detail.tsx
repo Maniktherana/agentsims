@@ -24,34 +24,122 @@ export function callRequestLine(call: TraceCall): string {
 		: `${call.command} ${JSON.stringify(call.request)}`;
 }
 
+function shellArg(value: unknown): string {
+	const text = typeof value === "string" ? value : JSON.stringify(value);
+	if (/^[a-zA-Z0-9_@%.,:/+-]+$/.test(text)) return text;
+	return `'${text.replaceAll("'", `'\\''`)}'`;
+}
+
+function flagName(key: string): string {
+	return key
+		.replace(/Ms$/, "")
+		.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+
+function flags(values: Record<string, unknown>, omitted: Set<string>): string[] {
+	return Object.entries(values).flatMap(([key, value]) => {
+		if (omitted.has(key) || value === undefined || value === null || value === false)
+			return [];
+		const flag = `--${flagName(key)}`;
+		return value === true ? [flag] : [flag, shellArg(value)];
+	});
+}
+
+/** Reconstruct a readable CLI command from the request stored in the trace. */
+export function traceCommandLine(call: TraceCall, device: string): string {
+	const request =
+		call.request && typeof call.request === "object" && !Array.isArray(call.request)
+			? (call.request as Record<string, unknown>)
+			: {};
+	const parts = ["agentsims"];
+	const omitted = new Set<string>();
+	let values = request;
+
+	if (call.command.startsWith("app:")) {
+		parts.push("app", call.command.slice("app:".length));
+		omitted.add("operation");
+		if (request.value !== undefined) {
+			parts.push(shellArg(request.value));
+			omitted.add("value");
+		}
+	} else {
+		parts.push(call.command === "button" ? "press" : call.command);
+		if (Array.isArray(request.actions) && request.actions.length > 0) {
+			const action = request.actions[0];
+			if (action && typeof action === "object" && !Array.isArray(action)) {
+				values = {
+					...(action as Record<string, unknown>),
+					...Object.fromEntries(
+						Object.entries(request).filter(([key]) => key !== "actions"),
+					),
+				};
+				omitted.add("type");
+			}
+		}
+		const positionalKeys: Record<string, string[]> = {
+			find: ["q"],
+			tap: ["target"],
+			"long-press": ["target"],
+			type: ["text"],
+			fill: ["text"],
+			key: ["key"],
+			button: ["button"],
+			rotate: ["orientation"],
+			swipe: ["from", "to"],
+		};
+		for (const key of positionalKeys[call.command] ?? []) {
+			if (values[key] !== undefined) parts.push(shellArg(values[key]));
+			omitted.add(key);
+		}
+	}
+
+	parts.push("-d", shellArg(device), ...flags(values, omitted));
+	return parts.join(" ");
+}
+
 export function TraceCallDetail({
 	call,
+	device,
 	maxHeight,
 }: {
 	call: TraceCall;
+	device: string;
 	maxHeight: number;
 }) {
+	const command = traceCommandLine(call, device);
 	const output = callOutputText(call);
 
 	return (
-		<div data-trace-call-detail className="flex min-w-0 flex-col gap-1 px-2 pb-2">
-			<div className="flex min-w-0 items-center gap-2">
-				<code
-					className="min-w-0 flex-1 truncate font-mono text-[11px] text-white/45"
-					title={callRequestLine(call)}
-				>
-					{callRequestLine(call)}
+		<div
+			data-trace-call-detail
+			className="flex min-w-0 flex-col gap-3 px-3 pb-3 pt-2"
+		>
+			<section className="flex min-w-0 items-center gap-2 rounded-[7px] border border-white/[0.07] bg-white/[0.035] px-2 py-1.5">
+				<code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-white/72">
+					{command}
 				</code>
-				<CopyButton text={output} label="Copy output" size="row" surface="toolbar" />
-			</div>
-			<pre
-				style={{ maxHeight }}
-				className={`overflow-auto whitespace-pre rounded-[var(--agentsims-radius-row)] bg-panel-deep px-2 py-1.5 font-mono text-[12px] leading-[1.45] [scrollbar-width:thin] ${
-					call.status === "error" ? "text-danger" : "text-white/75"
-				}`}
-			>
-				{output}
-			</pre>
+				<CopyButton text={command} label="Copy command" size="row" surface="toolbar" />
+			</section>
+			<section className="min-w-0">
+				<div className="mb-1.5 flex items-center gap-2">
+					<h3 className="min-w-0 flex-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/42">
+						Output
+					</h3>
+					<CopyButton text={output} label="Copy output" size="row" surface="toolbar" />
+				</div>
+				<div
+					style={{ maxHeight: Math.max(160, Math.min(maxHeight, 420)) }}
+					className="overflow-scroll overscroll-contain rounded-[7px] border border-white/[0.07] bg-white/[0.018] [scrollbar-width:thin]"
+				>
+					<pre
+						className={`min-w-max whitespace-pre p-2 font-mono text-[11px] leading-[1.5] ${
+							call.status === "error" ? "text-danger" : "text-white/72"
+						}`}
+					>
+						{output || "No output"}
+					</pre>
+				</div>
+			</section>
 		</div>
 	);
 }

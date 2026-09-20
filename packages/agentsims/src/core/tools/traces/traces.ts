@@ -29,7 +29,6 @@ import {
 	type TraceDocument,
 	type TraceHeader,
 	type TraceStatus,
-	type TraceSummary,
 	type TraceWriter,
 } from "./trace-file";
 
@@ -185,6 +184,7 @@ export function makeTraceService(
 			} satisfies TraceStopped;
 		});
 	return {
+		directory: () => root,
 		active,
 		record,
 		stop,
@@ -246,7 +246,9 @@ export function makeTraceService(
 					),
 				);
 				return summaries
-					.filter((summary): summary is TraceSummary => summary !== null)
+					.flatMap((summary, index) =>
+						summary ? [{ ...summary, id: names[index]! }] : [],
+					)
 					.filter((summary) => !device || summary.device === device)
 					.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 			}),
@@ -263,7 +265,10 @@ export function makeTraceService(
 					return yield* Effect.fail(
 						new CommandNotFound({ message: `There is no trace ${id}.` }),
 					);
-				return document satisfies TraceDocument;
+				return {
+					...document,
+					trace: { ...document.trace, id },
+				} satisfies TraceDocument;
 			}),
 		screenshot: (id: string, file: string) =>
 			Effect.gen(function* () {

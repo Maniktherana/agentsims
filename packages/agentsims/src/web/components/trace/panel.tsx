@@ -1,21 +1,66 @@
-import { Route } from "lucide-react";
+import { FolderOpen, Route, Search } from "lucide-react";
 import {
 	useState,
 	type KeyboardEventHandler,
 	type PointerEventHandler,
 } from "react";
+import { openFileCommand } from "../../hooks/simulator/use-screen-recording";
 import {
 	useTrace,
 	type TraceSummary,
 } from "../../hooks/simulator/use-trace";
+import { execOnHost, shellEscape } from "../../simulator/input/exec";
 import { DevicePanel, type DevicePanelIdentity } from "../ui/device-panel";
+import { IconButton } from "../ui/icon-button";
 import { Select } from "../ui/select";
+import { notify } from "../ui/toast";
 import { TraceCallList, formatCallTime } from "./call-list";
 import { TraceScreenshot } from "./screenshot";
 
-export function traceOptionLabel(trace: TraceSummary): string {
+export async function traceLibraryDirectory(): Promise<string> {
+	const response = await fetch("/traces/directory", { cache: "no-store" });
+	if (!response.ok) throw new Error("The trace library is unavailable.");
+	const body = (await response.json()) as { directory?: unknown };
+	if (typeof body.directory !== "string" || body.directory.length === 0)
+		throw new Error("The server returned an invalid trace directory.");
+	return body.directory;
+}
+
+/** Open a native directory chooser at the configured trace library. */
+export function traceFolderPickerCommand(directory: string): string {
+	return `TRACE_ROOT=${shellEscape(directory)}
+if command -v osascript >/dev/null 2>&1; then
+  osascript - "$TRACE_ROOT" <<'APPLESCRIPT'
+on run argv
+  set rootPath to item 1 of argv
+  return POSIX path of (choose folder with prompt "Open trace" default location (POSIX file rootPath))
+end run
+APPLESCRIPT
+elif command -v zenity >/dev/null 2>&1; then
+  zenity --file-selection --directory --filename="$TRACE_ROOT/"
+else
+  exit 127
+fi`;
+}
+
+export function selectedTraceId(directory: string, selected: string): string {
+	const root = directory.replace(/[\\/]+$/, "");
+	const path = selected.trim().replace(/[\\/]+$/, "");
+	const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+	const parent = path.slice(0, separator);
+	const id = path.slice(separator + 1);
+	if (parent !== root || !/^[a-zA-Z0-9._-]+$/.test(id))
+		throw new Error("Select one trace folder inside the trace library.");
+	return id;
+}
+
+export function traceOptionLabel(
+	trace: TraceSummary,
+	showDevice = false,
+): string {
 	return [
 		trace.name,
+		showDevice ? trace.device.replace(/^android:/, "") : null,
 		formatCallTime(trace.startedAt),
 		`${trace.calls} calls`,
 		trace.endedAt ? null : "live",
@@ -39,77 +84,138 @@ export function TracePanel({
 	onResizePointerDown?: PointerEventHandler<HTMLDivElement>;
 	onResizeKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 }) {
-	const trace = useTrace(device.id, open);
+	const trace = useTrace(device.id, open, "all");
 	const [activeIndex, setActiveIndex] = useState(0);
 	const detail = trace.detail;
 	const calls = detail?.calls ?? [];
 	const live = detail !== null && detail.id === trace.activeId;
+	const viewedDevice: DevicePanelIdentity = detail
+		? {
+				...device,
+				id: detail.device,
+				name:
+					detail.device === device.id
+						? device.name
+						: detail.device.replace(/^android:/, ""),
+				platform: detail.platform,
+				connected: detail.device === device.id ? device.connected : false,
+			}
+		: device;
+
+	const openLibrary = () => {
+		void traceLibraryDirectory()
+			.then((directory) => execOnHost(openFileCommand(directory)))
+			.then((result) => {
+				if (result.exitCode !== 0)
+					throw new Error("The host did not open the directory.");
+			})
+			.catch(() => notify("error", "Could not open the trace library"));
+	};
+
+	const chooseTrace = () => {
+		void traceLibraryDirectory()
+			.then(async (directory) => ({
+				directory,
+				result: await execOnHost(traceFolderPickerCommand(directory)),
+			}))
+			.then(({ directory, result }) => {
+				if (result.exitCode !== 0) {
+					if (/cancel/i.test(result.stderr)) return;
+					throw new Error("The host did not open the trace picker.");
+				}
+				setActiveIndex(0);
+				trace.select(selectedTraceId(directory, result.stdout));
+			})
+			.catch((cause) =>
+				notify("error", "Could not open trace", {
+					description: cause instanceof Error ? cause.message : String(cause),
+				}),
+			);
+	};
 
 	return (
 		<DevicePanel
 			open={open}
 			title="Trace"
 			icon={<Route size={14} strokeWidth={1.9} />}
-			device={device}
+			device={viewedDevice}
 			onClose={onClose}
 			onMovePointerDown={onMovePointerDown}
 			onResizePointerDown={onResizePointerDown}
 			onResizeKeyDown={onResizeKeyDown}
-			headerActions={
-				<>
-					{trace.traces.length > 0 && (
+		>
+			<div className="flex h-full min-h-0 flex-col">
+				<div className="flex min-w-0 shrink-0 items-center gap-2 px-2 pb-2">
+					<IconButton
+						label="Open trace library"
+						tooltip="Open trace library"
+						size="panel"
+						surface="toolbar"
+						onClick={openLibrary}
+					>
+						<FolderOpen size={14} strokeWidth={1.9} />
+					</IconButton>
+					<IconButton
+						label="Choose trace folder"
+						tooltip="Choose trace folder"
+						size="panel"
+						surface="toolbar"
+						onClick={chooseTrace}
+					>
+						<Search size={14} strokeWidth={1.9} />
+					</IconButton>
+					{trace.traces.length > 0 ? (
 						<Select
 							label="Trace"
 							value={trace.selectedId ?? ""}
 							options={trace.traces.map((entry) => ({
 								value: entry.id,
-								label: traceOptionLabel(entry),
+								label: traceOptionLabel(entry, true),
 							}))}
-							onChange={trace.select}
-							className="h-6 min-w-0 max-w-[190px] rounded-[8px] border border-white/10 bg-white/[0.06] px-2 py-0 text-[11px] leading-none text-white/90"
+							onChange={(id) => {
+								setActiveIndex(0);
+								trace.select(id);
+							}}
+							className="min-w-0 flex-1"
 						/>
-					)}
-					{live && (
-						<span
-							aria-label="Tracing"
-							className="agentsims-device-status-breathe size-1.5 shrink-0 rounded-full bg-success"
-						/>
+					) : (
+						<span className="min-w-0 flex-1 text-[12px] text-white/40">
+							No traces found
+						</span>
 					)}
 					<span className="shrink-0 font-mono text-[11px] tabular-nums text-white/45">
-						{`${calls.length} calls`}
+						{live ? "Live" : `${calls.length} calls`}
 					</span>
-				</>
-			}
-		>
-			{!detail || calls.length === 0 ? (
-				<div className="grid h-full place-items-center px-6 text-center">
-					<p className="text-[12px] leading-[1.6] text-white/45">
-						{trace.error ??
-							(live
-								? "Waiting for the first call…"
-								: "No trace for this device yet.")}
-						{!live && !trace.error && (
-							<code className="mt-2 block font-mono text-[11px] text-white/35">
-								{`agentsims trace start -d ${device.id}`}
-							</code>
-						)}
-					</p>
 				</div>
-			) : (
-				<div className="grid h-full min-h-0 grid-cols-[240px_minmax(0,1fr)] gap-2 p-2">
-					<TraceScreenshot
-						traceId={detail.id}
-						calls={calls}
-						index={activeIndex}
-					/>
-					<TraceCallList
-						key={detail.id}
-						traceId={detail.id}
-						calls={calls}
-						onActiveIndexChange={setActiveIndex}
-					/>
-				</div>
-			)}
+
+				{!detail || calls.length === 0 ? (
+					<div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
+						<p className="text-[12px] leading-[1.6] text-white/45">
+							{trace.error ??
+								(live
+									? "Waiting for the first call…"
+									: "No traces found.")}
+						</p>
+					</div>
+				) : (
+					<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+						<TraceScreenshot
+							traceId={detail.id}
+							calls={calls}
+							index={activeIndex}
+						/>
+						<div className="min-h-0">
+							<TraceCallList
+								key={detail.id}
+								traceId={detail.id}
+								device={detail.device}
+								calls={calls}
+								onActiveIndexChange={setActiveIndex}
+							/>
+						</div>
+					</div>
+				)}
+			</div>
 		</DevicePanel>
 	);
 }

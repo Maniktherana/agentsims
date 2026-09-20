@@ -81,7 +81,7 @@ async function startServer() {
 }
 
 test("the trace routes record the commands between start and stop", async () => {
-	const { origin } = await startServer();
+	const { origin, root } = await startServer();
 	const client = new ApplicationCommandClient({ origin });
 
 	expect(await client.traceStatus(DEVICE)).toEqual({
@@ -106,6 +106,9 @@ test("the trace routes record the commands between start and stop", async () => 
 		response.json(),
 	)) as TraceSummary[];
 	expect(list).toHaveLength(1);
+	expect(
+		await fetch(`${origin}/traces/directory`).then((response) => response.json()),
+	).toEqual({ directory: root });
 	expect(list[0]).toMatchObject({
 		id: started.id,
 		device: DEVICE,
