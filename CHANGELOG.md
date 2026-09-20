@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-09-20
+
+### Added
+
+- **Shadcn UI foundation.** The web UI now uses shadcn components with Base UI
+  primitives and Hugeicons. Shared buttons provide flat, raised, and ghost
+  variants. (`6c00e5c`)
+- **Android log recording.** The Logs panel can record a session to
+  `~/.agentsims/logs`. The panel and completion toast can copy or open the
+  saved path. (`c0bd7ec`)
+
+### Changed
+
+- Settings buttons, inputs, selects, switches, tabs, dialogs, and button groups
+  now use shared components and one control scale. Select menus use Base UI and
+  keep long values on one line. (`6c00e5c`, `748c4ab`)
+- Settings sections use consistent alignment, compact animated disclosures, and
+  scroll-aware edge fades. The device and Settings docks now use one width.
+  (`748c4ab`)
+- Android app management now shows app icons and names. Each row has an action
+  menu, destructive actions use a confirmation dialog, and secondary tools stay
+  collapsed until needed. (`748c4ab`)
+- Android logs now restore more device history, default to the foreground app,
+  and show separate received and visible counts. The log viewport has compact
+  controls and more space. (`c0bd7ec`)
+
+### Fixed
+
+- Android and iOS device rows now show complete platform version labels.
+  Available Android emulators read their release from AVD metadata. (`748c4ab`)
+- Removed redundant static-markup tests. Behavior and state tests remain.
+  (`0c380be`)
+
 ## 2026-09-19
 
 ### Added

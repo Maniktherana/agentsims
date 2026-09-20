@@ -21,7 +21,7 @@ Place code by runtime and responsibility.
 - `packages/agentsims/src/server/http/server.ts` currently owns transport composition.
 - `packages/agentsims/src/web` contains browser code only.
 
-Do not add a broad `utils` or `src/shared` directory. Put a helper with the feature that owns it. Add a utility to `src/core` only when it has no narrower owner.
+Do not add broad utility directories. Keep `src/web/lib/utils.ts` limited to the shadcn `cn` export. Put other helpers with their owning feature.
 
 ## Executables and Process Ownership
 
@@ -48,6 +48,14 @@ Do not add a broad `utils` or `src/shared` directory. Put a helper with the feat
 - Keep DevTools components in `src/web/components/devtools`.
 
 Do not place React components in pure feature directories. Do not place feature code directly in `src/web` when an existing feature directory owns it. The root entry files listed above are not feature code.
+
+## Web UI
+
+- Add shadcn components with the CLI. Use Base UI and Hugeicons.
+- Put visual styles in shared variants. Keep usage classes for layout only.
+- Use one control scale and shared alignment edges in Settings.
+- Use shared disclosures, chevrons, motion, and scroll fades.
+- Use `TextMorph` when a button label changes.
 
 ## Server Structure
 
@@ -81,6 +89,7 @@ Do not place React components in pure feature directories. Do not place feature 
 - Put live system tests in `src/__tests__/e2e`.
 - Put shared test data in `src/__tests__/fixtures`.
 - Preserve iOS, Android, and multi-device coverage when a shared path changes.
+- Test behavior and state. Do not test static markup, text presence, or CSS classes.
 
 ## Product Invariants
 
@@ -105,4 +114,4 @@ Use focused tests during development. Run the full checks before a commit that c
 
 ## Communication
 
-Use short, direct sentences. Use ASD-STE100 Simplified Technical English for documentation, errors, and user-facing text.
+Use short, direct sentences. Use ASD-STE100 Simplified Technical English for documentation, errors, and user-facing text. Discuss unclear design choices before implementation.
