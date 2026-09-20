@@ -1,5 +1,22 @@
 import { expect, test } from "bun:test";
-import { waitForAndroidBoot } from "../../../../../core/android/device/emulator";
+import {
+	androidReleaseFromAvdConfig,
+	waitForAndroidBoot,
+} from "../../../../../core/android/device/emulator";
+
+test("reads the Android release from AVD target metadata", () => {
+	expect(androidReleaseFromAvdConfig({ target: "android-36" })).toBe("16");
+	expect(
+		androidReleaseFromAvdConfig({
+			target: "Google APIs (Google Inc.) - API Level 35",
+		}),
+	).toBe("15");
+	expect(
+		androidReleaseFromAvdConfig({
+			"image.sysdir.1": "system-images/android-32/google_apis/arm64-v8a/",
+		}),
+	).toBe("12L");
+});
 
 test("waits for Android boot completion and the window service", async () => {
 	let now = 0;

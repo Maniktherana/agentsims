@@ -24,6 +24,7 @@ export interface AndroidAvdInfo {
 	displayName?: string;
 	deviceName?: string;
 	skin?: string;
+	release?: string;
 }
 const ANDROID_AVD_CACHE_MS = 30_000;
 const ANDROID_EMULATOR_VERSION_CACHE_MS = 5 * 60_000;
@@ -130,6 +131,37 @@ function parseIni(text: string): Record<string, string> {
 	return result;
 }
 
+const ANDROID_RELEASE_BY_API: Readonly<Record<number, string>> = {
+	21: "5.0",
+	22: "5.1",
+	23: "6",
+	24: "7",
+	25: "7.1",
+	26: "8",
+	27: "8.1",
+	28: "9",
+	29: "10",
+	30: "11",
+	31: "12",
+	32: "12L",
+};
+
+export function androidReleaseFromAvdConfig(
+	config: Readonly<Record<string, string>>,
+): string | undefined {
+	const target = config.target ?? "";
+	const imagePath = config["image.sysdir.1"] ?? "";
+	const apiText =
+		target.match(/android-(\d+)/i)?.[1] ??
+		target.match(/API Level\s+(\d+)/i)?.[1] ??
+		imagePath.match(/(?:^|[/\\])android-(\d+)(?:[/\\]|$)/i)?.[1];
+	if (!apiText) return undefined;
+	const api = Number(apiText);
+	if (!Number.isInteger(api)) return undefined;
+	return ANDROID_RELEASE_BY_API[api] ??
+		(api >= 33 ? String(api - 20) : undefined);
+}
+
 export async function getAndroidAvdName(
 	serial: string,
 ): Promise<string | undefined> {
@@ -155,13 +187,15 @@ function androidAvdConfigPath(avdName: string): string {
 	return configPath;
 }
 
-export function readAndroidAvdConfig(avdName?: string): AndroidAvdCameraConfig {
+type AndroidAvdMetadata = AndroidAvdCameraConfig & { release?: string };
+
+function readAndroidAvdMetadata(avdName?: string): AndroidAvdMetadata {
 	if (!avdName) return {};
 	try {
 		const configPath = androidAvdConfigPath(avdName);
 		if (!existsSync(configPath)) return {};
 		const config = parseIni(readFileSync(configPath, "utf8"));
-		const result: AndroidAvdCameraConfig = {};
+		const result: AndroidAvdMetadata = {};
 		if (config["hw.camera.front"]) result.front = config["hw.camera.front"];
 		if (config["hw.camera.back"]) result.back = config["hw.camera.back"];
 		if (config["hw.audioInput"] === "yes") result.audioInput = true;
@@ -171,10 +205,18 @@ export function readAndroidAvdConfig(avdName?: string): AndroidAvdCameraConfig {
 		if (config["hw.device.name"]) result.deviceName = config["hw.device.name"];
 		if (config["avd.ini.displayname"])
 			result.displayName = config["avd.ini.displayname"];
+		const release = androidReleaseFromAvdConfig(config);
+		if (release) result.release = release;
 		return result;
 	} catch {
 		return {};
 	}
+}
+
+export function readAndroidAvdConfig(avdName?: string): AndroidAvdCameraConfig {
+	const config = readAndroidAvdMetadata(avdName);
+	delete config.release;
+	return config;
 }
 
 export interface AndroidWebcam {
@@ -268,11 +310,12 @@ export async function listAndroidAvds(): Promise<AndroidAvdInfo[]> {
 			.map((line) => line.trim())
 			.filter(Boolean)
 			.map((name) => {
-				const config = readAndroidAvdConfig(name);
+				const config = readAndroidAvdMetadata(name);
 				const info: AndroidAvdInfo = { name };
 				if (config.displayName) info.displayName = config.displayName;
 				if (config.deviceName) info.deviceName = config.deviceName;
 				if (config.skin) info.skin = config.skin;
+				if (config.release) info.release = config.release;
 				return info;
 			});
 		androidAvdSnapshot = { at: Date.now(), avds };

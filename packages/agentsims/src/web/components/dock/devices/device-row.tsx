@@ -1,10 +1,6 @@
 import { getDeviceType } from "../../../simulator/index";
 import { Eye, EyeOff, LoaderCircle, Power, RotateCcw } from "lucide-react";
-import {
-	type GridDevice,
-	runtimeLabel,
-	runtimeVersion,
-} from "../../../workspace/grid";
+import { type GridDevice, runtimeLabel } from "../../../workspace/grid";
 import { IconButton } from "../../ui/icon-button";
 import { IconSwap } from "../../ui/state-transitions";
 import { TextMorph } from "torph/react";
@@ -116,7 +112,6 @@ export function DeviceRow({
 	const helper = device.helper;
 	const isBooted = device.state === "Booted";
 	const type = getDeviceType(device.name);
-	const version = runtimeVersion(device.runtime);
 	const runtime = runtimeLabel(device.runtime);
 	const phase = resolveDeviceLifecyclePhase(
 		device,
@@ -197,7 +192,7 @@ export function DeviceRow({
 				className={
 					showVisibilityControl
 						? "shrink-0 flex items-center gap-0.5"
-						: "relative shrink-0 w-8 h-6 flex items-center justify-end"
+						: "relative flex h-6 w-[72px] shrink-0 items-center justify-end"
 				}
 			>
 				{showVisibilityControl ? (
@@ -246,11 +241,11 @@ export function DeviceRow({
 				) : (
 					<>
 						<span
-							className={`absolute right-0 text-[11px] font-mono tabular-nums [transition:opacity_0.12s] ${
+							className={`absolute right-0 whitespace-nowrap text-[11px] font-mono tabular-nums [transition:opacity_0.12s] ${
 								active ? "text-white/85" : "text-white/40"
 							} ${canShutdown ? "group-hover:opacity-0 group-focus-within:opacity-0" : ""}`}
 						>
-							{version}
+							{runtime}
 						</span>
 
 						{canShutdown && (

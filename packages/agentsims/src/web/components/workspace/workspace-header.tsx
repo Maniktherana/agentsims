@@ -35,6 +35,8 @@ import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { useWorkspaceViewport } from "../../hooks/workspace/use-workspace-layout";
 
 const DEVICE_SKELETON_ROWS = 8;
+const EXPANDED_DOCK_MIN_WIDTH = 420;
+const EXPANDED_DOCK_VIEWPORT_RATIO = 0.3;
 
 export function partitionDevicePickerDevices(
 	devices: readonly GridDevice[],
@@ -211,7 +213,10 @@ export function WorkspaceHeader({
 	const dockWidth = expanded
 		? Math.min(
 				availableWidth,
-				Math.max(toolsOpen ? 560 : 400, availableWidth * 0.4),
+				Math.max(
+					EXPANDED_DOCK_MIN_WIDTH,
+					availableWidth * EXPANDED_DOCK_VIEWPORT_RATIO,
+				),
 			)
 		: compactDockWidth;
 	const dockHeight = expanded
@@ -333,7 +338,7 @@ export function WorkspaceHeader({
 	return (
 		<MotionConfig
 			reducedMotion="user"
-			transition={{ type: "spring", bounce: 0.03, visualDuration: 0.18 }}
+			transition={{ type: "spring", bounce: 0.03, visualDuration: 0.15 }}
 		>
 			<footer className="pointer-events-none fixed inset-x-3 bottom-3 z-50 flex justify-center font-system">
 				<motion.div
@@ -402,7 +407,7 @@ export function WorkspaceHeader({
 									aria-label="Devices"
 									className="absolute inset-0 flex min-h-0 flex-col text-white/90"
 								>
-									<div className="flex h-11 shrink-0 items-center justify-between border-b border-white/[0.07] px-3">
+									<div className="flex h-11 shrink-0 items-center justify-between px-4">
 										<span className="text-[12px] font-medium text-white/75">
 											Devices
 										</span>
@@ -451,8 +456,8 @@ export function WorkspaceHeader({
 									transition={ISLAND_PANEL_TRANSITION}
 									className="absolute inset-0 flex min-h-0 flex-col"
 								>
-									<div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/[0.07] bg-[#181818] px-2">
-										<span className="ml-1 shrink-0 text-[11px] font-medium text-white/62">
+									<div className="flex h-12 shrink-0 items-center gap-2 bg-[#181818] px-3">
+										<span className="ml-3 shrink-0 text-[12px] font-medium text-white/62">
 											Settings
 										</span>
 										<Tabs
@@ -463,7 +468,7 @@ export function WorkspaceHeader({
 											<TabsList
 												variant="ghost"
 												aria-label="Settings device"
-												className="mx-auto max-w-full overflow-x-auto [scrollbar-width:none]"
+												className="scroll-fade-x scroll-fade-3 no-scrollbar mx-auto max-w-full overflow-x-auto"
 												style={{ justifyContent: "flex-start" }}
 											>
 												{settingsDevices.map((device) => {
@@ -481,23 +486,25 @@ export function WorkspaceHeader({
 											</TabsList>
 										</Tabs>
 
-										<PanelIconButton
-											label="Refresh settings"
-											onClick={() => {
-												if (settingsDeviceId)
-													onRefreshSettings?.(settingsDeviceId);
-											}}
-										>
-											<RotateCcw size={14} strokeWidth={2} />
-										</PanelIconButton>
-										<button
-											type="button"
-											onClick={onToggleTools}
-											className="grid size-8 shrink-0 place-items-center rounded-md text-white/42 outline-none [transition-property:background-color,color,transform] duration-[110ms] hover:bg-white/[0.07] hover:text-white/78 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-white/35 motion-reduce:transition-none"
-											aria-label="Close Settings"
-										>
-											<X size={15} strokeWidth={2} />
-										</button>
+										<div className="flex shrink-0 items-center gap-0">
+											<PanelIconButton
+												label="Refresh settings"
+												onClick={() => {
+													if (settingsDeviceId)
+														onRefreshSettings?.(settingsDeviceId);
+												}}
+											>
+												<RotateCcw size={14} strokeWidth={2} />
+											</PanelIconButton>
+											<button
+												type="button"
+												onClick={onToggleTools}
+												className="grid size-8 shrink-0 place-items-center rounded-md text-white/42 outline-none [transition-property:background-color,color,transform] duration-[110ms] hover:bg-white/[0.07] hover:text-white/78 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-white/35 motion-reduce:transition-none"
+												aria-label="Close Settings"
+											>
+												<X size={15} strokeWidth={2} />
+											</button>
+										</div>
 									</div>
 									<div
 										id="agentsims-tools-dock-slot"
@@ -693,7 +700,7 @@ function DevicePickerContent({
 				{phaseAnnouncement}
 			</div>
 			<div
-				className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 [scrollbar-width:thin]"
+				className="scroll-fade-y scroll-fade-8 min-h-0 flex-1 overflow-y-auto px-2 pt-2 [scrollbar-width:thin]"
 				onScroll={(event) => {
 					if (query.trim() || !hasMore) return;
 					const target = event.currentTarget;
@@ -747,7 +754,7 @@ function DevicePickerContent({
 				)}
 			</div>
 			{runningDevices !== null && (
-				<div className="max-h-44 shrink-0 overflow-x-hidden overflow-y-auto border-t border-white/[0.08] px-2 py-1 [scrollbar-width:thin]">
+				<div className="scroll-fade-y scroll-fade-6 max-h-44 shrink-0 overflow-x-hidden overflow-y-auto border-t border-white/[0.08] px-2 py-1 [scrollbar-width:thin]">
 					<DeviceSectionTitle count={runningDevices.length}>
 						Running
 					</DeviceSectionTitle>
@@ -783,7 +790,7 @@ function DevicePickerContent({
 					)}
 				</div>
 			)}
-			<div className="flex shrink-0 items-center gap-2 border-t border-white/[0.08] bg-[#181818] p-2">
+			<div className="flex shrink-0 items-center gap-2 bg-[#181818] p-2">
 				<label className="flex h-10 min-w-0 flex-1 items-center gap-2 bg-white/[0.06] px-2.5 [border-radius:8px] [transition:background-color_150ms_ease] focus-within:bg-white/[0.09]">
 					<Search
 						size={14}

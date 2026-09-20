@@ -178,7 +178,9 @@ export class DeviceCatalog {
 					/_/g,
 					" ",
 				),
-				runtime: "Android-AVD",
+				runtime: avd.release
+					? `Android-${avd.release.replace(/\./g, "-")}`
+					: "Android-AVD",
 				state: "Shutdown",
 				chrome: null,
 				placeholderAsset: null,

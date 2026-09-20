@@ -102,7 +102,7 @@ export function ToolsPanel({
 				<div
 					ref={contentRef}
 					data-tools-panel-content
-					className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]"
+					className="scroll-fade-y scroll-fade-8 min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]"
 				>
 					<AppDetectionTool udid={udid} currentApp={currentApp} />
 					{isAndroid ? (
@@ -121,6 +121,7 @@ export function ToolsPanel({
 									<AndroidToolsPanel
 										deviceId={udid}
 										basePath={simEndpoint("")}
+										packageName={currentApp?.bundleId ?? null}
 										active={open}
 									/>
 								</>
