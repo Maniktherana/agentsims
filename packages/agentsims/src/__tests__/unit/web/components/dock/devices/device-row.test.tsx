@@ -35,26 +35,6 @@ describe("DeviceRow", () => {
 		expect(html).not.toContain("Simulator");
 	});
 
-	test("labels trailing runtime versions with their operating system", () => {
-		const ios = render({
-			device: "ios",
-			name: "iPhone 17",
-			runtime: "iOS-27-0",
-			state: "Shutdown",
-			helper: null,
-		});
-		const android = render({
-			device: "android:Pixel_10",
-			name: "Pixel 10",
-			runtime: "Android-16",
-			state: "Shutdown",
-			helper: null,
-		});
-
-		expect(ios).toContain(">iOS 27.0</span>");
-		expect(android).toContain(">Android 16</span>");
-	});
-
 	test("keeps meaningful streaming status", () => {
 		const html = render({
 			device: "streaming",

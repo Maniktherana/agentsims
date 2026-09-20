@@ -78,7 +78,7 @@ export function TracingTool({
 			summary={
 				<div className="flex min-w-0 items-center gap-2">
 					<Route size={14} strokeWidth={2} className="shrink-0 text-white/45" />
-					<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+					<span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/55">
 						Trace
 					</span>
 				</div>
