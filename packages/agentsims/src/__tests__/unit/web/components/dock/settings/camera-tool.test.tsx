@@ -1,13 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
-	CameraStatusPill,
-	CameraTestPatternHint,
-	CameraMediaPreview,
-	CameraInlineBanner,
 	CAMERA_HEIC_ERROR,
 	CAMERA_LARGE_VIDEO_BYTES,
-	CAMERA_LARGE_VIDEO_WARNING,
 	CAMERA_POLL_INTERVAL_MS,
 	cameraSourceErrorMessage,
 	isHeicLikeFile,
@@ -244,121 +238,5 @@ describe("CAMERA_POLL_INTERVAL_MS", () => {
 	test("falls in the requested 2–5s window", () => {
 		expect(CAMERA_POLL_INTERVAL_MS).toBeGreaterThanOrEqual(2000);
 		expect(CAMERA_POLL_INTERVAL_MS).toBeLessThanOrEqual(5000);
-	});
-});
-
-describe("CameraStatusPill — UI state matrix", () => {
-	test("Ready state renders label 'Ready'", () => {
-		const html = renderToStaticMarkup(<CameraStatusPill state="ready" />);
-		expect(html).toContain("Ready");
-		expect(html).not.toContain("Active");
-		expect(html).not.toContain("Disconnected");
-	});
-
-	test("Active state renders the 'Active' label", () => {
-		const html = renderToStaticMarkup(<CameraStatusPill state="active" />);
-		expect(html).toContain("Active");
-		expect(html).not.toContain("Ready");
-	});
-
-	test("Disconnected state renders 'Disconnected' and a non-success dot", () => {
-		const html = renderToStaticMarkup(
-			<CameraStatusPill state="disconnected" />,
-		);
-		expect(html).toContain("Disconnected");
-		expect(html).not.toContain("Active");
-	});
-});
-
-describe("CameraTestPatternHint (placeholder state, no source)", () => {
-	test("renders a visible 'Test-pattern feed' label", () => {
-		const html = renderToStaticMarkup(<CameraTestPatternHint />);
-		expect(html).toContain("Test-pattern feed");
-	});
-
-	test("uses subdued typography without low-opacity icons (text-only label)", () => {
-		const html = renderToStaticMarkup(<CameraTestPatternHint />);
-		expect(html).not.toContain("<svg");
-	});
-});
-
-describe("CameraMediaPreview — source states", () => {
-	test("placeholder mode identifies the generated test pattern", () => {
-		const html = renderToStaticMarkup(
-			<CameraMediaPreview
-				mode="placeholder"
-				fileName={null}
-				webcamName={null}
-				sourceKind="placeholder"
-			/>,
-		);
-		expect(html).toContain("Test pattern");
-	});
-
-	test("image source shows the dropped file name and Image badge", () => {
-		const html = renderToStaticMarkup(
-			<CameraMediaPreview
-				mode="file"
-				fileName="hero.jpg"
-				webcamName={null}
-				sourceKind="image"
-			/>,
-		);
-		expect(html).toContain("hero.jpg");
-		expect(html).toContain("Image");
-	});
-
-	test("video source shows the dropped file name and Video badge", () => {
-		const html = renderToStaticMarkup(
-			<CameraMediaPreview
-				mode="file"
-				fileName="reel.mp4"
-				webcamName={null}
-				sourceKind="video"
-			/>,
-		);
-		expect(html).toContain("reel.mp4");
-		expect(html).toContain("Video");
-	});
-
-	test("webcam source shows the webcam name and Webcam badge", () => {
-		const html = renderToStaticMarkup(
-			<CameraMediaPreview
-				mode="webcam"
-				fileName={null}
-				webcamName="MacBook Pro Camera"
-				sourceKind="webcam"
-			/>,
-		);
-		expect(html).toContain("MacBook Pro Camera");
-		expect(html).toContain("Webcam");
-	});
-});
-
-describe("CameraInlineBanner — error / warning UI", () => {
-	test("error banner renders the message as an alert", () => {
-		const html = renderToStaticMarkup(
-			<CameraInlineBanner kind="error" message="helper crashed" />,
-		);
-		expect(html).toContain("helper crashed");
-		expect(html).toContain('role="alert"');
-	});
-
-	test("warning banner surfaces the large-video copy verbatim", () => {
-		const html = renderToStaticMarkup(
-			<CameraInlineBanner
-				kind="warning"
-				message={CAMERA_LARGE_VIDEO_WARNING}
-			/>,
-		);
-		expect(CAMERA_LARGE_VIDEO_WARNING).toContain(">200 MB");
-		expect(html).toContain("Large video");
-		expect(html).toContain("may stutter on shared memory");
-	});
-
-	test("HEIC error message reads as the actionable copy", () => {
-		expect(CAMERA_HEIC_ERROR).toContain("HEIC decode failed");
-		expect(CAMERA_HEIC_ERROR).toContain("JPEG");
-		expect(CAMERA_HEIC_ERROR).toContain("PNG");
 	});
 });

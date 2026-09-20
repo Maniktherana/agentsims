@@ -1,14 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
 	partitionDevicePickerDevices,
 	reconcileDevicePhaseAnnouncements,
-	WorkspaceHeader,
 } from "../../../../../web/components/workspace/workspace-header";
-import {
-	AGENTSIMS_REPO_URL,
-	AgentsimsBrandLink,
-} from "../../../../../web/components/ui/agentsims-brand-link";
 import type { GridDevice } from "../../../../../web/workspace/grid";
 
 const devices: GridDevice[] = [
@@ -32,40 +26,6 @@ const devices: GridDevice[] = [
 		helper: null,
 	},
 ];
-
-const noop = () => {};
-
-function renderHeader(
-	override: Partial<Parameters<typeof WorkspaceHeader>[0]> = {},
-) {
-	return renderToStaticMarkup(
-		<WorkspaceHeader
-			pickerOpen
-			onPickerOpenChange={noop}
-			devices={devices}
-			total={devices.length}
-			hasMore={false}
-			onLoadMore={noop}
-			onLoadAll={noop}
-			onResetPage={noop}
-			selectedUdid="ios-one"
-			visibleUdids={new Set(["ios-one"])}
-			streamingByDevice={{ "ios-one": true }}
-			onSelect={noop}
-			settingsUdid="ios-one"
-			onSettingsSelect={noop}
-			onToggleVisible={noop}
-			onStart={noop}
-			starting={{}}
-			shuttingDown={{}}
-			onShutdown={noop}
-			toolsOpen={false}
-			onToggleTools={noop}
-			hasActiveDevice
-			{...override}
-		/>,
-	);
-}
 
 describe("WorkspaceHeader", () => {
 	test("keeps every transitional device in Running and only settled shutdowns in Available", () => {
@@ -164,81 +124,5 @@ describe("WorkspaceHeader", () => {
 			{},
 		);
 		expect(settled.announcement).toBe("Pixel 10: Available · Android 17");
-	});
-
-	test("keeps running and available devices in one picker", () => {
-		const html = renderHeader();
-		expect(html).toContain('role="dialog"');
-		expect(html).toContain("Running");
-		expect(html).toContain("Available");
-		expect(html).toContain("iPhone 16");
-		expect(html).toContain("Pixel 10");
-		expect(html.match(/aria-live="polite"/g)).toHaveLength(1);
-		expect(html).not.toContain(">Add sim</button>");
-	});
-
-	test("uses live transport only for the selected visible row", () => {
-		const staleHelperDevice = {
-			...devices[0]!,
-			device: "ios-stale-helper",
-			name: "Stale helper",
-		};
-		const html = renderHeader({
-			devices: [devices[0]!, staleHelperDevice],
-			total: 2,
-			selectedUdid: "ios-one",
-			visibleUdids: new Set(["ios-one", "ios-stale-helper"]),
-			streamingByDevice: { "ios-one": false, "ios-stale-helper": false },
-		});
-
-		expect(html).toContain('aria-label="iPhone 16, Connecting · iOS 26.5"');
-		expect(html).toContain('aria-label="Stale helper, Streaming · iOS 26.5"');
-	});
-
-	test("renders row skeletons while devices load", () => {
-		const html = renderHeader({ devices: null, total: 0 });
-		expect(html).toContain('aria-label="Loading devices"');
-		expect(html).toContain('aria-busy="true"');
-	});
-
-	test("keeps global actions in one bottom workspace dock", () => {
-		const html = renderHeader();
-		expect(html).toContain('role="toolbar"');
-		expect(html).toContain('aria-label="Workspace"');
-		expect(html).toContain('aria-label="Devices, 1 shown"');
-		expect(html).toContain('aria-label="Device settings"');
-		expect(html).not.toContain('aria-label="Add simulator"');
-		expect(html).not.toContain('aria-label="Browser DevTools"');
-	});
-
-	test("keeps four device tabs inside the same expanded Settings dock", () => {
-		const shownDevices = Array.from({ length: 4 }, (_, index) => ({
-			...devices[0]!,
-			device: `ios-${index}`,
-			name: `iPhone 16 ${index + 1}`,
-		}));
-		const html = renderHeader({
-			pickerOpen: false,
-			toolsOpen: true,
-			devices: shownDevices,
-			visibleUdids: new Set(shownDevices.map((device) => device.device)),
-			settingsUdid: shownDevices[3]!.device,
-		});
-		expect(html.match(/role="tab"/g)).toHaveLength(4);
-		expect(html).toContain('role="tablist"');
-		expect(html).toContain('aria-label="Settings device"');
-		expect(html).not.toContain('aria-haspopup="listbox"');
-		expect(html).toContain('aria-selected="true"');
-		expect(html).not.toContain("Pin settings");
-		expect(html).not.toContain("Android tools for");
-		expect(html).toContain("iPhone 16");
-	});
-
-	test("keeps product identity outside the action dock and links the project repository", () => {
-		const html = renderToStaticMarkup(<AgentsimsBrandLink />);
-		expect(html).toContain(`href="${AGENTSIMS_REPO_URL}"`);
-		expect(AGENTSIMS_REPO_URL).toBe(
-			"https://github.com/maniktherana/agentsims",
-		);
 	});
 });

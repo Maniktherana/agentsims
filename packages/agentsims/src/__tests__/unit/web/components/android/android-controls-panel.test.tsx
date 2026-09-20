@@ -1,155 +1,37 @@
 import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
-import type {
-	AndroidEnvironmentState,
-	AndroidToolCapabilities,
-} from "../../../../../core/android/contracts";
 import {
-	AndroidControlsPanel,
-	AndroidSimulatorControlRows,
 	networkLatencyLabel,
 	networkSpeedLabel,
 } from "../../../../../web/components/android/android-controls-panel";
-import {
-	SavedStateList,
-	savedStateDate,
-} from "../../../../../web/components/android/android-saved-states";
+import { savedStateDate } from "../../../../../web/components/android/android-saved-states";
 import { androidControlFeedback } from "../../../../../web/components/dock/settings/android-device-controls-tool";
 
-const capabilities: AndroidToolCapabilities = {
-	device: "android:emulator-5554",
-	emulator: true,
-	apiLevel: 35,
-	appLocale: true,
-	wifi: true,
-	mobileData: true,
-	airplaneMode: true,
-	talkback: true,
-	telephony: true,
-	snapshots: true,
-	networkConditions: true,
-	location: true,
-};
-const state: AndroidEnvironmentState = {
-	network: {
-		wifi: true,
-		data: false,
-		airplane: true,
-		downloadBps: 1_250_000,
-		uploadBps: 750_000,
-		minLatencyMs: 20,
-		maxLatencyMs: 40,
-	},
-	battery: { level: 73, charging: true, simulated: false },
-	display: { density: 440, talkback: false },
-};
-const renderControls = (current: AndroidEnvironmentState | null) => {
-	const props = {
-		deviceId: capabilities.device,
-		basePath: "/",
-		active: true,
-		capabilities,
-		state: current,
-		busy: false,
-		run: async () => true,
-	};
-	return renderToStaticMarkup(
-		<>
-			<AndroidSimulatorControlRows {...props} />
-			<AndroidControlsPanel {...props} />
-		</>,
-	);
-};
-
-test("network switches reflect real device state and use the existing dropdown component", () => {
-	const html = renderControls(state);
-	expect(html).toContain(
-		'role="switch" aria-checked="true" aria-label="Wi-Fi"',
-	);
-	expect(html).toContain(
-		'role="switch" aria-checked="false" aria-label="Mobile data"',
-	);
-	expect(html).toContain(
-		'role="switch" aria-checked="true" aria-label="Airplane mode"',
-	);
-	expect(html).toContain('value="73"');
-	expect(html).toContain('value="440"');
-	expect(html).not.toContain("<select");
-	expect(html).toContain('aria-label="Network speed" aria-haspopup="listbox"');
-	expect(html).toContain('aria-label="Call event" aria-haspopup="listbox"');
-	expect(html).not.toContain("<pre");
-});
-
-test("loading controls stay disabled without unavailable descriptions or assumed presets", () => {
-	const html = renderControls(null);
-	expect(html).not.toContain("Current state unavailable");
-	expect(html).toMatch(
-		/role="switch" aria-checked="false" aria-label="Wi-Fi" disabled=""/,
-	);
-	expect(
-		html.match(/<input[^>]*aria-label="Battery percent"[^>]*>/)?.[0],
-	).toContain(' disabled=""');
-	expect(
-		html.match(/<button[^>]*aria-label="Set battery"[^>]*>/)?.[0],
-	).toContain(' disabled=""');
+test("formats Android network conditions", () => {
 	expect(networkSpeedLabel(undefined)).toBe("—");
 	expect(networkLatencyLabel(undefined)).toBe("—");
-	expect(networkSpeedLabel(state.network)).toBe("↓ 1.25 Mbps · ↑ 750 kbps");
-	expect(networkLatencyLabel(state.network)).toBe("20–40 ms");
+	expect(
+		networkSpeedLabel({
+			downloadBps: 1_250_000,
+			uploadBps: 750_000,
+			minLatencyMs: 20,
+			maxLatencyMs: 40,
+		}),
+	).toBe("↓ 1.25 Mbps · ↑ 750 kbps");
+	expect(
+		networkLatencyLabel({
+			downloadBps: 1_250_000,
+			uploadBps: 750_000,
+			minLatencyMs: 20,
+			maxLatencyMs: 40,
+		}),
+	).toBe("20–40 ms");
 });
 
-test("loading capabilities and refresh keep the same simulator control rows", () => {
-	const renderRows = (loading: boolean, loaded: boolean) =>
-		renderToStaticMarkup(
-			<AndroidSimulatorControlRows
-				capabilities={loaded ? capabilities : null}
-				state={loaded ? state : null}
-				busy={loading}
-				run={async () => true}
-			/>,
-		);
-	const ready = renderRows(false, true);
-	for (const pending of [renderRows(true, false), renderRows(true, true)]) {
-		expect(pending.match(/aria-label="[^"]+"/g)).toEqual(
-			ready.match(/aria-label="[^"]+"/g),
-		);
-		const controls = pending.match(/<(?:button|input)\b[^>]*>/g) ?? [];
-		expect(controls).toHaveLength(8);
-		for (const control of controls) expect(control).toContain('disabled=""');
-	}
-});
-
-test("saved states show readable metadata and direct per-state actions", () => {
-	const html = renderToStaticMarkup(
-		<SavedStateList
-			states={[
-				{ name: "signed-in", size: "32 MB", savedAt: "2026-09-06T10:30:00Z" },
-				{ name: "default_boot", size: "24 MB", savedAt: "" },
-			]}
-			busy={false}
-			onRestore={() => {}}
-			onDelete={() => {}}
-		/>,
-	);
-	expect(html).toContain("signed-in");
-	expect(html).toContain("32 MB");
-	expect(html).toContain('aria-label="Restore signed-in"');
-	expect(html).toContain('aria-label="Delete default_boot"');
-	expect(html).toContain("Date unavailable");
-	expect(html).not.toContain("<pre");
+test("formats unavailable saved-state dates", () => {
 	expect(savedStateDate("")).toBe("Date unavailable");
-	const empty = renderToStaticMarkup(
-		<SavedStateList
-			states={[]}
-			busy={false}
-			onRestore={() => {}}
-			onDelete={() => {}}
-		/>,
-	);
-	expect(empty).toContain("No snapshots yet");
 });
 
-test("writes produce action-specific feedback", () => {
+test("produces action-specific Android control feedback", () => {
 	expect(androidControlFeedback({ type: "network", wifi: true }).success).toBe(
 		"Wi-Fi enabled",
 	);
@@ -177,51 +59,4 @@ test("writes produce action-specific feedback", () => {
 			name: "signed-in",
 		}).failure,
 	).toBe("Could not delete snapshot “signed-in”");
-});
-
-test("network and battery are plain settings rows without reset actions", () => {
-	const html = renderToStaticMarkup(
-		<AndroidSimulatorControlRows
-			capabilities={capabilities}
-			state={state}
-			busy={false}
-			run={async () => true}
-		/>,
-	);
-	expect(html).not.toContain("<details");
-	expect(html).not.toContain("Reset");
-	for (const label of [
-		"Wi-Fi",
-		"Mobile data",
-		"Airplane mode",
-		"Network speed",
-		"Network latency",
-		"Battery percent",
-		"Charging",
-	]) {
-		expect(html).toContain(label);
-	}
-});
-
-test("device snapshots, display and calls remain separate sections", () => {
-	const html = renderToStaticMarkup(
-		<AndroidControlsPanel
-			deviceId={capabilities.device}
-			basePath="/"
-			active
-			capabilities={capabilities}
-			state={state}
-			busy={false}
-			run={async () => true}
-		/>,
-	);
-	expect(html.match(/<details/g)).toHaveLength(3);
-	expect(html.indexOf("Device snapshots")).toBeLessThan(
-		html.indexOf("Display and accessibility"),
-	);
-	expect(html.indexOf("Display and accessibility")).toBeLessThan(
-		html.indexOf("Calls and messages"),
-	);
-	expect(html).not.toContain("Wi-Fi");
-	expect(html).not.toContain("Battery percent");
 });

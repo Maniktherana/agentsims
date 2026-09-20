@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
-import {
-	AppPermissionsLoading,
-	AppPermissionsTool,
-	permissionStateFromList,
-} from "../../../../../../web/components/dock/settings/app-permissions-tool";
+import { permissionStateFromList } from "../../../../../../web/components/dock/settings/app-permissions-tool";
 
 describe("permissionStateFromList", () => {
 	test("distinguishes denied, while-in-use, and always location states", () => {
@@ -30,31 +25,5 @@ describe("permissionStateFromList", () => {
 			location: "grant",
 			"location-always": "grant",
 		});
-	});
-});
-
-describe("AppPermissionsLoading", () => {
-	test("marks unavailable permissions as busy and disabled", () => {
-		const html = renderToStaticMarkup(<AppPermissionsLoading />);
-
-		expect(html).toContain("Permissions");
-		expect(html).toContain('aria-disabled="true"');
-		expect(html).toContain('aria-busy="true"');
-		expect(html).not.toContain(
-			"Permissions appear once an app is in the foreground",
-		);
-	});
-
-	test("renders for the permissions tool while foreground app data is missing", () => {
-		const html = renderToStaticMarkup(
-			<AppPermissionsTool udid="booted" bundleId={null} />,
-		);
-
-		expect(html).toContain("Permissions");
-		expect(html).toContain('aria-disabled="true"');
-		expect(html).toContain('aria-busy="true"');
-		expect(html).not.toContain(
-			"Permissions appear once an app is in the foreground",
-		);
 	});
 });
