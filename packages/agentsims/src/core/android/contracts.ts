@@ -133,5 +133,5 @@ export type AndroidLogFilter = {
 	pid?: number;
 };
 export type AndroidLogEvent =
-	| { type: "lines"; lines: AndroidLogLine[] }
+	| { type: "lines"; lines: AndroidLogLine[]; total: number }
 	| { type: "status"; state: "connected" | "reconnecting"; message?: string };

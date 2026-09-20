@@ -1,4 +1,6 @@
 import { Command, CommandExecutor } from "@effect/platform";
+import { appendFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Context, Effect, Fiber, Layer, PubSub, Stream } from "effect";
 import type {
 	AndroidLogEvent,
@@ -6,6 +8,7 @@ import type {
 	AndroidLogLine,
 } from "../contracts";
 import {
+	ANDROID_LOG_LIMIT,
 	androidLogMatches,
 	AndroidLogBuffer,
 	parseAndroidLogLine,
@@ -22,12 +25,19 @@ import {
 	InvalidCommandInput,
 	type ApplicationCommandError,
 } from "../../tools/errors";
+import { logsDirectory } from "../../home";
+
+export type AndroidLogRecording = {
+	path: string;
+	startedAt: string;
+};
 
 type LogEntry = {
 	buffer: AndroidLogBuffer;
 	updates: PubSub.PubSub<AndroidLogEvent>;
 	fiber: Fiber.Fiber<void, never>;
 	readers: number;
+	recording: AndroidLogRecording | null;
 };
 export type AndroidLogsService = {
 	stream(
@@ -39,6 +49,15 @@ export type AndroidLogsService = {
 		filter?: AndroidLogFilter,
 		limit?: number,
 	): Effect.Effect<AndroidLogLine[], ApplicationCommandError>;
+	startRecording(
+		device: string,
+	): Effect.Effect<AndroidLogRecording, ApplicationCommandError>;
+	stopRecording(
+		device: string,
+	): Effect.Effect<AndroidLogRecording | null, ApplicationCommandError>;
+	recording(
+		device: string,
+	): Effect.Effect<AndroidLogRecording | null, ApplicationCommandError>;
 };
 export class AndroidLogs extends Context.Tag("@agentsims/AndroidLogs")<
 	AndroidLogs,
@@ -54,6 +73,8 @@ export const AndroidLogsLive = Layer.scoped(
 		const entries = new Map<string, LogEntry>();
 		const lock = yield* Effect.makeSemaphore(1);
 		let nextId = 1;
+		const formatLine = (line: AndroidLogLine) =>
+			`${line.time} ${line.pid ?? 0} ${line.tid ?? 0} ${line.level} ${line.tag}: ${line.message}`;
 		const acquire = (serial: string) =>
 			lock.withPermits(1)(
 				Effect.gen(function* () {
@@ -75,7 +96,7 @@ export const AndroidLogsLive = Layer.scoped(
 									"-v",
 									"threadtime",
 									"-T",
-									"100",
+									String(ANDROID_LOG_LIMIT),
 								),
 							);
 							yield* PubSub.publish(updates, {
@@ -92,7 +113,24 @@ export const AndroidLogsLive = Layer.scoped(
 								Stream.runForEach((chunk) => {
 									const lines = Array.from(chunk);
 									buffer.push(lines);
-									return PubSub.publish(updates, { type: "lines", lines });
+									const recording = entries.get(serial)?.recording;
+									const persist = recording
+										? Effect.tryPromise(() =>
+												appendFile(
+													recording.path,
+													`${lines.map(formatLine).join("\n")}\n`,
+												),
+											).pipe(Effect.catchAll(() => Effect.void))
+										: Effect.void;
+									return persist.pipe(
+										Effect.zipRight(
+											PubSub.publish(updates, {
+												type: "lines",
+												lines,
+												total: buffer.count(),
+											}),
+										),
+									);
 								}),
 							);
 							yield* process.exitCode;
@@ -122,7 +160,7 @@ export const AndroidLogsLive = Layer.scoped(
 						Effect.interruptible,
 						Effect.forkIn(scope),
 					);
-					const entry = { buffer, updates, fiber, readers: 1 };
+					const entry = { buffer, updates, fiber, readers: 1, recording: null };
 					entries.set(serial, entry);
 					return entry;
 				}),
@@ -131,7 +169,7 @@ export const AndroidLogsLive = Layer.scoped(
 			lock.withPermits(1)(
 				Effect.gen(function* () {
 					const entry = entries.get(serial);
-					if (!entry || --entry.readers > 0) return;
+					if (!entry || --entry.readers > 0 || entry.recording) return;
 					entries.delete(serial);
 					yield* Fiber.interrupt(entry.fiber);
 					yield* PubSub.shutdown(entry.updates);
@@ -247,6 +285,7 @@ export const AndroidLogsLive = Layer.scoped(
 							lines: initial.filter((line) =>
 								androidLogMatches(line, filter, prepared.pids()),
 							),
+							total: entry.buffer.count(),
 						}).pipe(
 							Stream.concat(
 								Stream.fromQueue(queue).pipe(
@@ -258,11 +297,64 @@ export const AndroidLogsLive = Layer.scoped(
 												androidLogMatches(line, filter, prepared.pids()),
 										);
 										lastId = Math.max(lastId, event.lines.at(-1)?.id ?? 0);
-										return { type: "lines", lines };
+										return { type: "lines", lines, total: event.total };
 									}),
 								),
 							),
 						);
+					}),
+				),
+			startRecording: (device) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const { serial } = yield* prepare(device, {});
+						const active = entries.get(serial)?.recording;
+						if (active) return active;
+						const startedAt = new Date().toISOString();
+						const directory = yield* Effect.try({
+							try: logsDirectory,
+							catch: commandFailure,
+						});
+						const path = join(
+							directory,
+							`${serial.replace(/[^A-Za-z0-9._-]/g, "-")}-${startedAt.replace(/[:.]/g, "-")}.log`,
+						);
+						yield* Effect.tryPromise({
+							try: () => writeFile(path, ""),
+							catch: commandFailure,
+						});
+						const entry = yield* acquire(serial);
+						const recording = { path, startedAt };
+						entry.recording = recording;
+						yield* release(serial);
+						return recording;
+					}),
+				),
+			stopRecording: (device) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const { serial } = yield* prepare(device, {});
+						return yield* lock.withPermits(1)(
+							Effect.gen(function* () {
+								const entry = entries.get(serial);
+								if (!entry?.recording) return null;
+								const recording = entry.recording;
+								entry.recording = null;
+								if (entry.readers === 0) {
+									entries.delete(serial);
+									yield* Fiber.interrupt(entry.fiber);
+									yield* PubSub.shutdown(entry.updates);
+								}
+								return recording;
+							}),
+						);
+					}),
+				),
+			recording: (device) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const { serial } = yield* prepare(device, {});
+						return entries.get(serial)?.recording ?? null;
 					}),
 				),
 		});

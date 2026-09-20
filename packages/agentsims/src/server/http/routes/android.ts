@@ -156,6 +156,39 @@ export const androidRoutes = HttpRouter.empty.pipe(
 		),
 	),
 	HttpRouter.get(
+		"/android/logs/recording",
+		commandResponse(
+			Effect.gen(function* () {
+				const { device } = yield* requestContext;
+				return {
+					recording: yield* (yield* AndroidLogs).recording(device),
+				};
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/android/logs/recording",
+		commandResponse(
+			Effect.gen(function* () {
+				const { device, request } = yield* requestContext;
+				const body = (yield* requestJson(request)) as { action?: unknown };
+				if (body.action !== "start" && body.action !== "stop")
+					return yield* Effect.fail(
+						new InvalidCommandInput({
+							message: "Log recording action must be start or stop",
+						}),
+					);
+				const logs = yield* AndroidLogs;
+				if (body.action === "start")
+					return { recording: yield* logs.startRecording(device) };
+				return {
+					recording: null,
+					saved: yield* logs.stopRecording(device),
+				};
+			}),
+		),
+	),
+	HttpRouter.get(
 		"/android/logs",
 		Effect.gen(function* () {
 			const context = yield* Effect.either(requestContext);

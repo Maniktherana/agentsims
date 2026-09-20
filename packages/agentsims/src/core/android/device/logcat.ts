@@ -48,7 +48,9 @@ export function androidLogMatches(
 export class AndroidLogBuffer {
 	private entries: AndroidLogLine[] = [];
 	private bytes = 4;
+	private total = 0;
 	push(lines: readonly AndroidLogLine[]): void {
+		this.total += lines.length;
 		for (const line of lines) {
 			this.entries.push(line);
 			this.bytes += JSON.stringify(line).length * 2 + 2;
@@ -63,5 +65,8 @@ export class AndroidLogBuffer {
 	}
 	read(): AndroidLogLine[] {
 		return [...this.entries];
+	}
+	count(): number {
+		return this.total;
 	}
 }
