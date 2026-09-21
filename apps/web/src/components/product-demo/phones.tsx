@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { ResizeHandle } from "./resize-handle";
 import { SURFACE } from "./motion";
 import { INTRO_ENTRANCE } from "../intro/use-intro";
-import { cn } from "../../lib/utils";
+import { cn } from "@agentsims/ui/lib/utils";
 
 const IPHONE_BUTTON = "absolute z-0 left-[0.881%] w-[3.524%]";
 

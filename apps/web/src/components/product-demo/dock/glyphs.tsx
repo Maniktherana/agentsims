@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import type { DeviceType, DevicePhase } from "./devices";
 import { LoaderCircle, RotateCcw } from "lucide-react";
-import { IconSwap } from "../../ui/icon-swap";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 
 const SCREEN_ON_FILL = "var(--agentsims-device-screen-on)";
 

@@ -1,3 +1,4 @@
+import { Button } from "@agentsims/ui/components/button";
 import { memo, useRef } from "react";
 import type { AxElement } from "../../../core/tools/observe/accessibility-model";
 import {
@@ -144,7 +145,8 @@ export const AxTarget = memo(
 			outlined,
 		});
 		return (
-			<button
+			<Button
+				variant="unstyled" size="unstyled"
 				type="button"
 				data-ax-key={key}
 				data-ax-id={axNode.id}

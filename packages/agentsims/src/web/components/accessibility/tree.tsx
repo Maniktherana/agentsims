@@ -1,3 +1,4 @@
+import { Button } from "@agentsims/ui/components/button";
 import {
 	prepareFileTreeInput,
 	type FileTree,
@@ -1435,7 +1436,9 @@ export function AccessibilityTree({
 							className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[12px] text-white/86 outline-none placeholder:text-white/32"
 						/>
 						{searchQuery ? (
-							<button
+							<Button
+								variant="unstyled"
+								size="unstyled"
 								type="button"
 								aria-label="Clear accessibility tree search"
 								title="Clear search"
@@ -1443,7 +1446,7 @@ export function AccessibilityTree({
 								className="grid size-5 shrink-0 place-items-center rounded border-0 bg-transparent p-0 text-white/38 hover:bg-white/[0.07] hover:text-white/75 focus-visible:ring-1 focus-visible:ring-white/60"
 							>
 								<X aria-hidden="true" size={11} strokeWidth={2} />
-							</button>
+							</Button>
 						) : null}
 					</label>
 					<div
@@ -1522,7 +1525,9 @@ export function AccessibilityTree({
 									const tabbable =
 										row.isFocused || (!hasFocusedRow && index === 0);
 									return (
-										<button
+										<Button
+											variant="unstyled"
+											size="unstyled"
 											key={row.path}
 											ref={(node) => {
 												if (node) rowRefs.current.set(row.path, node);
@@ -1656,7 +1661,7 @@ export function AccessibilityTree({
 													RN
 												</span>
 											) : null}
-										</button>
+										</Button>
 									);
 								})}
 							</div>
@@ -2201,7 +2206,9 @@ export function AccessibilityDetails({
 						</p>
 					</div>
 					{onClose ? (
-						<button
+						<Button
+							variant="unstyled"
+							size="unstyled"
 							type="button"
 							aria-label="Close accessibility details"
 							title="Close details"
@@ -2209,7 +2216,7 @@ export function AccessibilityDetails({
 							className="-mr-1 grid size-6 shrink-0 place-items-center rounded-md border-0 bg-transparent p-0 text-white/42 outline-none hover:bg-white/[0.07] hover:text-white/80 focus-visible:ring-1 focus-visible:ring-white/60"
 						>
 							<X aria-hidden="true" size={13} strokeWidth={2} />
-						</button>
+						</Button>
 					) : null}
 				</div>
 			</header>
@@ -2290,7 +2297,8 @@ export function AccessibilityDetails({
 							className="absolute inset-x-0 top-0 z-10 h-2 -translate-y-1/2 cursor-row-resize touch-none outline-none before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-transparent hover:before:bg-white/20 focus-visible:before:bg-blue-400/80"
 						/>
 					) : null}
-					<button
+					<Button
+						variant="unstyled" size="unstyled"
 						type="button"
 						aria-expanded={metadataOpen}
 						onClick={() => setMetadataOpen((open) => !open)}
@@ -2302,7 +2310,7 @@ export function AccessibilityDetails({
 							size={13}
 							className={`text-white/32 transition-transform duration-100 motion-reduce:transition-none ${metadataOpen ? "rotate-90" : ""}`}
 						/>
-					</button>
+					</Button>
 					{metadataOpen ? (
 						<dl
 							data-accessibility-metadata-body

@@ -1,4 +1,4 @@
-import { Tooltip } from "@base-ui/react/tooltip";
+import { TooltipProvider } from "@agentsims/ui/components/tooltip";
 import { Toaster } from "sonner";
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { AgentsimsBrandLink } from "./components/ui/agentsims-brand-link";
@@ -54,7 +54,7 @@ export function App() {
 		workspace.visibleDeviceIds.indexOf(effectiveSettingsDeviceId ?? ""),
 	);
 	return (
-		<Tooltip.Provider delay={0} closeDelay={0}>
+		<TooltipProvider delay={0} closeDelay={0}>
 			<AgentsimsBrandLink className="fixed left-3 top-3 z-30 bg-[#181818]/90 px-2 border border-white/[0.08] shadow-[0_18px_56px_rgba(0,0,0,0.5)] [border-radius:8px]" />
 			<WorkspaceCanvas
 				visibleDeviceIds={workspace.visibleDeviceIds}
@@ -161,6 +161,6 @@ export function App() {
 				}
 				onResetLayout={resetWorkspaceLayout}
 			/>
-		</Tooltip.Provider>
+		</TooltipProvider>
 	);
 }

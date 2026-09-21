@@ -19,7 +19,9 @@ Place code by runtime and responsibility.
 - `packages/agentsims/src/core/react-native/node/metro.ts` and `babel-plugin.ts` are the Node entry points.
 - `packages/agentsims/src/core/host.ts`, `artifacts.ts`, `resources.ts`, and `logging.ts` contain shared runtime utilities.
 - `packages/agentsims/src/server/http/server.ts` currently owns transport composition.
-- `packages/agentsims/src/web` contains browser code only.
+- `packages/agentsims/src/web` contains the simulator workspace browser code.
+- `packages/ui` contains shared shadcn primitives, styles, and animation primitives.
+- `apps/web` contains the landing page and its product demo.
 
 Do not add broad utility directories. Keep `src/web/lib/utils.ts` limited to the shadcn `cn` export. Put other helpers with their owning feature.
 
@@ -40,7 +42,8 @@ Do not add broad utility directories. Keep `src/web/lib/utils.ts` limited to the
 - Put React hooks in `src/web/hooks/<feature>`.
 - Put pure browser state, types, and algorithms in `src/web/<feature>`.
 - Keep `app.tsx`, `main.tsx`, `global.css`, and `favicon.ico` directly in `src/web`.
-- Keep reusable visual primitives in `src/web/components/ui`.
+- Import shared visual primitives from `@agentsims/ui`.
+- Keep product-specific UI composition in the product workspace.
 - Keep React icons in `src/web/components/icons`.
 - Keep dock components in `src/web/components/dock`.
 - Keep simulator components in `src/web/components/simulator`.
@@ -51,7 +54,7 @@ Do not place React components in pure feature directories. Do not place feature 
 
 ## Web UI
 
-- Add shadcn components with the CLI. Use Base UI and Hugeicons.
+- Add shadcn components in `packages/ui`. Use Base UI and Hugeicons.
 - Put visual styles in shared variants. Keep usage classes for layout only.
 - Use one control scale and shared alignment edges in Settings.
 - Use shared disclosures, chevrons, motion, and scroll fades.

@@ -3,7 +3,10 @@ import type { TraceCommand } from "../../../core/tools/traces/trace-file";
 import type { TraceCall } from "../../hooks/simulator/use-trace";
 import { CopyButton } from "../ui/copy-button";
 
-export function renderCallOutput(command: TraceCommand, result: unknown): string {
+export function renderCallOutput(
+	command: TraceCommand,
+	result: unknown,
+): string {
 	if (result === null || result === undefined) return "";
 	try {
 		return renderCommandOutput(command, result);
@@ -36,9 +39,17 @@ function flagName(key: string): string {
 		.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
-function flags(values: Record<string, unknown>, omitted: Set<string>): string[] {
+function flags(
+	values: Record<string, unknown>,
+	omitted: Set<string>,
+): string[] {
 	return Object.entries(values).flatMap(([key, value]) => {
-		if (omitted.has(key) || value === undefined || value === null || value === false)
+		if (
+			omitted.has(key) ||
+			value === undefined ||
+			value === null ||
+			value === false
+		)
 			return [];
 		const flag = `--${flagName(key)}`;
 		return value === true ? [flag] : [flag, shellArg(value)];
@@ -48,7 +59,9 @@ function flags(values: Record<string, unknown>, omitted: Set<string>): string[] 
 /** Reconstruct a readable CLI command from the request stored in the trace. */
 export function traceCommandLine(call: TraceCall, device: string): string {
 	const request =
-		call.request && typeof call.request === "object" && !Array.isArray(call.request)
+		call.request &&
+		typeof call.request === "object" &&
+		!Array.isArray(call.request)
 			? (call.request as Record<string, unknown>)
 			: {};
 	const parts = ["agentsims"];
@@ -118,14 +131,24 @@ export function TraceCallDetail({
 				<code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-white/72">
 					{command}
 				</code>
-				<CopyButton text={command} label="Copy command" size="row" surface="toolbar" />
+				<CopyButton
+					text={command}
+					label="Copy command"
+					size="icon-xs"
+					variant="toolbar"
+				/>
 			</section>
 			<section className="min-w-0">
 				<div className="mb-1.5 flex items-center gap-2">
 					<h3 className="min-w-0 flex-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/42">
 						Output
 					</h3>
-					<CopyButton text={output} label="Copy output" size="row" surface="toolbar" />
+					<CopyButton
+						text={output}
+						label="Copy output"
+						size="icon-xs"
+						variant="toolbar"
+					/>
 				</div>
 				<div
 					style={{ maxHeight: Math.max(160, Math.min(maxHeight, 420)) }}

@@ -1,8 +1,8 @@
 import { Eye, EyeOff, Power } from "lucide-react";
-import { TextMorph } from "torph/react";
-import { IconSwap } from "../../ui/icon-swap";
+import { TextStateSwap } from "@agentsims/ui/motion/text-state-swap";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { DeviceGlyph, DeviceStatusGlyph } from "./glyphs";
-import { DockIconButton } from "./icon-button";
+import { Button } from "@agentsims/ui/components/button";
 import { deviceStatus, type DemoDevice } from "./devices";
 
 export function DeviceRow({
@@ -57,7 +57,7 @@ export function DeviceRow({
 				<div
 					className={`truncate text-[11px] leading-tight ${phase === "streaming" ? "text-[#34d399]" : transitioning ? "text-white/45" : active ? "text-white/75" : "text-white/45"}`}
 				>
-					<TextMorph>{status}</TextMorph>
+					<TextStateSwap>{status}</TextStateSwap>
 				</div>
 			</div>
 			<div
@@ -70,11 +70,13 @@ export function DeviceRow({
 			>
 				{running ? (
 					<>
-						<DockIconButton
-							label={`${visible ? "Hide" : "Show"} ${device.name}`}
-							active={visible}
+						<Button
+							aria-label={`${visible ? "Hide" : "Show"} ${device.name}`}
+							aria-pressed={visible}
 							disabled={transitioning}
-							row
+							variant="toolbar"
+							size="icon-xs"
+							className={`!border-transparent !bg-transparent hover:!bg-white/[0.06] ${visible ? "!text-white" : "!text-white/55 hover:!text-white"}`}
 						>
 							<IconSwap state={visible ? "visible" : "hidden"}>
 								{visible ? (
@@ -83,16 +85,17 @@ export function DeviceRow({
 									<EyeOff size={14} strokeWidth={2} />
 								)}
 							</IconSwap>
-						</DockIconButton>
+						</Button>
 						{canShutdown && (
-							<DockIconButton
-								label="Shut down device"
+							<Button
+								aria-label="Shut down device"
 								disabled={transitioning}
-								row
-								danger
+								variant="danger-ghost"
+								size="icon-xs"
+								className="!border-transparent !bg-transparent !text-red-400 hover:!bg-red-500/10"
 							>
 								<Power size={14} strokeWidth={2} />
-							</DockIconButton>
+							</Button>
 						)}
 					</>
 				) : (

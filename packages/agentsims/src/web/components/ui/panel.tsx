@@ -1,3 +1,4 @@
+import { Button } from "@agentsims/ui/components/button";
 import type { CSSProperties, ReactNode } from "react";
 import { X } from "lucide-react";
 import {
@@ -114,7 +115,8 @@ export function PanelCloseButton({
 	iconSize?: number;
 }) {
 	return (
-		<button
+		<Button
+			variant="unstyled" size="unstyled"
 			type="button"
 			onClick={onClick}
 			className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent p-0 text-[#8e8e93] [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard),color_var(--agentsims-duration-hover)_var(--agentsims-ease-standard),transform_var(--agentsims-duration-press)_var(--agentsims-ease-standard)] hover:bg-white/8 hover:text-white active:scale-[0.96] motion-reduce:transition-none"
@@ -122,6 +124,6 @@ export function PanelCloseButton({
 			title={title}
 		>
 			<X size={iconSize} strokeWidth={2} />
-		</button>
+		</Button>
 	);
 }

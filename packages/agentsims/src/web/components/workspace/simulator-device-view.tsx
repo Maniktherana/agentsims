@@ -1,3 +1,9 @@
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import { DeviceCanvasShadow } from "./device-canvas-shadow";
@@ -33,7 +39,6 @@ import {
 	RotateCcw,
 	Upload,
 } from "lucide-react";
-import { IconButton } from "../ui/icon-button";
 import { ReloadIcon } from "../icons/index";
 import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
 import { AccessibilityInspectorController } from "../accessibility/controller";
@@ -1157,21 +1162,28 @@ export function SimulatorDeviceView({
 								status={streamStatus}
 							/>
 							{!streaming && lifecyclePhase !== "shutting-down" ? (
-								<IconButton
-									surface="toolbar"
-									size="row"
-									label="Retry stream"
-									style={{ width: 16, height: 16 }}
-									onClick={(event) => {
-										event.stopPropagation();
-										setStreamStatus("Opening stream");
-										dispatchAvccFallback("reset");
-										retryStream();
-									}}
-									className="!size-4 !min-h-0 !min-w-0 !border-transparent !p-0"
-								>
-									<RotateCcw size={13} strokeWidth={2} />
-								</IconButton>
+								<Tooltip>
+									<TooltipTrigger
+										render={
+											<Button
+												variant="toolbar"
+												size="icon-xs"
+												aria-label="Retry stream"
+												style={{ width: 16, height: 16 }}
+												onClick={(event) => {
+													event.stopPropagation();
+													setStreamStatus("Opening stream");
+													dispatchAvccFallback("reset");
+													retryStream();
+												}}
+												className="!size-4 !min-h-0 !min-w-0 !border-transparent !p-0"
+											/>
+										}
+									>
+										<RotateCcw size={13} strokeWidth={2} />
+									</TooltipTrigger>
+									<TooltipContent>Retry stream</TooltipContent>
+								</Tooltip>
 							) : null}
 						</SimulatorToolbar>
 						<div

@@ -1,3 +1,9 @@
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
 import { Columns3, Focus } from "lucide-react";
 import {
 	AnimatePresence,
@@ -5,7 +11,6 @@ import {
 	useIsPresent,
 	useReducedMotion,
 } from "motion/react";
-import { IconButton } from "../ui/icon-button";
 import { useCanvasPan } from "../../hooks/workspace/use-canvas-pan";
 import { canvasViewOffset } from "../../workspace/canvas-view";
 import {
@@ -552,23 +557,38 @@ export function WorkspaceCanvas({
 					aria-label="Canvas view"
 					className="fixed bottom-3 left-3 z-40 flex gap-1 rounded-[10px] border border-white/[0.1] bg-[#181818] p-1 shadow-[0_18px_56px_rgba(0,0,0,0.5)]"
 				>
-					<IconButton
-						label="Arrange devices"
-						tooltip="Arrange visible devices side by side"
-						onClick={arrangeDevices}
-						size="toolbar"
-						surface="toolbar"
-					>
-						<Columns3 size={17} />
-					</IconButton>
-					<IconButton
-						label="Recenter canvas"
-						onClick={() => canvasPan.recenter()}
-						size="toolbar"
-						surface="toolbar"
-					>
-						<Focus size={17} />
-					</IconButton>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									aria-label="Arrange devices"
+									onClick={arrangeDevices}
+									size="icon"
+									variant="toolbar"
+								/>
+							}
+						>
+							<Columns3 size={17} />
+						</TooltipTrigger>
+						<TooltipContent>
+							Arrange visible devices side by side
+						</TooltipContent>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									aria-label="Recenter canvas"
+									onClick={() => canvasPan.recenter()}
+									size="icon"
+									variant="toolbar"
+								/>
+							}
+						>
+							<Focus size={17} />
+						</TooltipTrigger>
+						<TooltipContent>Recenter canvas</TooltipContent>
+					</Tooltip>
 				</div>
 			)}
 		</>

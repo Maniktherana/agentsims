@@ -1,4 +1,4 @@
-import { Button } from "../../ui/button";
+import { Button } from "@agentsims/ui/components/button";
 import { Monitor, RefreshCw, Smartphone, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { simEndpoint } from "../../../preview/sim-endpoint";

@@ -10,10 +10,16 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
-} from "../ui/alert-dialog";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { Select } from "../ui/select";
+} from "@agentsims/ui/components/alert-dialog";
+import { Button } from "@agentsims/ui/components/button";
+import { Input } from "@agentsims/ui/components/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
 import {
 	useCallback,
 	useEffect,
@@ -37,24 +43,41 @@ import {
 	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
-import { SettingSwitch } from "../ui/setting-switch";
+} from "@agentsims/ui/components/dropdown-menu";
+import { Switch } from "@agentsims/ui/components/switch";
 import {
 	AppIcon,
 	fallbackAppDisplayName,
 } from "../dock/settings/app-detection-tool";
-import {
-	fetchAppDetails,
-	type AppDetails,
-} from "../../media/app-icon";
+import { fetchAppDetails, type AppDetails } from "../../media/app-icon";
 import { AndroidLogsPanel } from "./android-logs-panel";
 import { ToolField, ToolSection } from "./tool-fields";
 
 const APP_ACTIONS = {
-	launch: { label: "Launch", pending: "Launching", task: "Launch app", success: "App launched" },
-	stop: { label: "Force stop", pending: "Stopping", task: "Force stop app", success: "App stopped" },
-	clear: { label: "Clear data", pending: "Clearing", task: "Clear app data", success: "App data cleared" },
-	uninstall: { label: "Uninstall", pending: "Uninstalling", task: "Uninstall app", success: "App uninstalled" },
+	launch: {
+		label: "Launch",
+		pending: "Launching",
+		task: "Launch app",
+		success: "App launched",
+	},
+	stop: {
+		label: "Force stop",
+		pending: "Stopping",
+		task: "Force stop app",
+		success: "App stopped",
+	},
+	clear: {
+		label: "Clear data",
+		pending: "Clearing",
+		task: "Clear app data",
+		success: "App data cleared",
+	},
+	uninstall: {
+		label: "Uninstall",
+		pending: "Uninstalling",
+		task: "Uninstall app",
+		success: "App uninstalled",
+	},
 } as const;
 
 type AppOperation = keyof typeof APP_ACTIONS;
@@ -219,6 +242,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 						onChange={(event) => setQuery(event.target.value)}
 					/>
 					<Button
+						variant="flat"
 						disabled={!!busy}
 						onClick={() => void refresh()}
 					>
@@ -229,10 +253,10 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 					<span className="min-w-0 text-[13px] text-white/75">
 						Include system apps
 					</span>
-					<SettingSwitch
-						label="Include system apps"
+					<Switch
+						aria-label="Include system apps"
 						checked={system}
-						onChange={setSystem}
+						onCheckedChange={setSystem}
 					/>
 				</div>
 				{error ? (
@@ -314,8 +338,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 										method: "POST",
 										body: apk,
 										headers: {
-											"Content-Type":
-												"application/vnd.android.package-archive",
+											"Content-Type": "application/vnd.android.package-archive",
 										},
 										signal,
 									});
@@ -337,18 +360,23 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 			<ToolDisclosure title="Open a link">
 				<ToolField label="Open with">
 					<Select
-						label="App for link"
 						value={linkPackage}
-						onChange={setLinkPackage}
-						className="w-full"
-						options={[
-							{ value: "", label: "System default" },
-							...(apps ?? []).map((app) => ({
-								value: app.package,
-								label: app.package,
-							})),
-						]}
-					/>
+						onValueChange={(next) => {
+							if (next !== null) setLinkPackage(next);
+						}}
+					>
+						<SelectTrigger aria-label="App for link" className="w-full">
+							<SelectValue>{linkPackage || "System default"}</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="">System default</SelectItem>
+							{(apps ?? []).map((app) => (
+								<SelectItem key={app.package} value={app.package}>
+									{app.package}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 				</ToolField>
 				<form
 					className="flex items-end gap-2"
@@ -376,7 +404,7 @@ function AppTools({ deviceId, basePath, active = true }: Props) {
 							required
 						/>
 					</ToolField>
-					<Button type="submit" disabled={!!busy}>
+					<Button variant="flat" type="submit" disabled={!!busy}>
 						<TextMorph>
 							{busy === "Open link" ? "Opening" : "Open link"}
 						</TextMorph>
@@ -486,14 +514,18 @@ function InstalledAppRow({
 					<DropdownMenuTrigger
 						render={
 							<Button
-								variant="ghost"
+								variant="quiet"
 								size="icon-sm"
 								aria-label={`Actions for ${name}`}
 								disabled={disabled}
 							/>
 						}
 					>
-						<HugeiconsIcon icon={MoreVerticalIcon} strokeWidth={2} className="size-4" />
+						<HugeiconsIcon
+							icon={MoreVerticalIcon}
+							strokeWidth={2}
+							className="size-4"
+						/>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent>
 						<DropdownMenuItem onClick={() => onAction("launch", name)}>

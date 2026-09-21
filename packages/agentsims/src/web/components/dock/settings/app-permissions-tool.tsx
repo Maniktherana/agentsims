@@ -1,6 +1,6 @@
 import { TextMorph } from "torph/react";
-import { Button } from "../../ui/button";
-import { ButtonGroup } from "../../ui/button-group";
+import { Button } from "@agentsims/ui/components/button";
+import { ButtonGroup } from "@agentsims/ui/components/button-group";
 import { useSettingsRefresh } from "./settings-refresh";
 import {
 	useCallback,
@@ -210,7 +210,7 @@ export function AppPermissionsTool({
 			<div className="flex justify-end">
 				<Button
 					variant="raised"
-					size="compact"
+					size="sm"
 					onClick={resetAll}
 					disabled={pending === "__all__"}
 					className="uppercase tracking-[0.04em]"
@@ -279,7 +279,7 @@ export function PermBtn({
 				: "var(--agentsims-accent)";
 	return (
 		<Button
-			variant="ghost"
+			variant="quiet"
 			size="icon-xs"
 			onClick={onClick}
 			disabled={pending}

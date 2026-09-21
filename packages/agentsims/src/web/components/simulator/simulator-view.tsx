@@ -1,4 +1,5 @@
-import { NumberMorph } from "../ui/number-morph";
+import { Button } from "@agentsims/ui/components/button";
+import { NumberMorph } from "@agentsims/ui/motion/number-morph";
 import {
 	useCallback,
 	useEffect,
@@ -1628,7 +1629,8 @@ export function SimulatorView({
 						borderTop: "1px solid rgba(255,255,255,0.12)",
 					}}
 				>
-					<button
+					<Button
+						variant="unstyled" size="unstyled"
 						onClick={handleHomeClick}
 						style={{
 							background: "none",
@@ -1642,7 +1644,7 @@ export function SimulatorView({
 						}}
 					>
 						Home
-					</button>
+					</Button>
 					<LegacyFrameRate
 						frameRate={simulatorFrameRate}
 						connectionQuality={connectionQuality}

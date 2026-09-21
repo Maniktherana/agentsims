@@ -2,7 +2,7 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
-import { Separator } from "@/components/ui/separator";
+import { Separator } from "@agentsims/ui/components/separator";
 
 const buttonGroupVariants = cva(
 	"flex w-fit items-center gap-0.5 rounded-[9px] bg-[var(--agentsims-button-raised)] p-0.5 shadow-[var(--agentsims-button-raised-shadow)] *:focus-visible:relative *:focus-visible:z-10",

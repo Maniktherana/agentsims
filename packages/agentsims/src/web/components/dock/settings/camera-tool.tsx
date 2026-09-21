@@ -1,4 +1,4 @@
-import { IconSwap } from "../../ui/state-transitions";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { TextMorph } from "torph/react";
 import { Camera } from "lucide-react";
 import {
@@ -16,8 +16,8 @@ import { createCameraClient } from "../../../dock/settings/camera-client";
 import { fileExtension, uploadFileToTmp } from "../../../media/drop";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { SettingRow, SettingSelect } from "./simulator-settings-tool";
-import { SettingSwitch } from "../../ui/setting-switch";
-import { Button } from "../../ui/button";
+import { Switch } from "@agentsims/ui/components/switch";
+import { Button } from "@agentsims/ui/components/button";
 import { useSettingsRefresh } from "./settings-refresh";
 
 export type CamSource = "placeholder" | "image" | "video" | "webcam";
@@ -900,7 +900,7 @@ export function CameraTool({
 				>
 					<Button
 						variant="raised"
-						size="compact"
+						size="sm"
 						type="button"
 						onClick={openFilePicker}
 						disabled={uploading || isBusy}
@@ -943,7 +943,7 @@ export function CameraTool({
 							}}
 						/>
 						<Button
-							variant="ghost"
+							variant="quiet"
 							size="icon-xs"
 							type="button"
 							onClick={() => void refreshWebcams()}
@@ -981,7 +981,7 @@ export function CameraTool({
 
 					{showFile && !uploading && (
 						<Button
-							variant="ghost"
+							variant="quiet"
 							size="icon-xs"
 							data-clear-media
 							onClick={(event) => {
@@ -1008,11 +1008,11 @@ export function CameraTool({
 				icon={<FlipHorizontal2 size={14} strokeWidth={2} />}
 				label="Mirror"
 			>
-				<SettingSwitch
-					label="Mirror"
+				<Switch
+					aria-label="Mirror"
 					checked={mirror === "on"}
 					disabled={mirrorDisabled}
-					onChange={toggleMirror}
+					onCheckedChange={toggleMirror}
 				/>
 			</SettingRow>
 

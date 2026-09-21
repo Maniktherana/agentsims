@@ -1,21 +1,21 @@
 {
 	"$schema": "https://ui.shadcn.com/schema.json",
-	"style": "new-york",
+	"style": "base-nova",
 	"rsc": false,
 	"tsx": true,
 	"tailwind": {
 		"config": "",
-		"css": "src/styles.css",
-		"baseColor": "zinc",
+		"css": "../../packages/ui/src/styles/globals.css",
+		"baseColor": "neutral",
 		"cssVariables": true,
 		"prefix": ""
 	},
-	"iconLibrary": "lucide",
+	"iconLibrary": "hugeicons",
 	"aliases": {
-		"components": "@/components",
-		"utils": "@/lib/utils",
-		"ui": "@/components/ui",
-		"lib": "@/lib",
-		"hooks": "@/hooks"
+		"components": "@agentsims/ui/components",
+		"utils": "@agentsims/ui/lib/utils",
+		"ui": "@agentsims/ui/components",
+		"lib": "@agentsims/ui/lib",
+		"hooks": "@agentsims/ui/hooks"
 	}
 }

@@ -1,3 +1,4 @@
+import { Button } from "@agentsims/ui/components/button";
 import { screenBorderRadius } from "../../simulator/index";
 import { useRef } from "react";
 import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
@@ -109,7 +110,8 @@ export function DevicePlaceholder({
 				</div>
 			)}
 
-			<button
+			<Button
+				variant="unstyled" size="unstyled"
 				type="button"
 				onClick={onStart}
 				disabled={busy}
@@ -127,7 +129,7 @@ export function DevicePlaceholder({
 					/>
 				)}
 				{busy ? busyLabel : actionLabel}
-			</button>
+			</Button>
 		</div>
 	);
 }

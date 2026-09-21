@@ -1,3 +1,9 @@
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
 import { CodeXml, GripVertical, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
@@ -8,7 +14,6 @@ import {
 	type DevToolsTarget,
 } from "../../devtools/client";
 import { useAccessibilityPanelPosition } from "../../accessibility/panel-position";
-import { IconButton } from "../ui/icon-button";
 import { FloatingPanelResizeHandle } from "../ui/floating-panel-resize-handle";
 import { DevToolsTargetPicker } from "./devtools-target-picker";
 
@@ -113,15 +118,21 @@ export function DevToolsPanel({
 							>
 								{deviceName}
 							</span>
-							<IconButton
-								label="Close DevTools"
-								tooltip="Close"
-								size="panel"
-								surface="toolbar"
-								onClick={onClose}
-							>
-								<X size={14} strokeWidth={2} />
-							</IconButton>
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<Button
+											aria-label="Close DevTools"
+											size="icon-sm"
+											variant="toolbar"
+											onClick={onClose}
+										/>
+									}
+								>
+									<X size={14} strokeWidth={2} />
+								</TooltipTrigger>
+								<TooltipContent>Close</TooltipContent>
+							</Tooltip>
 						</header>
 						<div className="min-h-0 flex-1 overflow-hidden rounded-b-[13px] bg-white">
 							{body}

@@ -1,11 +1,12 @@
-import { IconSwap } from "../components/ui/icon-swap";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ProductDemo } from "../components/product-demo";
 import { StaggerLine, StaggerReveal } from "../components/intro/stagger-reveal";
 import { useIntro } from "../components/intro/use-intro";
-import { Button, buttonVariants, pressable } from "../components/ui/button";
-import { cn } from "../lib/utils";
+import { Button, buttonVariants } from "@agentsims/ui/components/button";
+import { pressable } from "@agentsims/ui/motion/pressable";
+import { cn } from "@agentsims/ui/lib/utils";
 
 const repositoryUrl = "https://github.com/Maniktherana/agentsims";
 
@@ -141,14 +142,23 @@ function HomePage() {
 						show={intro.reached("copy")}
 						className="absolute top-[24%] left-[5.5%] z-[5] w-[44%] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-auto max-md:max-w-2xl max-md:px-5 max-md:pt-4"
 					>
-						<StaggerLine as="p" className="m-0 text-[clamp(0.875rem,1.25vw,1.25rem)] text-muted-foreground max-md:max-w-xs max-md:text-base max-md:leading-normal">
+						<StaggerLine
+							as="p"
+							className="m-0 text-[clamp(0.875rem,1.25vw,1.25rem)] text-muted-foreground max-md:max-w-xs max-md:text-base max-md:leading-normal"
+						>
 							Simulator workspace <span>for iOS and Android</span>
 						</StaggerLine>
-						<StaggerLine as="h1" className="mt-6 mb-0 text-[clamp(2.75rem,4.1vw,4.5rem)] leading-[1.05] font-semibold tracking-[-0.055em] max-md:text-[clamp(2.5rem,10.5vw,3.75rem)] max-md:tracking-[-0.045em]">
+						<StaggerLine
+							as="h1"
+							className="mt-6 mb-0 text-[clamp(2.75rem,4.1vw,4.5rem)] leading-[1.05] font-semibold tracking-[-0.055em] max-md:text-[clamp(2.5rem,10.5vw,3.75rem)] max-md:tracking-[-0.045em]"
+						>
 							<span className="block max-md:inline">Mobile simulators,</span>{" "}
 							<span className="block max-md:inline">in your browser.</span>
 						</StaggerLine>
-						<StaggerLine as="p" className="mt-7 mb-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground max-md:mt-6 max-md:text-[1.0625rem]">
+						<StaggerLine
+							as="p"
+							className="mt-7 mb-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground max-md:mt-6 max-md:text-[1.0625rem]"
+						>
 							Control iOS simulators and Android devices from one local
 							workspace.
 						</StaggerLine>

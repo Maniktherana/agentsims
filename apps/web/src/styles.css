@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "@agentsims/ui/globals.css";
 @source "./";
 
 @custom-variant dark (&:is(.dark *));

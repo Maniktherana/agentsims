@@ -1,3 +1,4 @@
+import { Button } from "@agentsims/ui/components/button";
 import {
 	Box,
 	Camera,
@@ -22,8 +23,11 @@ import {
 	useState,
 } from "react";
 import type { TraceCommand } from "../../../core/tools/traces/trace-file";
-import type { TraceCall, TraceCallStatus } from "../../hooks/simulator/use-trace";
-import { IconSwap } from "../ui/state-transitions";
+import type {
+	TraceCall,
+	TraceCallStatus,
+} from "../../hooks/simulator/use-trace";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { TraceCallDetail, renderCallOutput } from "./call-detail";
 
 const DETAIL_TRANSITION = {
@@ -75,7 +79,10 @@ export function callSummary(call: TraceCall): string {
 	if (call.status === "error")
 		return `agentsims: ${call.error?.message ?? "failed"}`;
 	if (call.command === "observe") return observeSummary(call.result);
-	const first = renderCallOutput(call.command as TraceCommand, call.result).split("\n")[0] ?? "";
+	const first =
+		renderCallOutput(call.command as TraceCommand, call.result).split(
+			"\n",
+		)[0] ?? "";
 	const line = first.startsWith("action  ")
 		? first.slice("action  ".length)
 		: first;
@@ -84,7 +91,10 @@ export function callSummary(call: TraceCall): string {
 		: line;
 }
 
-const STATUS_TEXT: Record<TraceCallStatus, { label: string; className: string }> = {
+const STATUS_TEXT: Record<
+	TraceCallStatus,
+	{ label: string; className: string }
+> = {
 	ok: { label: "OK", className: "text-success" },
 	refused: { label: "Refused", className: "text-warning" },
 	error: { label: "Error", className: "text-danger" },
@@ -96,8 +106,10 @@ function commandIcon(command: string): LucideIcon {
 	if (command === "screenshot") return Camera;
 	if (command === "wait") return Clock;
 	if (command === "tap" || command === "long-press") return MousePointer2;
-	if (command === "type" || command === "key" || command === "button") return Keyboard;
-	if (command === "scroll" || command === "swipe" || command === "gesture") return Move;
+	if (command === "type" || command === "key" || command === "button")
+		return Keyboard;
+	if (command === "scroll" || command === "swipe" || command === "gesture")
+		return Move;
 	if (command === "run" || command === "act") return Play;
 	if (command === "rotate") return RotateCw;
 	if (command.startsWith("app:")) return Box;
@@ -238,7 +250,9 @@ export function TraceCallList({
 						}}
 						className={index % 2 === 1 ? "bg-white/[0.018]" : undefined}
 					>
-						<button
+						<Button
+							variant="unstyled"
+							size="unstyled"
 							type="button"
 							aria-current={activeIndex === index ? "true" : undefined}
 							aria-expanded={expanded === index}
@@ -252,7 +266,10 @@ export function TraceCallList({
 									: "hover:bg-white/[0.03]"
 							}`}
 						>
-							<span aria-hidden="true" className="grid place-items-center text-white/42">
+							<span
+								aria-hidden="true"
+								className="grid place-items-center text-white/42"
+							>
 								<IconSwap state={expanded === index ? "open" : "closed"}>
 									{expanded === index ? (
 										<ChevronUp size={13} strokeWidth={1.8} />
@@ -264,15 +281,13 @@ export function TraceCallList({
 							<span className="truncate font-semibold text-white/82">
 								{call.command}
 							</span>
-							<span className="truncate text-white/42">
-								{summaryFor(call)}
-							</span>
+							<span className="truncate text-white/42">{summaryFor(call)}</span>
 							<span
 								className={`text-end text-[10px] font-semibold uppercase tracking-[0.04em] ${STATUS_TEXT[call.status].className}`}
 							>
 								{STATUS_TEXT[call.status].label}
 							</span>
-						</button>
+						</Button>
 						<AnimatePresence initial={false}>
 							{expanded === index && (
 								<motion.div
@@ -280,11 +295,11 @@ export function TraceCallList({
 									initial={reducedMotion ? false : { height: 0, opacity: 0 }}
 									animate={{ height: "auto", opacity: 1 }}
 									exit={
-										reducedMotion
-											? { opacity: 0 }
-											: { height: 0, opacity: 0 }
+										reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0 }
 									}
-									transition={reducedMotion ? { duration: 0 } : DETAIL_TRANSITION}
+									transition={
+										reducedMotion ? { duration: 0 } : DETAIL_TRANSITION
+									}
 									className="overflow-hidden"
 								>
 									<TraceCallDetail

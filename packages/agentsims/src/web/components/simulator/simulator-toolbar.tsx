@@ -1,3 +1,4 @@
+import { Button } from "@agentsims/ui/components/button";
 import {
 	createContext,
 	forwardRef,
@@ -174,7 +175,8 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
 		(ctx.deviceRuntime ? ctx.deviceRuntime.replace(/\./, " ") : "—");
 
 	return (
-		<button
+		<Button
+			variant="unstyled" size="unstyled"
 			ref={ref}
 			type="button"
 			data-simulator-toolbar-title
@@ -238,7 +240,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
 					{displaySubtitle}
 				</span>
 			)}
-		</button>
+		</Button>
 	);
 });
 
@@ -311,7 +313,8 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 			!!tooltipLabel && !effectiveDisabled && (hover || focus);
 
 		return (
-			<button
+			<Button
+				variant="unstyled" size="unstyled"
 				ref={ref}
 				type="button"
 				disabled={effectiveDisabled}
@@ -388,7 +391,7 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 						{tooltipLabel}
 					</span>
 				)}
-			</button>
+			</Button>
 		);
 	},
 );

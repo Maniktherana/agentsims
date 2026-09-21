@@ -1,21 +1,24 @@
-import { NumberMorph } from "../ui/number-morph";
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
+import { NumberMorph } from "@agentsims/ui/motion/number-morph";
 import {
 	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
-	type ButtonHTMLAttributes,
-	type ReactNode,
 	type RefObject,
 } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
-	AnimatePresence,
-	MotionConfig,
-	motion,
-	type Transition,
-	type Variants,
-} from "motion/react";
+	dockPanelTransition,
+	dockPanelVariants,
+	dockSurfaceTransition,
+} from "@agentsims/ui/motion/presets";
 import {
 	MonitorSmartphone,
 	RotateCcw,
@@ -24,14 +27,13 @@ import {
 	X,
 } from "lucide-react";
 import { type GridDevice, runtimeLabel } from "../../workspace/grid";
-import { IconButton } from "../ui/icon-button";
 import {
 	deviceLifecycleStatus,
 	DeviceRow,
 	resolveDeviceLifecyclePhase,
 	type DeviceLifecyclePhase,
 } from "../dock/devices/device-row";
-import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@agentsims/ui/components/tabs";
 import { useWorkspaceViewport } from "../../hooks/workspace/use-workspace-layout";
 
 const DEVICE_SKELETON_ROWS = 8;
@@ -79,24 +81,6 @@ export function reconcileDevicePhaseAnnouncements(
 	}
 	return { phases, announcement: changes.join(". ") };
 }
-const ISLAND_PANEL_VARIANTS = {
-	enter: (direction: number) => ({
-		opacity: 0,
-		x: direction * 16,
-		filter: "blur(4px)",
-	}),
-	center: { opacity: 1, x: 0, filter: "blur(0px)" },
-	exit: (direction: number) => ({
-		opacity: 0,
-		x: direction * -16,
-		filter: "blur(4px)",
-	}),
-} satisfies Variants;
-const ISLAND_PANEL_TRANSITION = {
-	duration: 0.24,
-	ease: [0, 0, 0.2, 1],
-} satisfies Transition;
-
 export function WorkspaceHeader({
 	pickerOpen,
 	onPickerOpenChange,
@@ -336,10 +320,7 @@ export function WorkspaceHeader({
 	};
 
 	return (
-		<MotionConfig
-			reducedMotion="user"
-			transition={{ type: "spring", bounce: 0.03, visualDuration: 0.15 }}
-		>
+		<MotionConfig reducedMotion="user" transition={dockSurfaceTransition}>
 			<footer className="pointer-events-none fixed inset-x-3 bottom-3 z-50 flex justify-center font-system">
 				<motion.div
 					data-agentsims-floating-panel
@@ -398,11 +379,11 @@ export function WorkspaceHeader({
 								<motion.div
 									key="devices"
 									custom={panelDirectionRef.current}
-									variants={ISLAND_PANEL_VARIANTS}
+									variants={dockPanelVariants}
 									initial="enter"
 									animate="center"
 									exit="exit"
-									transition={ISLAND_PANEL_TRANSITION}
+									transition={dockPanelTransition}
 									role="dialog"
 									aria-label="Devices"
 									className="absolute inset-0 flex min-h-0 flex-col text-white/90"
@@ -415,12 +396,16 @@ export function WorkspaceHeader({
 											<span className="text-[10px] tabular-nums text-white/35">
 												<NumberMorph>{visibleCount}</NumberMorph> shown
 											</span>
-											<PanelIconButton
-												label="Refresh devices"
+											<Button
+												variant="quiet"
+												size="icon"
+												aria-label="Refresh devices"
+												title="Refresh devices"
 												onClick={() => onRefreshDevices?.()}
+												className="text-white/42 hover:text-white/78"
 											>
 												<RotateCcw size={14} strokeWidth={2} />
-											</PanelIconButton>
+											</Button>
 										</div>
 									</div>
 									<DevicePickerContent
@@ -449,11 +434,11 @@ export function WorkspaceHeader({
 								<motion.div
 									key="settings"
 									custom={panelDirectionRef.current}
-									variants={ISLAND_PANEL_VARIANTS}
+									variants={dockPanelVariants}
 									initial="enter"
 									animate="center"
 									exit="exit"
-									transition={ISLAND_PANEL_TRANSITION}
+									transition={dockPanelTransition}
 									className="absolute inset-0 flex min-h-0 flex-col"
 								>
 									<div className="flex h-12 shrink-0 items-center gap-2 bg-[#181818] px-3">
@@ -487,23 +472,29 @@ export function WorkspaceHeader({
 										</Tabs>
 
 										<div className="flex shrink-0 items-center gap-0">
-											<PanelIconButton
-												label="Refresh settings"
+											<Button
+												variant="quiet"
+												size="icon"
+												aria-label="Refresh settings"
+												title="Refresh settings"
 												onClick={() => {
 													if (settingsDeviceId)
 														onRefreshSettings?.(settingsDeviceId);
 												}}
+												className="text-white/42 hover:text-white/78"
 											>
 												<RotateCcw size={14} strokeWidth={2} />
-											</PanelIconButton>
-											<button
+											</Button>
+											<Button
+												variant="unstyled"
+												size="unstyled"
 												type="button"
 												onClick={onToggleTools}
 												className="grid size-8 shrink-0 place-items-center rounded-md text-white/42 outline-none [transition-property:background-color,color,transform] duration-[110ms] hover:bg-white/[0.07] hover:text-white/78 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-white/35 motion-reduce:transition-none"
 												aria-label="Close Settings"
 											>
 												<X size={15} strokeWidth={2} />
-											</button>
+											</Button>
 										</div>
 									</div>
 									<div
@@ -522,96 +513,57 @@ export function WorkspaceHeader({
 								: "overflow-visible"
 						}`}
 					>
-						<WorkspaceDockButton
-							onClick={() =>
-								pickerOpen ? onPickerOpenChange(false) : openPicker()
-							}
-							label={devicesLabel}
-							pressed={pickerOpen}
-							badge={visibleCount}
-							shortcut="⇧D"
-							shortcutVisible={commandHeld}
-							aria-expanded={pickerOpen}
-							aria-haspopup="dialog"
-						>
-							<MonitorSmartphone
-								size={17}
-								strokeWidth={1.9}
-								className="shrink-0"
-							/>
-						</WorkspaceDockButton>
-						<WorkspaceDockButton
-							onClick={onToggleTools}
-							label="Device settings"
-							pressed={toolsOpen}
-							disabled={!hasActiveDevice}
-							shortcut=","
-							shortcutVisible={commandHeld}
-						>
-							<Settings size={17} strokeWidth={1.9} />
-						</WorkspaceDockButton>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										onClick={() =>
+											pickerOpen ? onPickerOpenChange(false) : openPicker()
+										}
+										aria-label={devicesLabel}
+										aria-pressed={pickerOpen}
+										aria-expanded={pickerOpen}
+										aria-haspopup="dialog"
+										variant="dock"
+										size="icon-lg"
+										className="relative"
+									/>
+								}
+							>
+								<MonitorSmartphone size={17} strokeWidth={1.9} />
+								<span
+									aria-hidden="true"
+									className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.42)]"
+								>
+									<NumberMorph>{visibleCount}</NumberMorph>
+								</span>
+								<ShortcutHint visible={commandHeld}>⇧D</ShortcutHint>
+							</TooltipTrigger>
+							<TooltipContent>{devicesLabel}</TooltipContent>
+						</Tooltip>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										onClick={onToggleTools}
+										aria-label="Device settings"
+										aria-pressed={toolsOpen}
+										disabled={!hasActiveDevice}
+										variant="dock"
+										size="icon-lg"
+										className="relative"
+									/>
+								}
+							>
+								<Settings size={17} strokeWidth={1.9} />
+								<ShortcutHint visible={commandHeld}>,</ShortcutHint>
+							</TooltipTrigger>
+							<TooltipContent>Device settings</TooltipContent>
+						</Tooltip>
 					</div>
 				</motion.div>
 			</footer>
 		</MotionConfig>
-	);
-}
-
-function PanelIconButton({
-	label,
-	children,
-	onClick,
-}: {
-	label: string;
-	children: ReactNode;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			type="button"
-			aria-label={label}
-			title={label === "Reset canvas positions" ? `${label} (Cmd+0)` : label}
-			onClick={onClick}
-			className="grid size-8 shrink-0 place-items-center rounded-md text-white/42 outline-none [transition-property:background-color,color,transform] duration-[110ms] hover:bg-white/[0.07] hover:text-white/78 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-white/35 motion-reduce:transition-none"
-		>
-			{children}
-		</button>
-	);
-}
-
-function WorkspaceDockButton({
-	label,
-	pressed = false,
-	badge,
-	shortcut,
-	shortcutVisible = false,
-	children,
-	disabled,
-	...buttonProps
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "title"> & {
-	label: string;
-	pressed?: boolean;
-	badge?: number | null;
-	shortcut?: string;
-	shortcutVisible?: boolean;
-	children: ReactNode;
-}) {
-	return (
-		<IconButton
-			{...buttonProps}
-			disabled={disabled}
-			label={label}
-			tooltip={label}
-			selected={pressed}
-			badge={badge}
-			surface="dock"
-			size="dock"
-		>
-			{children}
-			{shortcut && (
-				<ShortcutHint visible={shortcutVisible}>{shortcut}</ShortcutHint>
-			)}
-		</IconButton>
 	);
 }
 
@@ -805,7 +757,9 @@ function DevicePickerContent({
 						className="min-w-0 flex-1 border-none bg-transparent text-[12px] text-white/90 outline-none placeholder:text-white/35"
 					/>
 					{query && (
-						<button
+						<Button
+							variant="unstyled"
+							size="unstyled"
 							type="button"
 							onClick={() => setQuery("")}
 							className="grid size-8 place-items-center text-white/35 [border-radius:6px] [transition-property:background-color,color,scale] duration-150 hover:bg-white/[0.08] hover:text-white/75 active:scale-[0.96] motion-reduce:transition-none"
@@ -813,7 +767,7 @@ function DevicePickerContent({
 							title="Clear"
 						>
 							<X size={12} strokeWidth={2.2} />
-						</button>
+						</Button>
 					)}
 				</label>
 			</div>

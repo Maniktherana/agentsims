@@ -1,3 +1,9 @@
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
 import { FolderOpen, Route, Search } from "lucide-react";
 import {
 	useState,
@@ -13,8 +19,13 @@ import {
 } from "../../hooks/simulator/use-trace";
 import { execOnHost, shellEscape } from "../../simulator/input/exec";
 import { DevicePanel, type DevicePanelIdentity } from "../ui/device-panel";
-import { IconButton } from "../ui/icon-button";
-import { Select } from "../ui/select";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
 import { notify } from "../ui/toast";
 import { TraceCallList, formatCallTime } from "./call-list";
 import { TraceScreenshot } from "./screenshot";
@@ -142,38 +153,56 @@ export function TracePanel({
 		>
 			<div className="flex h-full min-h-0 flex-col">
 				<div className="flex min-w-0 shrink-0 items-center gap-2 px-2 pb-2">
-					<IconButton
-						label="Open trace library"
-						tooltip="Open trace library"
-						size="panel"
-						surface="toolbar"
-						onClick={openLibrary}
-					>
-						<FolderOpen size={14} strokeWidth={1.9} />
-					</IconButton>
-					<IconButton
-						label="Choose trace folder"
-						tooltip="Choose trace folder"
-						size="panel"
-						surface="toolbar"
-						onClick={chooseTrace}
-					>
-						<Search size={14} strokeWidth={1.9} />
-					</IconButton>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									aria-label="Open trace library"
+									size="icon-sm"
+									variant="toolbar"
+									onClick={openLibrary}
+								/>
+							}
+						>
+							<FolderOpen size={14} strokeWidth={1.9} />
+						</TooltipTrigger>
+						<TooltipContent>Open trace library</TooltipContent>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									aria-label="Choose trace folder"
+									size="icon-sm"
+									variant="toolbar"
+									onClick={chooseTrace}
+								/>
+							}
+						>
+							<Search size={14} strokeWidth={1.9} />
+						</TooltipTrigger>
+						<TooltipContent>Choose trace folder</TooltipContent>
+					</Tooltip>
 					{trace.traces.length > 0 ? (
 						<Select
-							label="Trace"
 							value={trace.selectedId ?? ""}
-							options={trace.traces.map((entry) => ({
-								value: entry.id,
-								label: traceOptionLabel(entry, true),
-							}))}
-							onChange={(id) => {
+							onValueChange={(id) => {
+								if (id === null) return;
 								setActiveIndex(0);
 								trace.select(id);
 							}}
-							className="min-w-0 flex-1"
-						/>
+						>
+							<SelectTrigger aria-label="Trace" className="min-w-0 flex-1">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{trace.traces.map((entry) => (
+									<SelectItem key={entry.id} value={entry.id}>
+										{traceOptionLabel(entry, true)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					) : (
 						<span className="min-w-0 flex-1 text-[12px] text-white/40">
 							No traces found
@@ -188,9 +217,7 @@ export function TracePanel({
 					<div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
 						<p className="text-[12px] leading-[1.6] text-white/45">
 							{trace.error ??
-								(live
-									? "Waiting for the first call…"
-									: "No traces found.")}
+								(live ? "Waiting for the first call…" : "No traces found.")}
 						</p>
 					</div>
 				) : (

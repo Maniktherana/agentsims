@@ -1,5 +1,5 @@
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import { Button } from "@agentsims/ui/components/button";
+import { Input } from "@agentsims/ui/components/input";
 import { TextMorph } from "torph/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Save } from "lucide-react";
@@ -109,10 +109,7 @@ export function AndroidSavedStates({
 						required
 					/>
 				</label>
-				<Button
-					type="submit"
-					disabled={busy || !name.trim()}
-				>
+				<Button variant="flat" type="submit" disabled={busy || !name.trim()}>
 					Save snapshot
 				</Button>
 			</form>
@@ -131,6 +128,7 @@ export function AndroidSavedStates({
 					</TextMorph>
 				</span>
 				<Button
+					variant="flat"
 					type="button"
 					disabled={busy || loading}
 					onClick={() => void refresh()}
@@ -193,6 +191,7 @@ export function SavedStateList({
 					</div>
 					<div className="flex shrink-0 gap-1.5">
 						<Button
+							variant="flat"
 							type="button"
 							disabled={busy}
 							aria-label={`Restore ${state.name}`}
@@ -201,6 +200,7 @@ export function SavedStateList({
 							Restore
 						</Button>
 						<Button
+							variant="flat"
 							type="button"
 							disabled={busy}
 							aria-label={`Delete ${state.name}`}

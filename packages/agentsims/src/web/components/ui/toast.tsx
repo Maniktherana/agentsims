@@ -1,3 +1,4 @@
+import { Button } from "@agentsims/ui/components/button";
 import type { ReactNode } from "react";
 import { CircleAlert, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -44,13 +45,14 @@ function ToastCard({
 	const className =
 		"flex w-[min(400px,calc(100vw-32px))] items-center gap-3 rounded-xl border border-white/12 bg-panel px-3 py-2.5 text-left shadow-[0_8px_24px_rgba(0,0,0,0.45)]";
 	return onClick ? (
-		<button
+		<Button
+			variant="unstyled" size="unstyled"
 			type="button"
 			onClick={onClick}
 			className={`${className} cursor-pointer [transition:background-color_120ms_ease] hover:bg-[#2a2a2c]`}
 		>
 			{content}
-		</button>
+		</Button>
 	) : (
 		<div className={className}>{content}</div>
 	);

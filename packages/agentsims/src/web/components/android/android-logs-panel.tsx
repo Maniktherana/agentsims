@@ -12,11 +12,17 @@ import {
 	androidToolsUrl,
 	downloadAndroidText,
 } from "../../android/tools-client";
-import { Button } from "../ui/button";
+import { Button } from "@agentsims/ui/components/button";
 import { CompactDisclosure } from "../ui/compact-disclosure";
-import { Input } from "../ui/input";
-import { Select } from "../ui/select";
-import { Switch } from "../ui/switch";
+import { Input } from "@agentsims/ui/components/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
+import { Switch } from "@agentsims/ui/components/switch";
 import { notify } from "../ui/toast";
 
 const rowHeight = 22;
@@ -118,8 +124,7 @@ export function AndroidLogsPanel({
 	const visible = rows.slice(first, first + Math.ceil(height / rowHeight) + 16);
 	const renderedLogs = rows
 		.map(
-			(row) =>
-				`${row.time} ${row.pid} ${row.level} ${row.tag}: ${row.message}`,
+			(row) => `${row.time} ${row.pid} ${row.level} ${row.tag}: ${row.message}`,
 		)
 		.join("\n");
 	const copyPath = (path: string) => {
@@ -144,10 +149,10 @@ export function AndroidLogsPanel({
 	};
 	const recordingActions = (path: string) => (
 		<div className="flex items-center gap-1">
-			<Button variant="ghost" size="compact" onClick={() => copyPath(path)}>
+			<Button variant="quiet" size="sm" onClick={() => copyPath(path)}>
 				Copy path
 			</Button>
-			<Button variant="raised" size="compact" onClick={() => openRecording(path)}>
+			<Button variant="raised" size="sm" onClick={() => openRecording(path)}>
 				Open
 			</Button>
 		</div>
@@ -213,19 +218,29 @@ export function AndroidLogsPanel({
 						<label className="flex min-w-0 flex-col gap-1 text-white/60">
 							Level
 							<Select
-								label="Log level"
-								className="w-full"
 								value={filter.level}
-								onChange={(level) => setFilter({ ...filter, level })}
-								options={[
-									{ value: "V", label: "Verbose" },
-									{ value: "D", label: "Debug" },
-									{ value: "I", label: "Info" },
-									{ value: "W", label: "Warning" },
-									{ value: "E", label: "Error" },
-									{ value: "F", label: "Fatal" },
-								]}
-							/>
+								onValueChange={(level) => {
+									if (level !== null) setFilter({ ...filter, level });
+								}}
+							>
+								<SelectTrigger aria-label="Log level" className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{[
+										["V", "Verbose"],
+										["D", "Debug"],
+										["I", "Info"],
+										["W", "Warning"],
+										["E", "Error"],
+										["F", "Fatal"],
+									].map(([value, label]) => (
+										<SelectItem key={value} value={value}>
+											{label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
 						</label>
 						<label className="flex min-w-0 flex-col gap-1 text-white/60">
 							PID
@@ -239,7 +254,7 @@ export function AndroidLogsPanel({
 							/>
 						</label>
 						<div className="col-span-2 flex justify-end">
-							<Button variant="raised" size="compact" type="submit">
+							<Button variant="raised" size="sm" type="submit">
 								Apply filters
 							</Button>
 						</div>
@@ -249,7 +264,7 @@ export function AndroidLogsPanel({
 			<div className="flex shrink-0 items-center gap-1 px-3 py-2">
 				<Button
 					variant={paused ? "raised" : "ghost"}
-					size="compact"
+					size="sm"
 					type="button"
 					aria-pressed={paused}
 					onClick={() => setPaused(!paused)}
@@ -257,8 +272,8 @@ export function AndroidLogsPanel({
 					<TextMorph>{paused ? "Resume" : "Pause"}</TextMorph>
 				</Button>
 				<Button
-					variant="ghost"
-					size="compact"
+					variant="quiet"
+					size="sm"
 					type="button"
 					onClick={() => {
 						pending.current = [];
@@ -268,8 +283,8 @@ export function AndroidLogsPanel({
 					Clear
 				</Button>
 				<Button
-					variant="ghost"
-					size="compact"
+					variant="quiet"
+					size="sm"
 					type="button"
 					disabled={rows.length === 0}
 					onClick={() => {
@@ -282,8 +297,8 @@ export function AndroidLogsPanel({
 					Copy
 				</Button>
 				<Button
-					variant="ghost"
-					size="compact"
+					variant="quiet"
+					size="sm"
 					type="button"
 					disabled={rows.length === 0}
 					onClick={() =>
@@ -311,14 +326,17 @@ export function AndroidLogsPanel({
 				</span>
 				<Button
 					variant={recording ? "raised" : "ghost"}
-					size="compact"
+					size="sm"
 					type="button"
 					disabled={recordingBusy}
 					aria-pressed={!!recording}
 					onClick={() => void toggleRecording()}
 				>
 					{recording && (
-						<span className="size-1.5 rounded-full bg-red-500" aria-hidden="true" />
+						<span
+							className="size-1.5 rounded-full bg-red-500"
+							aria-hidden="true"
+						/>
 					)}
 					<TextMorph>{recording ? "Stop recording" : "Record"}</TextMorph>
 				</Button>
@@ -351,9 +369,7 @@ export function AndroidLogsPanel({
 						</div>
 					</div>
 					{rows.length === 0 && (
-						<p className="p-3 opacity-60">
-							No log lines match these filters.
-						</p>
+						<p className="p-3 opacity-60">No log lines match these filters.</p>
 					)}
 				</div>
 			</div>

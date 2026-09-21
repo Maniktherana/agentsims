@@ -1,4 +1,4 @@
-import { Button } from "../../ui/button";
+import { Button } from "@agentsims/ui/components/button";
 import { useSettingsRefresh } from "./settings-refresh";
 import { Smartphone } from "lucide-react";
 import {
@@ -12,8 +12,14 @@ import {
 import { hostUiRequest } from "../../../simulator/input/exec";
 import { parseRuntime } from "../../../workspace/grid";
 import { CollapsibleSection } from "../../ui/collapsible-section";
-import { Select } from "../../ui/select";
-import { SettingSwitch } from "../../ui/setting-switch";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
+import { Switch } from "@agentsims/ui/components/switch";
 
 // Simulator-wide UI options, mirroring the Xcode Devices app sidebar. Every
 // control drives `agentsims ui <option> <value>`, which handles the simctl-
@@ -249,13 +255,27 @@ export function SettingSelect({
 }) {
 	return (
 		<Select
-			label={label}
 			value={value}
-			options={options}
+			items={options}
 			disabled={disabled}
-			onChange={onChange}
-			className={`max-w-[150px] ${className}`}
-		/>
+			onValueChange={(next) => {
+				if (next !== null) onChange(next);
+			}}
+		>
+			<SelectTrigger
+				aria-label={label}
+				className={`max-w-[150px] ${className}`}
+			>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{options.map((option) => (
+					<SelectItem key={option.value} value={option.value}>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }
 
@@ -620,11 +640,11 @@ export function SimulatorSettingsTool({
 								}
 								label={label}
 							>
-								<SettingSwitch
-									label={label}
+								<Switch
+									aria-label={label}
 									checked={shown[key] === "on"}
 									disabled={!ready || pending === key}
-									onChange={(next) => apply(key, next ? "on" : "off")}
+									onCheckedChange={(next) => apply(key, next ? "on" : "off")}
 								/>
 							</SettingRow>
 						))}

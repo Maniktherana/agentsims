@@ -1,3 +1,9 @@
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
 import { Copy, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState, type CSSProperties } from "react";
@@ -6,7 +12,6 @@ import {
 	DEVICE_PRESENCE_HIDDEN_SCALE,
 	DEVICE_PRESENCE_TRANSITION,
 } from "../../simulator/presence-motion";
-import { IconButton } from "../ui/icon-button";
 
 export type ScreenshotPreviewSide = "right" | "left";
 
@@ -411,29 +416,41 @@ function ScreenshotPreviewSurface({
 				transition={{ duration: reducedMotion ? 0 : 0.12 }}
 				style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
 			>
-				<IconButton
-					label="Copy image"
-					tooltip="Copy image"
-					size="panel"
-					surface="toolbar"
-					style={{ borderRadius: 9999 }}
-					className="bg-[#f2f2f2]! text-[#181818]! hover:bg-white!"
-					disabled={preview.copying}
-					onClick={onCopy}
-				>
-					<Copy aria-hidden="true" size={14} strokeWidth={2} />
-				</IconButton>
-				<IconButton
-					label="Close screenshot"
-					tooltip="Close"
-					size="panel"
-					surface="toolbar"
-					style={{ borderRadius: 9999 }}
-					className="bg-[#f2f2f2]! text-[#181818]! hover:bg-white!"
-					onClick={onDismiss}
-				>
-					<X aria-hidden="true" size={14} strokeWidth={2} />
-				</IconButton>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Copy image"
+								size="icon-sm"
+								variant="toolbar"
+								style={{ borderRadius: 9999 }}
+								className="bg-[#f2f2f2]! text-[#181818]! hover:bg-white!"
+								disabled={preview.copying}
+								onClick={onCopy}
+							/>
+						}
+					>
+						<Copy aria-hidden="true" size={14} strokeWidth={2} />
+					</TooltipTrigger>
+					<TooltipContent>Copy image</TooltipContent>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Close screenshot"
+								size="icon-sm"
+								variant="toolbar"
+								style={{ borderRadius: 9999 }}
+								className="bg-[#f2f2f2]! text-[#181818]! hover:bg-white!"
+								onClick={onDismiss}
+							/>
+						}
+					>
+						<X aria-hidden="true" size={14} strokeWidth={2} />
+					</TooltipTrigger>
+					<TooltipContent>Close</TooltipContent>
+				</Tooltip>
 			</motion.div>
 		</motion.div>
 	);

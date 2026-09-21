@@ -1,7 +1,7 @@
-import { Button } from "../../ui/button";
-import { Input } from "../../ui/input";
-import { NumberMorph } from "../../ui/number-morph";
-import { IconSwap } from "../../ui/state-transitions";
+import { Button } from "@agentsims/ui/components/button";
+import { Input } from "@agentsims/ui/components/input";
+import { NumberMorph } from "@agentsims/ui/motion/number-morph";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { TextMorph } from "torph/react";
 import { MapPin } from "lucide-react";
 // Location emulation panel + lightweight 3D trail viz.
@@ -44,7 +44,13 @@ import {
 	WalkGlyph,
 } from "../../icons/index";
 import { CollapsibleSection } from "../../ui/collapsible-section";
-import { Select } from "../../ui/select";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
 import {
 	setDeviceLocation,
 	type LocationPoint,
@@ -415,15 +421,22 @@ export function LocationEmulationTool({
 			<div className="flex flex-col gap-1">
 				<div className="relative block">
 					<Select
-						label="Trail"
 						value={trailId}
-						onChange={onTrailChange}
-						options={DEFAULT_TRAILS.map((t) => ({
-							value: t.id,
-							label: t.name,
-						}))}
-						className="w-full"
-					/>
+						onValueChange={(next) => {
+							if (next !== null) onTrailChange(next);
+						}}
+					>
+						<SelectTrigger aria-label="Trail" className="w-full">
+							<SelectValue>{trail.name}</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							{DEFAULT_TRAILS.map((item) => (
+								<SelectItem key={item.id} value={item.id}>
+									{item.name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 				</div>
 				<div className="text-[11px] text-white/45">{trail.description}</div>
 			</div>
@@ -553,11 +566,7 @@ export function LocationEmulationTool({
 							/>
 						</label>
 					))}
-					<Button
-						variant="raised"
-						type="submit"
-						disabled={settingLocation}
-					>
+					<Button variant="raised" type="submit" disabled={settingLocation}>
 						Set location
 					</Button>
 				</form>
@@ -613,7 +622,8 @@ function Segmented<T extends string>({
 			{options.map((o) => {
 				const active = o.value === value;
 				return (
-					<button
+					<Button
+						variant="unstyled" size="unstyled"
 						key={o.value}
 						type="button"
 						onClick={() => onChange(o.value)}
@@ -623,7 +633,7 @@ function Segmented<T extends string>({
 						title={o.icon ? o.label : undefined}
 					>
 						{o.icon ?? o.label}
-					</button>
+					</Button>
 				);
 			})}
 		</div>

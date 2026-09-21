@@ -1,3 +1,9 @@
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
 import { GripVertical, X } from "lucide-react";
 import {
 	useId,
@@ -5,7 +11,6 @@ import {
 	type PointerEventHandler,
 	type ReactNode,
 } from "react";
-import { IconButton } from "./icon-button";
 import { PanelSurface } from "./panel";
 import {
 	FloatingPanelResizeHandle,
@@ -134,15 +139,21 @@ export function DevicePanel({
 					</span>
 				</div>
 				{headerActions}
-				<IconButton
-					label={closeLabel ?? `Close ${title.toLowerCase()}`}
-					tooltip="Close"
-					size="panel"
-					surface="toolbar"
-					onClick={onClose}
-				>
-					<X size={14} strokeWidth={2} />
-				</IconButton>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label={closeLabel ?? `Close ${title.toLowerCase()}`}
+								size="icon-sm"
+								variant="toolbar"
+								onClick={onClose}
+							/>
+						}
+					>
+						<X size={14} strokeWidth={2} />
+					</TooltipTrigger>
+					<TooltipContent>Close</TooltipContent>
+				</Tooltip>
 			</header>
 			<div
 				data-agentsims-device-panel-body

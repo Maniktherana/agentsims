@@ -1,5 +1,11 @@
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
 import type { DevToolsTarget } from "../../devtools/client";
-import { Select } from "../ui/select";
 
 export function DevToolsTargetPicker({
 	targets,
@@ -12,15 +18,23 @@ export function DevToolsTargetPicker({
 }) {
 	return (
 		<Select
-			label="Browser page"
 			value={selected?.id ?? ""}
-			options={targets.map((target) => ({
-				value: target.id,
-				label: target.title || target.url || "Untitled page",
-			}))}
-			onChange={onSelectTarget}
-			matchTriggerWidth
-			className="w-full"
-		/>
+			onValueChange={(next) => {
+				if (next !== null) onSelectTarget(next);
+			}}
+		>
+			<SelectTrigger aria-label="Browser page" className="w-full">
+				<SelectValue>
+					{selected?.title || selected?.url || "Untitled page"}
+				</SelectValue>
+			</SelectTrigger>
+			<SelectContent>
+				{targets.map((target) => (
+					<SelectItem key={target.id} value={target.id}>
+						{target.title || target.url || "Untitled page"}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }

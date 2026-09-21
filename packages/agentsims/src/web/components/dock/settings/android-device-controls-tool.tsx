@@ -1,4 +1,4 @@
-import { Button } from "../../ui/button";
+import { Button } from "@agentsims/ui/components/button";
 import { useSettingsRefresh } from "./settings-refresh";
 import {
 	type ReactNode,

@@ -1,4 +1,4 @@
-import { Button } from "../../ui/button";
+import { Button } from "@agentsims/ui/components/button";
 import { useSettingsRefresh } from "./settings-refresh";
 import { Smartphone } from "lucide-react";
 import {
@@ -24,7 +24,7 @@ import {
 	SettingSelect,
 	TextSizeSlider,
 } from "./simulator-settings-tool";
-import { SettingSwitch } from "../../ui/setting-switch";
+import { Switch } from "@agentsims/ui/components/switch";
 
 export const ANDROID_FONT_SCALES = [0.85, 0.9, 1, 1.1, 1.2, 1.3, 1.5] as const;
 
@@ -307,11 +307,11 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 				}
 				label="Reduce Motion"
 			>
-				<SettingSwitch
-					label="Reduce Motion"
+				<Switch
+					aria-label="Reduce Motion"
 					checked={shown.reduceMotion}
 					disabled={!ready || pending === "reduce-motion"}
-					onChange={(reduceMotion) => {
+					onCheckedChange={(reduceMotion) => {
 						void run(
 							"reduce-motion",
 							{ ...shown, reduceMotion },
@@ -329,11 +329,11 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 				}
 				label="Show Touches"
 			>
-				<SettingSwitch
-					label="Show Touches"
+				<Switch
+					aria-label="Show Touches"
 					checked={shown.showTouches}
 					disabled={!ready || pending === "show-touches"}
-					onChange={(showTouches) =>
+					onCheckedChange={(showTouches) =>
 						void run(
 							"show-touches",
 							{ ...shown, showTouches },
@@ -351,11 +351,11 @@ function AndroidDeviceSettings({ udid, children }: AndroidSettingsProps) {
 				}
 				label="Pointer Location"
 			>
-				<SettingSwitch
-					label="Pointer Location"
+				<Switch
+					aria-label="Pointer Location"
 					checked={shown.pointerLocation}
 					disabled={!ready || pending === "pointer-location"}
-					onChange={(pointerLocation) =>
+					onCheckedChange={(pointerLocation) =>
 						void run(
 							"pointer-location",
 							{ ...shown, pointerLocation },

@@ -1,9 +1,14 @@
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
 import { getDeviceType } from "../../../simulator/index";
 import { Eye, EyeOff, LoaderCircle, Power, RotateCcw } from "lucide-react";
 import { type GridDevice, runtimeLabel } from "../../../workspace/grid";
-import { IconButton } from "../../ui/icon-button";
-import { IconSwap } from "../../ui/state-transitions";
-import { TextMorph } from "torph/react";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
+import { TextStateSwap } from "@agentsims/ui/motion/text-state-swap";
 import { DeviceGlyph } from "./device-glyph";
 
 export type DeviceLifecyclePhase =
@@ -182,7 +187,7 @@ export function DeviceRow({
 										: "text-white/45"
 						}`}
 					>
-						<TextMorph>{status}</TextMorph>
+						<TextStateSwap>{status}</TextStateSwap>
 					</div>
 				)}
 			</div>
@@ -197,44 +202,60 @@ export function DeviceRow({
 			>
 				{showVisibilityControl ? (
 					<>
-						<IconButton
-							label={`${visible ? "Hide" : "Show"} ${device.name}`}
-							tooltip={visible ? "Hide from canvas" : "Show on canvas"}
-							surface="toolbar"
-							size="row"
-							className={visible ? "!border-transparent !text-white" : "!border-transparent"}
-							disabled={transitioning}
-							onClick={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								onVisibleChange?.(!visible);
-							}}
-						>
-							<IconSwap state={visible ? "visible" : "hidden"}>
-								{visible ? (
-									<Eye size={14} strokeWidth={2} />
-								) : (
-									<EyeOff size={14} strokeWidth={2} />
-								)}
-							</IconSwap>
-						</IconButton>
-						{canShutdown && (
-							<IconButton
-								label="Shut down device"
-								tooltip={shuttingDown ? "Shutting down" : "Shut down"}
-								tone="danger"
-								surface="toolbar"
-								size="row"
-								className="!border-transparent !text-red-400 hover:!bg-red-500/10"
-								disabled={transitioning}
-								onClick={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									onShutdown();
-								}}
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										aria-label={`${visible ? "Hide" : "Show"} ${device.name}`}
+										aria-pressed={!!visible}
+										variant="toolbar"
+										size="icon-xs"
+										className={`!border-transparent !bg-transparent hover:!bg-white/[0.06] ${visible ? "!text-white" : "!text-white/55 hover:!text-white"}`}
+										disabled={transitioning}
+										onClick={(event) => {
+											event.preventDefault();
+											event.stopPropagation();
+											onVisibleChange?.(!visible);
+										}}
+									/>
+								}
 							>
-								<Power size={14} strokeWidth={2} />
-							</IconButton>
+								<IconSwap state={visible ? "visible" : "hidden"}>
+									{visible ? (
+										<Eye size={14} strokeWidth={2} />
+									) : (
+										<EyeOff size={14} strokeWidth={2} />
+									)}
+								</IconSwap>
+							</TooltipTrigger>
+							<TooltipContent>
+								{visible ? "Hide from canvas" : "Show on canvas"}
+							</TooltipContent>
+						</Tooltip>
+						{canShutdown && (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<Button
+											aria-label="Shut down device"
+											variant="danger-ghost"
+											size="icon-xs"
+											className="!border-transparent !bg-transparent !text-red-400 hover:!bg-red-500/10"
+											disabled={transitioning}
+											onClick={(event) => {
+												event.preventDefault();
+												event.stopPropagation();
+												onShutdown();
+											}}
+										/>
+									}
+								>
+									<Power size={14} strokeWidth={2} />
+								</TooltipTrigger>
+								<TooltipContent>
+									{shuttingDown ? "Shutting down" : "Shut down"}
+								</TooltipContent>
+							</Tooltip>
 						)}
 					</>
 				) : (
@@ -248,7 +269,9 @@ export function DeviceRow({
 						</span>
 
 						{canShutdown && (
-							<button
+							<Button
+								variant="unstyled"
+								size="unstyled"
 								type="button"
 								title={shuttingDown ? "Shutting down" : "Shut down device"}
 								aria-label="Shut down device"
@@ -265,7 +288,7 @@ export function DeviceRow({
 								}`}
 							>
 								<Power size={13} strokeWidth={2.2} />
-							</button>
+							</Button>
 						)}
 					</>
 				)}

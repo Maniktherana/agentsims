@@ -3,15 +3,18 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "cn";
-import { Chevron } from "../icons/index";
+import { Chevron } from "./chevron";
 
-const SelectRoot = SelectPrimitive.Root;
+const Select = SelectPrimitive.Root;
 
 function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
 	return (
 		<SelectPrimitive.Value
 			data-slot="select-value"
-			className={cn("flex min-w-0 flex-1 truncate whitespace-nowrap text-start", className)}
+			className={cn(
+				"flex min-w-0 flex-1 items-center truncate whitespace-nowrap text-start leading-4",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -26,7 +29,7 @@ function SelectTrigger({
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
 			className={cn(
-				"flex h-8 min-w-0 items-center justify-between gap-2 overflow-hidden rounded-[8px] bg-[var(--agentsims-button-raised)] px-2.5 text-[13px] leading-none text-white/90 shadow-[var(--agentsims-button-raised-shadow)] outline-none [transition-property:background-color,box-shadow] duration-150 enabled:hover:bg-[var(--agentsims-button-raised-hover)] focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#181818] disabled:cursor-not-allowed disabled:opacity-40",
+				"flex h-8 min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg bg-[var(--agentsims-button-raised)] px-2.5 text-[13px] leading-4 text-white/90 shadow-[var(--agentsims-button-raised-shadow)] outline-none [transition-property:background-color,box-shadow] duration-150 enabled:hover:bg-[var(--agentsims-button-raised-hover)] focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#181818] disabled:cursor-not-allowed disabled:opacity-40",
 				className,
 			)}
 			{...props}
@@ -123,50 +126,4 @@ function SelectScrollDownButton(
 	);
 }
 
-export function Select({
-	label,
-	value,
-	options,
-	disabled,
-	onChange,
-	className,
-	matchTriggerWidth = false,
-}: {
-	label: string;
-	value: string;
-	options: Array<{ value: string; label: string }>;
-	disabled?: boolean;
-	onChange: (next: string) => void;
-	className?: string;
-	matchTriggerWidth?: boolean;
-}) {
-	return (
-		<SelectRoot
-			value={value}
-			items={options}
-			disabled={disabled}
-			onValueChange={(next) => {
-				if (next !== null) onChange(next);
-			}}
-		>
-			<SelectTrigger aria-label={label} className={className}>
-				<SelectValue />
-			</SelectTrigger>
-			<SelectContent matchTriggerWidth={matchTriggerWidth}>
-				{options.map((option) => (
-					<SelectItem key={option.value} value={option.value}>
-						{option.label}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</SelectRoot>
-	);
-}
-
-export {
-	SelectContent,
-	SelectItem,
-	SelectRoot,
-	SelectTrigger,
-	SelectValue,
-};
+export { SelectContent, SelectItem, Select, SelectTrigger, SelectValue };

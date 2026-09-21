@@ -1,4 +1,4 @@
-import { Button } from "../../ui/button";
+import { Button } from "@agentsims/ui/components/button";
 import { useSettingsRefresh } from "./settings-refresh";
 import { TextMorph } from "torph/react";
 import { Camera, Mic, RefreshCw, Volume2 } from "lucide-react";
@@ -22,7 +22,7 @@ import { simEndpoint } from "../../../preview/sim-endpoint";
 import { CameraTool } from "./camera-tool";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { SettingRow, SettingSelect } from "./simulator-settings-tool";
-import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@agentsims/ui/components/tabs";
 
 function mediaEndpoint(deviceId: string): string {
 	return `${simEndpoint("media")}?device=${encodeURIComponent(deviceId)}`;
@@ -891,7 +891,7 @@ function TinyAction({
 	return (
 		<Button
 			variant="flat"
-			size="compact"
+			size="sm"
 			type="button"
 			disabled={disabled}
 			title={title}

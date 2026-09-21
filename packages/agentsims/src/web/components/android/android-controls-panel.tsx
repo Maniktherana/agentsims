@@ -1,5 +1,5 @@
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import { Button } from "@agentsims/ui/components/button";
+import { Input } from "@agentsims/ui/components/input";
 import { type ReactNode, useState } from "react";
 import {
 	Accessibility,
@@ -22,12 +22,9 @@ import {
 	SettingSelect,
 } from "../dock/settings/simulator-settings-tool";
 import { CollapsibleSection } from "../ui/collapsible-section";
-import { SettingSwitch } from "../ui/setting-switch";
+import { Switch } from "@agentsims/ui/components/switch";
 import { AndroidSavedStates } from "./android-saved-states";
-import {
-	formString,
-	ToolField,
-} from "./tool-fields";
+import { formString, ToolField } from "./tool-fields";
 
 export type AndroidControlAction = Extract<
 	AndroidToolAction,
@@ -129,11 +126,11 @@ export function AndroidSimulatorControlRows({
 				const checked = state?.network[field];
 				return (
 					<SettingRow key={field} icon={icon} label={label}>
-						<SettingSwitch
-							label={label}
+						<Switch
+							aria-label={label}
 							checked={checked ?? false}
 							disabled={busy || !supported || checked == null}
-							onChange={(value) =>
+							onCheckedChange={(value) =>
 								void run({ type: "network", [field]: value })
 							}
 						/>
@@ -219,6 +216,7 @@ export function AndroidSimulatorControlRows({
 						onChange={(event) => setBatteryLevel(event.target.value)}
 					/>
 					<Button
+						variant="flat"
 						type="submit"
 						aria-label="Set battery"
 						disabled={busy || state?.battery.level == null}
@@ -228,11 +226,13 @@ export function AndroidSimulatorControlRows({
 				</form>
 			</SettingRow>
 			<SettingRow icon={<BatteryCharging size={14} />} label="Charging">
-				<SettingSwitch
-					label="Charging"
+				<Switch
+					aria-label="Charging"
 					checked={state?.battery.charging ?? false}
 					disabled={busy || state?.battery.charging == null}
-					onChange={(charging) => void run({ type: "battery", charging })}
+					onCheckedChange={(charging) =>
+						void run({ type: "battery", charging })
+					}
 				/>
 			</SettingRow>
 		</>
@@ -290,10 +290,11 @@ export function AndroidControlsPanel({
 							onChange={(event) => setDensity(event.target.value)}
 						/>
 					</ToolField>
-					<Button type="submit" disabled={busy}>
+					<Button variant="flat" type="submit" disabled={busy}>
 						Set density
 					</Button>
 					<Button
+						variant="flat"
 						type="button"
 						disabled={busy}
 						onClick={() =>
@@ -319,19 +320,12 @@ export function AndroidControlsPanel({
 						}}
 					>
 						<ToolField label="App package">
-							<Input
-								name="package"
-								required
-								placeholder="com.example.app"
-							/>
+							<Input name="package" required placeholder="com.example.app" />
 						</ToolField>
 						<ToolField label="App language">
-							<Input
-								name="locale"
-								placeholder="fr-FR; blank to reset"
-							/>
+							<Input name="locale" placeholder="fr-FR; blank to reset" />
 						</ToolField>
-						<Button type="submit" disabled={busy}>
+						<Button variant="flat" type="submit" disabled={busy}>
 							Set language
 						</Button>
 					</form>
@@ -343,13 +337,15 @@ export function AndroidControlsPanel({
 						capabilities?.talkback === false ? "Not installed" : undefined
 					}
 				>
-					<SettingSwitch
-						label="TalkBack"
+					<Switch
+						aria-label="TalkBack"
 						checked={state?.display.talkback ?? false}
 						disabled={
 							busy || !capabilities?.talkback || state?.display.talkback == null
 						}
-						onChange={(enabled) => void run({ type: "talkback", enabled })}
+						onCheckedChange={(enabled) =>
+							void run({ type: "talkback", enabled })
+						}
 					/>
 				</SettingRow>
 			</ToolSection>
@@ -370,11 +366,7 @@ export function AndroidControlsPanel({
 						}}
 					>
 						<ToolField label="Phone number">
-							<Input
-								name="number"
-								defaultValue="5551234567"
-								required
-							/>
+							<Input name="number" defaultValue="5551234567" required />
 						</ToolField>
 						<ToolField label="Call event">
 							<SettingSelect
@@ -390,7 +382,7 @@ export function AndroidControlsPanel({
 								}}
 							/>
 						</ToolField>
-						<Button type="submit" disabled={busy}>
+						<Button variant="flat" type="submit" disabled={busy}>
 							Send call event
 						</Button>
 					</form>
@@ -407,16 +399,12 @@ export function AndroidControlsPanel({
 						}}
 					>
 						<ToolField label="Sender">
-							<Input
-								name="number"
-								defaultValue="5551234567"
-								required
-							/>
+							<Input name="number" defaultValue="5551234567" required />
 						</ToolField>
 						<ToolField label="Message">
 							<Input name="text" required />
 						</ToolField>
-						<Button type="submit" disabled={busy}>
+						<Button variant="flat" type="submit" disabled={busy}>
 							Send SMS
 						</Button>
 					</form>

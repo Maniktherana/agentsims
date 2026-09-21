@@ -1,6 +1,4 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "@agentsims/ui/globals.css";
 
 @source "./";
 
@@ -81,6 +79,9 @@
      but translucent so `backdrop-blur` still shows the stream through them. */
 	--agentsims-panel-bg-translucent: rgba(24, 24, 24, 0.78);
 	--agentsims-panel-bg-transparent: rgba(24, 24, 24, 0);
+	--ui-ghost-foreground: rgba(255, 255, 255, 0.7);
+	--ui-ghost-hover: rgba(255, 255, 255, 0.06);
+	--ui-ghost-hover-foreground: rgba(255, 255, 255, 0.9);
 	--agentsims-device-screen-on: oklch(0.58 0.1 245);
 	--agentsims-radius-row: 5px;
 	--agentsims-radius-control: 6px;
@@ -101,8 +102,7 @@
 	--agentsims-button-raised-hover: rgba(255, 255, 255, 0.1);
 	--agentsims-button-raised-pressed: rgba(255, 255, 255, 0.12);
 	--agentsims-button-raised-shadow:
-		0 1px 1px rgba(0, 0, 0, 0.24),
-		inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+		0 1px 1px rgba(0, 0, 0, 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.04),
 		inset 0 1px 0 rgba(255, 255, 255, 0.06);
 	--agentsims-field-bg: rgba(255, 255, 255, 0.04);
 	--agentsims-field-bg-hover: rgba(255, 255, 255, 0.06);

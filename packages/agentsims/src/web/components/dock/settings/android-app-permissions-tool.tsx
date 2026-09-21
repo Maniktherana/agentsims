@@ -2,8 +2,8 @@ import { Check, ShieldCheck, X } from "lucide-react";
 import { TextMorph } from "torph/react";
 import { ReloadIcon } from "../../icons/index";
 import { useCallback, useEffect, useReducer, useState } from "react";
-import { Button } from "../../ui/button";
-import { ButtonGroup } from "../../ui/button-group";
+import { Button } from "@agentsims/ui/components/button";
+import { ButtonGroup } from "@agentsims/ui/components/button-group";
 import { CollapsibleSection } from "../../ui/collapsible-section";
 import { PermBtn } from "./app-permissions-tool";
 import {
@@ -180,7 +180,7 @@ export function AndroidAppPermissionsTool({
 					<div className="flex justify-end pt-2">
 						<Button
 							variant="raised"
-							size="compact"
+							size="sm"
 							onClick={resetAll}
 							disabled={pending === "__all__"}
 							className="uppercase tracking-[0.04em]"

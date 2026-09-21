@@ -1,5 +1,11 @@
-import { NumberMorph } from "../ui/number-morph";
-import { IconSwap } from "../ui/state-transitions";
+import { Button } from "@agentsims/ui/components/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@agentsims/ui/components/tooltip";
+import { NumberMorph } from "@agentsims/ui/motion/number-morph";
+import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import {
 	Eye,
 	EyeOff,
@@ -17,7 +23,6 @@ import {
 	type PointerEvent as ReactPointerEvent,
 	type ReactNode,
 } from "react";
-import { IconButton } from "../ui/icon-button";
 import { resetAccessibilityTreeHorizontalOrigin } from "./tree";
 
 const TREE_SPLIT_STORAGE_KEY = "agentsims:ax-tree-split";
@@ -141,42 +146,58 @@ export function AccessibilityHeaderActions({
 			data-accessibility-header-actions
 			className="flex min-w-0 items-center gap-1"
 		>
-			<IconButton
-				label={
-					selecting
-						? "Stop selecting accessibility elements"
-						: "Select accessibility element"
-				}
-				tooltip={selecting ? "Stop selecting" : "Select from phone"}
-				selected={selecting}
-				size="panel"
-				surface="toolbar"
-				onClick={() => onSelectingChange(!selecting)}
-			>
-				<MousePointer2 size={14} strokeWidth={2} />
-			</IconButton>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Button
+							aria-label={
+								selecting
+									? "Stop selecting accessibility elements"
+									: "Select accessibility element"
+							}
+							aria-pressed={selecting}
+							size="icon-sm"
+							variant="toolbar"
+							onClick={() => onSelectingChange(!selecting)}
+						/>
+					}
+				>
+					<MousePointer2 size={14} strokeWidth={2} />
+				</TooltipTrigger>
+				<TooltipContent>
+					{selecting ? "Stop selecting" : "Select from phone"}
+				</TooltipContent>
+			</Tooltip>
 
 			{onAllNodesVisibleChange && (
-				<IconButton
-					label={
-						allNodesVisible
-							? "Hide all accessibility outlines"
-							: "Show all accessibility outlines"
-					}
-					tooltip={allNodesVisible ? "Hide outlines" : "Show outlines"}
-					selected={allNodesVisible}
-					size="panel"
-					surface="toolbar"
-					onClick={() => onAllNodesVisibleChange(!allNodesVisible)}
-				>
-					<IconSwap state={allNodesVisible ? "visible" : "hidden"}>
-						{allNodesVisible ? (
-							<Eye size={14} strokeWidth={2} />
-						) : (
-							<EyeOff size={14} strokeWidth={2} />
-						)}
-					</IconSwap>
-				</IconButton>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label={
+									allNodesVisible
+										? "Hide all accessibility outlines"
+										: "Show all accessibility outlines"
+								}
+								aria-pressed={allNodesVisible}
+								size="icon-sm"
+								variant="toolbar"
+								onClick={() => onAllNodesVisibleChange(!allNodesVisible)}
+							/>
+						}
+					>
+						<IconSwap state={allNodesVisible ? "visible" : "hidden"}>
+							{allNodesVisible ? (
+								<Eye size={14} strokeWidth={2} />
+							) : (
+								<EyeOff size={14} strokeWidth={2} />
+							)}
+						</IconSwap>
+					</TooltipTrigger>
+					<TooltipContent>
+						{allNodesVisible ? "Hide outlines" : "Show outlines"}
+					</TooltipContent>
+				</Tooltip>
 			)}
 
 			{visibleStatus.kind === "ready" ? (
@@ -217,22 +238,28 @@ export function AccessibilityHeaderActions({
 			)}
 
 			{onRefresh && (
-				<IconButton
-					label="Refresh accessibility tree"
-					tooltip="Refresh"
-					disabled={refreshing}
-					size="panel"
-					surface="toolbar"
-					onClick={onRefresh}
-				>
-					<RefreshCw
-						size={14}
-						strokeWidth={2}
-						className={
-							refreshing ? "animate-spin motion-reduce:animate-none" : ""
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Refresh accessibility tree"
+								disabled={refreshing}
+								size="icon-sm"
+								variant="toolbar"
+								onClick={onRefresh}
+							/>
 						}
-					/>
-				</IconButton>
+					>
+						<RefreshCw
+							size={14}
+							strokeWidth={2}
+							className={
+								refreshing ? "animate-spin motion-reduce:animate-none" : ""
+							}
+						/>
+					</TooltipTrigger>
+					<TooltipContent>Refresh</TooltipContent>
+				</Tooltip>
 			)}
 		</div>
 	);

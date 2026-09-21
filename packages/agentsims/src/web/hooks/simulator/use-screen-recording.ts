@@ -303,8 +303,8 @@ function stopActions(paths: string[], exec: ExecFn) {
 			: null,
 		createElement(CopyButton, {
 			text: paths.join("\n"),
-			size: "row",
-			surface: "toolbar",
+			size: "icon-xs",
+			variant: "toolbar",
 		}),
 	);
 }

@@ -1,3 +1,5 @@
+import { Button } from "@agentsims/ui/components/button";
+import { SkeletonReveal } from "@agentsims/ui/motion/skeleton-reveal";
 import { useSettingsRefresh } from "./settings-refresh";
 import { useEffect, useReducer, useState, type ReactNode } from "react";
 import { AppWindow, ArrowUpRight, Package } from "lucide-react";
@@ -40,7 +42,7 @@ export function AppIconFallback({
 		<div
 			data-testid={system ? "system-app-icon" : "app-icon-fallback"}
 			data-app-platform={platform}
-			className="grid size-10 shrink-0 place-items-center rounded-[8px] border border-white/10 bg-white/[0.06] text-white/70"
+			className="grid size-10 shrink-0 place-items-center rounded-[8px] bg-white/[0.06] text-white/70"
 			aria-label={label}
 			title={label}
 		>
@@ -77,7 +79,7 @@ export function AppIcon({
 		return (
 			<img
 				src={iconDataUrl}
-				className="w-10 h-10 rounded-[8px] shrink-0 object-cover border border-white/8"
+				className="w-10 h-10 rounded-[8px] shrink-0 object-cover"
 				alt=""
 			/>
 		);
@@ -159,19 +161,25 @@ export function AppDetectionTool({
 		<CollapsibleSection
 			open={open}
 			onOpenChange={setOpen}
-			summaryClassName="flex items-center gap-3 text-left"
+			summaryClassName="text-left"
 			summary={
-				<>
-					<AppIcon
-						bundleId={details.bundleId}
-						iconDataUrl={details.iconDataUrl}
-						platform={isAndroid ? "android" : "ios"}
-					/>
-					<AppSummaryLabel
-						bundleId={details.bundleId}
-						displayName={details.displayName}
-					/>
-				</>
+				<SkeletonReveal
+					loading={details.loading}
+					skeleton={<AppSummarySkeleton />}
+					className="min-w-0"
+				>
+					<div className="flex min-w-0 items-center gap-3">
+						<AppIcon
+							bundleId={details.bundleId}
+							iconDataUrl={details.iconDataUrl}
+							platform={isAndroid ? "android" : "ios"}
+						/>
+						<AppSummaryLabel
+							bundleId={details.bundleId}
+							displayName={details.displayName}
+						/>
+					</div>
+				</SkeletonReveal>
 			}
 		>
 			{details.error && (
@@ -241,20 +249,27 @@ export function AppDetectionTool({
 	);
 }
 
+function AppSummarySkeleton() {
+	return (
+		<div className="flex min-w-0 items-center gap-3 animate-pulse [animation-duration:1000ms] [animation-iteration-count:1] motion-reduce:animate-none">
+			<span className="size-10 shrink-0 rounded-[8px] bg-white/[0.08]" />
+			<span className="flex min-w-0 flex-1 flex-col gap-2">
+				<span className="h-3.5 w-[46%] rounded-full bg-white/[0.12]" />
+				<span className="h-2.5 w-[68%] rounded-full bg-white/[0.08]" />
+			</span>
+		</div>
+	);
+}
+
 export function AppDetectionSkeleton() {
 	return (
 		<div
 			data-testid="app-detection-skeleton"
-			className="mx-3 mt-2 rounded-[10px] border border-white/[0.07] bg-white/[0.025] px-3 last:mb-3"
+			className="mx-3 mt-2 rounded-[10px] border border-white/[0.07] bg-white/[0.025] px-3"
 			aria-label="Waiting for foreground app"
 		>
-			<div className="flex min-h-11 items-center gap-3 text-left leading-none">
-				<span className="w-10 h-10 rounded-[8px] shrink-0 bg-white/[0.08]" />
-				<span className="min-w-0 flex-1 flex flex-col gap-2">
-					<span className="h-3.5 w-[46%] rounded-full bg-white/[0.12]" />
-					<span className="h-2.5 w-[68%] rounded-full bg-white/[0.08]" />
-				</span>
-				<span className="w-2.5 h-2.5 rounded-full bg-white/[0.08]" />
+			<div className="min-h-11 py-0.5 text-left leading-none">
+				<AppSummarySkeleton />
 			</div>
 		</div>
 	);
@@ -303,7 +318,9 @@ function Row({
 				{value}
 				{action && (
 					<div className="absolute top-0 right-0 bottom-0 pl-7 flex items-center justify-end bg-[linear-gradient(to_right,rgba(28,28,30,0)_0%,#1c1c1e_55%)] [transition:opacity_0.15s_ease,transform_0.15s_ease] opacity-0 translate-x-1 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto">
-						<button
+						<Button
+							variant="unstyled"
+							size="unstyled"
 							type="button"
 							onClick={action.onClick}
 							title={action.title}
@@ -311,7 +328,7 @@ function Row({
 							className="w-5 h-5 flex items-center justify-center bg-transparent border-none rounded text-white cursor-pointer p-0"
 						>
 							{action.icon}
-						</button>
+						</Button>
 					</div>
 				)}
 			</dd>
