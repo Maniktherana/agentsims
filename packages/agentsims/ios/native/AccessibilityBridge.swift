@@ -670,7 +670,12 @@ final class AccessibilityBridge: NSObject {
 
     private func numberValue(_ obj: NSObject, key: String) -> Double? {
         guard obj.responds(to: NSSelectorFromString(key)) else { return nil }
-        if let n = obj.value(forKey: key) as? NSNumber { return n.doubleValue }
+        if let n = obj.value(forKey: key) as? NSNumber {
+            let value = n.doubleValue
+            // iOS 27 can return NaN for an element's numeric range.
+            // Foundation raises an Objective-C exception if JSON contains it.
+            return value.isFinite ? value : nil
+        }
         return nil
     }
 
