@@ -9,7 +9,7 @@ import { cn } from "../lib/utils";
 
 const repositoryUrl = "https://github.com/Maniktherana/agentsims";
 
-const HERO_ACTION = "h-auto min-h-10 py-2.5 max-sm:min-h-11 max-sm:w-full";
+const HERO_ACTION = "h-auto min-h-10 py-2.5 max-md:min-h-11 max-md:w-full";
 
 export const Route = createFileRoute("/")({ component: HomePage });
 
@@ -95,7 +95,7 @@ function HomePage() {
 			>
 				Skip to content
 			</a>
-			<header className="mx-auto grid max-w-[100rem] grid-cols-[1fr_auto_1fr] items-center gap-6 px-[clamp(1.25rem,4vw,4rem)] py-4 min-h-[5.25rem] max-sm:min-h-[4.75rem] max-sm:grid-cols-[1fr_auto_auto] max-sm:gap-4 max-sm:px-5">
+			<header className="mx-auto grid max-w-[100rem] grid-cols-[1fr_auto_1fr] items-center gap-6 px-[clamp(1.25rem,4vw,4rem)] py-4 min-h-[5.25rem] max-md:min-h-[4.75rem] max-md:grid-cols-[1fr_auto_auto] max-md:gap-4 max-md:px-5">
 				<a
 					className={cn(
 						pressable,
@@ -104,7 +104,7 @@ function HomePage() {
 					href="/"
 					aria-label="Agentsims home"
 				>
-					<img className="size-7 sm:size-8" src="/favicon.ico" alt="" />
+					<img className="size-8 max-md:size-7" src="/favicon.ico" alt="" />
 					<span>agentsims</span>
 				</a>
 
@@ -121,14 +121,14 @@ function HomePage() {
 						href={repositoryUrl}
 					>
 						<GitHubMark />
-						<span className="max-sm:hidden">GitHub</span>
+						<span className="max-md:hidden">GitHub</span>
 					</a>
 				</nav>
 				<a
 					href={repositoryUrl}
 					className={cn(
 						buttonVariants({ size: "lg" }),
-						"h-9 justify-self-end rounded-full max-sm:px-3.5 max-sm:text-[0.8125rem]",
+						"h-9 justify-self-end rounded-full max-md:px-3.5 max-md:text-[0.8125rem]",
 					)}
 				>
 					Get started
@@ -136,24 +136,24 @@ function HomePage() {
 			</header>
 
 			<main id="main">
-				<section className="relative mx-auto w-[calc(100%-4rem)] max-w-[128rem] max-xl:w-full">
+				<section className="relative mx-auto w-[calc(100%-4rem)] max-w-[128rem] max-md:w-full">
 					<StaggerReveal
 						show={intro.reached("copy")}
-						className="absolute top-[24%] left-[5.5%] z-[5] w-[44%] max-xl:relative max-xl:inset-auto max-xl:mx-auto max-xl:w-auto max-xl:max-w-2xl max-xl:px-6 max-xl:pt-12 max-sm:px-5 max-sm:pt-4"
+						className="absolute top-[24%] left-[5.5%] z-[5] w-[44%] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-auto max-md:max-w-2xl max-md:px-5 max-md:pt-4"
 					>
-						<StaggerLine as="p" className="m-0 text-[clamp(0.875rem,1.25vw,1.25rem)] text-muted-foreground max-xl:text-base max-sm:max-w-xs max-sm:leading-normal">
+						<StaggerLine as="p" className="m-0 text-[clamp(0.875rem,1.25vw,1.25rem)] text-muted-foreground max-md:max-w-xs max-md:text-base max-md:leading-normal">
 							Simulator workspace <span>for iOS and Android</span>
 						</StaggerLine>
-						<StaggerLine as="h1" className="mt-6 mb-0 text-[clamp(2.75rem,4.1vw,4.5rem)] leading-[1.05] font-semibold tracking-[-0.055em] max-xl:text-[clamp(2.5rem,7vw,4.25rem)] max-xl:tracking-[-0.045em] max-sm:text-[clamp(2.5rem,10.5vw,3.75rem)]">
-							<span className="block max-sm:inline">Mobile simulators,</span>{" "}
-							<span className="block max-sm:inline">in your browser.</span>
+						<StaggerLine as="h1" className="mt-6 mb-0 text-[clamp(2.75rem,4.1vw,4.5rem)] leading-[1.05] font-semibold tracking-[-0.055em] max-md:text-[clamp(2.5rem,10.5vw,3.75rem)] max-md:tracking-[-0.045em]">
+							<span className="block max-md:inline">Mobile simulators,</span>{" "}
+							<span className="block max-md:inline">in your browser.</span>
 						</StaggerLine>
-						<StaggerLine as="p" className="mt-7 mb-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground max-xl:text-lg max-sm:mt-6 max-sm:text-[1.0625rem]">
+						<StaggerLine as="p" className="mt-7 mb-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground max-md:mt-6 max-md:text-[1.0625rem]">
 							Control iOS simulators and Android devices from one local
 							workspace.
 						</StaggerLine>
 
-						<StaggerLine className="mt-9 flex flex-wrap items-center gap-3 max-xl:mt-8 max-sm:flex-col max-sm:items-stretch">
+						<StaggerLine className="mt-9 flex flex-wrap items-center gap-3 max-md:mt-8 max-md:flex-col max-md:items-stretch">
 							<a
 								href={repositoryUrl}
 								className={cn(
@@ -169,7 +169,7 @@ function HomePage() {
 								size="lg"
 								className={cn(
 									HERO_ACTION,
-									"gap-3 rounded-full border bg-linear-to-b from-[#19191b] to-[#101011] px-5 font-mono text-[0.8125rem] shadow-[inset_0_1px_0_#ffffff08] max-sm:rounded-[0.875rem]",
+									"gap-3 rounded-full border bg-linear-to-b from-[#19191b] to-[#101011] px-5 font-mono text-[0.8125rem] shadow-[inset_0_1px_0_#ffffff08] max-md:rounded-[0.875rem]",
 								)}
 								onClick={copyCommand}
 								aria-label={
@@ -206,7 +206,7 @@ function HomePage() {
 						)}
 						<StaggerLine
 							as="p"
-							className="mt-5 mb-0 text-sm text-subtle-foreground max-sm:text-center max-sm:text-[0.8125rem]"
+							className="mt-5 mb-0 text-sm text-subtle-foreground max-md:text-center max-md:text-[0.8125rem]"
 						>
 							Open source · iOS and Android
 						</StaggerLine>

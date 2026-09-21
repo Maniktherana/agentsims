@@ -213,7 +213,7 @@
 		}
 	}
 
-	@media (width < 80rem) {
+	@media (width < 48rem) {
 		.macbook-frame {
 			display: none;
 		}
