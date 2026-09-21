@@ -200,10 +200,9 @@ export function DeviceRow({
 						<IconButton
 							label={`${visible ? "Hide" : "Show"} ${device.name}`}
 							tooltip={visible ? "Hide from canvas" : "Show on canvas"}
-							active={!!visible}
 							surface="toolbar"
 							size="row"
-							className="!border-transparent"
+							className={visible ? "!border-transparent !text-white" : "!border-transparent"}
 							disabled={transitioning}
 							onClick={(event) => {
 								event.preventDefault();
@@ -226,7 +225,7 @@ export function DeviceRow({
 								tone="danger"
 								surface="toolbar"
 								size="row"
-								className="!border-transparent hover:!bg-red-500/20 hover:!text-red-400 focus-visible:!text-red-400"
+								className="!border-transparent !text-red-400 hover:!bg-red-500/10"
 								disabled={transitioning}
 								onClick={(event) => {
 									event.preventDefault();
