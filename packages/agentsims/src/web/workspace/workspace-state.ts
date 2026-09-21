@@ -144,6 +144,7 @@ export function workspaceSelectionReducer(
 		case "device-started": {
 			const visibleDeviceIds = new Set(state.visibleDeviceIds);
 			const hiddenRunningDeviceIds = new Set(state.hiddenRunningDeviceIds);
+			visibleDeviceIds.delete(action.requestedDeviceId);
 			hiddenRunningDeviceIds.delete(action.requestedDeviceId);
 			hiddenRunningDeviceIds.delete(action.resolvedDeviceId);
 			visibleDeviceIds.add(action.resolvedDeviceId);

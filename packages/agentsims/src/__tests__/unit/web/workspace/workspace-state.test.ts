@@ -97,7 +97,7 @@ describe("workspace selection state", () => {
 		state = workspaceSelectionReducer(state, {
 			type: "set-visible",
 			deviceId: "android-avd:Pixel_9",
-			visible: false,
+			visible: true,
 		});
 		state = workspaceSelectionReducer(state, {
 			type: "device-started",
@@ -107,6 +107,7 @@ describe("workspace selection state", () => {
 		});
 		expect(state.selectedDeviceId).toBe("android:emulator-5554");
 		expect(state.visibleDeviceIds.has("android:emulator-5554")).toBe(true);
+		expect(state.visibleDeviceIds.has("android-avd:Pixel_9")).toBe(false);
 		expect(state.hiddenRunningDeviceIds.has("android-avd:Pixel_9")).toBe(false);
 	});
 

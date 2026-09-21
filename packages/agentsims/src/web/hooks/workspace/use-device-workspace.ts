@@ -67,6 +67,36 @@ export function reconcileStreamingDeviceVisibility(
 	return Object.fromEntries(entries);
 }
 
+export function settledShutdownState(
+	current: Record<string, boolean>,
+	devices: ReadonlyArray<{
+		device: string;
+		catalogDevice?: string;
+		helper: unknown | null;
+		state: string;
+	}>,
+): Record<string, boolean> {
+	let next = current;
+	for (const [deviceId, pending] of Object.entries(current)) {
+		if (!pending) continue;
+		const device = devices.find(
+			(entry) =>
+				entry.device === deviceId || entry.catalogDevice === deviceId,
+		);
+		if (
+			device &&
+			(deviceId.startsWith("android:") ||
+				device.device !== deviceId ||
+				device.state === "Booted" ||
+				device.helper)
+		)
+			continue;
+		if (next === current) next = { ...current };
+		delete next[deviceId];
+	}
+	return next;
+}
+
 export function startedDeviceUrlState(
 	currentDeviceIds: readonly string[],
 	requestedDeviceId: string,
@@ -207,6 +237,8 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 
 	useEffect(() => {
 		if (grid.devices === null) return;
+		const devices = grid.devices;
+		setShuttingDown((current) => settledShutdownState(current, devices));
 		dispatchSelection({
 			type: "reconcile-devices",
 			devices: grid.devices.map((device) => ({
@@ -353,8 +385,15 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 
 	const shutdownDevice = useCallback(
 		async (deviceId: string) => {
+			const catalogDevice = grid.devices?.find(
+				(device) => device.device === deviceId,
+			)?.catalogDevice;
 			autoAttachGuardRef.current.beginShutdown(deviceId);
-			setShuttingDown((current) => ({ ...current, [deviceId]: true }));
+			setShuttingDown((current) => ({
+				...current,
+				[deviceId]: true,
+				...(catalogDevice ? { [catalogDevice]: true } : {}),
+			}));
 			setActionErrors((current) => ({ ...current, [deviceId]: null }));
 			let succeeded = false;
 			try {
@@ -383,12 +422,18 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 					[deviceId]: error instanceof Error ? error.message : "Request failed",
 				}));
 			} finally {
-				if (!succeeded) autoAttachGuardRef.current.failShutdown(deviceId);
-				setShuttingDown((current) => ({ ...current, [deviceId]: false }));
+				if (!succeeded) {
+					autoAttachGuardRef.current.failShutdown(deviceId);
+					setShuttingDown((current) => ({
+						...current,
+						[deviceId]: false,
+						...(catalogDevice ? { [catalogDevice]: false } : {}),
+					}));
+				}
 				grid.refresh();
 			}
 		},
-		[endpoints.shutdown, grid.refresh],
+		[endpoints.shutdown, grid.devices, grid.refresh],
 	);
 
 	useEffect(() => {

@@ -1,5 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { parseGridPaging } from "../../../../core/tools/devices/catalog";
+import {
+	parseGridPaging,
+	visibleAndroidCatalogDevices,
+} from "../../../../core/tools/devices/catalog";
+
+describe("Android catalog identity", () => {
+	test("keeps the AVD row while its temporary emulator serial is offline", () => {
+		const devices = [
+			{ serial: "emulator-5554", state: "offline" },
+			{ serial: "emulator-5556", state: "device" },
+			{ serial: "physical", state: "offline" },
+		];
+		expect(visibleAndroidCatalogDevices(devices)).toEqual([
+			devices[1],
+			devices[2],
+		]);
+	});
+});
 
 describe("parseGridPaging", () => {
 	test("no query → unpaginated (whole list)", () => {

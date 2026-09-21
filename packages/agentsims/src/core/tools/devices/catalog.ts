@@ -20,7 +20,10 @@ import { hostCommandText } from "../../host";
 type SimctlDevice = IosSimulatorDevice & { runtime: string };
 
 export type GridDevice = {
+	/** Runtime command target. Android emulators use their current ADB serial. */
 	device: string;
+	/** Stable catalog identity. It stays `android-avd:*` across emulator boots. */
+	catalogDevice: string;
 	name: string;
 	runtime: string;
 	state: string;
@@ -52,6 +55,15 @@ type PendingGridDevice = Omit<GridDevice, "chrome" | "placeholderAsset"> & {
 };
 
 const DEFAULT_PER_SIM_BYTES = 1.5 * 1024 * 1024 * 1024;
+
+export function visibleAndroidCatalogDevices<T extends { serial: string; state: string }>(
+	devices: readonly T[],
+): T[] {
+	return devices.filter(
+		(device) =>
+			!device.serial.startsWith("emulator-") || device.state === "device",
+	);
+}
 
 export function parseGridPaging(rawUrl: string): {
 	limit: number | null;
@@ -139,15 +151,16 @@ export class DeviceCatalog {
 			};
 		};
 
+		const visibleAndroidDevices = visibleAndroidCatalogDevices(androidDevices);
 		const runningAvdNames = new Set(
-			androidDevices
+			visibleAndroidDevices
 				.map((device) => device.avdName)
 				.filter((name): name is string => !!name),
 		);
 		const androidAvdByName = new Map(
 			androidAvds.map((avd) => [avd.name, avd] as const),
 		);
-		const androidRows: PendingGridDevice[] = androidDevices.map((device) => {
+		const androidRows: PendingGridDevice[] = visibleAndroidDevices.map((device) => {
 			const id = androidStateId(device.serial);
 			const release = device.release || device.sdk || "device";
 			const avd = device.avdName
@@ -155,6 +168,9 @@ export class DeviceCatalog {
 				: undefined;
 			return {
 				device: id,
+				catalogDevice: device.avdName
+					? androidAvdStateId(device.avdName)
+					: id,
 				name: (
 					avd?.displayName ||
 					avd?.deviceName ||
@@ -174,6 +190,7 @@ export class DeviceCatalog {
 			.filter((avd) => !runningAvdNames.has(avd.name))
 			.map((avd) => ({
 				device: androidAvdStateId(avd.name),
+				catalogDevice: androidAvdStateId(avd.name),
 				name: (avd.displayName || avd.deviceName || avd.name).replace(
 					/_/g,
 					" ",
@@ -188,6 +205,7 @@ export class DeviceCatalog {
 			}));
 		const iosRows: PendingGridDevice[] = simulators.map((device) => ({
 			device: device.udid,
+			catalogDevice: device.udid,
 			name: device.name,
 			runtime: device.runtime,
 			state: device.state,

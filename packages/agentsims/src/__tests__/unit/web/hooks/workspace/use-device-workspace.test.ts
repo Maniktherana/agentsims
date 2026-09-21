@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	reconcileStreamingDeviceVisibility,
+	settledShutdownState,
 	startedDeviceUrlState,
 } from "../../../../../web/hooks/workspace/use-device-workspace";
 
@@ -22,6 +23,46 @@ describe("workspace streaming state", () => {
 		expect(
 			reconcileStreamingDeviceVisibility(current, ["ios-one", "ios-two"]),
 		).toBe(current);
+	});
+});
+
+describe("workspace shutdown state", () => {
+	test("keeps shutdown pending through stale Android catalog frames", () => {
+		const pending = {
+			"android:emulator-5554": true,
+			"android-avd:Pixel_9": true,
+		};
+		for (const state of ["Booted", "offline"]) {
+			expect(
+				settledShutdownState(pending, [
+					{
+						device: "android:emulator-5554",
+						catalogDevice: "android-avd:Pixel_9",
+						state,
+						helper: null,
+					},
+				]),
+			).toBe(pending);
+		}
+	});
+
+	test("clears shutdown after the live Android row disappears", () => {
+		expect(
+			settledShutdownState(
+				{
+					"android:emulator-5554": true,
+					"android-avd:Pixel_9": true,
+				},
+				[
+					{
+						device: "android-avd:Pixel_9",
+						catalogDevice: "android-avd:Pixel_9",
+						state: "Shutdown",
+						helper: null,
+					},
+				],
+			),
+		).toEqual({});
 	});
 });
 

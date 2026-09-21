@@ -1,5 +1,6 @@
 export interface GridDevice {
 	device: string;
+	catalogDevice?: string;
 	name: string;
 	runtime: string;
 	state: string;
