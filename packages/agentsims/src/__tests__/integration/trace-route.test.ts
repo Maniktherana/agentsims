@@ -117,6 +117,26 @@ test("the trace routes record the commands between start and stop", async () => 
 		calls: 2,
 	});
 
+	const source = (await fetch(`${origin}/trace-sources`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ directory: list[0]!.directory }),
+	}).then((response) => response.json())) as {
+		id: string;
+		selectedId: string;
+		traces: TraceSummary[];
+	};
+	expect(source.selectedId).toBe(started.id);
+	expect(source.traces.map((trace) => trace.id)).toEqual([started.id]);
+	const sourceDocument = (await fetch(
+		`${origin}/trace-sources/${source.id}/traces/${source.selectedId}`,
+	).then((response) => response.json())) as TraceDocument;
+	expect(sourceDocument.calls).toHaveLength(2);
+	const sourceImage = await fetch(
+		`${origin}/trace-sources/${source.id}/traces/${source.selectedId}/screenshots/000001.png`,
+	);
+	expect(sourceImage.status).toBe(200);
+
 	const document = (await fetch(`${origin}/traces/${started.id}`).then(
 		(response) => response.json(),
 	)) as TraceDocument;

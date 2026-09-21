@@ -21,18 +21,18 @@ export function TraceScreenshot({
 	traceId,
 	calls,
 	index,
-	screenshotUrl,
+	sourceId,
 }: {
 	traceId: string;
 	calls: TraceCall[];
 	index: number;
-	screenshotUrl?: (path: string) => string;
+	sourceId?: string;
 }) {
 	const call = calls[index] ?? null;
 	const capturedAtIndex = screenshotIndexForCall(calls, index);
 	const capturedAt = calls[capturedAtIndex] ?? null;
 	const resolveScreenshot = (path: string) =>
-		screenshotUrl?.(path) ?? traceScreenshotUrl(traceId, path);
+		traceScreenshotUrl(traceId, path, sourceId);
 
 	useEffect(() => {
 		for (
@@ -43,10 +43,9 @@ export function TraceScreenshot({
 			const candidate = screenshotIndexForCall(calls, index + offset);
 			const screenshot = candidate < 0 ? null : calls[candidate]?.screenshot;
 			if (screenshot)
-				new Image().src =
-					screenshotUrl?.(screenshot) ?? traceScreenshotUrl(traceId, screenshot);
+				new Image().src = traceScreenshotUrl(traceId, screenshot, sourceId);
 		}
-	}, [traceId, calls, index, screenshotUrl]);
+	}, [traceId, calls, index, sourceId]);
 
 	return (
 		<div

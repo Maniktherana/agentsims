@@ -78,6 +78,8 @@ test("tracing off returns the command effect untouched", () => {
 test("a trace records every call, its screenshot, and its end", async () => {
 	const root = newRoot();
 	const traces = service(root);
+	const events: string[] = [];
+	const unsubscribe = traces.subscribe((event) => events.push(event.type));
 	const started = await Effect.runPromise(
 		traces.start(DEVICE, { name: "Check out" }),
 	);
@@ -128,7 +130,9 @@ test("a trace records every call, its screenshot, and its end", async () => {
 	expect(failure._tag).toBe("Failure");
 
 	const stopped = await Effect.runPromise(traces.stop(DEVICE));
+	unsubscribe();
 	expect(stopped.calls).toBe(3);
+	expect(events).toEqual(["started", "call", "call", "call", "stopped"]);
 	expect(traces.active(DEVICE)).toBeNull();
 
 	const records = lines(started.directory);
@@ -196,7 +200,7 @@ test("a copied trace uses its directory name as the public id", async () => {
 	const root = newRoot();
 	const directoryId = "copied-trace";
 	const directory = join(root, directoryId);
-	mkdirSync(directory, { recursive: true });
+	mkdirSync(join(directory, "screenshots"), { recursive: true });
 	writeFileSync(
 		join(directory, "trace.jsonl"),
 		`${JSON.stringify({
@@ -215,6 +219,18 @@ test("a copied trace uses its directory name as the public id", async () => {
 	expect(listed[0]?.id).toBe(directoryId);
 	const document = await Effect.runPromise(traces.read(directoryId));
 	expect(document.trace.id).toBe(directoryId);
+
+	const individual = await Effect.runPromise(traces.openSource(directory));
+	expect(individual.selectedId).toBe(directoryId);
+	expect(
+		(await Effect.runPromise(
+			traces.readSource(individual.id, directoryId),
+		)).trace.id,
+	).toBe(directoryId);
+
+	const library = await Effect.runPromise(traces.openSource(root));
+	expect(library.selectedId).toBeNull();
+	expect(library.traces.map((trace) => trace.id)).toEqual([directoryId]);
 });
 
 test("one device holds one trace, and stop needs one to be open", async () => {

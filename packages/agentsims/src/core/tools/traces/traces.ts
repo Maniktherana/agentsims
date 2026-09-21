@@ -1,6 +1,7 @@
 import { tracesDirectory } from "../../home";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { Cause, Context, Effect, Exit, Layer } from "effect";
 import { z } from "zod";
 import { androidSerialFromStateId } from "../../android/device/identifiers";
@@ -29,6 +30,7 @@ import {
 	type TraceDocument,
 	type TraceHeader,
 	type TraceStatus,
+	type TraceSummary,
 	type TraceWriter,
 } from "./trace-file";
 
@@ -64,7 +66,53 @@ export type TraceEntry = {
 	image: DeviceCapture | null;
 };
 
+export type TraceEvent =
+	| { type: "started"; device: string; trace: TraceRun }
+	| { type: "call"; device: string; trace: TraceRun; call: TraceCall }
+	| { type: "stopped"; device: string; trace: TraceStopped };
+
 type ActiveTrace = TraceRun & { writer: TraceWriter };
+
+type TraceSourceEntry = { directory: string; summary: TraceSummary };
+
+export type OpenedTraceSource = {
+	id: string;
+	directory: string;
+	traces: TraceSummary[];
+	selectedId: string | null;
+};
+
+async function sourceTrace(directory: string): Promise<TraceSummary | null> {
+	const summary = await readTraceSummary(directory).catch(() => null);
+	if (!summary) return null;
+	const screenshots = await stat(join(directory, "screenshots")).catch(() => null);
+	return screenshots?.isDirectory() ? summary : null;
+}
+
+async function sourceEntries(directory: string): Promise<{
+	individual: boolean;
+	entries: TraceSourceEntry[];
+}> {
+	const individual = await sourceTrace(directory);
+	if (individual)
+		return { individual: true, entries: [{ directory, summary: individual }] };
+	const children = await readdir(directory, { withFileTypes: true });
+	const entries = await Promise.all(
+		children
+			.filter((entry) => entry.isDirectory())
+			.map(async (entry) => {
+				const child = join(directory, entry.name);
+				const summary = await sourceTrace(child);
+				return summary ? { directory: child, summary } : null;
+			}),
+	);
+	return {
+		individual: false,
+		entries: entries
+			.filter((entry): entry is TraceSourceEntry => entry !== null)
+			.sort((a, b) => b.summary.startedAt.localeCompare(a.summary.startedAt)),
+	};
+}
 
 function channelImage(channel: unknown): DeviceCapture | null {
 	const image = channel as ImageCaptureChannel | null | undefined;
@@ -128,6 +176,11 @@ export function makeTraceService(
 	) => Effect.Effect<DeviceCapture, ApplicationCommandError>,
 ) {
 	const runs = new Map<string, ActiveTrace>();
+	const sources = new Map<string, Map<string, string>>();
+	const listeners = new Set<(event: TraceEvent) => void>();
+	const emit = (event: TraceEvent): void => {
+		for (const listener of listeners) listener(event);
+	};
 	const active = (device: string): TraceRun | null => {
 		const run = runs.get(device);
 		return run
@@ -147,7 +200,7 @@ export function makeTraceService(
 			? screenshotName(run.calls, entry.image.extension)
 			: null;
 		if (entry.image && file) run.writer.screenshot(file, entry.image.bytes);
-		run.writer.append({
+		const call = {
 			type: "call",
 			seq: run.calls,
 			command: entry.command,
@@ -158,7 +211,11 @@ export function makeTraceService(
 			result: entry.status === "error" ? null : traceResult(entry.result),
 			error: entry.error,
 			screenshot: file ? `screenshots/${file}` : null,
-		} satisfies TraceCall);
+		} satisfies TraceCall;
+		const trace = active(device)!;
+		void run.writer
+			.append(call)
+			.then(() => emit({ type: "call", device, trace, call }));
 	};
 	const stop = (device: string) =>
 		Effect.gen(function* () {
@@ -174,7 +231,7 @@ export function makeTraceService(
 			yield* Effect.promise(() =>
 				run.writer.close({ type: "end", endedAt, calls: run.calls }),
 			);
-			return {
+			const stopped = {
 				device,
 				id: run.id,
 				directory: run.directory,
@@ -182,9 +239,75 @@ export function makeTraceService(
 				endedAt,
 				calls: run.calls,
 			} satisfies TraceStopped;
+			emit({ type: "stopped", device, trace: stopped });
+			return stopped;
 		});
 	return {
 		directory: () => root,
+		openSource: (selectedDirectory: string) =>
+			Effect.gen(function* () {
+				const directory = resolve(selectedDirectory);
+				const inspected = yield* Effect.tryPromise({
+					try: () => sourceEntries(directory),
+					catch: commandFailure,
+				});
+				if (inspected.entries.length === 0)
+					return yield* Effect.fail(
+						new CommandNotFound({
+							message: `No traces were found in ${directory}.`,
+						}),
+					);
+				const paths = new Map<string, string>();
+				const traces = inspected.entries.map((entry, index) => {
+					let id = isTraceName(basename(entry.directory))
+						? basename(entry.directory)
+						: `trace-${index + 1}`;
+					while (paths.has(id)) id = `${id}-${index + 1}`;
+					paths.set(id, entry.directory);
+					return { ...entry.summary, id };
+				});
+				const id = randomUUID();
+				sources.set(id, paths);
+				while (sources.size > 32) sources.delete(sources.keys().next().value!);
+				return {
+					id,
+					directory,
+					traces,
+					selectedId: inspected.individual ? traces[0]!.id : null,
+				} satisfies OpenedTraceSource;
+			}),
+		readSource: (source: string, id: string) =>
+			Effect.gen(function* () {
+				const directory = sources.get(source)?.get(id);
+				if (!directory)
+					return yield* Effect.fail(
+						new CommandNotFound({ message: `There is no trace ${id}.` }),
+					);
+				const document = yield* Effect.promise(() =>
+					readTraceDocument(directory).catch(() => null),
+				);
+				if (!document)
+					return yield* Effect.fail(
+						new CommandNotFound({ message: `There is no trace ${id}.` }),
+					);
+				return { ...document, trace: { ...document.trace, id } };
+			}),
+		sourceScreenshot: (source: string, id: string, file: string) =>
+			Effect.gen(function* () {
+				const directory = sources.get(source)?.get(id);
+				if (!directory || !isTraceName(file))
+					return yield* Effect.fail(
+						new CommandNotFound({ message: `There is no screenshot ${file}.` }),
+					);
+				const bytes = yield* Effect.promise(() =>
+					readFile(join(directory, "screenshots", file)).catch(() => null),
+				);
+				if (!bytes)
+					return yield* Effect.fail(
+						new CommandNotFound({ message: `There is no screenshot ${file}.` }),
+					);
+				return bytes;
+			}),
 		active,
 		record,
 		stop,
@@ -213,7 +336,7 @@ export function makeTraceService(
 					startedAt: at.toISOString(),
 					name,
 				};
-				writer.append(header);
+				const headerWritten = writer.append(header);
 				runs.set(device, {
 					writer,
 					id,
@@ -221,15 +344,27 @@ export function makeTraceService(
 					startedAt: header.startedAt,
 					calls: 0,
 				});
-				return {
+				const started = {
 					device,
 					id,
 					directory,
 					startedAt: header.startedAt,
 				} satisfies TraceStarted;
+				void headerWritten.then(() =>
+					emit({
+						type: "started",
+						device,
+						trace: { id, directory, startedAt: header.startedAt, calls: 0 },
+					}),
+				);
+				return started;
 			}),
 		status: (device: string) =>
 			Effect.sync(() => ({ device, active: active(device) })),
+		subscribe: (listener: (event: TraceEvent) => void) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
 		/** The server closes an open trace so its end record is on disk. */
 		stopAll: () =>
 			Effect.forEach(

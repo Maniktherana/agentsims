@@ -6,9 +6,7 @@ import {
 	execFailureMessage,
 	parseJsonObject,
 } from "./use-screen-recording";
-
-/** How often an active trace re-checks the CLI, in milliseconds. */
-export const TRACING_POLL_INTERVAL_MS = 5_000;
+import { subscribeTraceEvents } from "../../trace/events";
 
 export type ExecFn = (command: string) => Promise<ExecResult>;
 
@@ -191,7 +189,7 @@ export function useTracing(
 				const trace = parseTraceStatus(await run("status", forDevice));
 				dispatch(forDevice, { type: "status", trace });
 			} catch {
-				// The next poll or click reports the truth.
+				// A server event or the next user action reports the current state.
 			}
 		},
 		[dispatch, run],
@@ -201,17 +199,26 @@ export function useTracing(
 		setState(IDLE_TRACING_STATE);
 		if (!device) return;
 		void syncStatus(device);
-	}, [device, syncStatus]);
+		return subscribeTraceEvents((event) => {
+			if (event.device !== device) return;
+			const current = stateRef.current;
+			if (event.type === "stopped") {
+				if (current.status === "tracing")
+					notify("success", "Trace saved", {
+						description: "Another client stopped tracing this device.",
+					});
+				dispatch(device, { type: "status", trace: null });
+				return;
+			}
+			if (event.type === "started" && current.status === "idle")
+				notify("success", "Tracing started", {
+					description: "Another client started tracing this device.",
+				});
+			dispatch(device, { type: "status", trace: event.trace });
+		});
+	}, [device, dispatch, syncStatus]);
 
 	const active = isTracingActive(state);
-
-	useEffect(() => {
-		if (!device || !active) return;
-		const timer = setInterval(() => {
-			void syncStatus(device);
-		}, TRACING_POLL_INTERVAL_MS);
-		return () => clearInterval(timer);
-	}, [device, active, syncStatus]);
 
 	const toggle = useCallback(() => {
 		const forDevice = deviceRef.current;

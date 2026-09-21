@@ -140,7 +140,7 @@ export function traceRequest(value: unknown): unknown {
 }
 
 export type TraceWriter = {
-	append(record: TraceHeader | TraceCall): void;
+	append(record: TraceHeader | TraceCall): Promise<void>;
 	screenshot(name: string, bytes: Uint8Array): void;
 	close(record: TraceEnd): Promise<void>;
 };
@@ -167,9 +167,8 @@ export async function openTraceWriter(
 		return queue;
 	};
 	return {
-		append: (record) => {
-			void enqueue(() => handle.write(`${JSON.stringify(record)}\n`));
-		},
+		append: (record) =>
+			enqueue(() => handle.write(`${JSON.stringify(record)}\n`)),
 		screenshot: (name, bytes) => {
 			void enqueue(() =>
 				writeFile(join(directory, "screenshots", name), bytes),

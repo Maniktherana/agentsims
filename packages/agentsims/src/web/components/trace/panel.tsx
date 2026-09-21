@@ -6,7 +6,9 @@ import {
 } from "react";
 import { openFileCommand } from "../../hooks/simulator/use-screen-recording";
 import {
+	openTraceSource,
 	useTrace,
+	type TraceSource,
 	type TraceSummary,
 } from "../../hooks/simulator/use-trace";
 import { execOnHost, shellEscape } from "../../simulator/input/exec";
@@ -43,17 +45,6 @@ else
 fi`;
 }
 
-export function selectedTraceId(directory: string, selected: string): string {
-	const root = directory.replace(/[\\/]+$/, "");
-	const path = selected.trim().replace(/[\\/]+$/, "");
-	const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-	const parent = path.slice(0, separator);
-	const id = path.slice(separator + 1);
-	if (parent !== root || !/^[a-zA-Z0-9._-]+$/.test(id))
-		throw new Error("Select one trace folder inside the trace library.");
-	return id;
-}
-
 export function traceOptionLabel(
 	trace: TraceSummary,
 	showDevice = false,
@@ -84,11 +75,13 @@ export function TracePanel({
 	onResizePointerDown?: PointerEventHandler<HTMLDivElement>;
 	onResizeKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 }) {
-	const trace = useTrace(device.id, open, "all");
+	const [source, setSource] = useState<TraceSource | null>(null);
+	const trace = useTrace(device.id, open, "all", source);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const detail = trace.detail;
 	const calls = detail?.calls ?? [];
-	const live = detail !== null && detail.id === trace.activeId;
+	const selectedSummary = trace.traces.find((entry) => entry.id === detail?.id);
+	const live = !source && selectedSummary?.endedAt === null;
 	const viewedDevice: DevicePanelIdentity = detail
 		? {
 				...device,
@@ -103,6 +96,8 @@ export function TracePanel({
 		: device;
 
 	const openLibrary = () => {
+		setSource(null);
+		setActiveIndex(0);
 		void traceLibraryDirectory()
 			.then((directory) => execOnHost(openFileCommand(directory)))
 			.then((result) => {
@@ -118,13 +113,14 @@ export function TracePanel({
 				directory,
 				result: await execOnHost(traceFolderPickerCommand(directory)),
 			}))
-			.then(({ directory, result }) => {
+			.then(async ({ result }) => {
 				if (result.exitCode !== 0) {
-					if (/cancel/i.test(result.stderr)) return;
+					if (!result.stderr.trim() || /cancel/i.test(result.stderr)) return;
 					throw new Error("The host did not open the trace picker.");
 				}
+				const next = await openTraceSource(result.stdout.trim());
 				setActiveIndex(0);
-				trace.select(selectedTraceId(directory, result.stdout));
+				setSource(next);
 			})
 			.catch((cause) =>
 				notify("error", "Could not open trace", {
@@ -203,6 +199,7 @@ export function TracePanel({
 							traceId={detail.id}
 							calls={calls}
 							index={activeIndex}
+							sourceId={source?.id}
 						/>
 						<div className="min-h-0">
 							<TraceCallList

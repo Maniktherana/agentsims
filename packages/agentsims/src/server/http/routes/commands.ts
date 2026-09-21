@@ -3,7 +3,7 @@ import {
 	HttpServerRequest,
 	HttpServerResponse,
 } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import { z } from "zod";
 import {
 	CommandNotFound,
@@ -43,6 +43,7 @@ const requestContext = Effect.gen(function* () {
 });
 const deviceBody = z.object({ udid: z.string() });
 const actionsBody = z.object({ actions: z.array(z.unknown()) });
+const traceSourceBody = z.object({ directory: z.string().min(1).max(4096) });
 const stepsBody = z.object({ steps: z.array(z.unknown()) });
 const watchQuery = z.object({
 	watch: z.coerce.number().int(),
@@ -520,6 +521,94 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 				return { directory: (yield* Traces).directory() };
 			}),
 		),
+	),
+	HttpRouter.get(
+		"/traces/events",
+		Effect.gen(function* () {
+			const traces = yield* Traces;
+			const encoder = new TextEncoder();
+			const updates = Stream.asyncScoped<Uint8Array>(
+				(emit) =>
+					Effect.acquireRelease(
+						Effect.sync(() =>
+							traces.subscribe((event) => {
+								void emit.single(
+									encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+								);
+							}),
+						),
+						(unsubscribe) => Effect.sync(unsubscribe),
+					),
+				{ bufferSize: 32, strategy: "dropping" },
+			);
+			const heartbeat = Stream.repeatEffect(
+				Effect.sleep("15 seconds").pipe(
+					Effect.as(encoder.encode(": keepalive\n\n")),
+				),
+			);
+			return HttpServerResponse.stream(
+				updates.pipe(Stream.merge(heartbeat, { haltStrategy: "left" })),
+				{
+					headers: {
+						"Content-Type": "text/event-stream",
+						"Cache-Control": "no-cache",
+						"X-Accel-Buffering": "no",
+					},
+				},
+			);
+		}),
+	),
+	HttpRouter.post(
+		"/trace-sources",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request } = yield* requestContext;
+				const input = yield* decodeInput(
+					traceSourceBody,
+					yield* requestJson(request),
+				);
+				return yield* (yield* Traces).openSource(input.directory);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/trace-sources/:source/traces/:trace",
+		commandResponse(
+			Effect.gen(function* () {
+				const { params } = yield* HttpRouter.RouteContext;
+				return yield* (yield* Traces).readSource(
+					params.source ?? "",
+					params.trace ?? "",
+				);
+			}),
+		),
+	),
+	HttpRouter.get(
+		"/trace-sources/:source/traces/:trace/screenshots/:file",
+		Effect.gen(function* () {
+			const { params } = yield* HttpRouter.RouteContext;
+			const file = params.file ?? "";
+			return yield* (yield* Traces)
+				.sourceScreenshot(params.source ?? "", params.trace ?? "", file)
+				.pipe(
+					Effect.map((bytes) =>
+						HttpServerResponse.uint8Array(bytes, {
+							contentType: file.endsWith(".jpg") ? "image/jpeg" : "image/png",
+							headers: {
+								"cache-control": "public, max-age=604800, immutable",
+							},
+						}),
+					),
+					Effect.catchAll((error) =>
+						Effect.succeed(
+							HttpServerResponse.unsafeJson(
+								{ error: error.message, type: error._tag },
+								{ status: commandErrorStatus(error) },
+							),
+						),
+					),
+				);
+		}),
 	),
 	HttpRouter.get(
 		"/traces/:trace",

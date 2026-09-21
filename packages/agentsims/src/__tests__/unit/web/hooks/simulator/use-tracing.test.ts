@@ -210,5 +210,8 @@ describe("trace HTTP JSON", () => {
 		expect(traceScreenshotUrl("t-1", "screenshots/000001.png")).toBe(
 			"/traces/t-1/screenshots/000001.png",
 		);
+		expect(
+			traceScreenshotUrl("0", "screenshots/000001.png", "source-1"),
+		).toBe("/trace-sources/source-1/traces/0/screenshots/000001.png");
 	});
 });

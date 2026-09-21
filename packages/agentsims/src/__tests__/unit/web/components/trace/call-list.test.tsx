@@ -10,7 +10,6 @@ import {
 	callRequestLine,
 	traceCommandLine,
 } from "../../../../../web/components/trace/call-detail";
-import { selectedTraceId } from "../../../../../web/components/trace/panel";
 import type { TraceCall } from "../../../../../web/hooks/simulator/use-trace";
 
 function call(partial: Partial<TraceCall>): TraceCall {
@@ -185,19 +184,5 @@ describe("trace screenshots", () => {
 				1,
 			),
 		).toBe(0);
-	});
-});
-
-describe("trace picker", () => {
-	test("accepts only a direct child of the trace library", () => {
-		expect(
-			selectedTraceId(
-				"/tmp/custom home/traces",
-				"/tmp/custom home/traces/my-trace/\n",
-			),
-		).toBe("my-trace");
-		expect(() =>
-			selectedTraceId("/tmp/custom home/traces", "/tmp/other/my-trace"),
-		).toThrow();
 	});
 });
