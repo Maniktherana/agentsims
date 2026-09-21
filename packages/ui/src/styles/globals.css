@@ -53,22 +53,26 @@
 	--border: oklch(0.922 0 0);
 	--input: oklch(0.922 0 0);
 	--ring: oklch(0.708 0 0);
-	--agentsims-button-flat: rgba(255, 255, 255, 0.07);
-	--agentsims-button-flat-hover: rgba(255, 255, 255, 0.1);
-	--agentsims-button-flat-pressed: rgba(255, 255, 255, 0.08);
-	--agentsims-button-raised: rgba(255, 255, 255, 0.06);
-	--agentsims-button-raised-hover: rgba(255, 255, 255, 0.1);
-	--agentsims-button-raised-pressed: rgba(255, 255, 255, 0.12);
+	--agentsims-button-flat: oklch(1 0 0 / 0.07);
+	--agentsims-button-flat-hover: oklch(1 0 0 / 0.1);
+	--agentsims-button-flat-pressed: oklch(1 0 0 / 0.08);
+	--agentsims-button-raised: oklch(1 0 0 / 0.06);
+	--agentsims-button-raised-hover: oklch(1 0 0 / 0.1);
+	--agentsims-button-raised-pressed: oklch(1 0 0 / 0.12);
 	--agentsims-button-raised-shadow:
-		0 1px 1px rgba(0, 0, 0, 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-		inset 0 1px 0 rgba(255, 255, 255, 0.06);
-	--agentsims-field-bg: rgba(255, 255, 255, 0.04);
-	--agentsims-field-bg-hover: rgba(255, 255, 255, 0.06);
-	--agentsims-field-bg-focus: rgba(255, 255, 255, 0.07);
+		0 1px 1px oklch(0 0 0 / 0.24),
+		inset 0 0 0 1px oklch(1 0 0 / 0.04),
+		inset 0 1px 0 oklch(1 0 0 / 0.06);
+	--agentsims-field-bg: oklch(1 0 0 / 0.04);
+	--agentsims-field-bg-hover: oklch(1 0 0 / 0.06);
+	--agentsims-field-bg-focus: oklch(1 0 0 / 0.07);
 	--agentsims-field-shadow:
-		inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-		inset 0 1px 0 rgba(255, 255, 255, 0.035);
-	--agentsims-ui-badge: var(--agentsims-accent, var(--brand, #1684f8));
+		inset 0 0 0 1px oklch(1 0 0 / 0.08),
+		inset 0 1px 0 oklch(1 0 0 / 0.035);
+	--agentsims-ui-badge: var(
+		--agentsims-accent,
+		var(--brand, oklch(0.620507 0.195789 255.097))
+	);
 	--tt-in-dur: 150ms;
 	--tt-out-dur: 50ms;
 	--tt-scale: 0.98;
@@ -115,10 +119,10 @@
 	}
 	*::-webkit-scrollbar-thumb {
 		border-radius: 999px;
-		background: rgb(255 255 255 / 18%);
+		background: oklch(1 0 0 / 18%);
 	}
 	*::-webkit-scrollbar-thumb:hover {
-		background: rgb(255 255 255 / 28%);
+		background: oklch(1 0 0 / 28%);
 	}
 	body {
 		@apply bg-background text-foreground;

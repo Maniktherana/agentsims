@@ -57,7 +57,7 @@ export function WorkspaceDockSurface({
 					borderRadius: expanded ? 16 : 10,
 				}}
 				onAnimationComplete={() => setDockWidthAnimating(false)}
-				className="pointer-events-auto absolute bottom-0 left-1/2 flex -translate-x-1/2 flex-col overflow-visible border border-white/[0.1] bg-[#181818] shadow-[0_18px_56px_rgba(0,0,0,0.5)]"
+				className="pointer-events-auto absolute bottom-0 left-1/2 flex -translate-x-1/2 flex-col overflow-visible border border-white/[0.1] bg-[oklch(0.209036_0_0)] shadow-[0_18px_56px_oklch(0_0_0/0.5)]"
 			>
 				<motion.div
 					aria-hidden={!expanded}

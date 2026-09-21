@@ -21,7 +21,7 @@ export function DemoPhones({
 	return (
 		<div className="absolute top-0 left-0 flex w-full items-center justify-center gap-[5cqw]">
 			<motion.div
-				className="relative w-[46cqw] flex-none aspect-[454/908] drop-shadow-[0_14px_12px_#0008]"
+				className="relative w-[46cqw] flex-none aspect-[454/908] drop-shadow-[0_14px_12px_oklch(0_0_0/0.533333)]"
 				initial={false}
 				animate={{
 					x: androidVisible ? "0%" : "51.63%",
@@ -41,7 +41,7 @@ export function DemoPhones({
 				<DeviceNamePill name="iPhone 17" scale={scale} />
 				<ResizeHandle android={false} scale={scale} />
 				<img
-					className="absolute top-[1.872%] left-[5.727%] z-[2] h-[96.256%] w-[88.546%] rounded-[15.174%/6.979%] bg-linear-[155deg,#141c28,#0c1420_52%,#080d14]"
+					className="absolute top-[1.872%] left-[5.727%] z-[2] h-[96.256%] w-[88.546%] rounded-[15.174%/6.979%] bg-linear-[155deg,oklch(0.224584_0.026372_258.317),oklch(0.189824_0.027443_258.29)_52%,oklch(0.157319_0.017155_256.284)]"
 					src="/demo/iphone-17-screen.png"
 					width={1206}
 					height={2622}
@@ -78,7 +78,7 @@ export function DemoPhones({
 			</motion.div>
 			{/* Pixel_10 AVD: 1080 × 2424, with the circular display cutout. */}
 			<motion.div
-				className="relative w-[42.5cqw] flex-none aspect-[1080/2424] rounded-[14%/6.24%] bg-linear-[155deg,#141c28,#0c1420_52%,#080d14] shadow-[inset_0_1px_0_#ffffff12,inset_0_0_0_1px_#ffffff24,0_14px_24px_#0008]"
+				className="relative w-[42.5cqw] flex-none aspect-[1080/2424] rounded-[14%/6.24%] bg-linear-[155deg,oklch(0.224584_0.026372_258.317),oklch(0.189824_0.027443_258.29)_52%,oklch(0.157319_0.017155_256.284)] shadow-[inset_0_1px_0_oklch(1_0_0/0.070588),inset_0_0_0_1px_oklch(1_0_0/0.141176),0_14px_24px_oklch(0_0_0/0.533333)]"
 				initial={false}
 				animate={{
 					opacity: androidVisible ? 1 : 0,

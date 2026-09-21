@@ -47,7 +47,7 @@ export function DeviceList({ devices }: { devices: DemoDevices }) {
 					selectedId={devices.selectedId}
 				/>
 			</div>
-			<div className="flex shrink-0 items-center gap-2 border-t border-white/[0.08] bg-[#181818] p-2">
+			<div className="flex shrink-0 items-center gap-2 border-t border-white/[0.08] bg-[oklch(0.209036_0_0)] p-2">
 				<label className="flex h-10 min-w-0 flex-1 items-center gap-2 bg-white/[0.06] px-2.5 [border-radius:8px] [transition:background-color_150ms_ease] focus-within:bg-white/[0.09]">
 					<Search
 						size={14}

@@ -29,7 +29,7 @@ function SelectTrigger({
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
 			className={cn(
-				"flex h-8 min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg bg-[var(--agentsims-button-raised)] px-2.5 text-[13px] leading-4 text-white/90 shadow-[var(--agentsims-button-raised-shadow)] outline-none [transition-property:background-color,box-shadow] duration-150 enabled:hover:bg-[var(--agentsims-button-raised-hover)] focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#181818] disabled:cursor-not-allowed disabled:opacity-40",
+				"flex h-8 min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg bg-[var(--agentsims-button-raised)] px-2.5 text-[13px] leading-4 text-white/90 shadow-[var(--agentsims-button-raised-shadow)] outline-none [transition-property:background-color,box-shadow] duration-150 enabled:hover:bg-[var(--agentsims-button-raised-hover)] focus-visible:ring-2 focus-visible:ring-white/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[oklch(0.209036_0_0)] disabled:cursor-not-allowed disabled:opacity-40",
 				className,
 			)}
 			{...props}
@@ -57,7 +57,7 @@ function SelectContent({
 				<SelectPrimitive.Popup
 					data-slot="select-content"
 					className={cn(
-						"relative max-h-[min(360px,var(--available-height))] min-w-(--anchor-width) origin-(--transform-origin) overflow-hidden rounded-[10px] bg-[#202020] p-1 text-[13px] text-white/90 shadow-[0_12px_32px_rgba(0,0,0,0.5),inset_0_0_0_1px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none",
+						"relative max-h-[min(360px,var(--available-height))] min-w-(--anchor-width) origin-(--transform-origin) overflow-hidden rounded-[10px] bg-[oklch(0.243535_0_0)] p-1 text-[13px] text-white/90 shadow-[0_12px_32px_oklch(0_0_0/0.5),inset_0_0_0_1px_oklch(1_0_0/0.08),inset_0_1px_0_oklch(1_0_0/0.05)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none",
 						matchTriggerWidth ? "w-(--anchor-width)" : "w-max",
 						className,
 					)}
@@ -104,7 +104,7 @@ function SelectScrollUpButton(
 	return (
 		<SelectPrimitive.ScrollUpArrow
 			data-slot="select-scroll-up-button"
-			className="sticky top-0 z-10 flex h-6 w-full items-center justify-center bg-[#202020] text-white/55"
+			className="sticky top-0 z-10 flex h-6 w-full items-center justify-center bg-[oklch(0.243535_0_0)] text-white/55"
 			{...props}
 		>
 			<Chevron open />
@@ -118,7 +118,7 @@ function SelectScrollDownButton(
 	return (
 		<SelectPrimitive.ScrollDownArrow
 			data-slot="select-scroll-down-button"
-			className="sticky bottom-0 z-10 flex h-6 w-full items-center justify-center bg-[#202020] text-white/55"
+			className="sticky bottom-0 z-10 flex h-6 w-full items-center justify-center bg-[oklch(0.243535_0_0)] text-white/55"
 			{...props}
 		>
 			<Chevron open={false} />

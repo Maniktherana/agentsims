@@ -40,14 +40,14 @@ export function ResizeHandle({
 				<path
 					data-agentsims-resize-main-stroke
 					d={path}
-					stroke="#686e78"
+					stroke="oklch(0.53653 0.017264 260.712)"
 					strokeWidth={2.65}
 					strokeLinecap="round"
 					vectorEffect="non-scaling-stroke"
 					className="opacity-[0.38] contrast-more:opacity-100 contrast-more:[stroke-width:2.968px]"
 					style={{
 						filter:
-							"drop-shadow(0 0.5px 1px rgba(0,0,0,0.1)) drop-shadow(0 2px 5px rgba(0,0,0,0.13))",
+							"drop-shadow(0 0.5px 1px oklch(0 0 0 / 0.1)) drop-shadow(0 2px 5px oklch(0 0 0 / 0.13))",
 					}}
 				/>
 			</svg>

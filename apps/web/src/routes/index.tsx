@@ -179,7 +179,7 @@ function HomePage() {
 								size="lg"
 								className={cn(
 									HERO_ACTION,
-									"gap-3 rounded-full border bg-linear-to-b from-[#19191b] to-[#101011] px-5 font-mono text-[0.8125rem] shadow-[inset_0_1px_0_#ffffff08] max-md:rounded-[0.875rem]",
+									"gap-3 rounded-full border bg-linear-to-b from-[oklch(0.214267_0.003881_286.068)] to-[oklch(0.173482_0.002043_286.185)] px-5 font-mono text-[0.8125rem] shadow-[inset_0_1px_0_oklch(1_0_0/0.031373)] max-md:rounded-[0.875rem]",
 								)}
 								onClick={copyCommand}
 								aria-label={

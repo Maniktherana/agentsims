@@ -55,7 +55,7 @@ export function DeviceRow({
 					{device.name}
 				</div>
 				<div
-					className={`truncate text-[11px] leading-tight ${phase === "streaming" ? "text-[#34d399]" : transitioning ? "text-white/45" : active ? "text-white/75" : "text-white/45"}`}
+					className={`truncate text-[11px] leading-tight ${phase === "streaming" ? "text-[oklch(0.772944_0.15349_163.223)]" : transitioning ? "text-white/45" : active ? "text-white/75" : "text-white/45"}`}
 				>
 					<TextStateSwap>{status}</TextStateSwap>
 				</div>

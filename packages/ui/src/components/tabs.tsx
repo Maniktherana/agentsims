@@ -27,7 +27,7 @@ const tabsListVariants = cva(
 		variants: {
 			variant: {
 				default:
-					"rounded-[8px] bg-white/[0.045] p-0.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]",
+					"rounded-[8px] bg-white/[0.045] p-0.5 shadow-[inset_0_0_0_1px_oklch(1_0_0/0.025)]",
 				ghost: "rounded-[8px] p-0.5",
 				underline: "gap-1 bg-transparent",
 			},
@@ -55,7 +55,7 @@ function TabsList({
 				className={cn(
 					"pointer-events-none absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out motion-reduce:transition-none",
 					variant === "default" &&
-						"z-0 rounded-[6px] bg-white/[0.11] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+						"z-0 rounded-[6px] bg-white/[0.11] shadow-[inset_0_1px_0_oklch(1_0_0/0.04)]",
 					variant === "ghost" && "z-0 rounded-[6px] bg-white/[0.1]",
 					variant === "underline" &&
 						"z-20 h-0.5 translate-y-px bg-white data-vertical:h-(--active-tab-height) data-vertical:w-0.5 data-vertical:-translate-x-px",

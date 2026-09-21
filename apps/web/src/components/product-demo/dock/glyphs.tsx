@@ -123,7 +123,7 @@ export function DeviceStatusGlyph({ phase }: { phase: DevicePhase }) {
 			data-device-status-glyph={phase}
 			className={`pointer-events-none absolute -bottom-2 -right-2 grid size-4 place-items-center ${
 				phase === "streaming"
-					? "text-[#34d399]"
+					? "text-[oklch(0.772944_0.15349_163.223)]"
 					: phase === "shutting-down"
 						? "text-white/45"
 						: "text-amber-300/80"

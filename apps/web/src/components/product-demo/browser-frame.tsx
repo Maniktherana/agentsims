@@ -18,15 +18,15 @@ export function BrowserFrame({
 			data-screen={lit ? "lit" : "dark"}
 		>
 			<div
-				className="relative z-[1] hidden min-h-10 items-center gap-4 bg-[#1c1c1e] px-3 py-2 max-md:flex"
+				className="relative z-[1] hidden min-h-10 items-center gap-4 bg-[oklch(0.22728_0.003823_286.092)] px-3 py-2 max-md:flex"
 				aria-hidden="true"
 			>
-				<div className="flex gap-[0.3rem] [&>i]:size-1.5 [&>i]:rounded-full [&>i]:bg-[#55555a]">
+				<div className="flex gap-[0.3rem] [&>i]:size-1.5 [&>i]:rounded-full [&>i]:bg-[oklch(0.451285_0.008054_286.073)]">
 					<i />
 					<i />
 					<i />
 				</div>
-				<div className="flex flex-1 items-center justify-center gap-[0.3rem] rounded-[0.3rem] bg-[#2c2c2f] p-[0.3rem] text-[0.5625rem] text-[#b4b4bd] [&>svg]:size-2">
+				<div className="flex flex-1 items-center justify-center gap-[0.3rem] rounded-[0.3rem] bg-[oklch(0.294299_0.005378_286.065)] p-[0.3rem] text-[0.5625rem] text-[oklch(0.772681_0.012669_286.1)] [&>svg]:size-2">
 					<LockKeyhole />
 					agentsims
 				</div>
@@ -39,7 +39,7 @@ export function BrowserFrame({
 				inert
 			>
 				<motion.div
-					className="absolute top-[12%] left-[46%] z-[2] rounded-[6px] border border-white/5 bg-[#151517] px-[0.6rem] py-[0.4rem] font-mono text-[10px] font-semibold text-muted-foreground max-md:hidden"
+					className="absolute top-[12%] left-[46%] z-[2] rounded-[6px] border border-white/5 bg-[oklch(0.196601_0.003967_286.029)] px-[0.6rem] py-[0.4rem] font-mono text-[10px] font-semibold text-muted-foreground max-md:hidden"
 					initial={{ opacity: 0 }}
 					animate={{ opacity: chrome ? 1 : 0 }}
 					transition={INTRO_FADE}

@@ -70,23 +70,23 @@
 .dark {
 	--background: oklch(0 0 0);
 	--foreground: oklch(0.967 0.001 286.375);
-	--card: #0a0a0b;
+	--card: oklch(0.145249 0.002132 286.131);
 	--card-foreground: oklch(0.92 0.004 286.32);
-	--popover: #181818;
+	--popover: oklch(0.209036 0 0);
 	--popover-foreground: oklch(0.967 0.001 286.375);
 	--primary: oklch(0.967 0.001 286.375);
 	--primary-foreground: oklch(0.141 0.005 285.823);
-	--secondary: #19191b;
+	--secondary: oklch(0.214267 0.003881 286.068);
 	--secondary-foreground: oklch(0.967 0.001 286.375);
-	--muted: #19191b;
+	--muted: oklch(0.214267 0.003881 286.068);
 	--muted-foreground: oklch(0.705 0.015 286.067);
 	--accent: oklch(1 0 0 / 10%);
 	--accent-foreground: oklch(0.967 0.001 286.375);
 	--destructive: oklch(0.704 0.191 22.216);
-	--border: #303034;
-	--input: #303034;
-	--ring: #38bdf8;
-	--subtle-foreground: #85858f;
+	--border: oklch(0.310738 0.00708 285.981);
+	--input: oklch(0.310738 0.00708 285.981);
+	--ring: oklch(0.753513 0.138989 232.661);
+	--subtle-foreground: oklch(0.619979 0.014898 285.957);
 	--brand: oklch(0.625 0.205 256);
 }
 
@@ -146,10 +146,10 @@
 		border-radius: 1.6cqw 1.6cqw 0 0;
 		background:
 			linear-gradient(
-				rgb(13 13 14 / var(--screen-lit)),
-				rgb(10 10 11 / var(--screen-lit)) 42%
+				oklch(0.169322 0.004122 285.951 / var(--screen-lit)),
+				oklch(0.145249 0.002132 286.131 / var(--screen-lit)) 42%
 			),
-			#000;
+			oklch(0 0 0);
 		content: "";
 	}
 	.macbook-display::after {
@@ -158,7 +158,7 @@
 		inset-inline: -1px;
 		bottom: 0;
 		height: 30%;
-		background: linear-gradient(transparent, #000 95%);
+		background: linear-gradient(transparent, oklch(0 0 0) 95%);
 		content: "";
 		pointer-events: none;
 	}
@@ -179,7 +179,11 @@
 		right: 0;
 		bottom: 0;
 		width: 59%;
-		background-image: radial-gradient(circle, #ffffff30 0.9px, transparent 1px);
+		background-image: radial-gradient(
+			circle,
+			oklch(1 0 0 / 0.188235) 0.9px,
+			transparent 1px
+		);
 		background-size: 24px 24px;
 		mask-image:
 			linear-gradient(to right, transparent, black 24%, black 85%, transparent),
@@ -223,16 +227,16 @@
 			border-radius: 0.875rem 0.875rem 0 0;
 			background:
 				linear-gradient(
-					rgb(13 13 14 / var(--screen-lit)),
-					rgb(10 10 11 / var(--screen-lit)) 32%,
-					rgb(0 0 0 / var(--screen-lit)) 98%
+					oklch(0.169322 0.004122 285.951 / var(--screen-lit)),
+					oklch(0.145249 0.002132 286.131 / var(--screen-lit)) 32%,
+					oklch(0 0 0 / var(--screen-lit)) 98%
 				),
-				#000;
+				oklch(0 0 0);
 		}
 		.macbook-display::before {
 			z-index: 6;
 			inset: 0;
-			border: 1px solid #333337;
+			border: 1px solid oklch(0.322627 0.007013 286);
 			border-radius: inherit;
 			background: transparent;
 			pointer-events: none;
