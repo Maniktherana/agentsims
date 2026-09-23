@@ -27,7 +27,7 @@ export function ProductDemo({ intro }: { intro: Intro }) {
 					chrome={intro.reached("workspace")}
 				>
 					<div
-						className="demo-scene @container absolute right-[7%] bottom-[7%] z-[2] aspect-[480/530] w-[min(40%,36rem)] [direction:ltr] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-full max-md:max-w-md"
+						className="demo-scene @container absolute left-[70.5%] bottom-[7%] z-[2] aspect-[480/530] w-[min(40%,36rem)] -translate-x-1/2 [direction:ltr] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-full max-md:max-w-md max-md:translate-x-0"
 						ref={sceneRef}
 						data-stage={frame.name}
 						data-phase={reducedMotion ? "static" : phase}

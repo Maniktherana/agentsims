@@ -10,6 +10,7 @@
 		"./motion/number-morph": "./src/motion/number-morph.tsx",
 		"./motion/pressable": "./src/motion/pressable.ts",
 		"./motion/skeleton-reveal": "./src/motion/skeleton-reveal.tsx",
+		"./motion/streaming-text": "./src/motion/streaming-text.tsx",
 		"./motion/text-state-swap": "./src/motion/text-state-swap.tsx",
 		"./motion/presets": "./src/motion/presets.ts",
 		"./globals.css": "./src/styles/globals.css"

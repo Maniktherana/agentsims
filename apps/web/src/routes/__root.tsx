@@ -16,15 +16,20 @@ export const Route = createRootRoute({
 				content: "width=device-width, initial-scale=1",
 			},
 			{
-				title: "Agentsims — Mobile simulators in your browser",
+				title: "Agentsims — Mobile tooling for developers and coding agents",
 			},
 			{
 				name: "description",
 				content:
-					"Control and inspect iOS simulators and Android devices from a local browser workspace.",
+					"Run, inspect, and control iOS simulators and Android devices from one browser, CLI, and agent skill.",
 			},
 		],
 		links: [
+			{
+				rel: "preconnect",
+				href: "https://fonts.gstatic.com",
+				crossOrigin: "anonymous",
+			},
 			{ rel: "stylesheet", href: stylesheet },
 			{ rel: "icon", href: "/favicon.ico", sizes: "any" },
 		],

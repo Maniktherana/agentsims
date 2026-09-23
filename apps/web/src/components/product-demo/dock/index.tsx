@@ -46,7 +46,7 @@ export function DemoDock({
 							<MonitorSmartphone size={17} strokeWidth={1.9} />
 							<span
 								aria-hidden="true"
-								className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-brand px-1 text-[9px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_oklch(0_0_0/0.42)]"
+								className="absolute -right-1.5 -top-1.5 grid min-w-4.5 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-[18px] tabular-nums text-white shadow-[0_2px_8px_oklch(0_0_0/0.42)] max-md:text-[11px]"
 							>
 								<NumberMorph>{devices.shown}</NumberMorph>
 							</span>
@@ -69,10 +69,10 @@ export function DemoDock({
 							transition={dockPanelTransition}
 							className="absolute inset-0 flex min-h-0 flex-col text-white/90"
 						>
-							<div className="flex min-h-11 shrink-0 items-center justify-between px-3 text-xs font-semibold text-card-foreground">
+							<div className="flex min-h-11 shrink-0 items-center justify-between px-3 text-[13px] font-semibold text-card-foreground max-md:text-[14px]">
 								<span>Devices</span>
 								<div className="flex items-center gap-1.5">
-									<small>
+									<small className="text-[11px] max-md:text-[12px]">
 										<NumberMorph>{devices.shown}</NumberMorph> shown
 									</small>
 									<span className="grid size-8 place-items-center text-white/42">

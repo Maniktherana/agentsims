@@ -13,7 +13,7 @@ function DeviceSection({
 }) {
 	return (
 		<>
-			<div className="flex items-center justify-between px-2 py-1.5 text-[10px] font-semibold uppercase text-white/35">
+			<div className="flex items-center justify-between px-2 py-1.5 text-[11px] font-semibold uppercase text-white/35 max-md:text-[12px]">
 				<span>{label}</span>
 				<span className="tabular-nums text-white/25">{devices.length}</span>
 			</div>
@@ -58,7 +58,7 @@ export function DeviceList({ devices }: { devices: DemoDevices }) {
 						readOnly
 						value=""
 						placeholder="Search devices"
-						className="min-w-0 flex-1 border-none bg-transparent text-[12px] text-white/90 outline-none placeholder:text-white/35"
+						className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-white/90 outline-none placeholder:text-white/35 max-md:text-[14px]"
 					/>
 				</label>
 			</div>

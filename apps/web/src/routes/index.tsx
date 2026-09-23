@@ -2,9 +2,11 @@ import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ProductDemo } from "../components/product-demo";
+import { AgentWorkflow } from "../components/agent-workflow";
+import { AgentControlSection } from "../components/agent-control";
 import { StaggerLine, StaggerReveal } from "../components/intro/stagger-reveal";
 import { useIntro } from "../components/intro/use-intro";
-import { Button, buttonVariants } from "@agentsims/ui/components/button";
+import { Button } from "@agentsims/ui/components/button";
 import { pressable } from "@agentsims/ui/motion/pressable";
 import { cn } from "@agentsims/ui/lib/utils";
 
@@ -125,55 +127,36 @@ function HomePage() {
 						<span className="max-md:hidden">GitHub</span>
 					</a>
 				</nav>
-				<a
-					href={repositoryUrl}
-					className={cn(
-						buttonVariants({ size: "lg" }),
-						"h-9 justify-self-end rounded-full max-md:px-3.5 max-md:text-[0.8125rem]",
-					)}
-				>
-					Get started
-				</a>
 			</header>
 
 			<main id="main">
 				<section className="relative mx-auto w-[calc(100%-4rem)] max-w-[128rem] max-md:w-full">
 					<StaggerReveal
 						show={intro.reached("copy")}
-						className="absolute top-[24%] left-[5.5%] z-[5] w-[44%] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-auto max-md:max-w-2xl max-md:px-5 max-md:pt-4"
+						className="hero-copy absolute top-[24%] z-[5] w-[44%] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-auto max-md:max-w-2xl max-md:px-5 max-md:pt-4"
 					>
 						<StaggerLine
 							as="p"
 							className="m-0 text-[clamp(0.875rem,1.25vw,1.25rem)] text-muted-foreground max-md:max-w-xs max-md:text-base max-md:leading-normal"
 						>
-							Simulator workspace <span>for iOS and Android</span>
+							Mobile engineering, built for agents
 						</StaggerLine>
 						<StaggerLine
 							as="h1"
 							className="mt-6 mb-0 text-[clamp(2.75rem,4.1vw,4.5rem)] leading-[1.05] font-semibold tracking-[-0.055em] max-md:text-[clamp(2.5rem,10.5vw,3.75rem)] max-md:tracking-[-0.045em]"
 						>
-							<span className="block max-md:inline">Mobile simulators,</span>{" "}
-							<span className="block max-md:inline">in your browser.</span>
+							<span className="block max-md:inline">The mobile runtime</span>{" "}
+							<span className="block max-md:inline">for coding agents.</span>
 						</StaggerLine>
 						<StaggerLine
 							as="p"
 							className="mt-7 mb-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground max-md:mt-6 max-md:text-[1.0625rem]"
 						>
-							Control iOS simulators and Android devices from one local
-							workspace.
+							Give Codex, Claude Code, and any coding agent a complete interface
+							to iOS simulators and Android devices.
 						</StaggerLine>
 
 						<StaggerLine className="mt-9 flex flex-wrap items-center gap-3 max-md:mt-8 max-md:flex-col max-md:items-stretch">
-							<a
-								href={repositoryUrl}
-								className={cn(
-									buttonVariants({ size: "lg" }),
-									HERO_ACTION,
-									"rounded-full",
-								)}
-							>
-								Get started
-							</a>
 							<Button
 								variant="ghost"
 								size="lg"
@@ -223,6 +206,8 @@ function HomePage() {
 					</StaggerReveal>
 					<ProductDemo intro={intro} />
 				</section>
+				<AgentWorkflow />
+				<AgentControlSection />
 			</main>
 		</div>
 	);
