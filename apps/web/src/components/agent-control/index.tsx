@@ -437,7 +437,7 @@ function WorkflowPhone({
 				muted
 				playsInline
 				preload="none"
-				poster="/demo/iphone-dark-mode-poster.jpg"
+				poster="/demo/iphone-dark-mode-poster.webp"
 				onTimeUpdate={onTimeUpdate}
 				onEnded={onEnded}
 				onCanPlay={onCanPlay}

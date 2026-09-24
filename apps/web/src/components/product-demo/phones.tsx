@@ -35,22 +35,22 @@ export function IPhoneMock({
 			{children}
 			<img
 				className="pointer-events-none absolute inset-y-0 left-[1.982%] z-[1] h-full w-[96.035%]"
-				src="/iphone-frame.png"
+				src="/iphone-frame.webp"
 				alt=""
 			/>
 			<img
 				className={cn(IPHONE_BUTTON, "top-[17.621%] h-[3.744%]")}
-				src="/iphone-action.png"
+				src="/iphone-action.webp"
 				alt=""
 			/>
 			<img
 				className={cn(IPHONE_BUTTON, "top-[24.339%] h-[7.048%]")}
-				src="/iphone-volume.png"
+				src="/iphone-volume.webp"
 				alt=""
 			/>
 			<img
 				className={cn(IPHONE_BUTTON, "top-[33.04%] h-[7.048%]")}
-				src="/iphone-volume.png"
+				src="/iphone-volume.webp"
 				alt=""
 			/>
 			<img
@@ -58,7 +58,7 @@ export function IPhoneMock({
 					IPHONE_BUTTON,
 					"top-[28.855%] left-[95.154%] h-[11.123%]",
 				)}
-				src="/iphone-power.png"
+				src="/iphone-power.webp"
 				alt=""
 			/>
 		</div>
@@ -100,7 +100,7 @@ export function DemoPhones({
 					<ResizeHandle android={false} scale={scale} />
 					<img
 						className="absolute top-[1.872%] left-[5.727%] z-[2] h-[96.256%] w-[88.546%] rounded-[15.174%/6.979%]"
-						src="/demo/iphone-17-screen.png"
+						src="/demo/iphone-17-screen.webp"
 						width={1206}
 						height={2622}
 						alt=""
@@ -120,7 +120,7 @@ export function DemoPhones({
 				<DeviceNamePill name="Pixel 10" scale={scale} />
 				<motion.img
 					className="pointer-events-none absolute inset-px h-[calc(100%-2px)] w-[calc(100%-2px)] rounded-[inherit] object-cover"
-					src="/demo/pixel-10-screen.png"
+						src="/demo/pixel-10-screen.webp"
 					width={1080}
 					height={2424}
 					alt=""

@@ -166,15 +166,15 @@ export function AgentWorkflow() {
 						<div className="workflow-observe-layout">
 							<PixelMock className="workflow-phone-observe">
 								{reducedMotion ? (
-									<img src="/demo/pixel10-home.png" alt="" />
+									<img src="/demo/pixel10-home.webp" alt="" />
 								) : (
 									<video
 										ref={swipeVideoRef}
 										muted
 										playsInline
 										preload="metadata"
-										poster="/demo/pixel10-home.png"
-										src="/demo/pixel10-swipe-from-top.mp4"
+										poster="/demo/pixel10-home.webp"
+										src="/demo/pixel10-swipe-from-top.webm"
 										onEnded={() => setObserveQuickSettings(true)}
 										onTimeUpdate={(event) => {
 											const quickSettings =
@@ -208,15 +208,15 @@ export function AgentWorkflow() {
 					<div className="workflow-stage" aria-hidden="true">
 						<PixelMock className="workflow-phone-act">
 							{reducedMotion ? (
-								<img src="/demo/pixel10-quick-settings-off.png" alt="" />
+								<img src="/demo/pixel10-quick-settings-off.webp" alt="" />
 							) : (
 								<video
 									ref={bluetoothVideoRef}
 									muted
 									playsInline
 									preload="auto"
-									poster="/demo/pixel10-quick-settings-off.png"
-									src="/demo/pixel10-turn-on-bluetooth.mp4"
+									poster="/demo/pixel10-quick-settings-off.webp"
+									src="/demo/pixel10-turn-on-bluetooth.webm"
 								/>
 							)}
 							<span className="workflow-touch-cursor workflow-tap-cursor" />
@@ -268,11 +268,11 @@ export function AgentWorkflow() {
 					<div className="workflow-stage" aria-hidden="true">
 						<div className="workflow-screenshot-scene">
 							<PixelMock className="workflow-phone-capture">
-								<img src="/demo/pixel10-quick-settings-on.png" alt="" />
+								<img src="/demo/pixel10-quick-settings-on.webp" alt="" />
 							</PixelMock>
 							<span className="workflow-screenshot-flash" />
 							<div className="workflow-screenshot-preview">
-								<img src="/demo/pixel10-quick-settings-on.png" alt="" />
+								<img src="/demo/pixel10-quick-settings-on.webp" alt="" />
 							</div>
 						</div>
 					</div>
