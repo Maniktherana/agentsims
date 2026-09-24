@@ -1,0 +1,9 @@
+{
+	"name": "agentsims",
+	"compatibility_date": "2026-09-24",
+	"assets": {
+		"directory": "./apps/web/dist/client",
+	},
+	"preview_urls": true,
+	"previews": {},
+}
