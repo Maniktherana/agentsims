@@ -1,17 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { TextMorph } from "torph/react";
 import { ProductDemo } from "../components/product-demo";
 import { AgentWorkflow } from "../components/agent-workflow";
 import { AgentControlSection } from "../components/agent-control";
 import { StaggerLine, StaggerReveal } from "../components/intro/stagger-reveal";
 import { useIntro } from "../components/intro/use-intro";
-import { Button } from "@agentsims/ui/components/button";
+import { InstallationControls } from "../components/installation/installation-controls";
 import { pressable } from "@agentsims/ui/motion/pressable";
 import { cn } from "@agentsims/ui/lib/utils";
 
 const repositoryUrl = "https://github.com/Maniktherana/agentsims";
-const installationUrl = `${repositoryUrl}/blob/main/docs/installation.md`;
 
 export const Route = createFileRoute("/")({ component: HomePage });
 
@@ -25,35 +22,6 @@ function GitHubMark() {
 
 function HomePage() {
 	const intro = useIntro();
-	const [platform, setPlatform] = useState<
-		"macOS" | "Windows" | "Linux" | null
-	>(null);
-
-	useEffect(() => {
-		const host = navigator.userAgent;
-		if (
-			/Android|iPhone|iPad|iPod/.test(host) ||
-			(/Macintosh/.test(host) && navigator.maxTouchPoints > 1)
-		)
-			return;
-		setPlatform(
-			/Windows/.test(host)
-				? "Windows"
-				: /Macintosh|Mac OS X/.test(host)
-					? "macOS"
-					: /Linux/.test(host)
-						? "Linux"
-						: null,
-		);
-	}, []);
-
-	const downloadUrl =
-		platform === "Windows"
-			? `${repositoryUrl}/releases/latest/download/agentsims-windows-x64.tar.gz`
-			: platform
-				? "https://agentsims.dev/install"
-				: installationUrl;
-
 	return (
 		<div className="min-h-screen bg-background text-foreground">
 			<a
@@ -120,46 +88,8 @@ function HomePage() {
 							to iOS simulators and Android devices.
 						</StaggerLine>
 
-						<StaggerLine className="mt-9 flex flex-wrap items-center gap-3 max-md:mt-8">
-							<Button
-								variant="ghost"
-								nativeButton={false}
-								render={
-									<a
-										href={downloadUrl}
-										download={
-											platform && platform !== "Windows"
-												? "install.sh"
-												: undefined
-										}
-									/>
-								}
-								size="lg"
-								className="h-11 rounded-full bg-white px-5 text-black hover:bg-white/90 hover:text-black active:bg-white/80 focus-visible:ring-2 focus-visible:ring-white/45"
-								style={{
-									scale: "1",
-									transform: "none",
-									transitionProperty: "background-color, color",
-								}}
-							>
-								<TextMorph>
-									{platform ? `Download for ${platform}` : "Download Agentsims"}
-								</TextMorph>
-							</Button>
-							<Button
-								variant="ghost"
-								nativeButton={false}
-								render={<a href={installationUrl} />}
-								size="lg"
-								className="h-11 rounded-full border px-5"
-								style={{
-									scale: "1",
-									transform: "none",
-									transitionProperty: "background-color, color",
-								}}
-							>
-								Other platforms
-							</Button>
+						<StaggerLine className="mt-9 max-md:mt-8">
+							<InstallationControls />
 						</StaggerLine>
 						<StaggerLine
 							as="p"
