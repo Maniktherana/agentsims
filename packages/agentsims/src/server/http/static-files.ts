@@ -1,5 +1,10 @@
 import { posix } from "node:path";
 
+/** Convert build filesystem paths to the URL keys emitted by Vite. */
+export function previewAssetKeysForFiles(paths: Iterable<string>): Set<string> {
+	return new Set(Array.from(paths, (path) => path.replaceAll("\\", "/")));
+}
+
 export function previewAssetContentType(path: string): string {
 	if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
 	if (path.endsWith(".css")) return "text/css; charset=utf-8";

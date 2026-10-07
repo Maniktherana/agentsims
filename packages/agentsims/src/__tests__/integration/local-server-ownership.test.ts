@@ -183,3 +183,70 @@ console.log("Linux exited process ownership verified");
 		rmSync(directory, { recursive: true, force: true });
 	}
 });
+
+test("owned stop verifies PID while normal status waits for device discovery", () => {
+	const directory = mkdtempSync(join(tmpdir(), "agentsims-status-identity-"));
+	try {
+		const script = join(directory, "identity.ts");
+		const source = resolve(import.meta.dir, "../..");
+		writeFileSync(script, `
+import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { startTestServer } from ${JSON.stringify(join(source, "__tests__/helpers/server.ts"))};
+import { stopLocalServer } from ${JSON.stringify(join(source, "cli/local-server.ts"))};
+import { STATE_DIR } from ${JSON.stringify(join(source, "core/tools/devices/state.ts"))};
+const { Effect } = await import(${JSON.stringify(resolve(source, "../node_modules/effect/dist/esm/index.js"))});
+const discovery = Promise.withResolvers(), entered = Promise.withResolvers();
+let reads = 0;
+const { origin, server } = await startTestServer({ basePath: "/owned",
+  deviceCommands: { workspaces: () => Effect.promise(() => { reads++; entered.resolve(); return discovery.promise; }) } });
+const status = fetch(origin + "/owned/status");
+await entered.promise;
+const identity = await fetch(origin + "/owned/status?identity=1", { signal: AbortSignal.timeout(2000) });
+assert.equal(identity.status, 200);
+assert.deepEqual(await identity.json(), { pid: process.pid });
+assert.equal(reads, 1);
+mkdirSync(STATE_DIR, { recursive: true });
+const metadata = join(STATE_DIR, "local-server.json");
+writeFileSync(metadata, JSON.stringify({ pid: process.pid,
+  uid: typeof process.getuid === "function" ? process.getuid() : null,
+  host: "127.0.0.1", port: server.port, basePath: "/owned", url: origin + "/owned",
+  logFile: "fixture.log", startedAt: "2026-10-07T00:00:00.000Z" }), { mode: 0o600 });
+let stopped = false, signals = 0;
+const originalKill = process.kill;
+Object.defineProperty(process, "platform", { value: "darwin" });
+// Keep actual HTTP routing; replace the signal seam to protect this fixture.
+process.kill = (pid, signal) => {
+  assert.equal(pid, process.pid);
+  if (signal === "SIGTERM") {
+    signals++;
+    assert.equal(reads, 1);
+    discovery.resolve([]);
+    void server.stop().then(() => { stopped = true; });
+  } else if (stopped) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+  return true;
+};
+try {
+  assert.equal(await stopLocalServer(), true);
+  assert.equal(signals, 1);
+  assert.equal(stopped, true, "stop waits for server scope disposal");
+  assert.equal(existsSync(metadata), false);
+} finally { process.kill = originalKill; discovery.resolve([]); await server.stop(); }
+await status.catch(() => {});
+const normal = await startTestServer({ deviceCommands: { workspaces: () => Effect.succeed([]) } });
+try {
+  const response = await fetch(normal.origin + "/status");
+  assert.deepEqual(await response.json(), { pid: process.pid, workspaces: [] });
+} finally { await normal.server.stop(); }
+console.log("identity bypasses pending discovery and owned cleanup completes");
+`);
+		const result = spawnSync(process.execPath, [script], {
+			encoding: "utf8", timeout: 10_000,
+			env: { ...process.env, AGENTSIMS_HOME_DIR: join(directory, "home"), AGENTSIMS_INSTALL_DIR: join(directory, "installation") },
+		});
+		expect(result.error).toBeUndefined();
+		expect(result).toMatchObject({ status: 0, stderr: "" });
+		expect(result.stdout).toContain("identity bypasses pending discovery and owned cleanup completes");
+	} finally { rmSync(directory, { recursive: true, force: true }); }
+});

@@ -31,6 +31,7 @@ import { loadMcpAppConfiguration } from "../src/server/mcp/app-config";
 import {
 	assertPreviewDynamicImportsPresent,
 	assertPreviewManifestAssetsPresent,
+	previewAssetKeysForFiles,
 	type PreviewViteManifest,
 } from "../src/server/http/static-files";
 
@@ -341,7 +342,7 @@ await viteBuild({
 const manifest = JSON.parse(
 	readFileSync(resolve(preview, ".vite/manifest.json"), "utf8"),
 ) as PreviewViteManifest;
-const assets = new Set(
+const assets = previewAssetKeysForFiles(
 	new Bun.Glob("**/*").scanSync({ cwd: preview, onlyFiles: true }),
 );
 if (

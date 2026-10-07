@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+	cpSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -131,6 +132,50 @@ test("the source package exposes only integration files for npm packing", () => 
 test("the packed library verifier accepts CRLF archive listings", async () => {
 	const version =
 		process.env.AGENTSIMS_RELEASE_VERSION ?? sourceManifest.version;
+	const repository = resolve(import.meta.dir, "../../../../..");
+	const checkout = join(directory, "library build");
+	for (const path of [
+		"tsconfig.base.json",
+		"packages/agentsims/package.json",
+		"packages/agentsims/LICENSE",
+		"packages/agentsims/scripts",
+		"packages/agentsims/android/accessibility",
+		"packages/agentsims/src",
+		"packages/agentsims-react-native/package.json",
+		"packages/agentsims-react-native/README.md",
+		"packages/agentsims-react-native/tsconfig.json",
+		"packages/agentsims-react-native/tsconfig.state.json",
+		"packages/agentsims-react-native/src",
+	]) {
+		const destination = join(checkout, path);
+		mkdirSync(dirname(destination), { recursive: true });
+		cpSync(join(repository, path), destination, { recursive: true });
+	}
+	for (const path of [
+		"node_modules",
+		"packages/agentsims/node_modules",
+		"packages/agentsims-react-native/node_modules",
+	]) {
+		symlinkSync(join(repository, path), join(checkout, path), "dir");
+	}
+	const built = spawnSync(
+		process.execPath,
+		[join(checkout, "packages/agentsims/scripts/build.ts"), "--library-only"],
+		{
+			cwd: checkout,
+			encoding: "utf8",
+			timeout: 30_000,
+			env: { ...process.env, AGENTSIMS_RELEASE_VERSION: version },
+		},
+	);
+	expect(built.error).toBeUndefined();
+	expect({ status: built.status, stderr: built.stderr }).toMatchObject({
+		status: 0,
+	});
+	const library = join(
+		checkout,
+		"packages/agentsims-react-native/dist/npm/agentsims",
+	);
 	const preload = join(directory, "crlf-tar-preload.ts");
 	const marker = join(directory, "crlf-tar-listing");
 	writeFileSync(
@@ -165,6 +210,8 @@ mock.module("node:child_process", () => ({
 			resolve(import.meta.dir, "../../../scripts/verify-package.ts"),
 			"--product",
 			"library",
+			"--library",
+			library,
 		],
 		{
 			cwd: resolve(import.meta.dir, "../../.."),

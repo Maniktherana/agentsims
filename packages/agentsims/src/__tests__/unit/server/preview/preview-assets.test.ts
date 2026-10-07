@@ -6,10 +6,57 @@ import {
 	assertPreviewDynamicImportsPresent,
 	assertPreviewManifestAssetsPresent,
 	enumeratePreviewDynamicImports,
+	previewAssetKeysForFiles,
 } from "../../../../server/http/static-files";
 import { startTestServer } from "../../../helpers/server";
 
 describe("preview assets", () => {
+	test("matches Windows filesystem entries to manifest and nested import URL keys", () => {
+		const assets = previewAssetKeysForFiles([
+			"index.html",
+			"assets\\client.js",
+			"assets\\client.css",
+			"assets\\themes\\light.js",
+		]);
+		expect([...assets]).toEqual([
+			"index.html",
+			"assets/client.js",
+			"assets/client.css",
+			"assets/themes/light.js",
+		]);
+		expect(
+			assertPreviewManifestAssetsPresent(
+				{
+					client: { file: "assets/client.js", css: ["assets/client.css"] },
+				},
+				assets,
+			),
+		).toEqual(["assets/client.js", "assets/client.css"]);
+		expect(
+			assertPreviewDynamicImportsPresent(
+				{
+					"assets/client.js": 'import("./themes/light.js")',
+				},
+				assets,
+			),
+		).toEqual([
+			{
+				importer: "assets/client.js",
+				specifier: "./themes/light.js",
+				assetKey: "assets/themes/light.js",
+			},
+		]);
+		assets.delete("assets/themes/light.js");
+		expect(() =>
+			assertPreviewDynamicImportsPresent(
+				{
+					"assets/client.js": 'import("./themes/light.js")',
+				},
+				assets,
+			),
+		).toThrow("assets/themes/light.js");
+	});
+
 	test("serves the entry and every emitted dynamic import with browser MIME types", async () => {
 		const javascript: Record<string, string> = {
 			"assets/client-a0.js":

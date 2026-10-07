@@ -152,6 +152,10 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 		"/status",
 		commandResponse(
 			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				// Ownership probes must not wait for platform device discovery.
+				if (url.searchParams.get("identity") === "1")
+					return { pid: process.pid };
 				return {
 					pid: process.pid,
 					workspaces: yield* (yield* Devices).workspaces(),

@@ -328,7 +328,7 @@ export async function stopLocalServer(): Promise<boolean> {
 	if (!record) return false;
 	if (record.uid !== uid())
 		throw new Error("Only the user who started this server can stop it.");
-	const response = await fetch(`${record.url}/status`, {
+	const response = await fetch(`${record.url}/status?identity=1`, {
 		signal: AbortSignal.timeout(2000),
 	});
 	const identity = (await response.json()) as { pid?: number };
