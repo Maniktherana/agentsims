@@ -981,7 +981,7 @@ export function reportCliError(error: unknown): void {
 	process.exitCode = 1;
 }
 
-if (import.meta.main)
+if (import.meta.main || (typeof __AGENTSIMS_STANDALONE__ !== "undefined" && __AGENTSIMS_STANDALONE__))
 	try {
 		await main();
 	} catch (error) {

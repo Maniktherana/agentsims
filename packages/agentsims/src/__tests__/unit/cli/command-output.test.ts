@@ -77,6 +77,38 @@ await main([process.execPath, ${JSON.stringify(cli)}, "--version"]);
 	expect({ stdout, stderr, exitCode }).toEqual({ stdout: `${version}\n`, stderr: "", exitCode: 0 });
 });
 
+test("the compiled entry runs when the runtime main marker is false, while source imports stay inert", async () => {
+	const root = temporaryRoot();
+	const executable = join(root, process.platform === "win32" ? "agentsims.exe" : "agentsims");
+	const version = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")).version;
+	const built = await Bun.build({
+		entrypoints: [cli], target: "bun", minify: false,
+		define: {
+			__AGENTSIMS_STANDALONE__: "true",
+			__AGENTSIMS_VERSION__: JSON.stringify(version),
+			"import.meta.main": "false",
+		},
+		compile: { outfile: executable, autoloadBunfig: false, autoloadDotenv: false },
+	});
+	if (!built.success) throw new AggregateError(built.logs, "The test CLI did not compile.");
+	const run = async (command: string, args: string[]) => {
+		const child = Bun.spawn([command, ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+		const [stdout, stderr, exitCode] = await Promise.all([
+			new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+		]);
+		return { stdout, stderr, exitCode };
+	};
+	expect(await run(executable, ["--version"])).toEqual({ stdout: `${version}\n`, stderr: "", exitCode: 0 });
+	const help = await run(executable, ["--help"]);
+	expect(help.exitCode).toBe(0); expect(help.stderr).toBe(""); expect(help.stdout).toContain("Usage: agentsims");
+	const invalid = await run(executable, ["--unknown-option"]);
+	expect(invalid.exitCode).toBe(1); expect(invalid.stdout).toBe("");
+	expect(invalid.stderr).toContain("error: unknown option '--unknown-option'");
+	expect(await run(process.execPath, ["-e", `await import(${JSON.stringify(cli)}); process.stdout.write("imported\\n");`])).toEqual({
+		stdout: "imported\n", stderr: "", exitCode: 0,
+	});
+}, 30_000);
+
 const context = {
 	app: "com.example.app",
 	orientation: "portrait",
