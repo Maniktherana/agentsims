@@ -21,13 +21,13 @@ export function ProductDemo({ intro }: { intro: Intro }) {
 	const scale = sceneScale * DOCK_SCALE;
 	return (
 		<MotionConfig reducedMotion="user" transition={SURFACE.spring}>
-			<div className="relative max-md:mx-auto max-md:mt-6 max-md:w-[calc(100%-2.5rem)] max-md:max-w-2xl">
+			<div className="relative max-lg:mx-auto max-lg:mt-6 max-lg:w-[calc(100%-2.5rem)] max-lg:max-w-2xl">
 				<BrowserFrame
 					lit={intro.reached("screen")}
 					chrome={intro.reached("workspace")}
 				>
 					<div
-						className="demo-scene @container absolute left-[70.5%] bottom-[7%] z-[2] aspect-[480/530] w-[min(40%,36rem)] -translate-x-1/2 [direction:ltr] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-full max-md:max-w-md max-md:translate-x-0"
+						className="demo-scene @container absolute left-[70.5%] bottom-[7%] z-[2] aspect-[480/530] w-[min(40%,36rem)] -translate-x-1/2 [direction:ltr] max-lg:relative max-lg:inset-auto max-lg:mx-auto max-lg:w-full max-lg:max-w-md max-lg:translate-x-0"
 						ref={sceneRef}
 						data-stage={frame.name}
 						data-phase={reducedMotion ? "static" : phase}

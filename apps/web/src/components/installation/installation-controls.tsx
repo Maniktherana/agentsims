@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@agentsims/ui/components/button";
 import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import {
@@ -77,7 +77,7 @@ export function InstallationControls() {
 
 	return (
 		<>
-			<div className="flex flex-wrap items-center gap-3">
+			<div className="flex flex-wrap items-center gap-3 max-lg:mx-auto max-lg:w-full max-lg:max-w-[28.5rem] max-lg:flex-col max-lg:items-stretch">
 				<Button
 					variant="ghost"
 					size="lg"
@@ -89,15 +89,22 @@ export function InstallationControls() {
 								? "Copy PowerShell install command"
 								: "Copy curl install command"
 					}
-					className="h-auto min-h-11 max-w-full gap-3 rounded-full border bg-linear-to-b from-[oklch(0.214267_0.003881_286.068)] to-[oklch(0.173482_0.002043_286.185)] px-5 py-2.5 font-mono text-[0.8125rem] shadow-[inset_0_1px_0_oklch(1_0_0/0.031373)]"
+					className="h-auto min-h-11 max-w-full gap-3 rounded-full border bg-linear-to-b from-[oklch(0.214267_0.003881_286.068)] to-[oklch(0.173482_0.002043_286.185)] px-5 py-2.5 font-mono text-[0.8125rem] max-lg:w-full max-lg:gap-2 max-lg:px-3 shadow-[inset_0_1px_0_oklch(1_0_0/0.031373)]"
 				>
 					<span className="shrink-0 text-muted-foreground" aria-hidden="true">
 						{platform === "Windows" ? ">" : "$"}
 					</span>
-					<span className="min-w-0 whitespace-normal break-all text-left">
+					<span className="min-w-0 overflow-x-auto whitespace-normal text-left">
 						{platform === "Windows"
 							? "Copy PowerShell install command"
-							: command}
+							: command.split(" ").map((token, index) => (
+									<Fragment key={`${index}-${token}`}>
+										{index > 0 ? " " : null}
+										<span className="inline-block whitespace-nowrap">
+											{token}
+										</span>
+									</Fragment>
+								))}
 					</span>
 					<span
 						className={
@@ -119,7 +126,7 @@ export function InstallationControls() {
 					render={
 						<a href="https://github.com/Maniktherana/agentsims/blob/main/docs/installation.md" />
 					}
-					className="h-11 rounded-full border bg-linear-to-b from-[oklch(0.214267_0.003881_286.068)] to-[oklch(0.173482_0.002043_286.185)] px-5 shadow-[inset_0_1px_0_oklch(1_0_0/0.031373)]"
+					className="h-11 max-lg:w-full rounded-full border bg-linear-to-b from-[oklch(0.214267_0.003881_286.068)] to-[oklch(0.173482_0.002043_286.185)] px-5 shadow-[inset_0_1px_0_oklch(1_0_0/0.031373)]"
 				>
 					Install options
 				</Button>

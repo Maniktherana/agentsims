@@ -18,7 +18,7 @@ export function BrowserFrame({
 			data-screen={lit ? "lit" : "dark"}
 		>
 			<div
-				className="relative z-[1] hidden min-h-10 items-center gap-4 bg-[oklch(0.22728_0.003823_286.092)] px-3 py-2 max-md:flex"
+				className="relative z-[1] hidden min-h-10 items-center gap-4 bg-[oklch(0.22728_0.003823_286.092)] px-3 py-2 max-lg:flex"
 				aria-hidden="true"
 			>
 				<div className="flex gap-[0.3rem] [&>i]:size-1.5 [&>i]:rounded-full [&>i]:bg-[oklch(0.451285_0.008054_286.073)]">
@@ -33,13 +33,13 @@ export function BrowserFrame({
 				<span className="text-base text-muted-foreground">＋</span>
 			</div>
 			<div
-				className="workspace-demo max-md:relative max-md:inset-auto max-md:h-auto max-md:w-full max-md:rounded-none max-md:px-4 max-md:pt-11 max-md:pb-10"
+				className="workspace-demo max-lg:relative max-lg:inset-auto max-lg:h-auto max-lg:w-full max-lg:rounded-none max-lg:px-4 max-lg:pt-11 max-lg:pb-10"
 				data-chrome={chrome ? "shown" : "hidden"}
 				aria-hidden="true"
 				inert
 			>
 				<motion.div
-					className="absolute top-[12%] left-[46%] z-[2] rounded-[6px] border border-white/5 bg-[oklch(0.196601_0.003967_286.029)] px-[0.6rem] py-[0.4rem] font-mono text-[10px] font-semibold text-muted-foreground max-md:hidden"
+					className="absolute top-[12%] left-[46%] z-[2] rounded-[6px] border border-white/5 bg-[oklch(0.196601_0.003967_286.029)] px-[0.6rem] py-[0.4rem] font-mono text-[10px] font-semibold text-muted-foreground max-lg:hidden"
 					initial={{ opacity: 0 }}
 					animate={{ opacity: chrome ? 1 : 0 }}
 					transition={INTRO_FADE}
