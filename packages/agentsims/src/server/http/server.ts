@@ -19,7 +19,7 @@ export type HttpServerOptions = ServerConfigInput;
 export function serverServicesLive(options: HttpServerOptions) {
 	return Layer.merge(
 		serverConfigLayer(options),
-		coreServicesLayer(options.basePath),
+		coreServicesLayer(options.basePath, { agentsimsBin: options.agentsimsBin }),
 	);
 }
 

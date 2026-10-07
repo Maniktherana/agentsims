@@ -1,4 +1,4 @@
-import { tracesDirectory } from "../../home";
+import { agentsimsHome } from "../../home";
 import { randomUUID } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
@@ -72,6 +72,18 @@ export type TraceEvent =
 	| { type: "stopped"; device: string; trace: TraceStopped };
 
 type ActiveTrace = TraceRun & { writer: TraceWriter };
+
+type TraceSession = {
+	automatic: boolean;
+	run: Promise<ActiveTrace>;
+	commands: Set<Promise<void>>;
+	closing?: Promise<TraceStopped>;
+};
+
+export type TraceServiceOptions = {
+	automatic?: boolean;
+	openWriter?: typeof openTraceWriter;
+};
 
 type TraceSourceEntry = { directory: string; summary: TraceSummary };
 
@@ -174,12 +186,25 @@ export function makeTraceService(
 	capture: (
 		device: string,
 	) => Effect.Effect<DeviceCapture, ApplicationCommandError>,
+	options: TraceServiceOptions = {},
 ) {
 	const runs = new Map<string, ActiveTrace>();
+	const sessions = new Map<string, TraceSession>();
+	const disabled = new Set<string>();
+	const allocatedIds = new Set<string>();
+	const openWriter = options.openWriter ?? openTraceWriter;
+	let closed = false;
 	const sources = new Map<string, Map<string, string>>();
 	const listeners = new Set<(event: TraceEvent) => void>();
 	const emit = (event: TraceEvent): void => {
-		for (const listener of listeners) listener(event);
+		for (const listener of listeners) {
+			try {
+				listener(event);
+			} catch {
+				// A subscriber cannot change a device command or writer ownership.
+				continue;
+			}
+		}
 	};
 	const active = (device: string): TraceRun | null => {
 		const run = runs.get(device);
@@ -192,9 +217,11 @@ export function makeTraceService(
 				}
 			: null;
 	};
-	const record = (device: string, entry: TraceEntry): void => {
-		const run = runs.get(device);
-		if (!run) return;
+	const append = async (
+		device: string,
+		run: ActiveTrace,
+		entry: TraceEntry,
+	): Promise<void> => {
 		run.calls += 1;
 		const file = entry.image
 			? screenshotName(run.calls, entry.image.extension)
@@ -212,25 +239,87 @@ export function makeTraceService(
 			error: entry.error,
 			screenshot: file ? `screenshots/${file}` : null,
 		} satisfies TraceCall;
-		const trace = active(device)!;
-		void run.writer
-			.append(call)
-			.then(() => emit({ type: "call", device, trace, call }));
+		const { writer: _writer, ...trace } = run;
+		await run.writer.append(call);
+		emit({ type: "call", device, trace, call });
 	};
-	const stop = (device: string) =>
-		Effect.gen(function* () {
-			const run = runs.get(device);
-			if (!run)
-				return yield* Effect.fail(
-					new CommandNotFound({
-						message: `Device ${device} has no active trace.`,
-					}),
-				);
-			runs.delete(device);
+	const track = (session: TraceSession, task: Promise<void>): void => {
+		session.commands.add(task);
+		void task.then(
+			() => session.commands.delete(task),
+			() => session.commands.delete(task),
+		);
+	};
+	const record = (device: string, entry: TraceEntry): void => {
+		const session = sessions.get(device);
+		const run = runs.get(device);
+		if (!session || session.closing || !run) return;
+		track(session, append(device, run, entry));
+	};
+	const createSession = (
+		device: string,
+		automatic: boolean,
+		name: string | null,
+	): TraceSession => {
+		const at = new Date();
+		const baseId = traceId(device, name, at);
+		let id = baseId;
+		for (let suffix = 2; allocatedIds.has(id); suffix += 1)
+			id = `${baseId}-${suffix}`;
+		allocatedIds.add(id);
+		const directory = join(root, id);
+		const header: TraceHeader = {
+			type: "trace",
+			version: TRACE_VERSION,
+			id,
+			device,
+			platform: androidSerialFromStateId(device) ? "android" : "ios",
+			startedAt: at.toISOString(),
+			name,
+		};
+		const session: TraceSession = {
+			automatic,
+			commands: new Set(),
+			run: Promise.resolve().then(async () => {
+				const writer = await openWriter(directory);
+				try {
+					await writer.append(header);
+				} catch (error) {
+					await writer.close({
+						type: "end", endedAt: new Date().toISOString(), calls: 0,
+					}).catch(() => undefined);
+					throw error;
+				}
+				const run: ActiveTrace = {
+					writer, id, directory, startedAt: header.startedAt, calls: 0,
+				};
+				runs.set(device, run);
+				emit({
+					type: "started",
+					device,
+					trace: { id, directory, startedAt: header.startedAt, calls: 0 },
+				});
+				return run;
+			}),
+		};
+		// Reserve before the first filesystem await, including automatic starts.
+		sessions.set(device, session);
+		void session.run.catch(() => {
+			if (sessions.get(device) === session && !session.closing)
+				sessions.delete(device);
+		});
+		return session;
+	};
+	const closeSession = (
+		device: string,
+		session: TraceSession,
+	): Promise<TraceStopped> => {
+		if (session.closing) return session.closing;
+		session.closing = Promise.resolve().then(async () => {
+			const run = await session.run;
+			await Promise.allSettled(session.commands);
 			const endedAt = new Date().toISOString();
-			yield* Effect.promise(() =>
-				run.writer.close({ type: "end", endedAt, calls: run.calls }),
-			);
+			await run.writer.close({ type: "end", endedAt, calls: run.calls });
 			const stopped = {
 				device,
 				id: run.id,
@@ -241,6 +330,26 @@ export function makeTraceService(
 			} satisfies TraceStopped;
 			emit({ type: "stopped", device, trace: stopped });
 			return stopped;
+		}).finally(() => {
+			if (sessions.get(device) === session) {
+				sessions.delete(device);
+				runs.delete(device);
+			}
+		});
+		return session.closing;
+	};
+	const stop = (device: string) =>
+		Effect.suspend(() => {
+			disabled.add(device);
+			const session = sessions.get(device);
+			if (!session)
+				return Effect.fail(new CommandNotFound({
+					message: `Device ${device} has no active trace.`,
+				}));
+			return Effect.tryPromise({
+				try: () => closeSession(device, session),
+				catch: commandFailure,
+			});
 		});
 	return {
 		directory: () => root,
@@ -312,52 +421,26 @@ export function makeTraceService(
 		record,
 		stop,
 		start: (device: string, options: { name?: string } = {}) =>
-			Effect.gen(function* () {
-				if (runs.has(device))
-					return yield* Effect.fail(
+			Effect.suspend(() => {
+				if (closed || sessions.has(device))
+					return Effect.fail(
 						new CommandConflict({
-							message: `Device ${device} already has an active trace.`,
+							message: closed
+								? "The trace runtime is closing."
+								: `Device ${device} already has an active trace.`,
 						}),
 					);
-				const at = new Date();
-				const name = options.name ?? null;
-				const id = traceId(device, name, at);
-				const directory = join(root, id);
-				const writer = yield* Effect.tryPromise({
-					try: () => openTraceWriter(directory),
+				const session = createSession(device, false, options.name ?? null);
+				return Effect.tryPromise({
+					try: async () => {
+						const run = await session.run;
+						if (!session.closing) disabled.delete(device);
+						return {
+							device, id: run.id, directory: run.directory, startedAt: run.startedAt,
+						} satisfies TraceStarted;
+					},
 					catch: commandFailure,
 				});
-				const header: TraceHeader = {
-					type: "trace",
-					version: TRACE_VERSION,
-					id,
-					device,
-					platform: androidSerialFromStateId(device) ? "android" : "ios",
-					startedAt: at.toISOString(),
-					name,
-				};
-				const headerWritten = writer.append(header);
-				runs.set(device, {
-					writer,
-					id,
-					directory,
-					startedAt: header.startedAt,
-					calls: 0,
-				});
-				const started = {
-					device,
-					id,
-					directory,
-					startedAt: header.startedAt,
-				} satisfies TraceStarted;
-				void headerWritten.then(() =>
-					emit({
-						type: "started",
-						device,
-						trace: { id, directory, startedAt: header.startedAt, calls: 0 },
-					}),
-				);
-				return started;
 			}),
 		status: (device: string) =>
 			Effect.sync(() => ({ device, active: active(device) })),
@@ -367,11 +450,13 @@ export function makeTraceService(
 		},
 		/** The server closes an open trace so its end record is on disk. */
 		stopAll: () =>
-			Effect.forEach(
-				Array.from(runs.keys()),
-				(device) => stop(device).pipe(Effect.ignore),
-				{ discard: true },
-			),
+			Effect.suspend(() => {
+				closed = true;
+				const closing = Array.from(sessions, ([device, session]) =>
+					closeSession(device, session),
+				);
+				return Effect.promise(() => Promise.allSettled(closing)).pipe(Effect.asVoid);
+			}),
 		list: (device?: string) =>
 			Effect.promise(async () => {
 				const names = await listTraceDirectories(root);
@@ -423,10 +508,9 @@ export function makeTraceService(
 				return bytes;
 			}),
 		/**
-		 * The one hook every device command runs through. A device without an
-		 * active trace gets its own effect back, so tracing costs nothing when
-		 * it is off. The screenshot is awaited because it defines the moment
-		 * the command finished; the record itself goes to the append queue.
+		 * Automatic startup and writes never delay the command. Each admitted
+		 * command keeps its session until its record is queued and written.
+		 * Only an explicit manual trace can capture an extra screenshot.
 		 */
 		traced: <A, E, R>(
 			device: string,
@@ -434,18 +518,30 @@ export function makeTraceService(
 			request: unknown,
 			effect: Effect.Effect<A, E, R>,
 		): Effect.Effect<A, E, R> => {
-			if (!runs.has(device)) return effect;
-			const at = new Date().toISOString();
-			const startedAt = Date.now();
-			return Effect.exit(effect).pipe(
-				Effect.flatMap((exit) =>
+			if (!options.automatic && !sessions.has(device)) return effect;
+			return Effect.suspend(() => {
+				let session = sessions.get(device);
+				if (closed || session?.closing) return effect;
+				if (!session) {
+					if (!options.automatic || disabled.has(device)) return effect;
+					session = createSession(device, true, null);
+				}
+				const selected = session;
+				const at = new Date().toISOString();
+				const startedAt = Date.now();
+				let finished!: () => void;
+				track(selected, new Promise<void>((resolve) => { finished = resolve; }));
+				return Effect.onExit(effect, (exit) =>
 					Effect.gen(function* () {
 						const durationMs = Date.now() - startedAt;
 						const value = Exit.isSuccess(exit) ? exit.value : null;
-						const image =
-							resultImage(value) ??
-							(yield* capture(device).pipe(Effect.orElseSucceed(() => null)));
-						record(device, {
+						const image = resultImage(value) ?? (selected.automatic
+							? null
+							: (yield* capture(device).pipe(
+								Effect.interruptible,
+								Effect.catchAllCause(() => Effect.succeed(null)),
+							)));
+						const entry: TraceEntry = {
 							command,
 							at,
 							durationMs,
@@ -456,11 +552,11 @@ export function makeTraceService(
 								? null
 								: traceError(Cause.squash(exit.cause)),
 							image,
-						});
-						return yield* exit;
-					}),
-				),
-			);
+						};
+						void selected.run.then((run) => append(device, run, entry)).then(finished, finished);
+					}).pipe(Effect.catchAllCause(() => Effect.sync(finished))),
+				);
+			});
 		},
 	};
 }
@@ -476,8 +572,9 @@ export const TracesLive = Layer.scoped(
 	Traces,
 	Effect.gen(function* () {
 		const devices = yield* Devices;
-		const traces = makeTraceService(tracesDirectory(), (device) =>
+		const traces = makeTraceService(join(agentsimsHome(), "traces"), (device) =>
 			devices.captureScreenshot(device),
+			{ automatic: true },
 		);
 		yield* Effect.addFinalizer(() => traces.stopAll());
 		return traces;

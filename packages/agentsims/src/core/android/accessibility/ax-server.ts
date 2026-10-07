@@ -189,7 +189,7 @@ export function resolveAndroidAxServer(): string {
 	);
 	if (!path) {
 		throw new Error(
-			"Android AX server artifact not found. Build it with android/accessibility/build.sh or run the Agentsims build.",
+			"Android AX server artifact not found. Run bun run build:android:ax or bun run build.",
 		);
 	}
 	return path;

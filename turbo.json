@@ -7,7 +7,16 @@
 		},
 		"build": {
 			"dependsOn": ["^build"],
-			"outputs": ["dist/**"]
+			"outputs": ["dist/**"],
+			"env": [
+				"AGENTSIMS_RELEASE_VERSION",
+				"AGENTSIMS_DEVTOOLS_FRONTEND_REVISION",
+				"AGENTSIMS_ANDROID_AX_JAR",
+				"ANDROID_HOME",
+				"ANDROID_SDK_ROOT",
+				"JAVA_HOME",
+				"DEVELOPER_DIR"
+			]
 		},
 		"typecheck": {
 			"dependsOn": ["^typecheck"],
@@ -20,6 +29,58 @@
 		"test": {
 			"dependsOn": ["^test"],
 			"outputs": ["coverage/**"]
+		},
+		"agentsims#build": {
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"../agentsims/src/core/tools/devices/state.ts",
+				"../agentsims/src/core/home.ts",
+				"../agentsims/scripts/build.ts",
+				"../agentsims/scripts/release-targets.ts",
+				"../agentsims/LICENSE",
+				"../../tsconfig.base.json"
+			],
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**"],
+			"env": [
+				"AGENTSIMS_RELEASE_VERSION",
+				"AGENTSIMS_DEVTOOLS_FRONTEND_REVISION"
+			]
+		},
+		"@agentsims/chatgpt#build": {
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"../agentsims/src/**",
+				"../agentsims/scripts/build.ts",
+				"../agentsims/scripts/release-targets.ts",
+				"../agentsims/LICENSE",
+				"../ui/src/**",
+				"../../tsconfig.base.json",
+				"../agentsims-react-native/src/project-context.ts"
+			],
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**"],
+			"env": [
+				"AGENTSIMS_RELEASE_VERSION",
+				"AGENTSIMS_DEVTOOLS_FRONTEND_REVISION"
+			]
+		},
+		"@agentsims/runtime#build": {
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**"],
+			"env": [
+				"AGENTSIMS_RELEASE_VERSION",
+				"AGENTSIMS_DEVTOOLS_FRONTEND_REVISION",
+				"AGENTSIMS_ANDROID_AX_JAR",
+				"ANDROID_HOME",
+				"ANDROID_SDK_ROOT",
+				"JAVA_HOME",
+				"DEVELOPER_DIR"
+			],
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"../agentsims-react-native/src/project-context.ts"
+			]
 		}
 	}
 }

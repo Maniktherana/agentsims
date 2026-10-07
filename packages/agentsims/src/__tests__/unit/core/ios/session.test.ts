@@ -115,6 +115,51 @@ test("input dispatch resolves after native touch completes", async () => {
 	expect(finished).toBe(true);
 });
 
+test("workspace input ownership blocks other dispatch and releases only its owner", async () => {
+	const touches: string[] = [];
+	const { session } = sessionWith({ touch: async (phase) => { touches.push(phase); } });
+	const touch = frame(0x03, { type: "begin", x: 0.2, y: 0.7 });
+	expect(session.reserveInput("a")).toBe(true);
+	expect(session.reserveInput("a")).toBe(true);
+	expect(session.reserveInput("b")).toBe(false);
+	await expect(session.dispatchInputFrame(touch)).rejects.toThrow("owned");
+	await expect(session.dispatchInputFrame(touch, "b")).rejects.toThrow("owned");
+	session.releaseInput("b");
+	await session.dispatchInputFrame(touch, "a");
+	expect(touches).toEqual(["begin"]);
+	session.releaseInput("a");
+	await expect(session.dispatchInputFrame(touch, "a")).rejects.toThrow("owned");
+	await session.dispatchInputFrame(touch);
+	expect(touches).toEqual(["begin", "begin"]);
+	await session.close();
+	expect(session.reserveInput("a")).toBe(false);
+});
+
+test("workspace cannot acquire in-flight iOS input and rejects a new browser socket", async () => {
+	const completion = Promise.withResolvers<void>();
+	const { session } = sessionWith({ touch: async () => completion.promise });
+	const input = session.dispatchInputFrame(frame(0x03, { type: "begin", x: 0.5, y: 0.5 }));
+	expect(session.reserveInput("lease")).toBe(false);
+	completion.resolve();
+	await input;
+	expect(session.reserveInput("lease")).toBe(true);
+	let closed = 0;
+	session.attachHidSocket({ send: () => { throw new Error("Unexpected config"); }, on: () => { throw new Error("Unexpected socket subscription"); }, close: () => { closed += 1; } });
+	expect(closed).toBe(1);
+	session.releaseInput("lease");
+	await session.close();
+});
+
+test("iOS keyframe recovery calls the existing capture without restart", async () => {
+	const { session, capture } = sessionWith();
+	let requests = 0;
+	Object.assign(capture, { requestAvccKeyframe: async () => { requests += 1; } });
+	await session.requestVideoKeyframe();
+	await session.requestVideoKeyframe();
+	expect(requests).toBe(2);
+	await session.close();
+});
+
 test("malformed native input does not publish a mutation", async () => {
 	const mutations: string[] = [];
 	const { session } = sessionWith({}, (udid) => mutations.push(udid));

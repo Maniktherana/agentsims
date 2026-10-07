@@ -1,85 +1,33 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-	chmodSync,
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-	resolveRuntimeExecutable,
-	type LauncherManifest,
-} from "../../../cli-launcher";
-import {
+	LIBRARY_ARTIFACTS,
+	LIBRARY_DECLARATIONS,
+	HOMEBREW_TARGETS,
+	RUNTIME_TARGETS,
+	runtimeArchiveName,
+	runtimeArchiveTool,
 	runtimeArtifacts,
 	runtimeCompileTarget,
+	runtimeExecutableName,
+	runtimeTarget,
 } from "../../../../scripts/release-targets";
 
-const directories: string[] = [];
-afterEach(() => {
-	for (const directory of directories.splice(0))
-		rmSync(directory, { recursive: true, force: true });
-});
-const manifest: LauncherManifest = {
-	version: "1.2.3-test.1",
-	optionalDependencies: { "agentsims-runtime-linux-x64": "1.2.3-test.1" },
-	agentsimsRuntime: { targets: { "linux-x64": "agentsims-runtime-linux-x64" } },
-};
-
-describe("npm executable launcher", () => {
-	test("resolves an exact-version executable without installing anything", () => {
-		const directory = mkdtempSync(join(tmpdir(), "agentsims-launcher-"));
-		directories.push(directory);
-		mkdirSync(join(directory, "dist"));
-		writeFileSync(
-			join(directory, "package.json"),
-			JSON.stringify({ version: manifest.version }),
-		);
-		const executable = join(directory, "dist", "agentsims");
-		writeFileSync(executable, "fixture");
-		chmodSync(executable, 0o755);
-		expect(
-			resolveRuntimeExecutable(
-				manifest,
-				() => join(directory, "package.json"),
-				"linux",
-				"x64",
-			),
-		).toBe(executable);
-		writeFileSync(
-			join(directory, "package.json"),
-			JSON.stringify({ version: "0.0.1" }),
-		);
-		expect(() =>
-			resolveRuntimeExecutable(
-				manifest,
-				() => join(directory, "package.json"),
-				"linux",
-				"x64",
-			),
-		).toThrow("does not match");
+describe("library and runtime artifact contracts", () => {
+	test("public npm imports retain their integration bundles and declarations", () => {
+		expect(LIBRARY_ARTIFACTS).toEqual([
+			"metro.js",
+			"metro.cjs",
+			"babel-plugin.cjs",
+			"state.js",
+			"state.cjs",
+		]);
+		expect(LIBRARY_DECLARATIONS).toEqual([
+			"node/metro.d.ts",
+			"node/babel-plugin.d.ts",
+			"core/tools/devices/state.d.ts",
+		]);
 	});
-	test("reports missing optional dependencies and unsupported targets clearly", () => {
-		expect(() =>
-			resolveRuntimeExecutable(
-				manifest,
-				() => {
-					throw new Error("missing");
-				},
-				"linux",
-				"x64",
-			),
-		).toThrow("--include=optional");
-		expect(() =>
-			resolveRuntimeExecutable(manifest, () => "", "darwin", "arm64"),
-		).toThrow("does not include darwin-arm64");
-		expect(() =>
-			resolveRuntimeExecutable(manifest, () => "", "win32", "x64"),
-		).toThrow("WSL");
-	});
-	test("Linux artifacts exclude Apple libraries and use the baseline CPU compiler", () => {
+	test("Linux archives retain Android assets and the baseline CPU compiler", () => {
 		expect(runtimeArtifacts("linux-x64")).toEqual([
 			"agentsims",
 			"preview",
@@ -87,15 +35,51 @@ describe("npm executable launcher", () => {
 		]);
 		expect(runtimeCompileTarget("linux-x64")).toBe("bun-linux-x64-baseline");
 	});
-	test("macOS includes only the Swift native addon", () => {
+	test("macOS archives retain the matching addon and every spawned helper", () => {
 		for (const target of ["darwin-arm64", "darwin-x64"] as const) {
-			expect(
-				runtimeArtifacts(target).filter((artifact) =>
-					artifact.startsWith("native/"),
-				),
-			).toEqual([
+			expect(runtimeArtifacts(target)).toEqual([
+				"agentsims",
+				"preview",
+				"android/agentsims-ax-server.jar",
 				"native/agentsims-native.node",
+				"simcam/libSimCameraInjector.dylib",
+				"simcam/agentsims-camera-helper",
+				"simax/agentsims-ax-settings",
 			]);
 		}
+	});
+	test("Windows archives contain the native executable and Android assets", () => {
+		expect(runtimeArtifacts("windows-x64")).toEqual([
+			"agentsims.exe",
+			"preview",
+			"android/agentsims-ax-server.jar",
+		]);
+		expect(runtimeExecutableName("windows-x64")).toBe("agentsims.exe");
+		expect(runtimeCompileTarget("windows-x64")).toBe("bun-windows-x64");
+		expect(runtimeTarget("win32", "x64")).toBe("windows-x64");
+		expect(HOMEBREW_TARGETS).toEqual([
+			"darwin-arm64",
+			"darwin-x64",
+			"linux-x64",
+		]);
+	});
+	test("Windows archives use native tar with native drive-letter paths", () => {
+		expect(runtimeArchiveTool("win32", { SystemRoot: "D:\\Windows" })).toBe(
+			"D:\\Windows\\System32\\tar.exe",
+		);
+		expect(runtimeArchiveTool("win32", {})).toBe(
+			"C:\\Windows\\System32\\tar.exe",
+		);
+		expect(runtimeArchiveTool("linux", {})).toBe("tar");
+	});
+	test("archive selection retains only the supported host targets", () => {
+		for (const target of RUNTIME_TARGETS) {
+			const [platform, architecture] = target.split("-");
+			expect(runtimeTarget(platform!, architecture!)).toBe(target);
+			expect(runtimeArchiveName(target)).toBe(`agentsims-${target}.tar.gz`);
+		}
+		expect(runtimeTarget("linux", "arm64")).toBeNull();
+		expect(runtimeTarget("win32", "arm64")).toBeNull();
+		expect(runtimeTarget("linux", "x86")).toBeNull();
 	});
 });

@@ -1,15 +1,11 @@
 name: Checks
-
-on:
-  pull_request:
-
+"on":
+  pull_request: null
 permissions:
   contents: read
-
 concurrency:
-  group: checks-${{ github.event.pull_request.number }}
+  group: "checks-${{ github.event.pull_request.number }}"
   cancel-in-progress: true
-
 jobs:
   checks:
     runs-on: ubuntu-22.04
@@ -33,8 +29,13 @@ jobs:
           packages: platform-tools platforms;android-35 build-tools;35.0.0
       - run: bun install --frozen-lockfile
         working-directory: .
+      - run: bun run --cwd ../agentsims-react-native build
+      - run: bun run --cwd ../agentsims-react-native typecheck
+      - run: bun run --cwd ../agentsims-react-native lint
+      - run: bun run --cwd ../agentsims-react-native test
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun run test:ci
+      - run: "bun run test:ci"
       - run: bun run build
-      - run: bun run verify:package
+      - run: bun run --cwd ../chatgpt build
+      - run: "bun run verify:package"

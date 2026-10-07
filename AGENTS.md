@@ -14,9 +14,10 @@ Place code by runtime and responsibility.
 - `packages/agentsims/src/core/android` and `packages/agentsims/src/core/ios` contain the platform host implementations.
 - `packages/agentsims/src/core/tools` contains contracts and the common implementations for device, app, media, and host operations.
 - `packages/agentsims/src/cli` contains the Bun CLI, argument parsing, and public HTTP clients.
-- `packages/agentsims/src/node/server-process.ts` is the generic Node process connector.
-- `packages/agentsims/src/core/react-native` contains React Native integration.
-- `packages/agentsims/src/core/react-native/node/metro.ts` and `babel-plugin.ts` are the Node entry points.
+- `packages/agentsims-react-native/src/node` contains Metro, Babel, runtime discovery, and the optional Node connector for an installed runtime.
+- `packages/agentsims/src/core/react-native` contains RN source consumers, inspector connections, and source enrichment.
+- `packages/agentsims-react-native/src/project-context.ts` contains the pure shared project identity and manifest-path contract. The runtime compiles this contract into its own executable.
+- `agentsims/state` retains the runtime device-state implementation as a public compatibility export.
 - `packages/agentsims/src/core/host.ts`, `artifacts.ts`, `resources.ts`, and `logging.ts` contain shared runtime utilities.
 - `packages/agentsims/src/server/http/server.ts` currently owns transport composition.
 - `packages/agentsims/src/web` contains the simulator workspace browser code.
@@ -28,9 +29,9 @@ Do not add broad utility directories. Keep `src/web/lib/utils.ts` limited to the
 ## Executables and Process Ownership
 
 - `src/cli/main.ts` is the Bun CLI entry point. It configures executable paths, parses commands, and handles errors.
-- `src/cli-launcher.ts` is the Node npm launcher. It starts the matching platform executable and remains outside the CLI.
-- Node connectors use `src/core/react-native/node/launch-server.ts` to start and stop their own server process.
-- Metro and Babel code stays in `src/core/react-native/node`. It can use the generic Node connector.
+- The native `agentsims` executable is the runtime entry point. The optional npm package contains RN integration only. It has no CLI launcher or runtime installer.
+- Node connectors use `packages/agentsims-react-native/src/node/launch-server.ts` to start and stop their own server process.
+- Metro and Babel code stays in `packages/agentsims-react-native/src/node`. The runtime must not import producer or connector implementation.
 - Bun-specific core, server, and CLI code stays outside the Node connector.
 - The CLI owns process signals. Server shutdown awaits disposal of the Effect runtime in `src/server/http/server.ts`.
 - Effect scopes own server resources and device sessions. Do not add a second signal handler that exits before these scopes close.
@@ -112,6 +113,8 @@ bun run typecheck
 bun run lint
 bun run build
 ```
+
+Also run `bun test`, `bun run typecheck`, and `bun run lint` from `packages/agentsims-react-native` after RN source or shared contract changes.
 
 Use focused tests during development. Run the full checks before a commit that changes shared runtime behavior or file boundaries.
 

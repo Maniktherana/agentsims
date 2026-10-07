@@ -37,7 +37,6 @@ import {
 import { getAndroidStatus } from "../device/media";
 import { collectAndroidAxSnapshot } from "../accessibility/snapshot";
 import type { AxSnapshot } from "../../tools/observe/accessibility";
-import { enrichAxSnapshotWithRnSource } from "../../react-native/enrich-accessibility";
 import { LatestValueScheduler } from "../../latest-value-scheduler";
 import type {
 	DeviceField,
@@ -91,7 +90,10 @@ function androidField(
 			: undefined;
 	// Report the node that the caller can find in the snapshot. Android can
 	// focus a wrapper or an inner node that the snapshot does not show.
-	const identity = alias ?? { windowId: node.windowId, sourceId: node.sourceId };
+	const identity = alias ?? {
+		windowId: node.windowId,
+		sourceId: node.sourceId,
+	};
 	return {
 		value: node.hintText ? "" : node.text,
 		editable: node.editable,
@@ -136,12 +138,10 @@ function androidChainHolds(
 	node: AndroidNodeDescription,
 	identity: AndroidNodeIdentity,
 ): boolean {
-	return (
-		node.ancestors.some(
-			(link) =>
-				link.windowId === identity.windowId &&
-				link.sourceId === identity.sourceId,
-		)
+	return node.ancestors.some(
+		(link) =>
+			link.windowId === identity.windowId &&
+			link.sourceId === identity.sourceId,
 	);
 }
 
@@ -455,6 +455,8 @@ export class AndroidSession {
 	private presentationGeneration = 0;
 	private cornerRadii: AndroidCornerRadii | undefined;
 	private readonly hidSockets = new Set<AndroidHidSocket>();
+	private inputOwner?: string;
+	private inputInFlight = 0;
 	private touchStart: { x: number; y: number; at: number } | null = null;
 	private lastMove: { x: number; y: number } | null = null;
 	private transport: AndroidTransport | null = null;
@@ -842,9 +844,7 @@ export class AndroidSession {
 
 	async readAccessibility(mode: AndroidAxMode = "settled"): Promise<unknown> {
 		const { width, height } = await this.readConfig();
-		return enrichAxSnapshotWithRnSource(
-			await this.dependencies.readAx(this.serial, mode, { width, height }),
-		);
+		return this.dependencies.readAx(this.serial, mode, { width, height });
 	}
 
 	/** Act on a node the snapshot named, instead of on a screen coordinate. */
@@ -871,11 +871,15 @@ export class AndroidSession {
 		}
 		const bound = this.focusedField;
 		if (request.action === "set-text" && !bound) {
-			throw new Error("The focused Android field is not known. Run observe again");
+			throw new Error(
+				"The focused Android field is not known. Run observe again",
+			);
 		}
 		const identity = request.identity;
 		if (identity?.windowId === undefined || identity.sourceId === undefined) {
-			throw new Error("The Android field identity is incomplete. Run observe again");
+			throw new Error(
+				"The Android field identity is incomplete. Run observe again",
+			);
 		}
 		const wanted: AndroidNodeIdentity = {
 			windowId: identity.windowId,
@@ -1059,6 +1063,7 @@ export class AndroidSession {
 	}
 
 	attachHidSocket(ws: AndroidHidSocket): void {
+		if (this.inputOwner) { ws.close(); return; }
 		this.hidSockets.add(ws);
 		this.updateTransportIdleTimer();
 		const cfg = this.configFrame();
@@ -1176,7 +1181,35 @@ export class AndroidSession {
 		return true;
 	}
 
-	async dispatchInputFrame(data: Buffer): Promise<void> {
+	/** Recover the already-owned video transport, without opening another one. */
+	async requestVideoKeyframe(): Promise<void> {
+		if (this.closed || !this.transport?.resetVideo())
+			throw new Error("The Android video transport cannot request a keyframe.");
+	}
+
+	reserveInput(owner: string): boolean {
+		if (!owner || this.closed) return false;
+		if (this.inputOwner === owner) return true;
+		if (this.inputOwner || this.hidSockets.size || this.inputInFlight) return false;
+		this.inputOwner = owner;
+		return true;
+	}
+
+	releaseInput(owner: string): void {
+		if (this.inputOwner !== owner) return;
+		this.finishScrollGesture();
+		this.inputOwner = undefined;
+	}
+
+	async dispatchInputFrame(data: Buffer, owner?: string): Promise<void> {
+		if ((this.inputOwner || owner) && this.inputOwner !== owner)
+			throw new Error("Input is owned by another workspace gesture.");
+		this.inputInFlight += 1;
+		try { await this.dispatchInputValue(data, owner !== undefined); }
+		finally { this.inputInFlight -= 1; }
+	}
+
+	private async dispatchInputValue(data: Buffer, reportFailure: boolean): Promise<void> {
 		if (data.length < 1 || !this.width || !this.height) return;
 		const tag = data[0];
 		const body = data.length > 1 ? data.subarray(1) : null;
@@ -1210,6 +1243,7 @@ export class AndroidSession {
 					this.touchStart = null;
 					this.lastMove = null;
 				} catch (error) {
+					if (reportFailure) throw error;
 					logRuntime(`android:${this.serial}`, `Input failed: ${error}`);
 				}
 				return;
@@ -1437,9 +1471,7 @@ class AndroidSessionRegistry {
 				keyDevice: (target, phase, keycode) =>
 					Effect.runPromise(this.axServers.key(target, phase, keycode)),
 				performAxAction: (target, action, node, text) =>
-					Effect.runPromise(
-						this.axServers.perform(target, action, node, text),
-					),
+					Effect.runPromise(this.axServers.perform(target, action, node, text)),
 				readAxFocus: (target) =>
 					Effect.runPromise(this.axServers.findFocus(target)),
 				markAxMutation: (target) =>

@@ -24,7 +24,7 @@ import { TracesLive } from "./tools/traces/traces";
 import { DeviceLifecycleLive } from "./tools/devices/lifecycle";
 import { foregroundAppsLayer } from "./tools/devices/foreground-apps";
 import { deviceStateStoreLayer, STATE_DIR } from "./tools/devices/state";
-import { ShellExecLive } from "./tools/host-commands";
+import { shellExecLayer } from "./tools/host-commands";
 import { AppsLive } from "./tools/apps";
 import { PermissionOperationsLive } from "./tools/permissions";
 import { mediaRoutingLayer } from "./tools/media";
@@ -32,9 +32,16 @@ import { RecordingsLive } from "./tools/recording/recordings";
 import { AxStreamersLive } from "./tools/observe/accessibility";
 import { ScreenshotOperationsLive } from "./tools/observe/screenshots";
 import { ScreenshotStoreLive } from "./tools/observe/screenshot-store";
+import { rnSourcesLayer } from "./react-native/sources";
+import { ContextsLive } from "./tools/context/context";
+import { applicationLogsLayer } from "./tools/logs/application";
+import { WorkspaceSessionsLive } from "./tools/workspace/service";
 
 /** Compose platform and domain services without importing server transports. */
-export function coreServicesLayer(basePath: string) {
+export function coreServicesLayer(
+	basePath: string,
+	options: { agentsimsBin?: string } = {},
+) {
 	const axServers = AndroidAxServersLive;
 	const sessions = Layer.mergeAll(
 		axServers,
@@ -70,9 +77,15 @@ export function coreServicesLayer(basePath: string) {
 			};
 		}),
 	).pipe(Layer.provide(sessions));
+	const sources = rnSourcesLayer().pipe(Layer.provide(foregroundApps));
+	const applicationLogs = applicationLogsLayer().pipe(
+		Layer.provide(AndroidLogsLive),
+		Layer.provide(foregroundApps),
+	);
 	const devices = DevicesLive.pipe(
 		Layer.provideMerge(lifecycle),
 		Layer.provide(foregroundApps),
+		Layer.provide(sources),
 	);
 	const androidTools = AndroidToolsLive.pipe(Layer.provide(devices));
 	const androidDevTools = AndroidDevToolsLive.pipe(
@@ -89,14 +102,18 @@ export function coreServicesLayer(basePath: string) {
 		),
 	);
 	return Layer.mergeAll(
+		ContextsLive,
+		applicationLogs,
+		WorkspaceSessionsLive.pipe(Layer.provide(sessions)),
 		mediaRoutingLayer(basePath).pipe(Layer.provideMerge(devices)),
 		RecordingsLive.pipe(Layer.provide(sessions)),
 		TracesLive.pipe(Layer.provide(devices)),
 		foregroundApps,
-		AxStreamersLive.pipe(Layer.provide(lifecycle)),
+		AxStreamersLive.pipe(Layer.provide(lifecycle), Layer.provide(sources)),
+		sources,
 		ScreenshotOperationsLive.pipe(Layer.provideMerge(ScreenshotStoreLive)),
 		devTools,
-		ShellExecLive,
+		shellExecLayer({ agentsimsBin: options.agentsimsBin }),
 		androidTools,
 		AppsLive.pipe(Layer.provide(androidTools)),
 		PermissionOperationsLive,

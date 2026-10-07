@@ -1,0 +1,15 @@
+{
+  "name": "@agentsims/chatgpt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun ../agentsims/scripts/build.ts --plugin-only"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@openai/mcp-extensions": "0.1.0",
+    "zod": "4.4.3"
+  }
+}

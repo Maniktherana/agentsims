@@ -9,6 +9,9 @@ import { devtoolsRoutes } from "./routes/browser-devtools";
 import { helperRoutes } from "./routes/helpers";
 import { previewRoutes } from "./routes/preview";
 import { permissionRoutes } from "./routes/permissions";
+import { contextRoutes } from "./routes/context";
+import { logsRoutes } from "./routes/logs";
+import { workspaceRoutes } from "./routes/workspace";
 
 const routes = HttpRouter.concatAll(
 	commandRoutes,
@@ -21,6 +24,9 @@ const routes = HttpRouter.concatAll(
 	helperRoutes,
 	previewRoutes,
 	permissionRoutes,
+	contextRoutes,
+	logsRoutes,
+	workspaceRoutes,
 );
 
 /** Build the route table once per server. Legacy command paths remain available. */

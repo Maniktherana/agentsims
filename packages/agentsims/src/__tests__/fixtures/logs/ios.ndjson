@@ -1,0 +1,4 @@
+{"timestamp":"2026-10-05 10:12:30.123456+0530","messageType":"Default","processID":123,"threadID":456,"processImagePath":"/Applications/Example.app/Example","subsystem":"com.example.app","category":"UI","eventMessage":"Hello 🌍"}
+{"timestamp":"2026-10-05 10:12:31.789","messageType":"Error","processID":123,"process":"Example","eventMessage":"Request failed","stack":"Example.request\nExample.screen"}
+not json
+{"messageType":"Fault","processID":999,"eventMessage":"Another application"}

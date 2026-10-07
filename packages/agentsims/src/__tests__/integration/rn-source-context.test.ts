@@ -1,38 +1,72 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { unlinkSync, writeFileSync } from "fs";
-import { join } from "path";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	realpathSync,
+	symlinkSync,
+	unlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "fs";
+import { join, resolve } from "path";
+import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "os";
 import type { AxSnapshot } from "../../core/tools/observe/accessibility-model";
 import {
-	enrichAxSnapshotWithRnSource,
+	enrichAxSnapshotWithRnSource as enrichWithSource,
 	rnSourceManifestPath,
 } from "../../core/react-native/enrich-accessibility";
-import { expoRoute } from "../../core/react-native/node/babel-plugin";
+import { expoRoute } from "../../../../agentsims-react-native/src/node/babel-plugin";
 import { startTestServer } from "../helpers/server";
+import {
+	createRnProjectContext,
+	rnProjectContextFromEnvironment,
+} from "../../core/react-native/source-context";
+import { createRnProjectContext as producerProjectContext } from "../../../../agentsims-react-native/src/project-context";
+import { agentsimsHome } from "../../core/home";
 
 const originalManifest = process.env.AGENTSIMS_RN_MANIFEST;
+const originalRoot = process.env.AGENTSIMS_PROJECT_ROOT;
+const originalDevices = process.env.AGENTSIMS_RN_DEVICES;
 const manifests = new Set<string>();
 let manifestSequence = 0;
 
-function useManifest(entries: object[]): string {
+function useManifest(entries: object[], root = "/repo"): string {
 	const manifest = join(
 		tmpdir(),
 		`agentsims-rn-source-test-${process.pid}-${manifestSequence++}.jsonl`,
 	);
+	const project = createRnProjectContext(root, { manifestPath: manifest });
 	writeFileSync(
 		manifest,
-		entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+		entries
+			.map((entry) =>
+				JSON.stringify({ ...entry, projectKey: project.projectKey }),
+			)
+			.join("\n") + "\n",
 	);
 	process.env.AGENTSIMS_RN_MANIFEST = manifest;
+	process.env.AGENTSIMS_PROJECT_ROOT = root;
+	process.env.AGENTSIMS_RN_DEVICES = JSON.stringify(["source-fixture"]);
 	manifests.add(manifest);
 	return manifest;
+}
+
+function enrichAxSnapshotWithRnSource(snapshot: AxSnapshot): AxSnapshot {
+	return enrichWithSource(snapshot, {
+		project: createRnProjectContext(process.env.AGENTSIMS_PROJECT_ROOT!, {
+			manifestPath: process.env.AGENTSIMS_RN_MANIFEST,
+		}),
+		allowStaticIds: true,
+	});
 }
 
 async function getFromMiddleware(
 	url: string,
 	requestHeaders: Record<string, string> = {},
 ) {
-	const started = await startTestServer();
+	const started = await startTestServer({ device: "source-fixture" });
 	try {
 		const response = await fetch(`${started.origin}${url}`, {
 			headers: requestHeaders,
@@ -48,6 +82,10 @@ async function getFromMiddleware(
 }
 
 afterEach(() => {
+	if (originalRoot === undefined) delete process.env.AGENTSIMS_PROJECT_ROOT;
+	else process.env.AGENTSIMS_PROJECT_ROOT = originalRoot;
+	if (originalDevices === undefined) delete process.env.AGENTSIMS_RN_DEVICES;
+	else process.env.AGENTSIMS_RN_DEVICES = originalDevices;
 	if (originalManifest === undefined) delete process.env.AGENTSIMS_RN_MANIFEST;
 	else process.env.AGENTSIMS_RN_MANIFEST = originalManifest;
 	for (const manifest of manifests) {
@@ -64,10 +102,176 @@ afterEach(() => {
 });
 
 describe("React Native source context", () => {
-	test("uses a user-stable default manifest across launch environments", () => {
+	test("conditional source requests do not reuse another project's validator", async () => {
+		const directory = mkdtempSync(
+			join(tmpdir(), "agentsims-source-validator-"),
+		);
+		const servers: Awaited<ReturnType<typeof startTestServer>>[] = [];
+		try {
+			for (const [name, source] of [
+				["a", "aaa"],
+				["b", "bbb"],
+			] as const) {
+				const root = join(directory, name);
+				mkdirSync(root);
+				const file = join(root, "App.tsx");
+				writeFileSync(file, source + "\n");
+				utimesSync(file, 1700000000, 1700000000);
+				useManifest(
+					[
+						{
+							testID: "shared",
+							tag: "Text",
+							file: "App.tsx",
+							absoluteFile: file,
+							line: 1,
+						},
+					],
+					root,
+				);
+				servers.push(await startTestServer({ device: "source-fixture" }));
+			}
+			const path = "/source?testID=shared&file=App.tsx&line=1";
+			const first = await fetch(servers[0]!.origin + path);
+			expect(first.status).toBe(200);
+			const validator = first.headers.get("etag")!;
+			expect((await first.json()).lines).toEqual(["aaa", ""]);
+			const second = await fetch(servers[1]!.origin + path, {
+				headers: { "if-none-match": validator },
+			});
+			expect(second.status).toBe(200);
+			expect(second.headers.get("etag")).not.toBe(validator);
+			expect((await second.json()).lines).toEqual(["bbb", ""]);
+			const own = await fetch(servers[0]!.origin + path, {
+				headers: { "if-none-match": validator },
+			});
+			expect(own.status).toBe(304);
+		} finally {
+			for (const { server } of servers) await server.stop();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+	test("two live servers retain separate source contexts", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "agentsims-two-projects-"));
+		const servers: Awaited<ReturnType<typeof startTestServer>>[] = [];
+		try {
+			for (const name of ["first", "second"]) {
+				const root = join(directory, name);
+				mkdirSync(root);
+				const file = join(root, "App.tsx");
+				writeFileSync(file, `export const project = "${name}";\n`);
+				useManifest(
+					[
+						{
+							testID: "shared",
+							tag: "Pressable",
+							file: "App.tsx",
+							absoluteFile: file,
+							line: 1,
+						},
+					],
+					root,
+				);
+				servers.push(await startTestServer({ device: "source-fixture" }));
+			}
+			for (const [index, server] of servers.entries()) {
+				const name = index === 0 ? "first" : "second";
+				const own = join(directory, name, "App.tsx");
+				const foreign = join(
+					directory,
+					index === 0 ? "second" : "first",
+					"App.tsx",
+				);
+				const query = (file: string) =>
+					new URLSearchParams({ testID: "shared", file, line: "1" });
+				const response = await fetch(`${server.origin}/source?${query(own)}`);
+				expect(response.status).toBe(200);
+				expect((await response.json()).lines).toEqual([
+					`export const project = "${name}";`,
+					"",
+				]);
+				expect(
+					(await fetch(`${server.origin}/source?${query(foreign)}`)).status,
+				).toBe(404);
+			}
+		} finally {
+			for (const { server } of servers) await server.stop();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test.serial.each(["home-dir", "legacy-home", "both", "default"])(
+		"producer and runtime share canonical project identity and %s manifest location",
+		(homeMode) => {
+			const directory = mkdtempSync(
+				join(tmpdir(), "agentsims-project-boundary-"),
+			);
+			const root = join(directory, "project");
+			const alias = join(directory, "project-link");
+			const original = {
+				AGENTSIMS_HOME_DIR: process.env.AGENTSIMS_HOME_DIR,
+				AGENTSIMS_HOME: process.env.AGENTSIMS_HOME,
+				AGENTSIMS_RN_APP_IDS: process.env.AGENTSIMS_RN_APP_IDS,
+			};
+			try {
+				mkdirSync(root);
+				symlinkSync(
+					root,
+					alias,
+					process.platform === "win32" ? "junction" : "dir",
+				);
+				delete process.env.AGENTSIMS_HOME_DIR;
+				delete process.env.AGENTSIMS_HOME;
+				delete process.env.AGENTSIMS_RN_MANIFEST;
+				if (homeMode === "home-dir" || homeMode === "both")
+					process.env.AGENTSIMS_HOME_DIR = join(directory, "current home");
+				if (homeMode === "legacy-home" || homeMode === "both")
+					process.env.AGENTSIMS_HOME = join(directory, "legacy home");
+				process.env.AGENTSIMS_PROJECT_ROOT = alias;
+				process.env.AGENTSIMS_RN_APP_IDS = JSON.stringify(["dev.example.app"]);
+				process.env.AGENTSIMS_RN_DEVICES = JSON.stringify([
+					"ios-fixture",
+					"android:emulator-5554",
+				]);
+				const producer = producerProjectContext(root, {
+					appIds: ["dev.example.app"],
+					devices: ["ios-fixture", "android:emulator-5554"],
+				});
+				const runtime = rnProjectContextFromEnvironment();
+				const canonicalRoot = realpathSync(root);
+				const expectedKey = createHash("sha1")
+					.update(canonicalRoot.replace(/\\/g, "/"))
+					.digest("hex")
+					.slice(0, 12);
+				const expectedHome =
+					homeMode === "default"
+						? join(homedir(), ".agentsims")
+						: join(
+								directory,
+								homeMode === "legacy-home" ? "legacy home" : "current home",
+							);
+				expect(producer.projectRoot).toBe(canonicalRoot);
+				expect(producer.projectKey).toBe(expectedKey);
+				expect(producer.manifestPath).toBe(
+					resolve(expectedHome, "projects", expectedKey, "rn-source-map.jsonl"),
+				);
+				expect(agentsimsHome()).toBe(expectedHome);
+				expect(runtime).toEqual(producer);
+			} finally {
+				for (const [name, value] of Object.entries(original)) {
+					if (value === undefined) delete process.env[name];
+					else process.env[name] = value;
+				}
+				rmSync(directory, { recursive: true, force: true });
+			}
+		},
+	);
+
+	test("uses a project-specific default manifest", () => {
 		delete process.env.AGENTSIMS_RN_MANIFEST;
+		process.env.AGENTSIMS_PROJECT_ROOT = "/repo";
 		expect(rnSourceManifestPath()).toBe(
-			join(homedir(), ".agentsims", "rn-source-map.jsonl"),
+			createRnProjectContext("/repo").manifestPath,
 		);
 	});
 
@@ -139,16 +343,19 @@ describe("React Native source context", () => {
 			].join("\n"),
 		);
 		manifests.add(sourceFile);
-		useManifest([
-			{
-				testID: "composer",
-				tag: "Textarea",
-				file: "src/chat/Composer.tsx",
-				absoluteFile: sourceFile,
-				line: 2,
-				componentName: "Textarea",
-			},
-		]);
+		useManifest(
+			[
+				{
+					testID: "composer",
+					tag: "Textarea",
+					file: "src/chat/Composer.tsx",
+					absoluteFile: sourceFile,
+					line: 2,
+					componentName: "Textarea",
+				},
+			],
+			tmpdir(),
+		);
 		const query = new URLSearchParams({
 			testID: "composer",
 			file: sourceFile,

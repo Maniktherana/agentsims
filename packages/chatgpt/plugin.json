@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agentsims",
+  "version": "0.1.0",
+  "description": "Inspect and control local iOS and Android devices through an installed Agentsims runtime.",
+  "author": {
+    "name": "Agentsims contributors"
+  },
+  "homepage": "https://github.com/Maniktherana/agentsims",
+  "repository": "https://github.com/Maniktherana/agentsims",
+  "license": "Apache-2.0",
+  "keywords": ["ios", "android", "simulator", "emulator", "logs", "annotation"],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/getting-started/SKILL.md",
+      "interface": {
+        "displayName": "Agentsims",
+        "shortDescription": "Inspect and control local mobile apps.",
+        "longDescription": "Use your installed Agentsims runtime to inspect selected devices, read application logs, and review saved annotations.",
+        "developerName": "Agentsims contributors",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": ["Use Agentsims to inspect my selected mobile app and its logs."]
+      }
+    }
+  }
+}

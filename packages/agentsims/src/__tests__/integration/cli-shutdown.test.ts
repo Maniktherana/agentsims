@@ -12,6 +12,7 @@ test("a repeated interrupt waits for server cleanup", async () => {
 		{
 			env: {
 				...process.env,
+				AGENTSIMS_HOME_DIR: directory,
 				TMPDIR: directory,
 				TMP: directory,
 				TEMP: directory,
@@ -44,7 +45,9 @@ test("a repeated interrupt waits for server cleanup", async () => {
 			child.once("error", reject);
 			child.once("close", (code, signal) => resolveExit({ code, signal }));
 		});
-		expect(repeated).toBe(true);
+		expect({ repeated, ...result, output, errors }).toMatchObject({
+			repeated: true,
+		});
 		expect({ ...result, output, errors }).toMatchObject({
 			code: 0,
 			signal: null,

@@ -16,6 +16,17 @@ import { logRuntime } from "../core/logging";
 import { logsDirectory } from "../core/home";
 import { STATE_DIR } from "../core/tools/devices/state";
 import { servePreview, type PreviewServer } from "../server/http/server";
+import {
+	RUNTIME_CAPABILITIES,
+	type ServerConfigInput,
+} from "../server/runtime/config";
+import {
+	isWindowsOwnedStopIdentity,
+	listenOwnedStop,
+	requestOwnedStop,
+	windowsOwnedStopIdentity,
+	type OwnedStopIdentity,
+} from "./owned-stop";
 
 export type LocalServerRecord = {
 	pid: number;
@@ -26,6 +37,10 @@ export type LocalServerRecord = {
 	url: string;
 	logFile: string;
 	startedAt: string;
+};
+
+type OwnedLocalServerRecord = LocalServerRecord & {
+	ownedStop?: OwnedStopIdentity;
 };
 
 export type LocalServerOptions = {
@@ -51,11 +66,11 @@ function alive(pid: number): boolean {
 	}
 }
 
-export function readLocalServer(): LocalServerRecord | null {
+function readOwnedLocalServer(): OwnedLocalServerRecord | null {
 	try {
 		const record = JSON.parse(
 			readFileSync(metadataFile, "utf8"),
-		) as LocalServerRecord;
+		) as OwnedLocalServerRecord;
 		if (
 			record.uid !== uid() ||
 			!Number.isSafeInteger(record.pid) ||
@@ -72,15 +87,26 @@ export function readLocalServer(): LocalServerRecord | null {
 	}
 }
 
-function writeLocalServer(record: LocalServerRecord): void {
+/** Private ownership credentials never enter status, readiness, or adapter output. */
+export function readLocalServer(): LocalServerRecord | null {
+	const record = readOwnedLocalServer();
+	if (!record) return null;
+	const { ownedStop: _privateOwner, ...publicRecord } = record;
+	return publicRecord;
+}
+
+function writeLocalServer(record: OwnedLocalServerRecord): void {
 	mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
 	const temporary = `${metadataFile}.${process.pid}.tmp`;
 	writeFileSync(temporary, JSON.stringify(record, null, 2), { mode: 0o600 });
 	renameSync(temporary, metadataFile);
 }
 
-function clearOwnedRecord(): void {
-	if (readLocalServer()?.pid === process.pid)
+function clearOwnedRecord(expected: OwnedLocalServerRecord): void {
+	const current = readOwnedLocalServer();
+	if (current?.pid === expected.pid && current.startedAt === expected.startedAt &&
+		current.ownedStop?.endpoint === expected.ownedStop?.endpoint &&
+		current.ownedStop?.token === expected.ownedStop?.token)
 		rmSync(metadataFile, { force: true });
 }
 
@@ -92,6 +118,39 @@ function previewRoot(): string {
 	return existsSync(join(installed, "index.html"))
 		? installed
 		: resolve(source, "../../dist/preview");
+}
+
+function previewConfiguration(
+	options: Pick<LocalServerOptions, "host" | "port" | "basePath" | "codec">,
+): ServerConfigInput {
+	return {
+		...options,
+		proxyHelpers: true,
+		previewRoot: previewRoot(),
+		execToken: randomBytes(32).toString("base64url"),
+		agentsimsBin: configuredDistDirectory()
+			? process.execPath
+			: (process.argv[1] ?? "agentsims"),
+	};
+}
+
+/** Start a task-owned runtime without writing a server record or protocol stdout. */
+export async function startManagedPreview(): Promise<{
+	origin: string;
+	close(): Promise<void>;
+}> {
+	const server = await servePreview(
+		previewConfiguration({
+			host: "127.0.0.1",
+			port: 0,
+			basePath: "/",
+			codec: "auto",
+		}),
+	);
+	return {
+		origin: `http://127.0.0.1:${server.port}`,
+		close: () => server.stop(),
+	};
 }
 
 export async function runLocalServer(
@@ -116,19 +175,19 @@ export async function runLocalServer(
 		);
 	const basePath = options.basePath.replace(/\/+$/, "") || "/";
 	let server: PreviewServer | undefined;
+	let cleanup: Promise<void> | undefined;
+	let stopChannel: { close(): Promise<void> } | undefined;
+	let ownedRecord: OwnedLocalServerRecord | undefined;
+	const stopServer = () => cleanup ??= Promise.resolve().then(() => server?.stop());
 	try {
-		server = await servePreview({
-			host: options.host,
-			port: options.port,
-			basePath,
-			codec: options.codec,
-			proxyHelpers: true,
-			previewRoot: previewRoot(),
-			execToken: randomBytes(32).toString("base64url"),
-			agentsimsBin: configuredDistDirectory()
-				? process.execPath
-				: (process.argv[1] ?? "agentsims"),
-		});
+		server = await servePreview(
+			previewConfiguration({
+				host: options.host,
+				port: options.port,
+				basePath,
+				codec: options.codec,
+			}),
+		);
 		const publicHost =
 			options.host === "0.0.0.0" || options.host === "::"
 				? "127.0.0.1"
@@ -143,10 +202,25 @@ export async function runLocalServer(
 			logFile,
 			startedAt: new Date().toISOString(),
 		};
-		if (!options.managed) writeLocalServer(record);
+		const stopped = Promise.withResolvers<void>();
+		const stop = () => {
+			if (!cleanup) logRuntime("server", "Stopping. Closing device sessions and streams.");
+			const pending = stopServer();
+			void pending.then(stopped.resolve, stopped.reject);
+			return pending;
+		};
+		if (!options.managed) {
+			ownedRecord = { ...record };
+			if (process.platform === "win32") {
+				const identity = windowsOwnedStopIdentity(process.pid);
+				stopChannel = await listenOwnedStop({ identity, pid: process.pid, stop });
+				ownedRecord.ownedStop = identity;
+			}
+			writeLocalServer(ownedRecord);
+		}
 		process.stdout.write(
 			options.json
-				? `${JSON.stringify({ type: "ready", ...record })}\n`
+				? `${JSON.stringify({ type: "ready", ...record, capabilities: RUNTIME_CAPABILITIES })}\n`
 				: `\nAgentsims is running at ${record.url}\n\n`,
 		);
 		logRuntime("server", `Ready (PID ${process.pid}, codec ${options.codec}).`);
@@ -155,14 +229,6 @@ export async function runLocalServer(
 				"server",
 				"Press Ctrl+C to stop Agentsims. Simulators will stay running.",
 			);
-		const stopped = Promise.withResolvers<void>();
-		let stopping = false;
-		const stop = () => {
-			if (stopping) return;
-			stopping = true;
-			logRuntime("server", "Stopping. Closing device sessions and streams.");
-			void server!.stop().then(stopped.resolve, stopped.reject);
-		};
 		// A terminal and its package runner can both signal this process.
 		// Keep handling duplicate signals until scoped cleanup has finished.
 		process.on("SIGINT", stop);
@@ -184,8 +250,12 @@ export async function runLocalServer(
 			if (options.managed) process.stdin.pause();
 		}
 	} finally {
-		if (server) await server.stop();
-		if (!options.managed) clearOwnedRecord();
+		try {
+			if (server) await stopServer();
+		} finally {
+			try { await stopChannel?.close(); }
+			finally { if (ownedRecord) clearOwnedRecord(ownedRecord); }
+		}
 	}
 }
 
@@ -230,13 +300,13 @@ export async function startDetached(
 		if (child.exitCode !== null) break;
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
-	if (child.exitCode === null && child.signalCode === null)
+	if (process.platform !== "win32" && child.exitCode === null && child.signalCode === null)
 		child.kill("SIGTERM");
-	throw new Error(`Detached server did not become ready. Read ${logFile}.`);
+	throw new Error(`Detached server did not become ready${process.platform === "win32" && child.pid ? ` (PID ${child.pid})` : ""}. Read ${logFile}.`);
 }
 
 export async function stopLocalServer(): Promise<boolean> {
-	const record = readLocalServer();
+	const record = readOwnedLocalServer();
 	if (!record) return false;
 	if (record.uid !== uid())
 		throw new Error("Only the user who started this server can stop it.");
@@ -248,11 +318,15 @@ export async function stopLocalServer(): Promise<boolean> {
 		throw new Error(
 			"The saved server record no longer identifies an Agentsims server.",
 		);
-	process.kill(record.pid, "SIGTERM");
+	if (process.platform === "win32") {
+		if (!isWindowsOwnedStopIdentity(record.ownedStop, record.pid))
+			throw new Error("The saved server has no valid owned stop channel. Stop it in its own terminal.");
+		await requestOwnedStop({ identity: record.ownedStop, pid: record.pid });
+	} else process.kill(record.pid, "SIGTERM");
 	for (let i = 0; i < 100 && alive(record.pid); i++)
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	if (alive(record.pid)) throw new Error(`Server ${record.pid} did not stop.`);
-	rmSync(metadataFile, { force: true });
+	clearOwnedRecord(record);
 	return true;
 }
 

@@ -73,6 +73,57 @@ describe("Android SDK tool resolution", () => {
 		);
 		expect(androidTool("adb", search([]))).toBe("adb");
 	});
+	test("finds Windows native tools in LOCALAPPDATA with spaces", () => {
+		const root = "C:\\Users\\Test User\\AppData\\Local\\Android\\Sdk";
+		const options: AndroidToolSearch = {
+			...search([
+				`${root}\\platform-tools\\adb.exe`,
+				`${root}\\emulator\\emulator.exe`,
+				`${root}\\cmdline-tools\\latest\\bin\\sdkmanager.bat`,
+				`${root}\\cmdline-tools\\12\\bin\\avdmanager.bat`,
+			]),
+			platform: "win32",
+			homeDirectory: "C:\\Users\\Test User",
+			env: { LocalAppData: "C:\\Users\\Test User\\AppData\\Local" },
+			listDirectories: () => ["9", "12"],
+		};
+		expect(androidTool("adb", options)).toBe(`${root}\\platform-tools\\adb.exe`);
+		expect(androidTool("emulator", options)).toBe(`${root}\\emulator\\emulator.exe`);
+		expect(androidTool("sdkmanager", options)).toBe(
+			`${root}\\cmdline-tools\\latest\\bin\\sdkmanager.bat`,
+		);
+		expect(androidTool("avdmanager", options)).toBe(
+			`${root}\\cmdline-tools\\12\\bin\\avdmanager.bat`,
+		);
+	});
+	test("uses Windows SDK environment roots before semicolon Path", () => {
+		const options: AndroidToolSearch = {
+			...search(["D:\\SDK\\platform-tools\\adb.exe", "C:\\Tools\\adb.exe"]),
+			platform: "win32",
+			homeDirectory: "C:\\Users\\test",
+			env: { Android_Home: "D:\\SDK", Path: "C:\\Other;C:\\Tools" },
+		};
+		expect(androidTool("adb", options)).toBe("D:\\SDK\\platform-tools\\adb.exe");
+		expect(androidTool("adb", { ...options, env: { Path: options.env?.Path } })).toBe(
+			"C:\\Tools\\adb.exe",
+		);
+		expect(androidTool("emulator", { ...options, isExecutable: () => false })).toBe(
+			"emulator.exe",
+		);
+	});
+	test("preserves Windows overrides and falls back to the user SDK directory", () => {
+		const options: AndroidToolSearch = {
+			...search(["C:\\Users\\test\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe"]),
+			platform: "win32",
+			homeDirectory: "C:\\Users\\test",
+		};
+		expect(androidTool("adb", options)).toBe(
+			"C:\\Users\\test\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe",
+		);
+		expect(
+			androidTool("adb", { ...options, env: { agentsims_adb: "D:\\missing\\adb.exe" } }),
+		).toBe("D:\\missing\\adb.exe");
+	});
 });
 
 test("does not mistake a searchable SDK directory for an executable", () => {

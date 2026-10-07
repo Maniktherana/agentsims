@@ -1,16 +1,27 @@
 name: Publish
-
-on:
+"on":
   workflow_dispatch:
     inputs:
       version:
-        description: Exact release version, such as 1.2.3
+        description: "Exact release version, such as 1.2.3"
         required: true
         type: string
-
+      release_mode:
+        description: "GitHub delivery mode"
+        required: true
+        type: choice
+        default: build-only
+        options:
+          - build-only
+          - draft
+          - public
+      publish_npm:
+        description: "Publish the prepared React Native library to npm"
+        required: true
+        type: boolean
+        default: false
 permissions:
   contents: read
-
 jobs:
   check:
     runs-on: ubuntu-22.04
@@ -18,16 +29,83 @@ jobs:
       run:
         working-directory: packages/agentsims
     steps:
+      - name: Validate the candidate before building
+        working-directory: "${{ runner.temp }}"
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          GH_REPO: "${{ github.repository }}"
+          RELEASE_MODE: "${{ inputs.release_mode }}"
+        run: |
+          set -euo pipefail
+          if [[ ! "$AGENTSIMS_RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Version must be an exact stable version such as 1.2.3." >&2
+            exit 1
+          fi
+          case "$RELEASE_MODE" in
+            build-only) ;;
+            draft|public)
+              for endpoint in "git/ref/tags/v$AGENTSIMS_RELEASE_VERSION" "releases/tags/v$AGENTSIMS_RELEASE_VERSION"; do
+                status=$(curl --silent --show-error --output "$RUNNER_TEMP/release-check.json" --write-out '%{http_code}' \
+                  --header "Authorization: Bearer $GH_TOKEN" \
+                  --header "Accept: application/vnd.github+json" \
+                  "$GITHUB_API_URL/repos/$GH_REPO/$endpoint")
+                case "$status" in
+                  404) ;;
+                  200) echo "The release version already has a tag or release. Choose an unused version." >&2; exit 1 ;;
+                  *) echo "Cannot check the release version (HTTP $status)." >&2; exit 1 ;;
+                esac
+              done
+              # Drafts can exist before their tag exists. Include them in the check.
+              gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags.txt"
+              if awk -v tag="v$AGENTSIMS_RELEASE_VERSION" '$0 == tag { found = 1 } END { exit !found }' "$RUNNER_TEMP/release-tags.txt"; then
+                echo "The release version already has a release. Choose an unused version." >&2
+                exit 1
+              fi
+              ;;
+            *) echo "Unknown GitHub delivery mode." >&2; exit 1 ;;
+          esac
+          printf 'Source SHA: `%s`\n\nVersion: `%s`\n\nGitHub mode: `%s`\n\nPublish npm: `%s`\n' \
+            "$GITHUB_SHA" "$AGENTSIMS_RELEASE_VERSION" "$RELEASE_MODE" '${{ inputs.publish_npm }}' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - run: bun install --frozen-lockfile
         working-directory: .
+      - run: bun run --cwd packages/agentsims-react-native build
+        working-directory: .
+      - run: bun run --cwd packages/chatgpt build
+        working-directory: .
+      - run: bun run --cwd ../agentsims-react-native typecheck
+      - run: bun run --cwd ../agentsims-react-native lint
+      - run: bun run --cwd ../agentsims-react-native test
+      - name: Verify the portable artifacts
+        working-directory: packages/agentsims
+        run: |
+          bun run verify:package --product library
+          bun run verify:package --product plugin
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun run test:ci
-
+      - run: "bun run test:ci"
+      - name: Record one library and one extension
+        run: |
+          bun run --cwd packages/agentsims release:prepare record-portable "$AGENTSIMS_RELEASE_VERSION" \
+            "$GITHUB_REPOSITORY" "$RUNNER_TEMP/portable" \
+            "$GITHUB_WORKSPACE/packages/agentsims-react-native/dist/npm/agentsims" \
+            "$GITHUB_WORKSPACE/packages/chatgpt/dist/agentsims-chatgpt.tar.gz"
+        working-directory: .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable
+          path: "${{ runner.temp }}/portable/"
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+    env:
+      AGENTSIMS_RELEASE_VERSION: "${{ inputs.version }}"
   build:
     needs: check
     strategy:
@@ -40,18 +118,22 @@ jobs:
             runner: macos-15
           - target: darwin-x64
             runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
+          - target: windows-x64
+            runner: windows-2025
+    runs-on: "${{ matrix.runner }}"
     env:
-      AGENTSIMS_RELEASE_VERSION: ${{ inputs.version }}
+      AGENTSIMS_RELEASE_VERSION: "${{ inputs.version }}"
+      TARGET: "${{ matrix.target }}"
     defaults:
       run:
+        shell: bash
         working-directory: packages/agentsims
     steps:
       - uses: actions/checkout@v4
       - name: Validate the version
         shell: bash
         run: |
-          if [[ ! "$AGENTSIMS_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$AGENTSIMS_RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "version must be an exact stable version such as 1.2.3" >&2
             exit 1
           fi
@@ -61,7 +143,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+          registry-url: "https://registry.npmjs.org"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -70,23 +152,86 @@ jobs:
         with:
           packages: platform-tools platforms;android-35 build-tools;35.0.0
       - name: Select the native compiler
-        if: runner.os == 'macOS'
+        if: "runner.os == 'macOS'"
         run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
       - run: bun install --frozen-lockfile
         working-directory: .
       - run: bun run build
-      - name: Install and smoke-test the packed packages
-        run: bun run verify:package
-      - name: Archive npm packages
-        run: tar -czf "$RUNNER_TEMP/${{ matrix.target }}.tar.gz" -C dist/npm .
+      # build.ts applies and verifies ad hoc signatures.
+      - name: Verify the signed native assets
+        if: "runner.os == 'macOS'"
+        run: bun run test:native --assets-only
+      - uses: actions/download-artifact@v4
+        with:
+          name: portable
+          path: "${{ runner.temp }}/portable"
+      - name: Install and smoke-test the exact portable artifacts with this runtime
+        run: |
+          bun -e '
+            import { mkdirSync } from "node:fs";
+            import { join } from "node:path";
+            import { runtimeArchiveTool } from "./scripts/release-targets";
+            const portable = join(process.env.RUNNER_TEMP, "portable");
+            const library = join(portable, "library");
+            mkdirSync(library);
+            const result = Bun.spawnSync([runtimeArchiveTool(process.platform), "-xzf", join(portable, "agentsims-library.tar.gz"), "-C", library], { stdout: "inherit", stderr: "inherit" });
+            if (result.exitCode !== 0) throw new Error("Portable library extraction failed.");
+          '
+          bun run verify:package --library "$RUNNER_TEMP/portable/library" --plugin "$RUNNER_TEMP/portable/agentsims-chatgpt.tar.gz"
+      - name: Record the verified native runtime
+        run: |
+          set -euo pipefail
+          bun run release:prepare record "$TARGET" "$AGENTSIMS_RELEASE_VERSION" \
+            "$GITHUB_REPOSITORY" "$RUNNER_TEMP" --build-directory dist
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.target }}
-          path: ${{ runner.temp }}/${{ matrix.target }}.tar.gz
+          name: "${{ matrix.target }}"
+          path: |
+            ${{ runner.temp }}/agentsims-${{ matrix.target }}.tar.gz
+            ${{ runner.temp }}/${{ matrix.target }}.json
           retention-days: 7
-
-  publish:
+          if-no-files-found: error
+          compression-level: 0
+  prepare:
     needs: build
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: "${{ inputs.version }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Validate every target and prepare the release
+        run: |
+          set -euo pipefail
+          bun run --cwd packages/agentsims release:prepare prepare "$VERSION" \
+            "$GITHUB_REPOSITORY" "$GITHUB_WORKSPACE/artifacts" \
+            "$GITHUB_WORKSPACE/release" "$GITHUB_WORKSPACE/library"
+          bash -n release/install.sh
+          ruby -c release/agentsims.rb
+          (cd release && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-release
+          path: release/
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-library
+          path: library/
+          retention-days: 7
+          if-no-files-found: error
+  # Configure the npm trusted publisher for publish.yml and environment npm.
+  # Direct OIDC publication requires npm >=11.5.1. No registry token is stored here.
+  publish:
+    if: ${{ inputs.publish_npm }}
+    needs: prepare
     runs-on: ubuntu-22.04
     environment: npm
     permissions:
@@ -95,33 +240,52 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: prepared-library
+          path: library
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
-      - name: Extract packages
-        run: |
-          mkdir -p packages/linux-x64 packages/darwin-arm64 packages/darwin-x64
-          for target in linux-x64 darwin-arm64 darwin-x64; do
-            tar -xzf "artifacts/$target/$target.tar.gz" -C "packages/$target"
-          done
-      - name: Validate all packages
+          registry-url: "https://registry.npmjs.org"
+      - name: Validate the library and npm client
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: "${{ inputs.version }}"
         run: |
           set -euo pipefail
-          for target in linux-x64 darwin-arm64 darwin-x64; do
-            package="packages/$target/agentsims-runtime-$target"
-            test "$(node -p "require('./$package/package.json').version")" = "$VERSION"
-            npm pack --dry-run "./$package"
-          done
-          test "$(node -p "require('./packages/linux-x64/agentsims/package.json').version")" = "$VERSION"
-          npm pack --dry-run ./packages/linux-x64/agentsims
-      - name: Publish runtime packages
+          node -e 'const cp = require("node:child_process"); const [major, minor, patch] = cp.execFileSync("npm", ["--version"], {encoding: "utf8"}).trim().split(".").map(Number); if (!(major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1))))) throw new Error("OIDC publication needs npm 11.5.1 or newer.");'
+          test "$(node -p "require('./library/package.json').name")" = agentsims
+          test "$(node -p "require('./library/package.json').version")" = "$VERSION"
+          npm pack --dry-run --ignore-scripts ./library
+      - name: Publish the optional React Native library
+        run: npm publish ./library --ignore-scripts --provenance --access public
+  release:
+    if: ${{ inputs.release_mode != 'build-only' }}
+    needs: prepare
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: "${{ github.token }}"
+      GH_REPO: "${{ github.repository }}"
+      VERSION: "${{ inputs.version }}"
+      RELEASE_MODE: "${{ inputs.release_mode }}"
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: release
+      - name: Verify the prepared release checksums
         run: |
-          for target in linux-x64 darwin-arm64 darwin-x64; do
-            npm publish "./packages/$target/agentsims-runtime-$target" --provenance --access public
-          done
-      - name: Publish the main package last
-        run: npm publish ./packages/linux-x64/agentsims --provenance --access public
+          set -euo pipefail
+          (cd release && sha256sum -c SHA256SUMS)
+      - name: Create GitHub release
+        run: |
+          set -euo pipefail
+          args=(release create "v$VERSION" release/*)
+          if [[ "$RELEASE_MODE" == draft ]]; then
+            args+=(--draft)
+          fi
+          gh "${args[@]}" \
+            --target "$GITHUB_SHA" \
+            --title "Agentsims $VERSION" \
+            --generate-notes \
+            --notes "Homebrew formula: agentsims.rb (attached). Alternative install: curl -fsSL https://github.com/$GH_REPO/releases/latest/download/install.sh | bash"

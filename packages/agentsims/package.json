@@ -1,8 +1,8 @@
 {
-	"name": "agentsims",
+	"name": "@agentsims/runtime",
 	"version": "0.1.0",
 	"private": true,
-	"description": "Local multi-device simulator workspace for React Native and Expo development",
+	"description": "Standalone Agentsims runtime, CLI, and multi-device browser workspace",
 	"keywords": [
 		"accessibility",
 		"android-emulator",
@@ -22,62 +22,22 @@
 		"url": "git+https://github.com/Maniktherana/agentsims.git",
 		"directory": "packages/agentsims"
 	},
-	"bin": {
-		"agentsims": "dist/agentsims.js"
-	},
-	"files": [
-		"LICENSE",
-		"dist/agentsims.js",
-		"dist/state.js",
-		"dist/state.cjs",
-		"dist/metro.js",
-		"dist/metro.cjs",
-		"dist/babel-plugin.cjs",
-		"dist/types/**",
-		"dist/preview/**",
-		"dist/simcam/libSimCameraInjector.dylib",
-		"dist/simcam/agentsims-camera-helper",
-		"dist/simax/agentsims-ax-settings",
-		"dist/android/agentsims-ax-server.jar",
-		"dist/native/agentsims-native.node"
-	],
 	"os": [
 		"darwin",
-		"linux"
+		"linux",
+		"win32"
 	],
 	"cpu": [
 		"arm64",
 		"x64"
 	],
 	"type": "module",
-	"exports": {
-		"./package.json": "./package.json",
-		"./state": {
-			"types": "./dist/types/core/tools/devices/state.d.ts",
-			"import": "./dist/state.js",
-			"require": "./dist/state.cjs"
-		},
-		"./metro": {
-			"types": "./dist/types/core/react-native/node/metro.d.ts",
-			"import": "./dist/metro.js",
-			"require": "./dist/metro.cjs"
-		},
-		"./babel-plugin": {
-			"types": "./dist/types/core/react-native/node/babel-plugin.d.ts",
-			"require": "./dist/babel-plugin.cjs",
-			"default": "./dist/babel-plugin.cjs"
-		}
-	},
-	"publishConfig": {
-		"access": "public",
-		"registry": "https://registry.npmjs.org/"
-	},
 	"scripts": {
 		"build": "bun run scripts/build.ts",
-		"build:android:ax": "bash android/accessibility/build.sh",
+		"build:android:ax": "bun android/accessibility/build.ts",
 		"verify:package": "bun run scripts/verify-package.ts",
+		"release:prepare": "bun run scripts/prepare-release.ts",
 		"start": "bun dist/agentsims.js",
-		"prepack": "bun run build",
 		"test": "bun test",
 		"test:ci": "bun test src/__tests__/unit src/__tests__/integration --path-ignore-patterns='**/android-videotoolbox.test.ts'",
 		"test:native": "bun run scripts/test-native.ts",
@@ -92,6 +52,7 @@
 		"@fontsource/geist-mono": "^5.3.0",
 		"@hugeicons/core-free-icons": "^4.3.4",
 		"@hugeicons/react": "^1.1.10",
+		"@modelcontextprotocol/server": "2.3.1",
 		"@pierre/diffs": "^1.3.3",
 		"@pierre/trees": "^1.0.0-beta.6",
 		"effect": "3.22.1",
@@ -112,6 +73,7 @@
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"@vitejs/plugin-react": "^6.0.3",
+		"agentsims": "workspace:*",
 		"bun-plugin-tailwind": "^0.1.2",
 		"commander": "^14.0.1",
 		"debug": "^4.4.3",

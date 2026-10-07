@@ -64,7 +64,7 @@ type IosHid = Pick<
 type IosCapture = Pick<
 	NativeCapture,
 	"start" | "stop" | "subscribeMjpeg" | "subscribeAvcc"
->;
+> & Partial<Pick<NativeCapture, "requestAvccKeyframe">>;
 
 export interface DeviceSessionDependencies {
 	hid?: IosHid;
@@ -131,6 +131,8 @@ export class DeviceSession {
 	private readonly screenshotWaiters = new Set<ScreenshotWaiter>();
 	private readonly screenshotWaitMs: number;
 	private readonly hidSockets = new Set<HidSocket>();
+	private inputOwner?: string;
+	private inputInFlight = 0;
 
 	constructor(
 		public readonly udid: string,
@@ -267,6 +269,25 @@ export class DeviceSession {
 		});
 	}
 
+	async requestVideoKeyframe(): Promise<void> {
+		if (!this.capture.requestAvccKeyframe)
+			throw new Error("This iOS capture cannot request an AVCC keyframe.");
+		await this.capture.requestAvccKeyframe();
+	}
+
+	/** A bridge gesture cannot take input from an existing browser or command. */
+	reserveInput(owner: string): boolean {
+		if (!owner || this.phase === "stopped") return false;
+		if (this.inputOwner === owner) return true;
+		if (this.inputOwner || this.hidSockets.size || this.inputInFlight) return false;
+		this.inputOwner = owner;
+		return true;
+	}
+
+	releaseInput(owner: string): void {
+		if (this.inputOwner === owner) this.inputOwner = undefined;
+	}
+
 	async captureScreenshot(): Promise<IosScreenshot> {
 		const afterSequence = this.latestJpegSequence;
 		await this.start();
@@ -334,6 +355,7 @@ export class DeviceSession {
 	// ── HID WebSocket ────────────────────────────────────────────────────────
 
 	attachHidSocket(ws: HidSocket): void {
+		if (this.inputOwner) { ws.close(); return; }
 		this.hidSockets.add(ws);
 		const cfg = this.configFrame();
 		if (cfg) ws.send(cfg); // seed dimensions/orientation, replacing the old poll
@@ -351,7 +373,15 @@ export class DeviceSession {
 		ws.on("error", () => this.hidSockets.delete(ws));
 	}
 
-	async dispatchInputFrame(data: Buffer): Promise<void> {
+	async dispatchInputFrame(data: Buffer, owner?: string): Promise<void> {
+		if ((this.inputOwner || owner) && this.inputOwner !== owner)
+			throw new Error("Input is owned by another workspace gesture.");
+		this.inputInFlight += 1;
+		try { await this.dispatchInputValue(data); }
+		finally { this.inputInFlight -= 1; }
+	}
+
+	private async dispatchInputValue(data: Buffer): Promise<void> {
 		if (data.length < 1) return;
 		const tag = data[0]!;
 		const body = data.length > 1 ? data.subarray(1) : null;

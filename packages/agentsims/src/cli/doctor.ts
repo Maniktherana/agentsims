@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { configuredDistDirectory } from "../core/native-paths";
@@ -9,6 +10,16 @@ import { androidTool } from "../core/android/device/sdk-tools";
 import { hostPlatformInfo } from "../core/host";
 
 type ToolCheck = { command: string; available: boolean; detail: string };
+declare const __AGENTSIMS_STANDALONE__: boolean;
+
+type DoctorRuntimeOptions = {
+	distDirectory?: string | null;
+	moduleUrl?: string;
+	runtimeExecutable?: string;
+	standalone?: boolean;
+	architecture?: string;
+};
+const runtimeRepair = "Reinstall Agentsims with Homebrew or curl. In a source checkout, run bun run build.";
 
 /** Probe the exit status as well as output. A spawned tool can still be unusable. */
 export function checkHostTool(
@@ -53,30 +64,121 @@ type DiagnosticCheck = {
 	repair?: string;
 };
 
+export function resolveNativeAddonPath(
+	name: string,
+	moduleUrl = import.meta.url,
+	dist = configuredDistDirectory(),
+): string | null {
+	return resolveRuntimeAssetPath(`native/${name}`, moduleUrl, dist);
+}
+
+function resolveRuntimeAssetPath(
+	name: string,
+	moduleUrl = import.meta.url,
+	dist = configuredDistDirectory(),
+): string | null {
+	const moduleDirectory = dirname(fileURLToPath(moduleUrl));
+	const roots = dist
+		? [dist]
+		: [moduleDirectory, resolve(moduleDirectory, "../../dist")];
+	for (const root of roots) {
+		const candidate = resolve(root, name);
+		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
+/** This runs only in an owned child, so addon loader failures cannot stop doctor. */
+export function probeNativeAddon(path = resolveNativeAddonPath("agentsims-native.node")): ToolCheck {
+	if (!path) return { command: "agentsims-native.node", available: false, detail: "The native addon is missing." };
+	try {
+		createRequire(import.meta.url)(path);
+		return { command: path, available: true, detail: "The native addon loads in Agentsims." };
+	} catch (error) {
+		return { command: path, available: false, detail: `The native addon could not load: ${error instanceof Error ? error.message : String(error)}`.slice(0, 4096) };
+	}
+}
+
+export function nativeProbeCommand(options: DoctorRuntimeOptions = {}) {
+	const standalone = options.standalone ?? (typeof __AGENTSIMS_STANDALONE__ !== "undefined" && __AGENTSIMS_STANDALONE__);
+	const moduleFile = fileURLToPath(options.moduleUrl ?? import.meta.url);
+	const sourceMain = resolve(dirname(moduleFile), "main.ts");
+	return {
+		command: options.runtimeExecutable ?? process.execPath,
+		args: [...(standalone ? [] : [existsSync(sourceMain) ? sourceMain : moduleFile]), "_native-addon-check"],
+	};
+}
+
+function supportsMachOArchitecture(path: string, architecture: string): boolean {
+	const cpu = architecture === "arm64" ? 0x0100000c : architecture === "x64" ? 0x01000007 : null;
+	if (cpu === null) return false;
+	const descriptor = openSync(path, "r");
+	try {
+		const buffer = Buffer.alloc(8 + 64 * 32);
+		const size = readSync(descriptor, buffer, 0, buffer.length, 0);
+		if (size < 8) return false;
+		const magic = buffer.readUInt32BE(0);
+		if (magic === 0xfeedfacf || magic === 0xcffaedfe) {
+			return (magic === 0xfeedfacf ? buffer.readUInt32BE(4) : buffer.readUInt32LE(4)) === cpu;
+		}
+		const littleEndian = magic === 0xbebafeca || magic === 0xbfbafeca;
+		const entrySize = magic === 0xcafebabf || magic === 0xbfbafeca ? 32 : 20;
+		if (![0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca].includes(magic)) return false;
+		const readInteger = (offset: number) => littleEndian ? buffer.readUInt32LE(offset) : buffer.readUInt32BE(offset);
+		const count = readInteger(4);
+		if (count === 0 || count > 64 || size < 8 + count * entrySize) return false;
+		for (let index = 0; index < count; index++) {
+			if (readInteger(8 + index * entrySize) === cpu) return true;
+		}
+		return false;
+	} finally {
+		closeSync(descriptor);
+	}
+}
+
+export function checkRuntimeAsset(
+	executor: CommandExecutor.CommandExecutor,
+	name: string,
+	options: DoctorRuntimeOptions & { native?: boolean; executable?: boolean } = {},
+): Effect.Effect<ToolCheck> {
+	return Effect.gen(function* () {
+		const path = resolveRuntimeAssetPath(name, options.moduleUrl, options.distDirectory);
+		if (!path) return { command: name, available: false, detail: `The runtime asset is missing: ${name}.` };
+		try {
+			const stat = statSync(path);
+			if (!stat.isFile() || stat.size === 0) return { command: path, available: false, detail: `The runtime asset is empty or is not a file: ${name}.` };
+			if (options.executable && (stat.mode & 0o111) === 0) return { command: path, available: false, detail: `The runtime asset is not executable: ${name}.` };
+			if (options.native && !supportsMachOArchitecture(path, options.architecture ?? process.arch)) {
+				return { command: path, available: false, detail: `The runtime asset does not support ${options.architecture ?? process.arch}: ${name}.` };
+			}
+		} catch (error) {
+			return { command: path, available: false, detail: `The runtime asset could not be read: ${error instanceof Error ? error.message : String(error)}` };
+		}
+		if (options.native) {
+			const signature = yield* checkHostTool(executor, "/usr/bin/codesign", ["--verify", "--strict", path]);
+			if (!signature.available) return { ...signature, command: path, detail: `The code signature is invalid for ${name}: ${signature.detail}` };
+			return { command: path, available: true, detail: `Valid code signature and architecture: ${name}.` };
+		}
+		return { command: path, available: true, detail: `Runtime asset ready: ${name}.` };
+	});
+}
+
 export function hostDiagnosticsFor(
 	platform: NodeJS.Platform = process.platform,
 	target?: DoctorPlatform,
+	options: DoctorRuntimeOptions = {},
 ) {
 	return Effect.gen(function* () {
 		const executor = yield* CommandExecutor.CommandExecutor;
 		const check = (command: string, args: string[]) =>
 			checkHostTool(executor, command, args);
-		const nativeAddon = (name: string) => {
-			const dist =
-				configuredDistDirectory() ??
-				resolve(dirname(fileURLToPath(import.meta.url)), "../../dist");
-			const path = resolve(dist, "native", name);
-			if (!existsSync(path))
-				return Effect.succeed({
-					command: path,
-					available: false,
-					detail: `Missing ${name}`,
-				});
-			return check(process.env.npm_node_execpath ?? "node", [
-				"-e",
-				`require(${JSON.stringify(path)}); console.log("Native module loads")`,
-			]);
-		};
+		const nativeAddon = Effect.gen(function* () {
+			const asset = yield* checkRuntimeAsset(executor, "native/agentsims-native.node", { ...options, native: true });
+			if (!asset.available) return asset;
+			const probe = nativeProbeCommand(options);
+			return yield* check(probe.command, probe.args);
+		}).pipe(Effect.cached);
+		const loadNativeAddon = yield* nativeAddon;
 		const capabilities = hostPlatformInfo(platform);
 		const selected = target ? [target] : capabilities.platforms;
 		const groups: { platform: string; checks: DiagnosticCheck[] }[] = [];
@@ -98,6 +200,7 @@ export function hostDiagnosticsFor(
 					...(!result.available ? { repair } : {}),
 				});
 			if (workflow === "android") {
+				add("android-ax", "Android accessibility runtime", yield* checkRuntimeAsset(executor, "android/agentsims-ax-server.jar", options), runtimeRepair);
 				const adb = androidTool("adb", { platform });
 				const emulator = androidTool("emulator", { platform });
 				const adbVersion = yield* check(adb, ["version"]);
@@ -174,8 +277,8 @@ export function hostDiagnosticsFor(
 					add(
 						"android-native",
 						"Android capture module",
-						yield* nativeAddon("agentsims-native.node"),
-						"Reinstall the matching Agentsims runtime package. In a source checkout, run bun run build.",
+						yield* loadNativeAddon,
+						runtimeRepair,
 					);
 				}
 			} else {
@@ -230,14 +333,24 @@ export function hostDiagnosticsFor(
 				add(
 					"ios-native",
 					"iOS capture module",
-					yield* nativeAddon("agentsims-native.node"),
-					"Reinstall the matching Agentsims runtime package. In a source checkout, run bun run build.",
+					yield* loadNativeAddon,
+					runtimeRepair,
 				);
+				for (const [id, label, name, executable] of [
+					["camera-injector", "iOS camera injector", "simcam/libSimCameraInjector.dylib", false],
+					["camera-helper", "iOS camera helper", "simcam/agentsims-camera-helper", true],
+					["ax-settings", "iOS accessibility helper", "simax/agentsims-ax-settings", true],
+				] as const) {
+					add(id, label, yield* checkRuntimeAsset(executor, name, { ...options, native: true, executable }), runtimeRepair);
+				}
+			}
+			if (platform === "darwin" && (options.standalone ?? (typeof __AGENTSIMS_STANDALONE__ !== "undefined" && __AGENTSIMS_STANDALONE__))) {
+				add("runtime-signature", "Agentsims executable", yield* checkRuntimeAsset(executor, "agentsims", { ...options, native: true, executable: true }), runtimeRepair);
 			}
 		}
 		return {
 			platform,
-			architecture: process.arch,
+			architecture: options.architecture ?? process.arch,
 			groups,
 			ok:
 				groups.length > 0 &&

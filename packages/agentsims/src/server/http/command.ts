@@ -70,16 +70,16 @@ export function commandResponse<A, E, R>(effect: Effect.Effect<A, E, R>) {
 	);
 }
 
-export function requestJson(request: Request) {
+export function requestJson(request: Request, limit = 1024 * 1024) {
 	return Effect.gen(function* () {
 		if (!request.headers.get("content-type")?.startsWith("application/json"))
 			return yield* Effect.fail(
 				new UnsupportedMediaType({ message: "Unsupported Media Type" }),
 			);
-		const limit = 1024 * 1024;
+		const limitMessage = `Command body exceeds ${limit / (1024 * 1024)} MiB`;
 		if (Number(request.headers.get("content-length")) > limit)
 			return yield* Effect.fail(
-				new InvalidCommandInput({ message: "Command body exceeds 1 MiB" }),
+				new InvalidCommandInput({ message: limitMessage }),
 			);
 		if (!request.body)
 			return yield* Effect.fail(
@@ -95,7 +95,7 @@ export function requestJson(request: Request) {
 				return bytes > limit
 					? Effect.fail(
 							new InvalidCommandInput({
-								message: "Command body exceeds 1 MiB",
+								message: limitMessage,
 							}),
 						)
 					: Effect.succeed(chunk);

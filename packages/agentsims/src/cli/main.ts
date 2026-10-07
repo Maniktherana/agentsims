@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from "node:fs";
+import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { BunContext } from "@effect/platform-bun";
@@ -75,15 +76,21 @@ import { renderDeviceLogs } from "./device-logs-output";
 import { registerRecordCommands } from "./commands/record";
 import { registerRunCommands } from "./commands/run";
 import { registerTraceCommands } from "./commands/trace";
+import { registerContextCommands } from "./commands/context";
+import { registerAppLogCommands } from "./commands/app-logs";
+import { registerMcpCommands } from "./commands/mcp";
+import { followLogFile } from "./log-file";
 import {
 	formatHostDiagnostics,
 	hostDiagnosticsFor,
+	probeNativeAddon,
 	type DoctorPlatform,
 } from "./doctor";
 import {
 	localServerLogFile,
 	readLocalServer,
 	runLocalServer,
+	startManagedPreview,
 	startDetached,
 	stopLocalServer,
 	type LocalServerOptions,
@@ -162,12 +169,14 @@ const integer =
 			);
 		return parsed;
 	};
-const positiveInteger = (name: string) => (value: string): number => {
-	const parsed = Number(value);
-	if (!Number.isSafeInteger(parsed) || parsed < 1)
-		throw new InvalidArgumentError(`${name} must be a positive integer.`);
-	return parsed;
-};
+const positiveInteger =
+	(name: string) =>
+	(value: string): number => {
+		const parsed = Number(value);
+		if (!Number.isSafeInteger(parsed) || parsed < 1)
+			throw new InvalidArgumentError(`${name} must be a positive integer.`);
+		return parsed;
+	};
 const logLevel = (value: string) => {
 	const parsed = value.toUpperCase();
 	if (!/^[VDIWEF]$/.test(parsed))
@@ -178,7 +187,9 @@ const oneOf =
 	<T extends string>(name: string, values: readonly T[]) =>
 	(value: string): T => {
 		if ((values as readonly string[]).includes(value)) return value as T;
-		throw new InvalidArgumentError(`${name} must be one of: ${values.join(", ")}.`);
+		throw new InvalidArgumentError(
+			`${name} must be one of: ${values.join(", ")}.`,
+		);
 	};
 const cameraFace = (value: string): "front" | "back" => {
 	if (value === "front" || value === "back") return value;
@@ -232,6 +243,11 @@ export function createProgram(): Command {
 		.name("agentsims")
 		.description("Run a local iOS and Android device workspace")
 		.version(version());
+	program.command("_native-addon-check", { hidden: true }).action(() => {
+		const result = probeNativeAddon();
+		process.stdout.write(`${result.detail}\n`);
+		if (!result.available) process.exitCode = 1;
+	});
 	addServerFlags(
 		program
 			.command("start", { isDefault: true })
@@ -276,15 +292,18 @@ export function createProgram(): Command {
 				process.stdout.write(readFileSync(localServerLogFile, "utf8"));
 				return;
 			}
-			const child = Bun.spawn(["tail", "-f", localServerLogFile], {
-				stdout: "inherit",
-				stderr: "inherit",
-			});
-			const stop = () => child.kill();
+			const cancellation = new AbortController();
+			const stop = () => cancellation.abort();
 			process.once("SIGINT", stop);
 			process.once("SIGTERM", stop);
 			try {
-				await child.exited;
+				await followLogFile(localServerLogFile, {
+					signal: cancellation.signal,
+					async write(text) {
+						if (!process.stdout.write(text))
+							await once(process.stdout, "drain", { signal: cancellation.signal });
+					},
+				});
 			} finally {
 				process.off("SIGINT", stop);
 				process.off("SIGTERM", stop);
@@ -302,7 +321,11 @@ export function createProgram(): Command {
 			integer("Log limit", 1, 2000),
 			100,
 		)
-		.option("--level <level>", "Minimum log level: V, D, I, W, E, or F", logLevel)
+		.option(
+			"--level <level>",
+			"Minimum log level: V, D, I, W, E, or F",
+			logLevel,
+		)
 		.option("--query <text>", "Keep lines that contain this text")
 		.option("--app <package>", "Keep lines from this app package")
 		.option(
@@ -450,15 +473,12 @@ export function createProgram(): Command {
 			`Hold duration in milliseconds (default: ${DEFAULT_LONG_PRESS_DURATION_MS})`,
 			integer("Duration", 1, 5_000),
 		),
-	).action(
-		async (target: string, flags: TargetFlags & { duration?: number }) =>
-			act(flags, {
-				type: "long-press",
-				...selector(target, flags),
-				...(flags.duration === undefined
-					? {}
-					: { durationMs: flags.duration }),
-			}),
+	).action(async (target: string, flags: TargetFlags & { duration?: number }) =>
+		act(flags, {
+			type: "long-press",
+			...selector(target, flags),
+			...(flags.duration === undefined ? {} : { durationMs: flags.duration }),
+		}),
 	);
 	watchOptions(
 		targetCommand(
@@ -616,9 +636,7 @@ Examples:
 					process.exitCode = 1;
 				if (artifact?.status === "error") process.exitCode = 1;
 				if (flags.json) return json(observationForOutput(result, artifact));
-				process.stdout.write(
-					`${renderObservation(result, artifact, flags)}\n`,
-				);
+				process.stdout.write(`${renderObservation(result, artifact, flags)}\n`);
 			},
 		);
 	program
@@ -641,10 +659,7 @@ Examples:
 					flags.device,
 					path,
 				);
-				if (
-					result.image.status === "error" ||
-					artifact?.status === "error"
-				)
+				if (result.image.status === "error" || artifact?.status === "error")
 					process.exitCode = 1;
 				if (flags.json) return json(screenshotForOutput(result, artifact));
 				process.stdout.write(`${renderScreenshot(result, artifact)}\n`);
@@ -785,9 +800,9 @@ Examples:
 	// iOS names a privacy service. Android names a runtime permission.
 	const appId = (flags: PermissionFlags): string => {
 		const android = Boolean(androidSerialFromStateId(flags.device));
-		const parsed = (
-			android ? AndroidPackageSchema : BundleIdSchema
-		).safeParse(flags.app);
+		const parsed = (android ? AndroidPackageSchema : BundleIdSchema).safeParse(
+			flags.app,
+		);
 		if (!parsed.success)
 			throw new Error(
 				android
@@ -890,6 +905,47 @@ Examples:
 			},
 		);
 	registerTraceCommands(program);
+	registerContextCommands(program, {
+		client: (url, options) => client(url, options?.timeoutMs),
+	});
+	registerAppLogCommands(program, {
+		client: (url, options) => client(url, options?.timeoutMs),
+		follow: async (run) => {
+			const controller = new AbortController();
+			const stop = () => controller.abort();
+			process.once("SIGINT", stop);
+			process.once("SIGTERM", stop);
+			try {
+				await run(controller.signal);
+			} finally {
+				process.off("SIGINT", stop);
+				process.off("SIGTERM", stop);
+			}
+		},
+	});
+	registerMcpCommands(program, {
+		version: version(),
+		startRuntime: startManagedPreview,
+		existingRuntime: () => readLocalServer()?.url,
+		run: async (session) => {
+			const failed = Promise.withResolvers<never>();
+			const stop = () => {
+				void session.close().catch(failed.reject);
+			};
+			process.on("SIGINT", stop);
+			process.on("SIGTERM", stop);
+			try {
+				await Promise.race([session.closed, failed.promise]);
+			} finally {
+				try {
+					await session.close();
+				} finally {
+					process.off("SIGINT", stop);
+					process.off("SIGTERM", stop);
+				}
+			}
+		},
+	});
 	return program;
 }
 

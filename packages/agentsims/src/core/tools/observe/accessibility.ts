@@ -9,7 +9,7 @@ import { AndroidAxServers } from "../../android/accessibility/ax-server";
 import { AndroidSessions } from "../../android/session/session";
 import { iosAxSnapshot } from "../../ios/accessibility";
 import { axDescribeAsync } from "../../ios/stream/native";
-import { enrichAxSnapshotWithRnSource } from "../../react-native/enrich-accessibility";
+import { RnSources } from "../../react-native/sources";
 
 export type {
 	AxElement,
@@ -61,9 +61,7 @@ function isUsableAxSnapshot(snapshot: AxSnapshot) {
 async function collectAxSnapshot(udid: string): Promise<AxSnapshot> {
 	const androidSerial = androidSerialFromStateId(udid);
 	if (androidSerial) {
-		return enrichAxSnapshotWithRnSource(
-			await collectAndroidAxSnapshot(androidSerial, { mode: "fresh" }),
-		);
+		return collectAndroidAxSnapshot(androidSerial, { mode: "fresh" });
 	}
 
 	const errors: string[] = [];
@@ -76,10 +74,10 @@ async function collectAxSnapshot(udid: string): Promise<AxSnapshot> {
 				`native AX returned ${snapshot.elements.length} elements in ${snapshot.screen.width}x${snapshot.screen.height} AX space`,
 			);
 		}
-		return enrichAxSnapshotWithRnSource({
+		return {
 			...snapshot,
 			errors,
-		});
+		};
 	} catch (error) {
 		errors.push((error as Error).message || String(error));
 	}
@@ -433,17 +431,22 @@ export const AxStreamersLive = Layer.scoped(
 	Effect.gen(function* () {
 		const axServers = yield* AndroidAxServers;
 		const androidSessions = yield* AndroidSessions;
+		const sources = yield* RnSources;
 		const cache = createAxStreamerCache({
 			collect: async (udid) => {
 				const serial = androidSerialFromStateId(udid);
-				if (!serial) return collectAxSnapshot(udid);
+				if (!serial)
+					return Effect.runPromise(
+						sources.enrich(udid, await collectAxSnapshot(udid)),
+					);
 				const session = await Effect.runPromise(androidSessions.get(serial));
 				const { width, height } = await session.readConfig();
-				return collectAndroidAxSnapshot(serial, {
+				const snapshot = await collectAndroidAxSnapshot(serial, {
 					screen: { width, height },
 					readFastXml: (target, mode) =>
 						Effect.runPromise(axServers.read(target, mode)),
 				});
+				return Effect.runPromise(sources.enrich(udid, snapshot));
 			},
 		});
 		return yield* Effect.acquireRelease(Effect.succeed(cache), (value) =>

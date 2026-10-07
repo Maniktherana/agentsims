@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "agentsims": {
+      "type": "stdio",
+      "command": "agentsims",
+      "args": ["mcp", "--app", "./mcp-app.json"],
+      "cwd": "./"
+    }
+  }
+}

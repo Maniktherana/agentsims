@@ -291,6 +291,11 @@ export class NativeCapture {
 		return this.handle.start();
 	}
 
+	/** Recover an existing AVCC subscription without replacing its encoder. */
+	requestAvccKeyframe(): Promise<void> {
+		return this.handle.requestAvccKeyframe();
+	}
+
 	subscribeMjpeg(
 		onFrame: (frame: MjpegFrame) => Promise<void>,
 	): Promise<() => void> {

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import {
 	DeviceGone,
 	CommandUnavailable,
@@ -55,6 +55,8 @@ import {
 } from "../observe/watch";
 import { scrollDevice, type ScrollRequest } from "../scroll";
 import { ForegroundApps } from "./foreground-apps";
+import { RnSources } from "../../react-native/sources";
+import type { AxSnapshot } from "../observe/accessibility-model";
 
 /**
  * The AVCC wire of one device, without the platform difference. Android starts
@@ -142,7 +144,10 @@ export type DeviceCapture = { bytes: Uint8Array; extension: "png" | "jpg" };
 /** Device operations use the same scoped platform session for input and observation. */
 export function makeDeviceService(
 	catalog: Pick<DeviceCatalog, "page" | "memoryReport">,
-	lifecycle: Pick<DeviceLifecycleServiceValue, "start" | "shutdown" | "states"> &
+	lifecycle: Pick<
+		DeviceLifecycleServiceValue,
+		"start" | "shutdown" | "states"
+	> &
 		Partial<Pick<DeviceLifecycleServiceValue, "invalidate">>,
 	resolveSession: (
 		device: string,
@@ -165,7 +170,7 @@ export function makeDeviceService(
 			store.invalidate(device);
 			lifecycle.invalidate?.();
 			let currentDeviceIds: string[] = [];
-		try {
+			try {
 				currentDeviceIds = (await lifecycle.states())
 					.map((state) => state.device)
 					.filter((current) => current !== device);
@@ -285,9 +290,9 @@ export function makeDeviceService(
 		verification: UiOperationVerification,
 		options?: ActionOptions,
 	) =>
-		actionRunner.operation(device, effect, verification, options).pipe(
-			Effect.flatMap((result) => inspectAction(device, result)),
-		);
+		actionRunner
+			.operation(device, effect, verification, options)
+			.pipe(Effect.flatMap((result) => inspectAction(device, result)));
 	const list = (options: DeviceListOptions = {}) =>
 		Effect.tryPromise({
 			try: () =>
@@ -335,7 +340,9 @@ export function makeDeviceService(
 		 * The emulator keeps a live frame buffer, which is one mmap read
 		 * against a screenshot round trip.
 		 */
-		captureScreenshot: (device: string): Effect.Effect<DeviceCapture, ApplicationCommandError> =>
+		captureScreenshot: (
+			device: string,
+		): Effect.Effect<DeviceCapture, ApplicationCommandError> =>
 			Effect.gen(function* () {
 				const session = yield* resolveSession(device);
 				const captureFrame = session.captureFrame;
@@ -357,7 +364,10 @@ export function makeDeviceService(
 				});
 				return {
 					bytes: shot.bytes,
-					extension: shot.mimeType === "image/jpeg" ? ("jpg" as const) : ("png" as const),
+					extension:
+						shot.mimeType === "image/jpeg"
+							? ("jpg" as const)
+							: ("png" as const),
 				};
 			}),
 		memory: () =>
@@ -380,10 +390,10 @@ export function makeDeviceService(
 					result.error
 						? Effect.fail(commandFailure(new Error(result.error)))
 						: Effect.sync(() => {
-							const device = result.device ?? deviceId;
-							store.invalidate(device);
-							return { device };
-						}),
+								const device = result.device ?? deviceId;
+								store.invalidate(device);
+								return { device };
+							}),
 				),
 			),
 		shutdown: (deviceId: string) =>
@@ -413,6 +423,11 @@ export const DevicesLive = Layer.scoped(
 		const androidSessions = yield* AndroidSessions;
 		const iosSessions = yield* IosSessions;
 		const foregroundApps = yield* ForegroundApps;
+		const sources = yield* Effect.serviceOption(RnSources);
+		const enrich = async (device: string, snapshot: AxSnapshot) =>
+			Option.isSome(sources)
+				? Effect.runPromise(sources.value.enrich(device, snapshot))
+				: snapshot;
 		const store = createSnapshotStore();
 		yield* Effect.acquireRelease(
 			Effect.sync(() => [
@@ -445,8 +460,13 @@ export const DevicesLive = Layer.scoped(
 						// answer null, so the sampler uses screenshots.
 						captureFrame: () => session.captureFrame(),
 						readConfig: () => session.readConfig(),
-						readAccessibility: () => session.readAccessibility("settled"),
-						performField: (request: FieldRequest) => session.performField(request),
+						readAccessibility: async () =>
+							enrich(
+								device,
+								(await session.readAccessibility("settled")) as AxSnapshot,
+							),
+						performField: (request: FieldRequest) =>
+							session.performField(request),
 						readFocusedField: () => session.readFocusedField(),
 					};
 				}
@@ -468,7 +488,7 @@ export const DevicesLive = Layer.scoped(
 					captureScreenshot: () => session.captureScreenshot(),
 					readConfig: async () => session.screenConfig(),
 					readAccessibility: async () =>
-						iosAxSnapshot(await session.readAccessibility()),
+						enrich(device, iosAxSnapshot(await session.readAccessibility())),
 					readFocusedField: () => session.readFocusedField(),
 				};
 			}).pipe(Effect.mapError(commandFailure));

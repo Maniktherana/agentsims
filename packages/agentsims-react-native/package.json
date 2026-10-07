@@ -1,0 +1,73 @@
+{
+	"name": "agentsims",
+	"version": "0.1.0",
+	"description": "Optional React Native source mapping for an installed Agentsims runtime",
+	"keywords": [
+		"babel",
+		"expo",
+		"metro",
+		"react-native",
+		"source-mapping"
+	],
+	"homepage": "https://github.com/Maniktherana/agentsims#readme",
+	"bugs": {
+		"url": "https://github.com/Maniktherana/agentsims/issues"
+	},
+	"license": "Apache-2.0",
+	"author": "Agentsims contributors",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Maniktherana/agentsims.git",
+		"directory": "packages/agentsims-react-native"
+	},
+	"files": [
+		"LICENSE",
+		"dist/state.js",
+		"dist/state.cjs",
+		"dist/metro.js",
+		"dist/metro.cjs",
+		"dist/babel-plugin.cjs",
+		"dist/types/**"
+	],
+	"type": "module",
+	"exports": {
+		"./package.json": "./package.json",
+		"./state": {
+			"types": "./dist/types/core/tools/devices/state.d.ts",
+			"import": "./dist/state.js",
+			"require": "./dist/state.cjs"
+		},
+		"./metro": {
+			"types": "./dist/types/node/metro.d.ts",
+			"import": "./dist/metro.js",
+			"require": "./dist/metro.cjs"
+		},
+		"./babel-plugin": {
+			"types": "./dist/types/node/babel-plugin.d.ts",
+			"require": "./dist/babel-plugin.cjs",
+			"default": "./dist/babel-plugin.cjs"
+		}
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"scripts": {
+		"build": "bun ../agentsims/scripts/build.ts --library-only",
+		"typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.state.json --noEmit",
+		"lint": "oxlint src -D no-empty --deny-warnings",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@effect/platform": "0.97.1",
+		"effect": "3.22.1"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"oxlint": "^1.74.0",
+		"typescript": "^5.7.0"
+	},
+	"engines": {
+		"node": ">=20"
+	}
+}

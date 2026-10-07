@@ -14,7 +14,7 @@ import {
 	unlinkSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { NativeAndroidVideoCapture } from "./native-video";
 
 const SCREENSHOT_METHOD =
@@ -263,7 +263,7 @@ function asDisplayRotation(value: number): AndroidDisplayRotation {
 function parseIni(path: string): Map<string, string> {
 	return new Map(
 		readFileSync(path, "utf8")
-			.split("\n")
+			.split(/\r?\n/)
 			.filter((line) => line.includes("="))
 			.map((line) => {
 				const separator = line.indexOf("=");
@@ -298,11 +298,43 @@ export function linuxControllerDirectory(
 	return join(root, "avd/running");
 }
 
+export function emulatorControllerDirectory(
+	options: {
+		platform?: NodeJS.Platform;
+		env?: NodeJS.ProcessEnv;
+		homeDirectory?: string;
+		isDirectory?: (path: string) => boolean;
+	} = {},
+): string {
+	const platform = options.platform ?? process.platform;
+	const env = options.env ?? process.env;
+	if (platform === "linux")
+		return linuxControllerDirectory(env, options.isDirectory);
+	const home = options.homeDirectory ?? homedir();
+	if (platform !== "win32")
+		return join(home, "Library/Caches/TemporaryItems/avd/running");
+	const environment = (key: string) =>
+		Object.entries(env).find(([name]) => name.toUpperCase() === key)?.[1];
+	const local = environment("LOCALAPPDATA");
+	if (local) return win32.join(local, "Temp", "avd", "running");
+	// Android ConfigDirs uses its user directory when LOCALAPPDATA is absent.
+	let root = environment("ANDROID_EMULATOR_HOME");
+	if (!root) {
+		const configured =
+			environment("ANDROID_PREFS_ROOT") || environment("ANDROID_SDK_HOME");
+		if (configured) {
+			const nested = win32.join(configured, ".android");
+			const directory = options.isDirectory ?? ((path: string) =>
+				statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false);
+			root = directory(nested) ? nested : configured;
+		} else root = win32.join(home, ".android");
+	}
+	return win32.join(root, "avd", "running");
+}
+
 export function controllerMetadata(
 	serial: string,
-	running = process.platform === "linux"
-		? linuxControllerDirectory()
-		: join(homedir(), "Library/Caches/TemporaryItems/avd/running"),
+	running = emulatorControllerDirectory(),
 ): ControllerMetadata {
 	const serialPort = serial.match(/^emulator-(\d+)$/)?.[1];
 	if (!serialPort) throw new Error(`${serial} is not an Android emulator`);
@@ -320,7 +352,7 @@ export function controllerMetadata(
 		if (values.get("port.serial") !== serialPort) continue;
 		const port = Number(values.get("grpc.port"));
 		const token = values.get("grpc.token");
-		if (!port || !token) break;
+		if (!Number.isInteger(port) || port < 1 || port > 65535 || !token) continue;
 		return { pid: Number(match[1]), port, token };
 	}
 	throw new AndroidEmulatorControllerUnavailableError(

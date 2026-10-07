@@ -1,19 +1,24 @@
-import { existsSync, readFileSync, statSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, realpathSync, statSync } from "fs";
+import { resolve } from "node:path";
+import {
+	createRnProjectContext,
+	rnProjectContextFromEnvironment,
+	rnSourcePathIsWithinProject,
+	type RnSourceReadContext,
+} from "./source-context";
 import type {
 	AxElement,
 	AxSnapshot,
 	AxSourceContext,
 } from "../tools/observe/accessibility-model";
 
-export const DEFAULT_RN_SOURCE_MANIFEST = join(
-	homedir(),
-	".agentsims",
-	"rn-source-map.jsonl",
-);
+export const DEFAULT_RN_SOURCE_MANIFEST = createRnProjectContext(
+	process.cwd(),
+).manifestPath;
 
 export interface RnSourceManifestEntry {
+	projectKey?: string;
 	testID: string;
 	tag: string;
 	elementKind?: "host" | "custom";
@@ -75,7 +80,14 @@ const sourceFileCache = new Map<
 >();
 
 export function rnSourceManifestPath(): string {
-	return process.env.AGENTSIMS_RN_MANIFEST || DEFAULT_RN_SOURCE_MANIFEST;
+	return (
+		rnProjectContextFromEnvironment() ?? createRnProjectContext(process.cwd())
+	).manifestPath;
+}
+
+function defaultReadContext(): RnSourceReadContext | null {
+	const project = rnProjectContextFromEnvironment();
+	return project ? { project, allowStaticIds: false } : null;
 }
 
 function normalizeIdentifier(value: string | undefined | null): string[] {
@@ -104,13 +116,19 @@ function sourceOwnerKey(entry: RnSourceManifestEntry): string {
 	]);
 }
 
-function loadRegistry(path = rnSourceManifestPath()): SourceRegistry {
+function loadRegistry(context: RnSourceReadContext | null): SourceRegistry {
+	if (!context) return { byTestID: new Map() };
+	const { project, allowStaticIds } = context;
+	const path = project.manifestPath;
+	const cachePath = `${path}:${project.projectKey}:${allowStaticIds}`;
 	try {
 		if (!existsSync(path)) return { byTestID: new Map() };
 		const stat = statSync(path);
+		if (!stat.isFile() || stat.size > 20 * 1024 * 1024)
+			return { byTestID: new Map() };
 		if (
 			cache &&
-			cache.path === path &&
+			cache.path === cachePath &&
 			cache.size === stat.size &&
 			cache.mtimeMs === stat.mtimeMs
 		) {
@@ -122,8 +140,27 @@ function loadRegistry(path = rnSourceManifestPath()): SourceRegistry {
 		for (const line of text.split(/\r?\n/)) {
 			if (!line.trim()) continue;
 			try {
-				const entry = JSON.parse(line) as RnSourceManifestEntry;
-				if (!entry.testID) continue;
+				const rawEntry = JSON.parse(line) as RnSourceManifestEntry;
+				const entry = {
+					...rawEntry,
+					absoluteFile:
+						rawEntry.absoluteFile ??
+						(rawEntry.file
+							? resolve(project.projectRoot, rawEntry.file)
+							: undefined),
+				};
+				if (
+					!entry.testID ||
+					entry.projectKey !== project.projectKey ||
+					!entry.absoluteFile ||
+					!rnSourcePathIsWithinProject(
+						entry.absoluteFile,
+						project.projectRoot,
+					) ||
+					(!allowStaticIds &&
+						!entry.testID.startsWith(`ags_${project.projectKey}_`))
+				)
+					continue;
 				const entries = byTestID.get(entry.testID) ?? [];
 				const ownerKey = sourceOwnerKey(entry);
 				const previous = entries.findIndex(
@@ -140,30 +177,45 @@ function loadRegistry(path = rnSourceManifestPath()): SourceRegistry {
 			}
 		}
 		const registry = { byTestID };
-		cache = { path, size: stat.size, mtimeMs: stat.mtimeMs, registry };
+		cache = {
+			path: cachePath,
+			size: stat.size,
+			mtimeMs: stat.mtimeMs,
+			registry,
+		};
 		return registry;
 	} catch {
 		return { byTestID: new Map() };
 	}
 }
 
-export function readRnSourceFile({
-	testID,
-	file,
-	line,
-}: {
-	testID: string;
-	file: string;
-	line: number;
-}): RnSourceFile | null {
-	const entries = loadRegistry().byTestID.get(testID) ?? [];
+export function readRnSourceFile(
+	{
+		testID,
+		file,
+		line,
+	}: {
+		testID: string;
+		file: string;
+		line: number;
+	},
+	context: RnSourceReadContext | null = defaultReadContext(),
+): RnSourceFile | null {
+	const entries = loadRegistry(context).byTestID.get(testID) ?? [];
 	const entry = entries.find(
 		(candidate) =>
 			(candidate.absoluteFile === file || candidate.file === file) &&
 			candidate.line === line,
 	);
 	const absoluteFile = entry?.absoluteFile;
-	if (!entry || !absoluteFile || !existsSync(absoluteFile)) return null;
+	if (
+		!context ||
+		!entry ||
+		!absoluteFile ||
+		!existsSync(absoluteFile) ||
+		!rnSourcePathIsWithinProject(absoluteFile, context.project.projectRoot)
+	)
+		return null;
 
 	try {
 		const stat = statSync(absoluteFile);
@@ -174,7 +226,13 @@ export function readRnSourceFile({
 		) {
 			return null;
 		}
-		const cached = sourceFileCache.get(absoluteFile);
+		const sourceCacheKey = JSON.stringify([
+			context.project.projectKey,
+			realpathSync(absoluteFile),
+			entry.file ?? "",
+			line,
+		]);
+		const cached = sourceFileCache.get(sourceCacheKey);
 		if (
 			cached &&
 			cached.size === stat.size &&
@@ -191,9 +249,13 @@ export function readRnSourceFile({
 			line,
 			startLine: 1,
 			lines: sourceLines,
-			cacheKey: `${stat.mtimeMs}:${stat.size}:${entry.file || absoluteFile}`,
+			cacheKey: createHash("sha256")
+				.update(JSON.stringify([sourceCacheKey, stat.mtimeMs, stat.size]))
+				.digest("hex"),
 		};
-		sourceFileCache.set(absoluteFile, {
+		if (sourceFileCache.size >= 64)
+			sourceFileCache.delete(sourceFileCache.keys().next().value!);
+		sourceFileCache.set(sourceCacheKey, {
 			size: stat.size,
 			mtimeMs: stat.mtimeMs,
 			source,
@@ -567,8 +629,11 @@ function relatedSourceForElement(
 	);
 }
 
-export function enrichAxSnapshotWithRnSource(snapshot: AxSnapshot): AxSnapshot {
-	const registry = loadRegistry();
+export function enrichAxSnapshotWithRnSource(
+	snapshot: AxSnapshot,
+	context: RnSourceReadContext | null = defaultReadContext(),
+): AxSnapshot {
+	const registry = loadRegistry(context);
 	if (registry.byTestID.size === 0) return snapshot;
 
 	const directResults = snapshot.elements.map((element) =>

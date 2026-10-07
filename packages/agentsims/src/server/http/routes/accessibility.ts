@@ -4,7 +4,7 @@ import {
 	HttpServerResponse,
 } from "@effect/platform";
 import { Effect, Stream } from "effect";
-import { readRnSourceFile } from "../../../core/react-native/enrich-accessibility";
+import { RnSources } from "../../../core/react-native/sources";
 import { AxStreamers } from "../../../core/tools/observe/accessibility";
 import { DeviceLifecycleService } from "../../../core/tools/devices/lifecycle";
 import { ServerConfig } from "../../runtime/config";
@@ -27,7 +27,12 @@ export const accessibilityRoutes = HttpRouter.empty.pipe(
 					json({ error: "Missing source identity" }, 400),
 				);
 			}
-			const source = readRnSourceFile({ testID, file, line });
+			const sources = yield* RnSources;
+			const config = yield* ServerConfig;
+			const source = yield* sources.read(
+				{ testID, file, line },
+				requestedDevice(url, config) ?? undefined,
+			);
 			if (!source)
 				return HttpServerResponse.raw(
 					json({ error: "Source unavailable" }, 404),

@@ -14,6 +14,7 @@ import {
 	createAxStreamerCache,
 } from "../../../core/tools/observe/accessibility";
 import type { AxSnapshot } from "../../../core/tools/observe/accessibility-model";
+import { makeRnSources, RnSources } from "../../../core/react-native/sources";
 
 function snapshot(label: string): AxSnapshot {
 	return {
@@ -93,7 +94,11 @@ describe("createAxStreamerCache", () => {
 				return { width: 1080, height: 2400, rotation: 0 };
 			},
 		});
-		const services = Layer.merge(
+		const services = Layer.mergeAll(
+			Layer.succeed(
+				RnSources,
+				makeRnSources(null, () => Effect.succeed(undefined)),
+			),
 			Layer.succeed(
 				AndroidSessions,
 				AndroidSessions.of({
@@ -123,9 +128,7 @@ describe("createAxStreamerCache", () => {
 							streamers.get("android:emulator-5554").addClient(resolve);
 						}),
 				);
-			}).pipe(
-				Effect.provide(AxStreamersLive.pipe(Layer.provide(services))),
-			),
+			}).pipe(Effect.provide(AxStreamersLive.pipe(Layer.provide(services)))),
 		);
 
 		expect(result.screen).toEqual({ width: 1080, height: 2400 });

@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { hostPlatformInfo } from "../../../../core/host";
 
-test("Linux and WSL expose Android without Apple capabilities", () => {
-	expect(hostPlatformInfo("linux")).toEqual({
-		platform: "linux",
+test.each(["linux", "win32"] as const)("%s exposes Android without Apple capabilities", (platform) => {
+	expect(hostPlatformInfo(platform)).toEqual({
+		platform,
 		platforms: ["android"],
 		iosSimulator: false,
 		nativeAndroidVideo: true,
@@ -12,7 +12,7 @@ test("Linux and WSL expose Android without Apple capabilities", () => {
 	});
 });
 
-test("macOS supports both platforms while native Windows is not advertised", () => {
+test("macOS supports both platforms while other hosts remain unavailable", () => {
 	expect(hostPlatformInfo("darwin").platforms).toEqual(["android", "ios"]);
-	expect(hostPlatformInfo("win32").platforms).toEqual([]);
+	expect(hostPlatformInfo("freebsd").platforms).toEqual([]);
 });

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "resource": {
+    "uri": "ui://agentsims/workspace.html",
+    "html": "./assets/workspace.html",
+    "mimeType": "text/html;profile=mcp-app",
+    "meta": {}
+  },
+  "tool": {
+    "name": "workspace_open",
+    "description": "Open the Agentsims workspace to inspect explicitly selected local iOS and Android devices.",
+    "meta": {
+      "ui": {
+        "resourceUri": "ui://agentsims/workspace.html"
+      },
+      "openai/ui": {
+        "entrypoints": [{ "type": "global" }, { "type": "thread" }]
+      }
+    }
+  }
+}

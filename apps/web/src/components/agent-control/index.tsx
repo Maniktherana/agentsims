@@ -92,7 +92,7 @@ const transcript: readonly TranscriptLine[] = [
 		kind: "message",
 		text: "I’ll use the mobile workflow and switch iPhone 17 to dark mode.",
 	},
-	{ at: 0.7, kind: "skill", text: "build-mobile-apps" },
+	{ at: 0.7, kind: "skill", text: "agentsims" },
 	{ at: 1.35, kind: "result", text: "Successfully loaded skill" },
 	{
 		at: 2.2,

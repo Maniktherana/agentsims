@@ -27,8 +27,10 @@ function command(name: string): Command {
 }
 
 test("the public command surface is canonical", () => {
-	const names = program().commands
-		.filter((item) => !["serve"].includes(item.name()))
+	const names = program()
+		.commands.filter(
+			(item) => item.name() !== "serve" && !item.name().startsWith("_"),
+		)
 		.map((item) => item.name());
 	expect(names).toEqual([
 		"start",
@@ -57,29 +59,104 @@ test("the public command surface is canonical", () => {
 		"permissions",
 		"doctor",
 		"trace",
+		"context",
+		"app-logs",
+		"mcp",
 	]);
 	expect(command("device-logs").aliases()).toEqual([]);
-	expect(command("camera").commands.find((item) => item.name() === "list")?.aliases()).toEqual([]);
-	expect(command("camera").commands.find((item) => item.name() === "use")?.aliases()).toEqual([]);
+	expect(
+		command("camera")
+			.commands.find((item) => item.name() === "list")
+			?.aliases(),
+	).toEqual([]);
+	expect(
+		command("camera")
+			.commands.find((item) => item.name() === "use")
+			?.aliases(),
+	).toEqual([]);
 });
 
 /** An action that can watch its own effect takes the same five flags. */
-const WATCH_OPTIONS = [
-	"--watch",
-	"--samples",
-	"--every",
-	"--keep-frames",
-];
+const WATCH_OPTIONS = ["--watch", "--samples", "--every", "--keep-frames"];
 
 test("action and app help shows the supported options", () => {
 	const expected: Record<string, string[]> = {
-		tap: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", ...WATCH_OPTIONS],
-		"long-press": ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration", ...WATCH_OPTIONS],
-		swipe: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration", ...WATCH_OPTIONS],
-		scroll: ["--device", "--url", "--json", "--in", "--amount", "--duration", "--to-end", "--collect", "--max-pages"],
-		drag: ["--device", "--url", "--json", "--screenshot", "--capture", "--role", "--index", "--duration", ...WATCH_OPTIONS],
-		type: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
-		fill: ["--device", "--url", "--json", "--screenshot", "--into", "--capture", "--role", "--index", "--submit"],
+		tap: [
+			"--device",
+			"--url",
+			"--json",
+			"--screenshot",
+			"--capture",
+			"--role",
+			"--index",
+			...WATCH_OPTIONS,
+		],
+		"long-press": [
+			"--device",
+			"--url",
+			"--json",
+			"--screenshot",
+			"--capture",
+			"--role",
+			"--index",
+			"--duration",
+			...WATCH_OPTIONS,
+		],
+		swipe: [
+			"--device",
+			"--url",
+			"--json",
+			"--screenshot",
+			"--capture",
+			"--role",
+			"--index",
+			"--duration",
+			...WATCH_OPTIONS,
+		],
+		scroll: [
+			"--device",
+			"--url",
+			"--json",
+			"--in",
+			"--amount",
+			"--duration",
+			"--to-end",
+			"--collect",
+			"--max-pages",
+		],
+		drag: [
+			"--device",
+			"--url",
+			"--json",
+			"--screenshot",
+			"--capture",
+			"--role",
+			"--index",
+			"--duration",
+			...WATCH_OPTIONS,
+		],
+		type: [
+			"--device",
+			"--url",
+			"--json",
+			"--screenshot",
+			"--into",
+			"--capture",
+			"--role",
+			"--index",
+			"--submit",
+		],
+		fill: [
+			"--device",
+			"--url",
+			"--json",
+			"--screenshot",
+			"--into",
+			"--capture",
+			"--role",
+			"--index",
+			"--submit",
+		],
 		press: ["--device", "--url", "--json", "--screenshot", ...WATCH_OPTIONS],
 		rotate: ["--device", "--url", "--json", "--screenshot"],
 	};
@@ -120,7 +197,11 @@ test("action and app help shows the supported options", () => {
 
 test.each([
 	["tap", ["tap", "@e1", "--samples", "4"], "--samples needs --watch <ms>."],
-	["drag", ["drag", "@e1", "@e2", "--keep-frames"], "--keep-frames needs --watch <ms>."],
+	[
+		"drag",
+		["drag", "@e1", "@e2", "--keep-frames"],
+		"--keep-frames needs --watch <ms>.",
+	],
 ])("%s refuses sampling flags without a window", async (_name, args) => {
 	await expect(
 		program().parseAsync([...args, "-d", "android:emulator-5554"], {
@@ -216,9 +297,13 @@ test("observe takes a sample count or an interval, never both", async () => {
 
 test("target indexes have no arbitrary upper limit", () => {
 	for (const name of ["tap", "long-press", "swipe", "type", "fill"]) {
-		const option = command(name).options.find((item) => item.long === "--index");
+		const option = command(name).options.find(
+			(item) => item.long === "--index",
+		);
 		expect(option?.parseArg?.("1000000", "")).toBe(1_000_000);
-		expect(() => option?.parseArg?.("0", "")).toThrow("Index must be a positive integer.");
+		expect(() => option?.parseArg?.("0", "")).toThrow(
+			"Index must be a positive integer.",
+		);
 	}
 });
 
@@ -226,20 +311,24 @@ test("touch help explains long presses and swipe direction", () => {
 	const longPressHelp = command("long-press")
 		.helpInformation()
 		.replace(/\s+/g, " ");
-	expect(longPressHelp).toContain("Hold duration in milliseconds (default: 600)");
+	expect(longPressHelp).toContain(
+		"Hold duration in milliseconds (default: 600)",
+	);
 
 	const swipe = command("swipe");
 	let swipeOutput = "";
-	swipe.configureOutput({ writeOut: (value) => { swipeOutput += value; } });
+	swipe.configureOutput({
+		writeOut: (value) => {
+			swipeOutput += value;
+		},
+	});
 	swipe.outputHelp();
 	const swipeHelp = swipeOutput.replace(/\s+/g, " ");
 	expect(swipeHelp).toContain("Coordinates use x,y.");
 	expect(swipeHelp).toContain("Change x for a horizontal swipe.");
 	expect(swipeHelp).toContain("Change y for a vertical swipe.");
 	expect(swipeHelp).toContain("Content moves in the opposite direction.");
-	expect(swipeHelp).toContain(
-		"agentsims swipe 80%,50% 20%,50% -d <id>",
-	);
+	expect(swipeHelp).toContain("agentsims swipe 80%,50% 20%,50% -d <id>");
 });
 
 test("scroll and drag each send one bounded request", async () => {
@@ -317,7 +406,15 @@ test("scroll and drag each send one bounded request", async () => {
 		{ from: "user" },
 	);
 	await root.parseAsync(
-		["drag", "@e4", "80%,50%", "-d", "android:emulator-5554", "--capture", "c7"],
+		[
+			"drag",
+			"@e4",
+			"80%,50%",
+			"-d",
+			"android:emulator-5554",
+			"--capture",
+			"c7",
+		],
 		{ from: "user" },
 	);
 
@@ -359,13 +456,21 @@ test("scroll and drag each send one bounded request", async () => {
 test("scroll and drag help explains the defaults", () => {
 	const scroll = command("scroll");
 	let scrollOutput = "";
-	scroll.configureOutput({ writeOut: (value) => { scrollOutput += value; } });
+	scroll.configureOutput({
+		writeOut: (value) => {
+			scrollOutput += value;
+		},
+	});
 	scroll.outputHelp();
 	const scrollHelp = scrollOutput.replace(/\s+/g, " ");
-	expect(scrollHelp).toContain("Scroll a region one page: down, up, left, right");
+	expect(scrollHelp).toContain(
+		"Scroll a region one page: down, up, left, right",
+	);
 	expect(scrollHelp).toContain("Percent of the region to travel (default: 40)");
 	expect(scrollHelp).toContain("Swipe duration in milliseconds (default: 600)");
-	expect(scrollHelp).toContain("Keep scrolling until the region stops changing");
+	expect(scrollHelp).toContain(
+		"Keep scrolling until the region stops changing",
+	);
 	expect(scrollHelp).toContain("Page limit for --to-end (default: 30)");
 	expect(scrollHelp).toContain(
 		"agentsims scroll down --to-end --collect cell -d <id>",
@@ -387,8 +492,12 @@ test("permission and button help lists exact platform values", () => {
 	expect(permissionHelp).toContain("Do not use --value for camera.");
 
 	const buttonHelp = command("press").helpInformation().replace(/\s+/g, " ");
-	expect(buttonHelp).toContain("Android: home, power, volume-up, volume-down, back, app-switch.");
-	expect(buttonHelp).toContain("iOS: home, power, volume-up, volume-down, app-switcher, action, side-button, digital-crown, left-side-button.");
+	expect(buttonHelp).toContain(
+		"Android: home, power, volume-up, volume-down, back, app-switch.",
+	);
+	expect(buttonHelp).toContain(
+		"iOS: home, power, volume-up, volume-down, app-switcher, action, side-button, digital-crown, left-side-button.",
+	);
 });
 
 test.each([
@@ -413,12 +522,34 @@ test.each([
 
 test.each([
 	["camera", "always", "camera does not take --value."],
-	["location", "limited", "Invalid --value for location: limited. Use always, inuse, or never."],
+	[
+		"location",
+		"limited",
+		"Invalid --value for location: limited. Use always, inuse, or never.",
+	],
 	["photos", "always", "Invalid --value for photos: always. Use limited."],
-	["notifications", "never", "Invalid --value for notifications: never. Use critical."],
+	[
+		"notifications",
+		"never",
+		"Invalid --value for notifications: never. Use critical.",
+	],
 ])("rejects invalid %s value before HTTP", async (name, value, message) => {
-	await expect(program().parseAsync([
-		"permissions", "grant", name, "-d", "ios-device", "-a", "com.example.app",
-		"--value", value, "--url", "http://127.0.0.1:1",
-	], { from: "user" })).rejects.toThrow(message);
+	await expect(
+		program().parseAsync(
+			[
+				"permissions",
+				"grant",
+				name,
+				"-d",
+				"ios-device",
+				"-a",
+				"com.example.app",
+				"--value",
+				value,
+				"--url",
+				"http://127.0.0.1:1",
+			],
+			{ from: "user" },
+		),
+	).rejects.toThrow(message);
 });

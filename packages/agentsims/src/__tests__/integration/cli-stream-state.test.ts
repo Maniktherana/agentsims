@@ -6,7 +6,12 @@ import { join, resolve } from "node:path";
 test("detached CLI lifecycle publishes status and stops its owned server", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "agentsims-cli-state-"));
 	const cli = resolve(import.meta.dir, "../../cli/main.ts");
-	const env = { ...process.env, TMPDIR: directory };
+	const env = {
+		...process.env,
+		TMPDIR: directory,
+		AGENTSIMS_HOME_DIR: join(directory, "home"),
+		AGENTSIMS_INSTALL_DIR: join(directory, "installation"),
+	};
 	const run = async (args: string[]) => {
 		const child = Bun.spawn([process.execPath, cli, ...args], {
 			env,

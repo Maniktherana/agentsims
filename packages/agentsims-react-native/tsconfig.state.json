@@ -1,0 +1,8 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"rootDir": "../agentsims/src",
+		"outDir": "dist/types"
+	},
+	"files": ["../agentsims/src/core/tools/devices/state.ts"]
+}
