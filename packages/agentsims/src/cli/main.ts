@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { once } from "node:events";
 import { dirname, join } from "node:path";
-import { Command, InvalidArgumentError, Option } from "commander";
+import { Command, CommanderError, InvalidArgumentError, Option } from "commander";
 import { BunContext } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { configureDistDirectory, dirnameOf } from "../core/native-paths";
@@ -242,7 +242,8 @@ export function createProgram(): Command {
 	const program = new Command()
 		.name("agentsims")
 		.description("Run a local iOS and Android device workspace")
-		.version(version());
+		.version(version())
+		.exitOverride();
 	program.command("_native-addon-check", { hidden: true }).action(() => {
 		const result = probeNativeAddon();
 		process.stdout.write(`${result.detail}\n`);
@@ -950,7 +951,12 @@ Examples:
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {
-	await createProgram().parseAsync(argv);
+	try {
+		await createProgram().parseAsync(argv);
+	} catch (error) {
+		if (!(error instanceof CommanderError)) throw error;
+		process.exitCode = error.exitCode;
+	}
 }
 
 export function renderCliError(error: unknown): string {

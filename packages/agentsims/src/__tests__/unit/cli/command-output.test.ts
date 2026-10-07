@@ -44,6 +44,39 @@ async function runCli(
 	return { stdout, stderr, exitCode };
 }
 
+test("CLI version and help reach pipes with their expected exit codes", async () => {
+	const version = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")).version;
+	expect(await runCli(["--version"])).toEqual({ stdout: `${version}\n`, stderr: "", exitCode: 0 });
+	for (const args of [["--help"], ["devices", "--help"]]) {
+		const result = await runCli(args);
+		expect(result.exitCode).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).toContain("Usage: agentsims");
+	}
+	const invalid = await runCli(["--unknown-option"]);
+	expect(invalid.exitCode).toBe(1);
+	expect(invalid.stdout).toBe("");
+	expect(invalid.stderr).toContain("error: unknown option '--unknown-option'");
+	expect(invalid.stderr).not.toContain("agentsims: ");
+});
+
+test("Commander completion lets a pending output write finish", async () => {
+	const child = Bun.spawn([process.execPath, "-e", `
+const { main } = await import(${JSON.stringify(cli)});
+const write = process.stdout.write.bind(process.stdout);
+process.stdout.write = (value) => {
+ setTimeout(() => write(value), 10);
+ return true;
+};
+await main([process.execPath, ${JSON.stringify(cli)}, "--version"]);
+`], { cwd: packageRoot, stdout: "pipe", stderr: "pipe" });
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+	]);
+	const version = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")).version;
+	expect({ stdout, stderr, exitCode }).toEqual({ stdout: `${version}\n`, stderr: "", exitCode: 0 });
+});
+
 const context = {
 	app: "com.example.app",
 	orientation: "portrait",
