@@ -79,7 +79,12 @@ const environment = {
 function run(
 	command: string,
 	args: string[],
-	options: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv } = {},
+	options: {
+		cwd?: string;
+		input?: string;
+		env?: NodeJS.ProcessEnv;
+		timeoutMs?: number;
+	} = {},
 ) {
 	if (command === "tar") command = runtimeArchiveTool(process.platform);
 	if (command === "npm" && process.platform === "win32") {
@@ -108,16 +113,24 @@ function run(
 			child
 				.stderr!.setEncoding("utf8")
 				.on("data", (value) => (stderr += value));
-			const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+			const timeoutMs = options.timeoutMs ?? 30_000;
+			const started = performance.now();
+			let timedOut = false;
+			const timer = setTimeout(() => {
+				timedOut = true;
+				child.kill("SIGKILL");
+			}, timeoutMs);
 			child.once("error", reject);
 			child.once("close", (code, signal) => {
 				clearTimeout(timer);
 				children.delete(child);
-				if (code === 0) resolveRun({ stdout, stderr });
+				if (code === 0 && !timedOut) resolveRun({ stdout, stderr });
 				else
 					reject(
 						new Error(
-							`${command} ${args.join(" ")} failed (${signal ?? code}).\n${stdout}${stderr}`,
+							timedOut
+								? `${command} ${args.join(" ")} timed out after ${Math.round(performance.now() - started)} ms (limit ${timeoutMs} ms).\n${stdout}${stderr}`
+								: `${command} ${args.join(" ")} failed (${signal ?? code}).\n${stdout}${stderr}`,
 						),
 					);
 			});
@@ -496,7 +509,10 @@ async function verifyLibrary(): Promise<string> {
 			mainTarball,
 			...dependencies,
 		],
-		{ cwd: installDirectory },
+		{
+			cwd: installDirectory,
+			timeoutMs: process.platform === "win32" ? 120_000 : undefined,
+		},
 	);
 	if (existsSync(environment.AGENTSIMS_INSTALL_DIR))
 		throw new Error("npm installation created a machine runtime directory.");
