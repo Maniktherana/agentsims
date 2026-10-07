@@ -94,7 +94,7 @@ export function AgentWorkflow() {
 
 	return (
 		<section
-			className="relative mx-auto max-w-[82rem] overflow-hidden px-[clamp(1.25rem,4vw,4rem)] pt-[clamp(6rem,8vw,8rem)] pb-[clamp(4.5rem,5vw,5rem)]"
+			className="relative mx-auto max-w-[82rem] overflow-hidden px-[clamp(1.25rem,4vw,4rem)] pt-[clamp(2rem,3vw,3rem)] pb-[clamp(4.5rem,5vw,5rem)]"
 			aria-labelledby="agent-workflow-title"
 			data-playing={playing}
 		>

@@ -5,7 +5,7 @@ import {
 	createRootRoute,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import stylesheet from "../styles.css?url";
+import "../styles.css";
 
 export const Route = createRootRoute({
 	head: () => ({
@@ -30,7 +30,6 @@ export const Route = createRootRoute({
 				href: "https://fonts.gstatic.com",
 				crossOrigin: "anonymous",
 			},
-			{ rel: "stylesheet", href: stylesheet },
 			{ rel: "icon", href: "/favicon.ico", sizes: "any" },
 		],
 	}),

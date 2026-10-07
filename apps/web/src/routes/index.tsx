@@ -1,6 +1,6 @@
-import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { TextMorph } from "torph/react";
 import { ProductDemo } from "../components/product-demo";
 import { AgentWorkflow } from "../components/agent-workflow";
 import { AgentControlSection } from "../components/agent-control";
@@ -11,8 +11,7 @@ import { pressable } from "@agentsims/ui/motion/pressable";
 import { cn } from "@agentsims/ui/lib/utils";
 
 const repositoryUrl = "https://github.com/Maniktherana/agentsims";
-
-const HERO_ACTION = "h-auto min-h-10 py-2.5 max-md:min-h-11 max-md:w-full";
+const installationUrl = `${repositoryUrl}/blob/main/docs/installation.md`;
 
 export const Route = createFileRoute("/")({ component: HomePage });
 
@@ -24,71 +23,36 @@ function GitHubMark() {
 	);
 }
 
-function CopyIconSwap({ copied }: { copied: boolean }) {
-	return (
-		<span className="grid place-items-center" aria-hidden="true">
-			<IconSwap state={copied ? "copied" : "copy"}>
-				{!copied ? (
-					<svg viewBox="0 0 20 20" className="size-3.5">
-						<path
-							d="m13 7h2c1.105 0 2 .895 2 2v6c0 1.105-.895 2-2 2H9c-1.105 0-2-.895-2-2v-2"
-							fill="none"
-							stroke="currentColor"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-							strokeWidth="2"
-						/>
-						<rect
-							x="3"
-							y="3"
-							width="10"
-							height="10"
-							rx="2"
-							stroke="currentColor"
-							strokeWidth="2"
-							fill="currentColor"
-						/>
-					</svg>
-				) : (
-					<svg viewBox="0 0 20 20" className="size-3.5">
-						<path
-							d="M17.999 10c0-1.097-.567-2.113-1.465-2.707.215-1.054-.103-2.174-.878-2.95-.775-.776-1.896-1.094-2.95-.878C12.113 2.568 11.097 2.001 10 2.001s-2.113.567-2.706 1.464c-1.053-.216-2.174.102-2.95.878s-1.093 1.896-.878 2.949C2.569 7.885 2.001 8.902 2.001 9.999s.567 2.113 1.465 2.707c-.215 1.054.103 2.174.878 2.95s1.898 1.092 2.95.878c.593.897 1.609 1.464 2.706 1.464s2.113-.568 2.706-1.465c1.059.214 2.176-.103 2.95-.878.776-.776 1.094-1.896.878-2.95.897-.593 1.465-1.609 1.465-2.707Zm-4.218-1.875-4 5a1 1 0 0 1-.726.374H9a1 1 0 0 1-.708-.292l-2-2a1 1 0 0 1 1.414-1.414l1.21 1.21 3.302-4.127a1 1 0 1 1 1.563 1.249Z"
-							fill="currentColor"
-						/>
-					</svg>
-				)}
-			</IconSwap>
-		</span>
-	);
-}
-
 function HomePage() {
 	const intro = useIntro();
-	const [copied, setCopied] = useState(false);
-	const [copyError, setCopyError] = useState(false);
-	const copyResetTimer = useRef<number | null>(null);
+	const [platform, setPlatform] = useState<
+		"macOS" | "Windows" | "Linux" | null
+	>(null);
 
-	async function copyCommand() {
-		try {
-			await navigator.clipboard.writeText("npx agentsims");
-			setCopyError(false);
-		} catch {
-			setCopyError(true);
+	useEffect(() => {
+		const host = navigator.userAgent;
+		if (
+			/Android|iPhone|iPad|iPod/.test(host) ||
+			(/Macintosh/.test(host) && navigator.maxTouchPoints > 1)
+		)
 			return;
-		}
-		setCopied(true);
-		if (copyResetTimer.current !== null)
-			window.clearTimeout(copyResetTimer.current);
-		copyResetTimer.current = window.setTimeout(() => setCopied(false), 1500);
-	}
+		setPlatform(
+			/Windows/.test(host)
+				? "Windows"
+				: /Macintosh|Mac OS X/.test(host)
+					? "macOS"
+					: /Linux/.test(host)
+						? "Linux"
+						: null,
+		);
+	}, []);
 
-	useEffect(
-		() => () => {
-			if (copyResetTimer.current !== null)
-				window.clearTimeout(copyResetTimer.current);
-		},
-		[],
-	);
+	const downloadUrl =
+		platform === "Windows"
+			? `${repositoryUrl}/releases/latest/download/agentsims-windows-x64.tar.gz`
+			: platform
+				? "https://agentsims.dev/install"
+				: installationUrl;
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
@@ -130,7 +94,7 @@ function HomePage() {
 			</header>
 
 			<main id="main">
-				<section className="relative mx-auto w-[calc(100%-4rem)] max-w-[128rem] max-md:w-full">
+				<section className="relative mx-auto min-h-[calc(100svh-5.25rem)] w-[calc(100%-4rem)] max-w-[128rem] max-md:min-h-[calc(100svh-4.75rem)] max-md:w-full">
 					<StaggerReveal
 						show={intro.reached("copy")}
 						className="hero-copy absolute top-[24%] z-[5] w-[44%] max-md:relative max-md:inset-auto max-md:mx-auto max-md:w-auto max-md:max-w-2xl max-md:px-5 max-md:pt-4"
@@ -156,52 +120,52 @@ function HomePage() {
 							to iOS simulators and Android devices.
 						</StaggerLine>
 
-						<StaggerLine className="mt-9 flex flex-wrap items-center gap-3 max-md:mt-8 max-md:flex-col max-md:items-stretch">
+						<StaggerLine className="mt-9 flex flex-wrap items-center gap-3 max-md:mt-8">
 							<Button
 								variant="ghost"
-								size="lg"
-								className={cn(
-									HERO_ACTION,
-									"gap-3 rounded-full border bg-linear-to-b from-[oklch(0.214267_0.003881_286.068)] to-[oklch(0.173482_0.002043_286.185)] px-5 font-mono text-[0.8125rem] shadow-[inset_0_1px_0_oklch(1_0_0/0.031373)] max-md:rounded-[0.875rem]",
-								)}
-								onClick={copyCommand}
-								aria-label={
-									copied
-										? "Copied npx agentsims command"
-										: "Copy npx agentsims command"
+								nativeButton={false}
+								render={
+									<a
+										href={downloadUrl}
+										download={
+											platform && platform !== "Windows"
+												? "install.sh"
+												: undefined
+										}
+									/>
 								}
+								size="lg"
+								className="h-11 rounded-full bg-white px-5 text-black hover:bg-white/90 hover:text-black active:bg-white/80 focus-visible:ring-2 focus-visible:ring-white/45"
+								style={{
+									scale: "1",
+									transform: "none",
+									transitionProperty: "background-color, color",
+								}}
 							>
-								<span className="text-muted-foreground" aria-hidden="true">
-									$
-								</span>
-								<span>npx agentsims</span>
-								<span
-									className={cn(
-										"grid size-5 place-items-center",
-										copied ? "text-green-400" : "text-muted-foreground",
-									)}
-								>
-									<CopyIconSwap copied={copied} />
-								</span>
-								<span className="sr-only" aria-live="polite">
-									{copied ? "Copied" : ""}
-								</span>
+								<TextMorph>
+									{platform ? `Download for ${platform}` : "Download Agentsims"}
+								</TextMorph>
+							</Button>
+							<Button
+								variant="ghost"
+								nativeButton={false}
+								render={<a href={installationUrl} />}
+								size="lg"
+								className="h-11 rounded-full border px-5"
+								style={{
+									scale: "1",
+									transform: "none",
+									transitionProperty: "background-color, color",
+								}}
+							>
+								Other platforms
 							</Button>
 						</StaggerLine>
-
-						{copyError && (
-							<p
-								className="mt-3 mb-0 text-sm text-muted-foreground"
-								role="alert"
-							>
-								Copy failed. Select and copy <code>npx agentsims</code>.
-							</p>
-						)}
 						<StaggerLine
 							as="p"
-							className="mt-5 mb-0 text-sm text-subtle-foreground max-md:text-center max-md:text-[0.8125rem]"
+							className="mt-5 mb-0 text-sm text-subtle-foreground max-md:text-[0.8125rem]"
 						>
-							Open source · iOS and Android
+							Free &amp; open source · iOS and Android
 						</StaggerLine>
 					</StaggerReveal>
 					<ProductDemo intro={intro} />
