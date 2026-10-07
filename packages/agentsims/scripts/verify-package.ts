@@ -589,7 +589,7 @@ async function verifyRuntime(version: string): Promise<string> {
 	const reportedVersion = await run(executable, ["--version"]);
 	if (reportedVersion.stdout.trim() !== version)
 		throw new Error(
-			"The runtime and library versions do not match the release.",
+			`The runtime version does not match the release on ${target}. Expected ${JSON.stringify(version)}; stdout=${JSON.stringify(reportedVersion.stdout.slice(0, 4096))}; stderr=${JSON.stringify(reportedVersion.stderr.slice(0, 4096))}.`,
 		);
 	const sourceBundle = await readFile(join(root, "dist/agentsims.js"), "utf8");
 	if (sourceBundle.includes(root))
