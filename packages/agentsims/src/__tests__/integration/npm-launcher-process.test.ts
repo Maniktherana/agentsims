@@ -127,3 +127,61 @@ test("the source package exposes only integration files for npm packing", () => 
 	expect(sourceManifest.files).not.toContain("dist/install.sh");
 	expect(sourceManifest.files).not.toContain("dist/agentsims.cjs");
 });
+
+test("the packed library verifier accepts CRLF archive listings", async () => {
+	const version =
+		process.env.AGENTSIMS_RELEASE_VERSION ?? sourceManifest.version;
+	const preload = join(directory, "crlf-tar-preload.ts");
+	const marker = join(directory, "crlf-tar-listing");
+	writeFileSync(
+		preload,
+		`import { mock } from "bun:test";
+import * as nativeProcess from "node:child_process";
+import { writeFileSync } from "node:fs";
+const spawn = nativeProcess.spawn;
+mock.module("node:child_process", () => ({
+  ...nativeProcess,
+  spawn(command, args, options) {
+    const child = spawn(command, args, options);
+    if (args[0] === "-tzf") {
+      writeFileSync(process.env.AGENTSIMS_CRLF_LISTING, "CRLF listing");
+      const output = child.stdout;
+      const emit = output.emit;
+      output.emit = function (event, ...values) {
+        if (event === "data") values[0] = values[0].toString().replace(/\\r?\\n/g, "\\r\\n");
+        return emit.call(this, event, ...values);
+      };
+    }
+    return child;
+  },
+}));
+`,
+	);
+	const result = spawnSync(
+		process.execPath,
+		[
+			"--preload",
+			preload,
+			resolve(import.meta.dir, "../../../scripts/verify-package.ts"),
+			"--product",
+			"library",
+		],
+		{
+			cwd: resolve(import.meta.dir, "../../.."),
+			encoding: "utf8",
+			timeout: 60_000,
+			env: {
+				...process.env,
+				AGENTSIMS_RELEASE_VERSION: version,
+				AGENTSIMS_CRLF_LISTING: marker,
+			},
+		},
+	);
+	expect(await Bun.file(marker).text()).toBe("CRLF listing");
+	expect(result.error).toBeUndefined();
+	expect(result.stderr).toBe("");
+	expect(result.status).toBe(0);
+	expect(result.stdout).toContain(
+		`Package smoke passed for library@${version}`,
+	);
+}, 60_000);

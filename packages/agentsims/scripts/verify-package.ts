@@ -452,7 +452,7 @@ async function verifyLibrary(): Promise<string> {
 	}
 	const mainTarball = await pack(mainDirectory);
 	const contents = (await run("tar", ["-tzf", mainTarball])).stdout
-		.split("\n")
+		.split(/\r?\n/)
 		.filter(Boolean);
 	for (const file of contents) {
 		const relative = file.replace(/^package\//, "");
