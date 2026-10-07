@@ -22,14 +22,11 @@ Node.js 20 or newer is required only for the optional [React Native integration]
 ## macOS: Homebrew
 
 Homebrew is the default macOS install path.
-Use the release formula:
+Use the [Agentsims Homebrew tap](https://github.com/Maniktherana/homebrew-tap):
 
 ```sh
-curl -fsSLo agentsims.rb https://github.com/Maniktherana/agentsims/releases/latest/download/agentsims.rb
-HOMEBREW_DEVELOPER=1 HOMEBREW_FORBID_PACKAGES_FROM_PATHS= brew install --formula ./agentsims.rb
+brew install Maniktherana/tap/agentsims
 ```
-
-These variables apply only to this command. They permit the local formula without persistent Homebrew changes.
 
 ## macOS and Linux: curl
 

@@ -31,10 +31,14 @@ function decodeConfig(frame: Buffer): unknown {
 
 function fakeTransport(
 	touches: Array<{ x: number; y: number; width: number; height: number }> = [],
+	backend: AndroidTransport["backend"] = "emulator-controller",
 ): AndroidTransport {
 	return {
-		backend: "emulator-controller",
-		wireTransport: "mmap-videotoolbox-h264",
+		backend,
+		wireTransport:
+			backend === "emulator-controller"
+				? "mmap-videotoolbox-h264"
+				: "adb-screenrecord-h264",
 		closed: false,
 		running: true,
 		subscriberCount: 1,
@@ -63,6 +67,61 @@ function response(): AvccSubscriberSink {
 }
 
 describe("Android session orientation observation", () => {
+	test.each(["emulator-controller", "adb-screenrecord"] as const)(
+		"keeps emulator rotation and viewport controls with %s video",
+		async (backend) => {
+			let currentDisplay: AndroidScreenConfig = {
+				width: 1080,
+				height: 2424,
+				orientation: "portrait",
+				rotation: 0,
+			};
+			const nativeSteps: number[] = [];
+			let physicalRotations = 0;
+			const session = new AndroidSession("emulator-5554", {
+				readScreenConfig: async () => ({ ...currentDisplay }),
+				readEmulatorViewport: async () => ({ ...currentDisplay }),
+				emulatorViewportPollMs: 25,
+				warmAx: async () => {},
+				createTransport: () => fakeTransport([], backend),
+				rotateEmulator: async (_serial, steps) => {
+					nativeSteps.push(steps);
+					currentDisplay = {
+						width: 2424,
+						height: 1080,
+						orientation: "landscape",
+						rotation: 1,
+					};
+				},
+				rotateDevice: async () => {
+					physicalRotations++;
+				},
+			});
+			await session.start();
+			const socket = new FakeHidSocket();
+			session.attachHidSocket(socket);
+			try {
+				await session.dispatchInputFrame(
+					Buffer.concat([
+						Buffer.from([0x07]),
+						Buffer.from(JSON.stringify({ orientation: "landscape_left" })),
+					]),
+				);
+				expect(nativeSteps).toEqual([1]);
+				expect(physicalRotations).toBe(0);
+				await Bun.sleep(75);
+				expect(decodeConfig(socket.sent.at(-1)!)).toMatchObject({
+					width: 2424,
+					height: 1080,
+					orientation: "landscape_left",
+					presentationGeneration: 2,
+				});
+			} finally {
+				await session.close();
+			}
+		},
+	);
+
 	test("reports a physical-device rotation failure", async () => {
 		const failure = new Error("rotation refused");
 		const session = new AndroidSession("R5CW1234ABC", {

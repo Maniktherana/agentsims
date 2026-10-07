@@ -1,10 +1,17 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Effect } from "effect";
 import {
 	performAndroidAppAction,
 	readAndroidAppDetails,
 } from "../../../../../core/android/device/app-tools";
 import { CommandFailure } from "../../../../../core/tools/errors";
+import {
+	configureDistDirectory,
+	configuredDistDirectory,
+} from "../../../../../core/native-paths";
 
 test("apps preserve the package list and classify system apps from pm rather than package names", async () => {
 	const result = await Effect.runPromise(
@@ -48,33 +55,49 @@ test("apps cannot silently classify everything as user installed when the system
 });
 
 test("reads the installed application label, versions, and rendered icon from the device helper", async () => {
-	const calls: readonly string[][] = [];
-	const mutableCalls = calls as string[][];
-	const result = await Effect.runPromise(
-		readAndroidAppDetails(
-			(serial, args) => {
-				expect(serial).toBe("emulator-5554");
-				mutableCalls.push([...args]);
-				return Effect.succeed(
-					args[0] === "push"
-						? "uploaded"
-						: JSON.stringify({
-								bundleId: "com.example.fixture",
-								displayName: "Fixture App",
-								shortVersion: "1.2.3",
-								bundleVersion: "42",
-								iconDataUrl: "data:image/png;base64,fixture",
-							}),
-				);
-			},
-			"emulator-5554",
-			"com.example.fixture",
-		),
-	);
-	expect(result).toMatchObject({
-		displayName: "Fixture App",
-		iconDataUrl: "data:image/png;base64,fixture",
-	});
-	expect(calls).toHaveLength(2);
-	expect(calls[1]?.[1]).toContain("metadata 'com.example.fixture'");
+	const previousDist = configuredDistDirectory();
+	const fixtureDist = mkdtempSync(join(tmpdir(), "agentsims-app-metadata-"));
+	const helper = join(fixtureDist, "android", "agentsims-ax-server.jar");
+	mkdirSync(join(fixtureDist, "android"));
+	writeFileSync(helper, "Android helper fixture");
+	configureDistDirectory(fixtureDist);
+	try {
+		const calls: readonly string[][] = [];
+		const mutableCalls = calls as string[][];
+		const result = await Effect.runPromise(
+			readAndroidAppDetails(
+				(serial, args) => {
+					expect(serial).toBe("emulator-5554");
+					mutableCalls.push([...args]);
+					return Effect.succeed(
+						args[0] === "push"
+							? "uploaded"
+							: JSON.stringify({
+									bundleId: "com.example.fixture",
+									displayName: "Fixture App",
+									shortVersion: "1.2.3",
+									bundleVersion: "42",
+									iconDataUrl: "data:image/png;base64,fixture",
+								}),
+					);
+				},
+				"emulator-5554",
+				"com.example.fixture",
+			),
+		);
+		expect(result).toMatchObject({
+			displayName: "Fixture App",
+			iconDataUrl: "data:image/png;base64,fixture",
+		});
+		expect(calls).toHaveLength(2);
+		expect(calls[0]).toEqual([
+			"push",
+			helper,
+			"/data/local/tmp/agentsims-ax-server.jar",
+		]);
+		expect(calls[1]?.[1]).toContain("metadata 'com.example.fixture'");
+	} finally {
+		configureDistDirectory(previousDist ?? "");
+		rmSync(fixtureDist, { recursive: true, force: true });
+	}
 });

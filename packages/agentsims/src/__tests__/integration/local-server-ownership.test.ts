@@ -109,3 +109,77 @@ assert.deepEqual([process.listenerCount("SIGINT"), process.listenerCount("SIGTER
 		expect(result.status).toBe(0);
 	} finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("Linux stop recognizes exited zombies but preserves running or unreadable process ownership", () => {
+	const directory = mkdtempSync(join(tmpdir(), "agentsims-linux-owned-stop-"));
+	try {
+		const source = resolve(import.meta.dir, "../../cli/local-server.ts");
+		const script = join(directory, "linux-ownership.ts");
+		writeFileSync(
+			script,
+			`
+import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import { join } from "node:path";
+import { mock } from "bun:test";
+const read = fs.readFileSync;
+let state = "R", unreadable = false, malformed = false, signals = 0;
+const pid = 34567;
+mock.module("node:fs", () => ({ ...fs, readFileSync: (path, ...args) => {
+  if (path === "/proc/" + pid + "/stat") {
+    if (unreadable) throw Object.assign(new Error("denied"), { code: "EACCES" });
+    return malformed ? "not a proc stat record" : pid + " (server name ) with (parens)) " + state + " 1 0 0";
+  }
+  return read(path, ...args);
+} }));
+Object.defineProperty(process, "platform", { value: "linux" });
+process.kill = (target, signal) => {
+  assert.equal(target, pid);
+  if (signal === "SIGTERM") { signals++; state = "Z"; }
+  else assert.equal(signal, 0);
+  return true;
+};
+const { readLocalServer, stopLocalServer } = await import(${JSON.stringify(source)});
+const { STATE_DIR } = await import(${JSON.stringify(resolve(import.meta.dir, "../../core/tools/devices/state.ts"))});
+const metadata = join(STATE_DIR, "local-server.json");
+fs.mkdirSync(STATE_DIR, { recursive: true });
+const save = () => fs.writeFileSync(metadata, JSON.stringify({ pid, uid: process.getuid(), host: "127.0.0.1", port: 12345, basePath: "/", url: "http://127.0.0.1:12345", logFile: "fixture.log", startedAt: "2026-10-07T00:00:00Z" }));
+save();
+assert.equal(readLocalServer().pid, pid);
+unreadable = true;
+assert.equal(readLocalServer().pid, pid);
+unreadable = false; malformed = true;
+assert.equal(readLocalServer().pid, pid);
+malformed = false;
+globalThis.fetch = async () => Response.json({ pid });
+assert.equal(await stopLocalServer(), true);
+assert.equal(signals, 1);
+assert.equal(fs.existsSync(metadata), false);
+for (const exited of ["Z", "X"]) {
+  state = exited; save();
+  assert.equal(readLocalServer(), null);
+  assert.equal(fs.existsSync(metadata), false);
+}
+assert.equal(signals, 1);
+console.log("Linux exited process ownership verified");
+`,
+		);
+		const result = spawnSync(process.execPath, [script], {
+			encoding: "utf8",
+			timeout: 10_000,
+			env: {
+				...process.env,
+				AGENTSIMS_HOME_DIR: join(directory, "home"),
+				AGENTSIMS_INSTALL_DIR: join(directory, "installation"),
+			},
+		});
+		expect({
+			error: result.error,
+			stderr: result.stderr,
+			status: result.status,
+		}).toMatchObject({ error: undefined, stderr: "", status: 0 });
+		expect(result.stdout).toContain("Linux exited process ownership verified");
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});

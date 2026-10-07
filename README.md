@@ -8,8 +8,7 @@ Inspect and control your app from the browser, CLI, or a coding agent.
 **macOS — Homebrew**
 
 ```sh
-curl -fsSLo agentsims.rb https://github.com/Maniktherana/agentsims/releases/latest/download/agentsims.rb
-HOMEBREW_DEVELOPER=1 HOMEBREW_FORBID_PACKAGES_FROM_PATHS= brew install --formula ./agentsims.rb
+brew install Maniktherana/tap/agentsims
 ```
 
 **macOS or Linux x64 — curl**

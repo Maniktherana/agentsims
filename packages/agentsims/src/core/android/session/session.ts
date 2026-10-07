@@ -641,7 +641,7 @@ export class AndroidSession {
 	private emulatorViewportWatchActive(): boolean {
 		return (
 			!this.closed &&
-			androidTransportKindForSerial(this.serial) === "emulator-controller" &&
+			isAndroidEmulatorSerial(this.serial) &&
 			(this.hidSockets.size > 0 || (this.transport?.subscriberCount ?? 0) > 0)
 		);
 	}
@@ -711,7 +711,7 @@ export class AndroidSession {
 					presentationGeneration: this.presentationGeneration || 1,
 				},
 				(config) => {
-					if (backend === "emulator-controller")
+					if (isAndroidEmulatorSerial(this.serial))
 						this.observeEmulatorFrameConfig(config);
 				},
 				() => this.updateTransportIdleTimer(),
@@ -1063,7 +1063,10 @@ export class AndroidSession {
 	}
 
 	attachHidSocket(ws: AndroidHidSocket): void {
-		if (this.inputOwner) { ws.close(); return; }
+		if (this.inputOwner) {
+			ws.close();
+			return;
+		}
 		this.hidSockets.add(ws);
 		this.updateTransportIdleTimer();
 		const cfg = this.configFrame();
@@ -1190,7 +1193,8 @@ export class AndroidSession {
 	reserveInput(owner: string): boolean {
 		if (!owner || this.closed) return false;
 		if (this.inputOwner === owner) return true;
-		if (this.inputOwner || this.hidSockets.size || this.inputInFlight) return false;
+		if (this.inputOwner || this.hidSockets.size || this.inputInFlight)
+			return false;
 		this.inputOwner = owner;
 		return true;
 	}
@@ -1205,11 +1209,17 @@ export class AndroidSession {
 		if ((this.inputOwner || owner) && this.inputOwner !== owner)
 			throw new Error("Input is owned by another workspace gesture.");
 		this.inputInFlight += 1;
-		try { await this.dispatchInputValue(data, owner !== undefined); }
-		finally { this.inputInFlight -= 1; }
+		try {
+			await this.dispatchInputValue(data, owner !== undefined);
+		} finally {
+			this.inputInFlight -= 1;
+		}
 	}
 
-	private async dispatchInputValue(data: Buffer, reportFailure: boolean): Promise<void> {
+	private async dispatchInputValue(
+		data: Buffer,
+		reportFailure: boolean,
+	): Promise<void> {
 		if (data.length < 1 || !this.width || !this.height) return;
 		const tag = data[0];
 		const body = data.length > 1 ? data.subarray(1) : null;
@@ -1393,9 +1403,7 @@ export class AndroidSession {
 			if (!m?.orientation) return;
 			this.markUiMutation();
 			await this.activeTransport();
-			if (
-				androidTransportKindForSerial(this.serial) === "emulator-controller"
-			) {
+			if (isAndroidEmulatorSerial(this.serial)) {
 				// One toolbar action is one native emulator clockwise step. The
 				// viewport watcher owns the resulting canonical screen config and
 				// touch mapping.

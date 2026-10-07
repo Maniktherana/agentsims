@@ -308,6 +308,7 @@ describe("iOS log process scope", () => {
 			Effect.scoped(
 				Effect.gen(function* () {
 					const fiber = yield* iosApplicationLogStream(foregroundTarget, {
+						platform: "darwin",
 						now: () => 100,
 					}).pipe(
 						Stream.runForEach((event) =>
@@ -381,7 +382,9 @@ describe("iOS log process scope", () => {
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
-					const fiber = yield* iosApplicationLogStream(foregroundTarget).pipe(
+					const fiber = yield* iosApplicationLogStream(foregroundTarget, {
+						platform: "darwin",
+					}).pipe(
 						Stream.runForEach((event) =>
 							Effect.sync(() => {
 								events.push(event);
@@ -461,6 +464,7 @@ describe("iOS log process scope", () => {
 					const fiber = yield* iosApplicationLogStream(
 						{ device, app: { mode: "fixed", id: app } },
 						{
+							platform: "darwin",
 							resolvePid: (selectedDevice, selectedApp) =>
 								Effect.sync(() => {
 									expect(selectedDevice).toBe(device);
@@ -521,7 +525,9 @@ describe("iOS log process scope", () => {
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
-					const fiber = yield* iosApplicationLogStream(foregroundTarget).pipe(
+					const fiber = yield* iosApplicationLogStream(foregroundTarget, {
+						platform: "darwin",
+					}).pipe(
 						Stream.runForEach((event) =>
 							Effect.sync(() => {
 								events.push(event);
@@ -581,6 +587,7 @@ describe("iOS log process scope", () => {
 				Effect.scoped(
 					Effect.gen(function* () {
 						const fiber = yield* iosApplicationLogStream(target, {
+							platform: "darwin",
 							resolvePid: lookup,
 						}).pipe(
 							Stream.runForEach((event) =>
@@ -631,10 +638,10 @@ describe("iOS log process scope", () => {
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
-					const fiber = yield* iosApplicationLogStream({
-						device,
-						app: { mode: "fixed", id: app },
-					}).pipe(Stream.runDrain, Effect.forkScoped);
+					const fiber = yield* iosApplicationLogStream(
+						{ device, app: { mode: "fixed", id: app } },
+						{ platform: "darwin" },
+					).pipe(Stream.runDrain, Effect.forkScoped);
 					yield* TestClock.adjust("100 millis");
 					yield* Fiber.interrupt(fiber);
 				}),
@@ -729,7 +736,9 @@ describe("iOS log process scope", () => {
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
-					const fiber = yield* iosApplicationLogStream(foregroundTarget).pipe(
+					const fiber = yield* iosApplicationLogStream(foregroundTarget, {
+						platform: "darwin",
+					}).pipe(
 						Stream.runForEach(() => Effect.never),
 						Effect.forkScoped,
 					);

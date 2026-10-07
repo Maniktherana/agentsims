@@ -60,6 +60,24 @@ const uid = () =>
 function alive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
+		if (process.platform === "linux") {
+			try {
+				// kill(pid, 0) also succeeds for an exited child awaiting reaping.
+				// The command field can contain spaces and parentheses.
+				const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+				const commandEnd = stat.lastIndexOf(")");
+				const state =
+					commandEnd >= 0
+						? stat
+								.slice(commandEnd + 1)
+								.trimStart()
+								.split(" ")[0]
+						: "";
+				if (state === "Z" || state === "X") return false;
+			} catch {
+				// An unreadable proc entry cannot revoke live process ownership.
+			}
+		}
 		return true;
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === "EPERM";

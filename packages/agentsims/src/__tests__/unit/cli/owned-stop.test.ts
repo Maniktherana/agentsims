@@ -6,7 +6,7 @@ import { createConnection } from "node:net";
 import { isWindowsOwnedStopIdentity, listenOwnedStop, requestOwnedStop, windowsOwnedStopIdentity, type OwnedStopIdentity } from "../../../cli/owned-stop";
 
 async function fixture(stop: () => Promise<void>, run: (identity: OwnedStopIdentity, close: () => Promise<void>) => Promise<void>) {
-	const directory = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/private/tmp", "as-stop-"));
+	const directory = mkdtempSync(join(tmpdir(), "as-stop-"));
 	const identity = process.platform === "win32" ? windowsOwnedStopIdentity(process.pid) : { endpoint: join(directory, "s"), token: "a".repeat(64) };
 	const listener = await listenOwnedStop({ identity, pid: process.pid, stop });
 	try { await run(identity, listener.close); }
@@ -116,5 +116,5 @@ test("cleanup failure is not reported as a successful stop", async () => {
 });
 
 test("missing endpoint fails without invoking another shutdown path", async () => {
-	await expect(requestOwnedStop({ identity: { endpoint: "/private/tmp/agentsims-missing-owned-stop", token: "a".repeat(64) }, pid: process.pid, timeoutMs: 50 })).rejects.toThrow();
+	await expect(requestOwnedStop({ identity: { endpoint: process.platform === "win32" ? windowsOwnedStopIdentity(process.pid).endpoint : join(tmpdir(), `as-missing-${process.pid}-${Date.now()}`), token: "a".repeat(64) }, pid: process.pid, timeoutMs: 50 })).rejects.toThrow();
 });

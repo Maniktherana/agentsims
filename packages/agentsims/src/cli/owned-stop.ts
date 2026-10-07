@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { createConnection, createServer, type Socket } from "node:net";
+import { createServer, Socket } from "node:net";
 
 export interface OwnedStopIdentity {
 	endpoint: string;
@@ -109,7 +109,7 @@ export function requestOwnedStop(options: {
 	timeoutMs?: number;
 }): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const socket = createConnection(options.identity.endpoint);
+		const socket = new Socket();
 		let bytes = Buffer.alloc(0);
 		let settled = false;
 		const finish = (error?: Error) => {
@@ -136,5 +136,12 @@ export function requestOwnedStop(options: {
 				} else finish();
 			} catch { finish(new Error("The owned stop response is invalid.")); }
 		});
+		// Bun can emit a missing pipe/socket error during connect itself.
+		// Install handlers first so failure rejects this request on every host.
+		try {
+			socket.connect(options.identity.endpoint);
+		} catch (error) {
+			finish(error instanceof Error ? error : new Error(String(error)));
+		}
 	});
 }

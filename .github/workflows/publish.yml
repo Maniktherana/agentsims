@@ -289,3 +289,32 @@ jobs:
             --title "Agentsims $VERSION" \
             --generate-notes \
             --notes "Homebrew formula: agentsims.rb (attached). Alternative install: curl -fsSL https://github.com/$GH_REPO/releases/latest/download/install.sh | bash"
+  verify-homebrew:
+    if: ${{ inputs.release_mode == 'public' }}
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: "${{ matrix.runner }}"
+    env:
+      VERSION: "${{ inputs.version }}"
+    steps:
+      - name: Verify the published formula on a fresh Mac
+        shell: bash
+        run: |
+          set -euo pipefail
+          homebrew_smoke_tap="$(brew --repository)/Library/Taps/agentsims/homebrew-release-smoke"
+          mkdir -p "$homebrew_smoke_tap/Formula"
+          curl -fsSL --retry 3 \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/agentsims.rb" \
+            -o "$homebrew_smoke_tap/Formula/agentsims.rb"
+          brew install agentsims/release-smoke/agentsims
+          brew test agentsims/release-smoke/agentsims
+          brew audit --strict agentsims/release-smoke/agentsims
+          test "$(agentsims --version)" = "$VERSION"
+          brew reinstall agentsims/release-smoke/agentsims
+          test "$(agentsims --version)" = "$VERSION"
+          brew uninstall agentsims/release-smoke/agentsims
+          test ! -e "$(brew --prefix)/bin/agentsims"
+          brew untap agentsims/release-smoke

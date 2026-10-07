@@ -98,14 +98,12 @@ Do not substitute an npm installation.
 
 ### macOS: Homebrew default
 
-Until a public Homebrew tap exists, use the release formula:
+Use the [Agentsims Homebrew tap](https://github.com/Maniktherana/homebrew-tap):
 
 ```sh
-curl -fsSLo agentsims.rb https://github.com/Maniktherana/agentsims/releases/latest/download/agentsims.rb
-HOMEBREW_DEVELOPER=1 HOMEBREW_FORBID_PACKAGES_FROM_PATHS= brew install --formula ./agentsims.rb
+brew install Maniktherana/tap/agentsims
 ```
 
-These variables apply only to that command. They permit a local formula without changing persistent Homebrew settings.
 Use the installed executable for the native runtime checks.
 
 ### macOS alternative and Linux x64: curl
@@ -155,15 +153,15 @@ The portable MCP entry uses a verified `agentsims` executable from the desktop h
 
 ```json
 {
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
-  "mcpServers": {
-    "agentsims": {
-      "type": "stdio",
-      "command": "agentsims",
-      "args": ["mcp", "--app", "./mcp-app.json"],
-      "cwd": "./"
-    }
-  }
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+	"mcpServers": {
+		"agentsims": {
+			"type": "stdio",
+			"command": "agentsims",
+			"args": ["mcp", "--app", "./mcp-app.json"],
+			"cwd": "./"
+		}
+	}
 }
 ```
 

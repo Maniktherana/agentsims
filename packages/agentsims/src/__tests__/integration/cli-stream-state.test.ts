@@ -43,7 +43,7 @@ test("detached CLI lifecycle publishes status and stops its owned server", async
 		expect(readable.stdout).not.toContain("{");
 
 		const stopped = await run(["stop"]);
-		expect(stopped.status).toBe(0);
+		expect(stopped).toMatchObject({ status: 0, stderr: "" });
 		expect(stopped.stdout).toBe("Agentsims stopped.\n");
 		expect(JSON.parse((await run(["status", "--json"])).stdout)).toEqual({
 			running: false,
