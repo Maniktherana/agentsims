@@ -25,17 +25,23 @@ export interface DecodedAxSnapshotEvent {
 	payload: string;
 	snapshot: AxSnapshot;
 	status: string;
+	lastUsableSnapshot: AxSnapshot | null;
 }
 
 export function decodeAxSnapshotEvent(
 	payload: string,
 	previousPayload: string | null,
+	lastUsableSnapshot: AxSnapshot | null = null,
 ): DecodedAxSnapshotEvent | null {
 	if (payload === previousPayload) return null;
 	const snapshot = JSON.parse(payload) as AxSnapshot;
 	return {
 		payload,
 		snapshot,
+		lastUsableSnapshot:
+			snapshot.elements.length && !snapshot.errors?.length
+				? snapshot
+				: lastUsableSnapshot,
 		status: isAxeUnavailable(snapshot)
 			? "AX unavailable"
 			: snapshot.errors?.[0] || `${snapshot.elements.length} AX elements`,
@@ -103,11 +109,14 @@ export function axSourceEndpoint(endpoint: string): string {
 
 export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 	const [snapshot, setSnapshot] = useState<AxSnapshot | null>(null);
+	const [lastUsableSnapshot, setLastUsableSnapshot] =
+		useState<AxSnapshot | null>(null);
 	const [status, setStatus] = useState("AX off");
 	const [refreshing, setRefreshing] = useState(false);
 	const latestEndpointRef = useRef<string | null>(null);
 	const latestPayloadRef = useRef<string | null>(null);
 	const latestSnapshotRef = useRef<AxSnapshot | null>(null);
+	const latestUsableSnapshotRef = useRef<AxSnapshot | null>(null);
 	const latestStatusRef = useRef("AX off");
 	const latestRefreshSignalRef = useRef(refreshSignal);
 	const refreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -147,8 +156,10 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 		) {
 			latestPayloadRef.current = null;
 			latestSnapshotRef.current = null;
+			latestUsableSnapshotRef.current = null;
 			latestStatusRef.current = "AX waiting";
 			setSnapshot(null);
+			setLastUsableSnapshot(null);
 			setStatus("AX waiting");
 		} else if (latestPayloadRef.current === null) {
 			latestStatusRef.current = "AX waiting";
@@ -171,11 +182,13 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 				return;
 			source = openHostEventStream(endpoint);
 			source.onmessage = (event) => {
+				if (disposed) return;
 				setRefreshing(false);
 				try {
 					const next = decodeAxSnapshotEvent(
 						event.data,
 						latestPayloadRef.current,
+						latestUsableSnapshotRef.current,
 					);
 					if (!next) {
 						setStatus((current) =>
@@ -192,6 +205,14 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 						next.snapshot,
 					);
 					latestSnapshotRef.current = reconciled;
+					const usable =
+						next.lastUsableSnapshot === next.snapshot
+							? reconciled
+							: next.lastUsableSnapshot;
+					latestUsableSnapshotRef.current = usable;
+					setLastUsableSnapshot((current) =>
+						current === usable ? current : usable,
+					);
 					setSnapshot((current) =>
 						current === reconciled ? current : reconciled,
 					);
@@ -205,6 +226,7 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 				}
 			};
 			source.onerror = () => {
+				if (disposed) return;
 				setStatus((current) =>
 					current === "AX reconnecting" ? current : "AX reconnecting",
 				);
@@ -235,6 +257,7 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 
 	return {
 		snapshot,
+		lastUsableSnapshot,
 		status: refreshing ? "Refreshing AX" : status,
 		refreshing,
 		refresh,
@@ -244,6 +267,8 @@ export function useAxSnapshot(endpoint?: string, refreshSignal?: number) {
 
 export interface AxSnapshotContextValue {
 	snapshot: AxSnapshot | null;
+	/** Retained display evidence only; current phone picking uses snapshot. */
+	lastUsableSnapshot?: AxSnapshot | null;
 	status: string;
 	refreshing: boolean;
 	refresh: () => Promise<void>;

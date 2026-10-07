@@ -20,6 +20,8 @@ import {
 	useScreenRecording,
 } from "../../hooks/simulator/use-screen-recording.js";
 
+import { TextMorph } from "torph/react";
+
 type ExecFn = (
 	command: string,
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
@@ -35,6 +37,7 @@ interface ToolbarContextValue {
 	deviceType: DeviceType;
 	streaming: boolean;
 	disabled: boolean;
+	blocked: boolean;
 }
 
 const ToolbarContext = createContext<ToolbarContextValue | null>(null);
@@ -105,6 +108,7 @@ function SimulatorToolbarRoot({
 		deviceType,
 		streaming,
 		disabled: effectiveDisabled,
+		blocked: disabled || !deviceUdid,
 	};
 
 	return (
@@ -176,7 +180,8 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
 
 	return (
 		<Button
-			variant="unstyled" size="unstyled"
+			variant="unstyled"
+			size="unstyled"
 			ref={ref}
 			type="button"
 			data-simulator-toolbar-title
@@ -260,6 +265,7 @@ function Actions({ style, ...rest }: HTMLAttributes<HTMLDivElement>) {
 // -- Icon button base ---------------------------------------------------
 
 export interface ToolbarButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+	allowWhenDisconnected?: boolean;
 	/** Force disabled even if the toolbar is ready. */
 	forceDisabled?: boolean;
 	/** Override the hover/focus tooltip label. Defaults to title or aria-label. */
@@ -285,6 +291,7 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 	function ToolbarButton(
 		{
 			forceDisabled,
+			allowWhenDisconnected,
 			tooltip,
 			style,
 			disabled,
@@ -302,7 +309,10 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 		ref,
 	) {
 		const ctx = useContext(ToolbarContext);
-		const effectiveDisabled = disabled || forceDisabled || ctx?.disabled;
+		const effectiveDisabled =
+			disabled ||
+			forceDisabled ||
+			(allowWhenDisconnected ? ctx?.blocked : ctx?.disabled);
 		const [hover, setHover] = useState(false);
 		const [focus, setFocus] = useState(false);
 		const pointerFocusedRef = useRef(false);
@@ -314,7 +324,8 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 
 		return (
 			<Button
-				variant="unstyled" size="unstyled"
+				variant="unstyled"
+				size="unstyled"
 				ref={ref}
 				type="button"
 				disabled={effectiveDisabled}
@@ -606,6 +617,7 @@ const RecordButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 			<ToolbarButton
 				ref={ref}
 				aria-label={active ? "Stop recording" : "Start recording"}
+				allowWhenDisconnected={active}
 				aria-pressed={active}
 				forceDisabled={forceDisabled || recording.busy}
 				onClick={(e) => {
@@ -621,6 +633,7 @@ const RecordButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
 				{...rest}
 			>
 				{active ? RecordActiveIcon : RecordIdleIcon}
+				{active && <TextMorph>Stop</TextMorph>}
 				{active && (
 					<span
 						style={{

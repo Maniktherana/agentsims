@@ -215,29 +215,60 @@ export function accessibilityTreeRowLabel(element: AxElement): string {
 	return sourceComponentBoundaryName(element) || nativeHostName(element);
 }
 
-export function accessibilityTreeRowTooltip(element: AxElement): string {
-	const boundary = sourceComponentBoundaryName(element);
-	const identity = boundary || nativeHostName(element);
-	const label = element.label.trim();
-	const value = element.value.trim();
-	const parts: string[] = [];
-	if (label && !isGeneratedIdentifier(label)) {
-		parts.push(`“${label.replace(/[“”]/g, '"')}”`);
-	}
+export interface AccessibilityNativeRowContent {
+	nativeType: string;
+	type: string;
+	properties: readonly string[];
+}
+
+/** Display native AX fields. Source ownership never changes the native type. */
+export function accessibilityNativeRowContent(
+	element: AxElement,
+): AccessibilityNativeRowContent {
+	const nativeType = element.type.trim() || element.role.trim() || "Unknown";
+	const type = nativeType.split(/[.$]/).filter(Boolean).at(-1) || nativeType;
+	const properties: string[] = [];
+	const role = element.role.trim();
 	if (
-		value &&
-		value !== label &&
-		value !== element.testId &&
-		value !== element.nativeId &&
-		!isGeneratedIdentifier(value)
+		role &&
+		role.toLowerCase() !== type.toLowerCase() &&
+		role !== nativeType
 	) {
-		parts.push(`value “${value.replace(/[“”]/g, '"')}”`);
+		properties.push(`role=${JSON.stringify(role)}`);
 	}
+	const text = (value: string) => {
+		const normalized = value.trim();
+		return normalized &&
+			normalized !== element.testId &&
+			normalized !== element.nativeId &&
+			!isGeneratedIdentifier(normalized)
+			? normalized
+			: null;
+	};
+	const label = text(element.label);
+	const value = text(element.value);
+	if (label) properties.push(`label=${JSON.stringify(label)}`);
+	if (value && value !== label)
+		properties.push(`value=${JSON.stringify(value)}`);
+	if (element.state?.trim())
+		properties.push(`state=${JSON.stringify(element.state.trim())}`);
+	if (!element.enabled) properties.push("enabled=false");
+	if (element.visibleToUser === false) properties.push("visibleToUser=false");
+	const traits = element.traits?.filter((trait) => trait.trim());
+	if (traits?.length) properties.push(`traits=${JSON.stringify(traits)}`);
+	return { nativeType, type, properties };
+}
+
+export function accessibilityTreeRowTooltip(element: AxElement): string {
+	const content = accessibilityNativeRowContent(element);
+	const parts = [
+		content.nativeType,
+		...content.properties,
+		`path=${JSON.stringify(element.path)}`,
+	];
 	const owner = element.source?.componentName?.trim();
-	if (!boundary && owner) {
-		parts.push(`inside ${shortIdentifier(owner)}`);
-	}
-	return parts.length > 0 ? `${identity} — ${parts.join(" · ")}` : identity;
+	if (owner) parts.push(`sourceOwner=${JSON.stringify(owner)}`);
+	return parts.join(" ");
 }
 
 export interface AccessibilityNode {
@@ -440,7 +471,7 @@ export function accessibilityTreeVisibleLabelForPath(
 	path: string,
 ): string | null {
 	const element = accessibilityTreeEntryForPath(projection, path)?.element;
-	return element ? accessibilityTreeRowLabel(element) : null;
+	return element ? accessibilityNativeRowContent(element).type : null;
 }
 
 export interface AccessibilityTreeTooltipContent {
@@ -456,7 +487,9 @@ function accessibilityTreeTooltipSourceBasename(
 			? element.source.file?.trim()
 			: null;
 	if (!file) return null;
-	return file.split(/[\\/]/).filter(Boolean).at(-1) ?? null;
+	const basename = file.split(/[\\/]/).filter(Boolean).at(-1);
+	if (!basename) return null;
+	return `${basename}${element.source?.line && element.source.line > 0 ? `:${element.source.line}` : ""}`;
 }
 
 export function accessibilityTreeTooltipContentForPath(
@@ -465,11 +498,8 @@ export function accessibilityTreeTooltipContentForPath(
 ): AccessibilityTreeTooltipContent | null {
 	const element = accessibilityTreeEntryForPath(projection, path)?.element;
 	if (!element) return null;
-	const accessibleName = accessibilityTreeRowAccessibleName(element);
 	return {
-		title: accessibleName
-			? `${accessibilityTreeRowLabel(element)} "${accessibleName.replace(/[“”]/g, '"')}"`
-			: accessibilityTreeRowLabel(element),
+		title: accessibilityTreeRowTooltip(element),
 		sourceBasename: accessibilityTreeTooltipSourceBasename(element),
 	};
 }
@@ -625,6 +655,9 @@ function accessibilityTreeSearchText(element: AxElement): string {
 		accessibilityTreeRowLabel(element),
 		element.label,
 		element.value,
+		element.state,
+		...(element.traits ?? []),
+		...(!element.enabled ? ["enabled=false", "disabled"] : []),
 		element.role,
 		element.type,
 		element.id,
@@ -1507,6 +1540,9 @@ export function AccessibilityTree({
 									);
 									if (!entry) return null;
 									const label = accessibilityTreeRowLabel(entry.element);
+									const nativeContent = accessibilityNativeRowContent(
+										entry.element,
+									);
 									const accessibleName = accessibilityTreeRowAccessibleName(
 										entry.element,
 									);
@@ -1545,7 +1581,7 @@ export function AccessibilityTree({
 											aria-label={tooltip}
 											data-item-path={row.path}
 											data-ax-path={entry.element.path}
-											data-visible-label={label}
+											data-visible-label={nativeContent.type}
 											data-visible-name={accessibleName ?? undefined}
 											data-row-tone={rowTone}
 											tabIndex={tabbable ? 0 : -1}
@@ -1618,14 +1654,16 @@ export function AccessibilityTree({
 														: "pointer-events-none opacity-0"
 												}`}
 											>
-												<ChevronRight
-													aria-hidden="true"
-													size={14}
-													strokeWidth={1.8}
-													className={`transition-transform duration-[80ms] motion-reduce:transition-none ${
-														row.isExpanded ? "rotate-90" : ""
-													}`}
-												/>
+												{row.kind === "directory" ? (
+													<ChevronRight
+														aria-hidden="true"
+														size={14}
+														strokeWidth={1.8}
+														className={`transition-transform duration-[80ms] motion-reduce:transition-none ${
+															row.isExpanded ? "rotate-90" : ""
+														}`}
+													/>
+												) : null}
 											</span>
 											<span
 												data-accessibility-tree-row-content
@@ -1641,14 +1679,14 @@ export function AccessibilityTree({
 																: "text-white/52"
 													}`}
 												>
-													{label}
+													{nativeContent.type}
 												</span>
-												{accessibleName ? (
+												{nativeContent.properties.length ? (
 													<span
 														data-accessibility-tree-row-name
-														className="min-w-0 truncate text-[12px] text-white/88"
+														className="min-w-0 truncate font-mono text-[11px] text-white/78"
 													>
-														{accessibleName}
+														{nativeContent.properties.join(" ")}
 													</span>
 												) : null}
 											</span>
@@ -2298,7 +2336,8 @@ export function AccessibilityDetails({
 						/>
 					) : null}
 					<Button
-						variant="unstyled" size="unstyled"
+						variant="unstyled"
+						size="unstyled"
 						type="button"
 						aria-expanded={metadataOpen}
 						onClick={() => setMetadataOpen((open) => !open)}

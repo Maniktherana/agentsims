@@ -10,6 +10,7 @@ import {
 	motion,
 	useIsPresent,
 	useReducedMotion,
+	type MotionValue,
 } from "motion/react";
 import { useCanvasPan } from "../../hooks/workspace/use-canvas-pan";
 import { canvasViewOffset } from "../../workspace/canvas-view";
@@ -38,6 +39,7 @@ import {
 } from "../../simulator/presence-motion";
 import type { GridDevice } from "../../workspace/grid";
 import type { PreviewConfig } from "../../workspace/workspace-state";
+import { usePanelPhonePlacement } from "../../hooks/workspace/use-panel-phone-placement";
 import type {
 	CanvasPan,
 	WorkspaceDeviceOffset,
@@ -71,6 +73,7 @@ function DraggableDevice({
 	onPlaced,
 	positions,
 	visibleDeviceIds,
+	bottomInset,
 }: {
 	deviceId: string;
 	offset: WorkspaceDeviceOffset;
@@ -84,8 +87,11 @@ function DraggableDevice({
 	onPlaced: (deviceId: string) => void;
 	positions: Map<string, WorkspaceDevicePosition>;
 	visibleDeviceIds: readonly string[];
+	bottomInset: number;
 }) {
 	const ref = useRef<HTMLDivElement | null>(null);
+	const fitRef = useRef<HTMLDivElement | null>(null);
+	usePanelPhonePlacement(fitRef, bottomInset);
 	const present = useIsPresent();
 	const reducedMotion = useReducedMotion();
 	const placementPending = useRef(added);
@@ -270,20 +276,22 @@ function DraggableDevice({
 			onPointerUp={finishDrag}
 			onPointerCancel={finishDrag}
 		>
-			<motion.div
-				initial={{
-					opacity: 0,
-					scale: reducedMotion ? 1 : DEVICE_PRESENCE_HIDDEN_SCALE,
-				}}
-				animate={{ opacity: 1, scale: 1 }}
-				exit={{
-					opacity: 0,
-					scale: reducedMotion ? 1 : DEVICE_PRESENCE_HIDDEN_SCALE,
-				}}
-				transition={DEVICE_PRESENCE_TRANSITION}
-			>
-				{children}
-			</motion.div>
+			<div ref={fitRef}>
+				<motion.div
+					initial={{
+						opacity: 0,
+						scale: reducedMotion ? 1 : DEVICE_PRESENCE_HIDDEN_SCALE,
+					}}
+					animate={{ opacity: 1, scale: 1 }}
+					exit={{
+						opacity: 0,
+						scale: reducedMotion ? 1 : DEVICE_PRESENCE_HIDDEN_SCALE,
+					}}
+					transition={DEVICE_PRESENCE_TRANSITION}
+				>
+					{children}
+				</motion.div>
+			</div>
 		</div>
 	);
 }
@@ -305,7 +313,11 @@ export function WorkspaceCanvas({
 	onFocus,
 	onStart,
 	renderDevice,
+	bottomInset = 86,
+	controlsOffset,
 }: {
+	bottomInset?: number;
+	controlsOffset?: MotionValue<string>;
 	visibleDeviceIds: readonly string[];
 	devices: GridDevice[] | null;
 	configsByDevice: Record<string, PreviewConfig | null>;
@@ -485,6 +497,7 @@ export function WorkspaceCanvas({
 				className="relative h-dvh overflow-hidden bg-page font-system box-border [&_[data-workspace-device]]:cursor-auto data-[panning=true]:[&_*]:!cursor-grabbing"
 				style={{
 					...WORKSPACE_PADDING,
+					scrollPaddingBottom: bottomInset,
 					cursor: canvasPan.panning ? "grabbing" : "grab",
 					userSelect: canvasPan.panning ? "none" : undefined,
 					backgroundImage:
@@ -508,7 +521,10 @@ export function WorkspaceCanvas({
 					/>
 					<div
 						data-agentsims-centered-device-row
-						className="flex min-h-[calc(100dvh-48px)] w-max min-w-full items-center justify-center gap-5 px-2"
+						className="flex w-max min-w-full items-center justify-center gap-5 px-2"
+						style={{
+							minHeight: `max(1px, calc(100dvh - ${bottomInset + 48}px))`,
+						}}
 					>
 						<AnimatePresence
 							initial={false}
@@ -539,6 +555,7 @@ export function WorkspaceCanvas({
 										onPlaced={recenterOnDevice}
 										positions={positionsRef.current}
 										visibleDeviceIds={renderedDeviceIds}
+										bottomInset={bottomInset}
 									>
 										{config
 											? renderDevice({ deviceId, device, config, focused })
@@ -552,10 +569,14 @@ export function WorkspaceCanvas({
 				{emptyWorkspace}
 			</div>
 			{visibleDeviceIds.length > 0 && (
-				<div
+				<motion.div
 					role="toolbar"
 					aria-label="Canvas view"
-					className="fixed bottom-3 left-3 z-40 flex gap-1 rounded-[10px] border border-white/[0.1] bg-[#181818] p-1 shadow-[0_18px_56px_rgba(0,0,0,0.5)]"
+					style={{
+						bottom: controlsOffset ? undefined : bottomInset - 74,
+						transform: controlsOffset,
+					}}
+					className="fixed bottom-3 max-[460px]:bottom-[70px] left-3 z-40 flex gap-1 rounded-[10px] border border-white/[0.1] bg-[#181818] p-1 shadow-[0_18px_56px_rgba(0,0,0,0.5)]"
 				>
 					<Tooltip>
 						<TooltipTrigger
@@ -589,7 +610,7 @@ export function WorkspaceCanvas({
 						</TooltipTrigger>
 						<TooltipContent>Recenter canvas</TooltipContent>
 					</Tooltip>
-				</div>
+				</motion.div>
 			)}
 		</>
 	);

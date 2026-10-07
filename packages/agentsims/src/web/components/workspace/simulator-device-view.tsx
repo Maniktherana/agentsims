@@ -4,8 +4,6 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@agentsims/ui/components/tooltip";
-import { createPortal } from "react-dom";
-import { AnimatePresence } from "motion/react";
 import { DeviceCanvasShadow } from "./device-canvas-shadow";
 import { previewDeviceEndpoint } from "../../workspace/preview-config";
 import {
@@ -30,22 +28,28 @@ import {
 	type StreamConfig,
 } from "../../simulator/index";
 
+import { usePhoneScreenGeometry } from "../../hooks/workspace/use-phone-screen-geometry";
+import { useLiveAnnotation } from "../../hooks/annotation/use-live-annotation";
+import { useNativeAnnotationPreview } from "../../hooks/annotation/use-native-annotation-preview";
+import { LiveAnnotationSurface } from "../annotation/live-annotation-surface";
+import type { LiveAnnotationOptions } from "../../annotation/live-contracts";
+import type { AccessibilityInspectorEvent } from "../../accessibility/state";
+
+import { MoreVerticalIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	ArrowLeft,
-	CodeXml,
-	GripVertical,
-	ListTree,
-	Menu,
-	RotateCcw,
-	Upload,
-} from "lucide-react";
-import { ReloadIcon } from "../icons/index";
+	DropdownMenu,
+	DropdownMenuTrigger,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+} from "@agentsims/ui/components/dropdown-menu";
+import { createPortal } from "react-dom";
+import { ArrowLeft, GripVertical, RotateCcw, Upload } from "lucide-react";
 import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
 import { AccessibilityInspectorController } from "../accessibility/controller";
 import { AxDomOverlay } from "../accessibility/overlay";
 import { AccessibilityStateProvider } from "../accessibility/provider";
-import { TracePanel } from "../trace/panel";
-import { useAccessibilityPanelPosition } from "../../accessibility/panel-position";
 import {
 	accessibilityInspectorReducer,
 	createAccessibilityInspectorState,
@@ -73,7 +77,8 @@ import {
 	CODEC_PREFERENCE_STORAGE_KEY,
 	type CodecPreference,
 } from "../dock/settings/stream-settings-tool";
-import { DevToolsPanel } from "../devtools/devtools-panel";
+import { TracePanel } from "../trace/panel";
+import { DevToolsContent } from "../devtools/devtools-panel";
 import { useMediaDrop } from "../../hooks/media/use-media-drop";
 import { useScreenshotPreview } from "../../hooks/simulator/use-screenshot-preview";
 import { useMjpegStream } from "../../hooks/simulator/use-mjpeg-stream";
@@ -134,6 +139,20 @@ export interface SimulatorDeviceViewProps {
 	settingsRefreshRevision?: number;
 	toolsOpen: boolean;
 	setToolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+	traceOpen: boolean;
+	setTraceOpen: React.Dispatch<React.SetStateAction<boolean>>;
+	toolPanelSlot?: HTMLElement | null;
+	onCurrentAppChange?: (deviceId: string, app: ForegroundApp | null) => void;
+	annotationActive?: boolean;
+	annotationSend?: LiveAnnotationOptions["send"];
+	onAnnotationStart?: () => void;
+	onAnnotationEscape?: () => void;
+	onAnnotationEnd?: () => void;
+	onAnnotationSummaryChange?: LiveAnnotationOptions["onSummaryChange"];
+	accessibilityPanelOpen?: boolean;
+	onAccessibilityPanelOpenChange?: (open: boolean) => void;
+	toolDevices?: readonly { id: string; name: string }[];
+	onToolDeviceChange?: (id: string) => void;
 	devtoolsOpen: boolean;
 	setDevtoolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
 	selectedDevtoolsTargetId: string | null;
@@ -157,6 +176,20 @@ export function SimulatorDeviceView({
 	settingsRefreshRevision = 0,
 	toolsOpen,
 	setToolsOpen,
+	traceOpen,
+	setTraceOpen,
+	toolPanelSlot,
+	onCurrentAppChange,
+	annotationActive = false,
+	annotationSend,
+	onAnnotationStart,
+	onAnnotationEscape,
+	onAnnotationEnd,
+	onAnnotationSummaryChange,
+	accessibilityPanelOpen = false,
+	onAccessibilityPanelOpenChange,
+	toolDevices,
+	onToolDeviceChange,
 	devtoolsOpen,
 	setDevtoolsOpen,
 	selectedDevtoolsTargetId,
@@ -170,12 +203,25 @@ export function SimulatorDeviceView({
 	onFocus,
 }: SimulatorDeviceViewProps) {
 	const panelsEnabled = !embedded || focused;
-	const [accessibilityState, dispatchAccessibility] = useReducer(
+	const [accessibilityState, dispatchAccessibilityEvent] = useReducer(
 		accessibilityInspectorReducer,
 		undefined,
 		createAccessibilityInspectorState,
 	);
-	const [traceOpen, setTraceOpen] = useState(false);
+	useLayoutEffect(() => {
+		dispatchAccessibilityEvent({
+			type: accessibilityPanelOpen ? "OPEN" : "CLOSE",
+		});
+	}, [accessibilityPanelOpen]);
+	const dispatchAccessibility = useCallback(
+		(event: AccessibilityInspectorEvent) => {
+			const next = accessibilityInspectorReducer(accessibilityState, event);
+			dispatchAccessibilityEvent(event);
+			if (next.open !== accessibilityState.open)
+				onAccessibilityPanelOpenChange?.(next.open);
+		},
+		[accessibilityState, onAccessibilityPanelOpenChange],
+	);
 	const accessibilityOpen = accessibilityState.open;
 	const accessibilitySelecting = accessibilityState.picking;
 	const accessibilityShowAll = accessibilityState.showAllNodes;
@@ -252,15 +298,23 @@ export function SimulatorDeviceView({
 	]);
 
 	useEffect(() => {
-		if (availableDevToolsTargets.length === 0 && devtoolsOpen) {
+		if (
+			focused &&
+			availableDevToolsTargets.length === 0 &&
+			devtoolsOpen &&
+			!devtools.loading &&
+			!devtools.error
+		) {
 			setDevtoolsOpen(false);
 		}
-	}, [availableDevToolsTargets.length, devtoolsOpen, setDevtoolsOpen]);
-
-	useEffect(() => {
-		if (!focused) return;
-		setSelectedDevtoolsTargetId(null);
-	}, [config.device, focused, setSelectedDevtoolsTargetId]);
+	}, [
+		focused,
+		availableDevToolsTargets.length,
+		devtoolsOpen,
+		devtools.loading,
+		devtools.error,
+		setDevtoolsOpen,
+	]);
 
 	// Prefer H.264 (AVCC via WebCodecs) when the browser supports it; otherwise
 	// fall back to MJPEG. The MJPEG reader stays dormant (null url) under AVCC so
@@ -516,6 +570,7 @@ export function SimulatorDeviceView({
 	);
 	const onStreamButton = useCallback(
 		(button: string) => {
+			if (inputDisabledRef.current) return;
 			sendWs(0x04, { button });
 			scheduleAxRefresh();
 		},
@@ -526,6 +581,7 @@ export function SimulatorDeviceView({
 	// let power / side buttons be held for their long-press menus.
 	const handleFrameButton = useCallback(
 		({ phase, button }: FrameButtonPress) => {
+			if (inputDisabledRef.current && phase === "down") return;
 			if (button.usagePage == null || button.usage == null) return;
 			sendWs(0x04, {
 				button: button.name,
@@ -626,6 +682,10 @@ export function SimulatorDeviceView({
 		};
 	}, [config.appStateEndpoint, config.device, settingsRefreshRevision]);
 
+	useEffect(() => {
+		onCurrentAppChange?.(config.device, currentApp);
+	}, [config.device, currentApp, onCurrentAppChange]);
+
 	// Cmd+R to reload the RN/Expo bundle.
 	const sendReactNativeReload = useCallback(async () => {
 		if (isAndroidDevice) {
@@ -646,6 +706,63 @@ export function SimulatorDeviceView({
 	const simContainerRef = useRef<HTMLDivElement | null>(null);
 	const deviceStackRef = useRef<HTMLDivElement | null>(null);
 	const screenSurfaceRef = useRef<HTMLDivElement | null>(null);
+	const capturePresentedSurfaceRef = useRef<
+		(() => RenderedScreenshot | null) | null
+	>(null);
+	const onCapturePresentedSurfaceChange = useCallback(
+		(capture: (() => RenderedScreenshot | null) | null) => {
+			capturePresentedSurfaceRef.current = capture;
+		},
+		[],
+	);
+
+	const [viewSessionId] = useState(() => `view:${crypto.randomUUID()}`);
+	const screenGeometry = usePhoneScreenGeometry(screenSurfaceRef, {
+		active: annotationActive,
+		deviceId: config.device,
+	});
+	const annotationIdentity = {
+		device: config.device,
+		sessionId: viewSessionId,
+		platform: isAndroidDevice ? ("android" as const) : ("ios" as const),
+		app: currentApp?.bundleId ?? null,
+		orientation: currentOrientation,
+	};
+	const nativePreview = useNativeAnnotationPreview({
+		endpoint: config.axEndpoint,
+		identity: annotationIdentity,
+		active: annotationActive,
+		connected:
+			lifecyclePhase !== "available" && lifecyclePhase !== "shutting-down",
+	});
+	const annotationGeometry = useMemo(
+		() =>
+			screenGeometry
+				? {
+						...screenGeometry,
+						axScreen: nativePreview.snapshot?.screen ?? screenGeometry.axScreen,
+					}
+				: null,
+		[screenGeometry, nativePreview.snapshot?.screen],
+	);
+	const annotation = useLiveAnnotation({
+		active: annotationActive,
+		deviceName,
+		identity: annotationIdentity,
+		cache: null,
+		nativePreview,
+		geometry: annotationGeometry,
+		capturePresentedSurface: () =>
+			capturePresentedSurfaceRef.current?.() ?? null,
+		onEndSelection: () => onAnnotationEnd?.(),
+		onSummaryChange: onAnnotationSummaryChange,
+		basePath: config.basePath,
+		send: annotationSend,
+	});
+	const simulatorInputDisabled =
+		annotation.inputDisabled || (accessibilityOpen && accessibilitySelecting);
+	const inputDisabledRef = useRef(simulatorInputDisabled);
+	inputDisabledRef.current = simulatorInputDisabled;
 	const [deviceRenderedWidth, setDeviceRenderedWidth] = useState(0);
 	const [deviceRenderedHeight, setDeviceRenderedHeight] = useState(0);
 	useEffect(() => {
@@ -680,12 +797,12 @@ export function SimulatorDeviceView({
 	}, [onFocus]);
 
 	useEffect(() => {
-		if (simFocused && focused) return;
+		if (simFocused && focused && !simulatorInputDisabled) return;
 		const held = pressedKeysRef.current;
 		if (held.size === 0) return;
 		for (const usage of held) sendWs(0x06, { type: "up", usage });
 		held.clear();
-	}, [simFocused, focused, sendWs]);
+	}, [simFocused, focused, simulatorInputDisabled, sendWs]);
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent, type: "down" | "up") => {
@@ -698,7 +815,12 @@ export function SimulatorDeviceView({
 			) {
 				return;
 			}
-			if (!focusedRef.current || !simFocusedRef.current) return;
+			if (
+				!focusedRef.current ||
+				!simFocusedRef.current ||
+				inputDisabledRef.current
+			)
+				return;
 			if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
 				e.preventDefault();
 				if (type === "down" && !e.repeat) sendWs(0x04, { button: "home" });
@@ -776,15 +898,6 @@ export function SimulatorDeviceView({
 		hasVisualPlacement: boolean;
 	} | null>(null);
 	const screenshotRequestRef = useRef<AbortController | null>(null);
-	const capturePresentedSurfaceRef = useRef<
-		(() => RenderedScreenshot | null) | null
-	>(null);
-	const onCapturePresentedSurfaceChange = useCallback(
-		(capture: (() => RenderedScreenshot | null) | null) => {
-			capturePresentedSurfaceRef.current = capture;
-		},
-		[],
-	);
 
 	const saveCapturedScreenshot = useCallback(
 		async (blob: Blob, signal: AbortSignal) => {
@@ -1025,41 +1138,6 @@ export function SimulatorDeviceView({
 		onHostPathDrop: screenshotPreview.dismissPreview,
 	});
 
-	const tracePanelPosition = useAccessibilityPanelPosition(
-		simContainerRef.current,
-		traceOpen,
-		`trace:${config.device}`,
-	);
-	const tracePanel = createPortal(
-		<AnimatePresence>
-			{traceOpen && focused && (
-				<div
-					key={config.device}
-					ref={tracePanelPosition.panelRef}
-					data-agentsims-trace-panel-host
-					style={tracePanelPosition.style}
-				>
-					<TracePanel
-						open
-						device={{
-							id: config.device,
-							name: deviceName ?? config.device,
-							platform: isAndroidDevice ? "android" : "ios",
-							runtime: deviceRuntime,
-							applicationName: currentApp?.bundleId ?? null,
-							connected: streaming,
-						}}
-						onClose={() => setTraceOpen(false)}
-						onMovePointerDown={tracePanelPosition.onMovePointerDown}
-						onResizePointerDown={tracePanelPosition.onResizePointerDown}
-						onResizeKeyDown={tracePanelPosition.onResizeKeyDown}
-					/>
-				</div>
-			)}
-		</AnimatePresence>,
-		document.body,
-	);
-
 	const simulatorBounds = useSimulatorBounds(deviceStackRef, simContainerRef);
 	const simulatorResize = useSimulatorResize({
 		deviceId: config.device,
@@ -1067,6 +1145,7 @@ export function SimulatorDeviceView({
 		viewportWidth: simulatorBounds.width,
 		viewportHeight: simulatorBounds.height,
 		aspectRatio: containerAspectRatioValue,
+		constrainToViewport: true,
 		onStart: () => setSimFocused(false),
 	});
 
@@ -1078,6 +1157,10 @@ export function SimulatorDeviceView({
 			dispatch={dispatchAccessibility}
 		>
 			<AccessibilityInspectorController
+				integrated
+				panelHost={toolPanelSlot}
+				devices={toolDevices}
+				onDeviceChange={onToolDeviceChange}
 				state={accessibilityState}
 				dispatch={dispatchAccessibility}
 				focused={focused}
@@ -1110,10 +1193,7 @@ export function SimulatorDeviceView({
 						ref={deviceStackRef}
 						className="relative flex flex-col items-center gap-3 min-w-0 [&:fullscreen]:justify-center [&:fullscreen]:bg-page [&:fullscreen]:p-4"
 						style={{
-							width: Math.max(
-								simulatorResize.width,
-								isAndroidDevice ? 240 : 160,
-							),
+							width: simulatorResize.width,
 						}}
 					>
 						<SimulatorToolbar
@@ -1265,11 +1345,7 @@ export function SimulatorDeviceView({
 										relayInputCoordinates={isAndroidDevice ? "display" : "raw"}
 										onScreenConfigChange={onScreenConfigChange}
 										onPresentedFrame={onPresentedFrame}
-										inputDisabled={
-											isAndroidDevice &&
-											accessibilityOpen &&
-											accessibilitySelecting
-										}
+										inputDisabled={simulatorInputDisabled}
 										presentationPlaneStyle={
 											isAndroidDevice ? effectivePlane.planeStyle : undefined
 										}
@@ -1331,6 +1407,12 @@ export function SimulatorDeviceView({
 											data-agentsims-device-screen={config.device}
 											className="pointer-events-none absolute inset-0"
 										>
+											<LiveAnnotationSurface
+												controller={annotation}
+												geometry={annotationGeometry}
+												onEditStart={onAnnotationStart}
+												onEscape={onAnnotationEscape}
+											/>
 											<ScreenshotFlash
 												deviceId={config.device}
 												flash={screenshotPreview.flash}
@@ -1366,9 +1448,10 @@ export function SimulatorDeviceView({
 								return (
 									<DeviceFrame
 										chrome={chrome!}
-										interactive
+										interactive={!annotation.inputDisabled}
 										onButton={handleFrameButton}
 										onCrownWheel={(deltaY, deltaMode) => {
+											if (annotation.inputDisabled) return;
 											const delta = digitalCrownDeltaFromWheel(
 												deltaY,
 												deltaMode,
@@ -1421,117 +1504,123 @@ export function SimulatorDeviceView({
 								}
 							/>
 						</div>
-						<div className="inline-flex max-w-full items-center justify-center gap-2">
-							<SimulatorToolbar
-								exec={execOnHost}
-								onRotate={rotateDevice}
-								orientation={
-									desiredOrientation ??
-									(activeStreamConfig as { orientation?: SimulatorOrientation })
-										.orientation ??
-									null
-								}
-								deviceUdid={config.device}
-								deviceName={deviceName}
-								deviceRuntime={deviceRuntime}
-								streaming={streaming}
-								aria-label="Simulator actions"
-								className="agentsims-simulator-actions"
-								style={{
-									alignSelf: "center",
-									width: "auto",
-									minWidth: 0,
-									maxWidth: "100%",
-									justifyContent: "center",
-									padding: "4px 6px",
-									borderRadius: 10,
-								}}
-							>
-								<SimulatorToolbar.Actions>
-									{currentApp?.isReactNative && (
-										<SimulatorToolbar.Button
-											aria-label="Reload React Native bundle"
-											title="Reload (Cmd+R)"
-											onClick={() => void sendReactNativeReload()}
-										>
-											<ReloadIcon />
-										</SimulatorToolbar.Button>
-									)}
-									{isAndroidDevice ? (
-										<>
-											<SimulatorToolbar.Button
-												aria-label="Back"
-												title="Back"
-												onClick={() => onStreamButton("back")}
-											>
-												<ArrowLeft size={18} strokeWidth={2} />
-											</SimulatorToolbar.Button>
-											<SimulatorToolbar.HomeButton
-												title="Home"
-												onClick={(event) => {
+						<SimulatorToolbar
+							exec={execOnHost}
+							onRotate={rotateDevice}
+							orientation={currentOrientation}
+							deviceUdid={config.device}
+							deviceName={deviceName}
+							deviceRuntime={deviceRuntime}
+							streaming={streaming}
+							aria-label={`Actions for ${deviceName ?? config.device}`}
+							style={{
+								width: "auto",
+								minWidth: 0,
+								flexWrap: "nowrap",
+								padding: "4px 6px",
+								gap: 4,
+							}}
+						>
+							<SimulatorToolbar.Actions>
+								{isAndroidDevice && (
+									<SimulatorToolbar.Button
+										aria-label="Back"
+										disabled={annotation.inputDisabled}
+										onClick={() => onStreamButton("back")}
+									>
+										<ArrowLeft size={18} />
+									</SimulatorToolbar.Button>
+								)}
+								<SimulatorToolbar.HomeButton
+									disabled={annotation.inputDisabled}
+									onClick={
+										isAndroidDevice
+											? (event) => {
 													event.preventDefault();
 													onStreamButton("home");
-												}}
+												}
+											: undefined
+									}
+								/>
+								<SimulatorToolbar.ScreenshotButton
+									onClick={(event) => {
+										event.preventDefault();
+										captureScreenshot();
+									}}
+								/>
+								<SimulatorToolbar.RecordButton />
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												variant="toolbar"
+												size="icon-sm"
+												aria-label="More device actions"
 											/>
-											<SimulatorToolbar.Button
-												aria-label="Recent apps"
-												title="Recent apps"
-												onClick={() => onStreamButton("recent_apps")}
-											>
-												<Menu size={18} strokeWidth={2} />
-											</SimulatorToolbar.Button>
-										</>
-									) : (
-										<SimulatorToolbar.HomeButton title="Home" />
-									)}
-									<SimulatorToolbar.ScreenshotButton
-										title="Screenshot"
-										onClick={(event) => {
-											event.preventDefault();
-											void captureScreenshot();
-										}}
-									/>
-									<SimulatorToolbar.RecordButton />
-									<SimulatorToolbar.RotateButton title="Rotate device" />
-									{availableDevToolsTargets.length > 0 && (
-										<SimulatorToolbar.Button
-											aria-label="Browser DevTools"
-											aria-pressed={devtoolsPanelOpen}
-											title="Browser DevTools"
-											onClick={() => setDevtoolsOpen(!devtoolsPanelOpen)}
-											style={
-												devtoolsPanelOpen
-													? {
-															color: "rgba(255, 255, 255, 0.92)",
-															background: "rgba(255, 255, 255, 0.1)",
-														}
-													: undefined
-											}
-										>
-											<CodeXml size={18} strokeWidth={2} />
-										</SimulatorToolbar.Button>
-									)}
-									<SimulatorToolbar.Button
-										aria-label="Accessibility tree"
-										aria-pressed={accessibilityOpen}
-										title="Accessibility tree"
-										onClick={() => {
-											dispatchAccessibility({ type: "TOGGLE" });
-										}}
-										style={
-											accessibilityOpen
-												? {
-														color: "rgba(255, 255, 255, 0.92)",
-														background: "rgba(255, 255, 255, 0.1)",
-													}
-												: undefined
 										}
 									>
-										<ListTree size={18} strokeWidth={2} />
-									</SimulatorToolbar.Button>
-								</SimulatorToolbar.Actions>
-							</SimulatorToolbar>
-						</div>
+										<HugeiconsIcon icon={MoreVerticalIcon} size={18} />
+									</DropdownMenuTrigger>
+									<DropdownMenuContent>
+										{isAndroidDevice && (
+											<DropdownMenuItem
+												disabled={!streaming || annotation.inputDisabled}
+												onClick={() => onStreamButton("recent_apps")}
+											>
+												Recent apps
+											</DropdownMenuItem>
+										)}
+										<DropdownMenuItem
+											disabled={
+												!streaming || !canRotate || annotation.inputDisabled
+											}
+											onClick={() => rotateBy("left")}
+										>
+											Rotate device
+										</DropdownMenuItem>
+										{currentApp?.isReactNative && (
+											<DropdownMenuItem
+												disabled={!streaming || annotation.inputDisabled}
+												onClick={() => void sendReactNativeReload()}
+											>
+												Reload React Native bundle
+											</DropdownMenuItem>
+										)}
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											onClick={() => dispatchAccessibility({ type: "TOGGLE" })}
+										>
+											Accessibility tree
+										</DropdownMenuItem>
+										{availableDevToolsTargets.length > 0 && (
+											<DropdownMenuItem
+												onClick={() => {
+													onFocus?.();
+													setDevtoolsOpen(true);
+												}}
+											>
+												Web DevTools
+											</DropdownMenuItem>
+										)}
+										<DropdownMenuItem onClick={() => simulatorResize.fit()}>
+											Fit phone
+										</DropdownMenuItem>
+										{!streaming && lifecyclePhase !== "shutting-down" && (
+											<DropdownMenuItem
+												onClick={() => {
+													setStreamStatus("Opening stream");
+													dispatchAvccFallback("reset");
+													retryStream();
+												}}
+											>
+												Retry stream
+											</DropdownMenuItem>
+										)}
+									</DropdownMenuContent>
+								</DropdownMenu>
+							</SimulatorToolbar.Actions>
+						</SimulatorToolbar>
+
 						<ScreenshotPreviewOverlay
 							deviceId={config.device}
 							preview={screenshotPreview.preview}
@@ -1584,21 +1673,41 @@ export function SimulatorDeviceView({
 							ariaLabel="Resize tools panel"
 						/>
 					)}
-					{panelsEnabled && tracePanel}
-					{panelsEnabled && (
-						<DevToolsPanel
-							open={devtoolsPanelOpen}
-							onClose={() => setDevtoolsOpen(false)}
-							anchor={simContainerRef.current}
-							udid={config.device}
-							deviceName={deviceName ?? config.device}
-							targets={availableDevToolsTargets}
-							selectedTargetId={selectedDevtoolsTargetId}
-							onSelectTarget={setSelectedDevtoolsTargetId}
-							loading={devtools.loading}
-							error={devtools.error}
-						/>
-					)}
+					{toolPanelSlot &&
+						createPortal(
+							<>
+								<div hidden={!traceOpen || !focused} className="h-full min-h-0">
+									<TracePanel
+										embedded
+										open={traceOpen && focused}
+										device={{
+											id: config.device,
+											name: deviceName ?? config.device,
+											platform: isAndroidDevice ? "android" : "ios",
+											runtime: deviceRuntime,
+											applicationName: currentApp?.bundleId,
+											connected: streaming,
+										}}
+										onClose={() => setTraceOpen(false)}
+									/>
+								</div>
+								<div
+									hidden={!devtoolsOpen || !focused}
+									className="h-full min-h-0"
+								>
+									<DevToolsContent
+										active={devtoolsPanelOpen}
+										deviceName={deviceName ?? config.device}
+										targets={availableDevToolsTargets}
+										selectedTargetId={selectedDevtoolsTargetId}
+										onSelectTarget={setSelectedDevtoolsTargetId}
+										loading={devtools.loading}
+										error={devtools.error}
+									/>
+								</div>
+							</>,
+							toolPanelSlot,
+						)}
 				</div>
 			</AccessibilityInspectorController>
 		</AccessibilityStateProvider>

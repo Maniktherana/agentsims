@@ -1,0 +1,57 @@
+{
+  "records": [
+    {
+      "id": "android%3Aemulator-5554~00000000-0000-0000-0000-000000000001:1",
+      "cursor": {
+        "epoch": "android%3Aemulator-5554~00000000-0000-0000-0000-000000000001",
+        "sequence": 1
+      },
+      "device": "android:emulator-5554",
+      "platform": "android",
+      "source": "android-native",
+      "receivedAt": 1791218694617,
+      "sourceTime": {
+        "text": "10-05 22:14:54.013"
+      },
+      "level": "debug",
+      "nativeLevel": "D",
+      "message": "[redacted native message]",
+      "app": "[redacted app]",
+      "pid": 18515,
+      "tid": 18515,
+      "tag": "[redacted tag]",
+      "process": "[redacted process]",
+      "truncated": false
+    },
+    {
+      "id": "android%3Aemulator-5554~00000000-0000-0000-0000-000000000002:47",
+      "cursor": {
+        "epoch": "android%3Aemulator-5554~00000000-0000-0000-0000-000000000002",
+        "sequence": 47
+      },
+      "device": "android:emulator-5554",
+      "platform": "android",
+      "source": "android-native",
+      "receivedAt": 1791218726908,
+      "sourceTime": {
+        "text": "10-05 22:15:04.424"
+      },
+      "level": "info",
+      "nativeLevel": "I",
+      "message": "[redacted native message]",
+      "app": "[redacted app]",
+      "pid": 24345,
+      "tid": 24345,
+      "tag": "[redacted tag]",
+      "process": "[redacted process]",
+      "truncated": false
+    }
+  ],
+  "statuses": [],
+  "cursor": {
+    "epoch": "android%3Aemulator-5554~00000000-0000-0000-0000-000000000003",
+    "sequence": 47
+  },
+  "dropped": 0,
+  "hasMore": false
+}

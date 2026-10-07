@@ -1,3 +1,10 @@
+import {
+	Cursor01Icon,
+	TextAlignLeftIcon,
+	WorkflowCircle01Icon,
+	AccessibilityIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@agentsims/ui/components/button";
 import {
 	Tooltip,
@@ -13,7 +20,12 @@ import {
 	useState,
 	type RefObject,
 } from "react";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import {
+	AnimatePresence,
+	MotionConfig,
+	motion,
+	type MotionValue,
+} from "motion/react";
 import {
 	dockPanelTransition,
 	dockPanelVariants,
@@ -33,7 +45,13 @@ import {
 	resolveDeviceLifecyclePhase,
 	type DeviceLifecyclePhase,
 } from "../dock/devices/device-row";
-import { Tabs, TabsList, TabsTrigger } from "@agentsims/ui/components/tabs";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
 import { useWorkspaceViewport } from "../../hooks/workspace/use-workspace-layout";
 
 const DEVICE_SKELETON_ROWS = 8;
@@ -107,7 +125,19 @@ export function WorkspaceHeader({
 	onResetLayout,
 	onRefreshDevices,
 	onRefreshSettings,
+	panelHeight = 0,
+	dockOffset,
+	activeTool = null,
+	onToolChange,
+	annotationActive = false,
+	onToggleAnnotation,
 }: {
+	panelHeight?: number;
+	dockOffset?: MotionValue<string>;
+	activeTool?: "logs" | "traces" | "devtools" | "accessibility" | null;
+	onToolChange?: (tool: "logs" | "traces" | "accessibility") => void;
+	annotationActive?: boolean;
+	onToggleAnnotation?: () => void;
 	pickerOpen: boolean;
 	onPickerOpenChange: (open: boolean) => void;
 	devices: GridDevice[] | null;
@@ -192,7 +222,7 @@ export function WorkspaceHeader({
 	)
 		? settingsUdid
 		: (settingsDevices[0]?.device ?? null);
-	const compactDockWidth = 96;
+	const compactDockWidth = 266;
 	const availableWidth = Math.max(0, viewport.width - 24);
 	const dockWidth = expanded
 		? Math.min(
@@ -321,7 +351,10 @@ export function WorkspaceHeader({
 
 	return (
 		<MotionConfig reducedMotion="user" transition={dockSurfaceTransition}>
-			<footer className="pointer-events-none fixed inset-x-3 bottom-3 z-50 flex justify-center font-system">
+			<motion.footer
+				style={{ transform: dockOffset ?? `translateY(${-panelHeight}px)` }}
+				className="pointer-events-none fixed inset-x-3 bottom-3 z-50 flex justify-center font-system"
+			>
 				<motion.div
 					data-agentsims-floating-panel
 					id="agentsims-workspace-dock"
@@ -445,31 +478,30 @@ export function WorkspaceHeader({
 										<span className="ml-3 shrink-0 text-[12px] font-medium text-white/62">
 											Settings
 										</span>
-										<Tabs
-											value={settingsDeviceId ?? undefined}
-											onValueChange={onSettingsSelect}
-											className="min-w-0 flex-1 gap-0 overflow-hidden"
+										<Select
+											value={settingsDeviceId}
+											onValueChange={(id) => {
+												if (id) onSettingsSelect(id);
+											}}
 										>
-											<TabsList
-												variant="ghost"
+											<SelectTrigger
 												aria-label="Settings device"
-												className="scroll-fade-x scroll-fade-3 no-scrollbar mx-auto max-w-full overflow-x-auto"
-												style={{ justifyContent: "flex-start" }}
+												className="min-w-0 flex-1"
 											>
-												{settingsDevices.map((device) => {
-													return (
-														<TabsTrigger
-															key={device.device}
-															value={device.device}
-															className="min-w-20 max-w-32 truncate"
-															title={device.name}
-														>
-															{device.name}
-														</TabsTrigger>
-													);
-												})}
-											</TabsList>
-										</Tabs>
+												<SelectValue>
+													{settingsDevices.find(
+														(device) => device.device === settingsDeviceId,
+													)?.name ?? "Select device"}
+												</SelectValue>
+											</SelectTrigger>
+											<SelectContent>
+												{settingsDevices.map((device) => (
+													<SelectItem key={device.device} value={device.device}>
+														{device.name}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
 
 										<div className="flex shrink-0 items-center gap-0">
 											<Button
@@ -560,9 +592,77 @@ export function WorkspaceHeader({
 							</TooltipTrigger>
 							<TooltipContent>Device settings</TooltipContent>
 						</Tooltip>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										onClick={onToggleAnnotation}
+										aria-label="Annotate"
+										aria-pressed={annotationActive}
+										disabled={!hasActiveDevice}
+										variant="dock"
+										size="icon-lg"
+									/>
+								}
+							>
+								<HugeiconsIcon icon={Cursor01Icon} size={18} />
+							</TooltipTrigger>
+							<TooltipContent>Annotate</TooltipContent>
+						</Tooltip>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										onClick={() => onToolChange?.("accessibility")}
+										aria-label="Accessibility tree"
+										aria-pressed={activeTool === "accessibility"}
+										disabled={!hasActiveDevice}
+										variant="dock"
+										size="icon-lg"
+									/>
+								}
+							>
+								<HugeiconsIcon icon={AccessibilityIcon} size={18} />
+							</TooltipTrigger>
+							<TooltipContent>Accessibility tree</TooltipContent>
+						</Tooltip>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										onClick={() => onToolChange?.("logs")}
+										aria-label="Logs"
+										aria-pressed={activeTool === "logs"}
+										disabled={!hasActiveDevice}
+										variant="dock"
+										size="icon-lg"
+									/>
+								}
+							>
+								<HugeiconsIcon icon={TextAlignLeftIcon} size={18} />
+							</TooltipTrigger>
+							<TooltipContent>Logs</TooltipContent>
+						</Tooltip>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										onClick={() => onToolChange?.("traces")}
+										aria-label="Traces"
+										aria-pressed={activeTool === "traces"}
+										disabled={!hasActiveDevice}
+										variant="dock"
+										size="icon-lg"
+									/>
+								}
+							>
+								<HugeiconsIcon icon={WorkflowCircle01Icon} size={18} />
+							</TooltipTrigger>
+							<TooltipContent>Traces</TooltipContent>
+						</Tooltip>
 					</div>
 				</motion.div>
-			</footer>
+			</motion.footer>
 		</MotionConfig>
 	);
 }

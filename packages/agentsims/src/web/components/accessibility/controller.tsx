@@ -1,7 +1,15 @@
 import { Accessibility as AccessibilityIcon } from "lucide-react";
+import { PanelToolbar } from "@agentsims/ui/components/panel-toolbar";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
 import { axElementKey } from "../../accessibility/ax";
 import { useAxSelectionContext, useAxSnapshotContext } from "./provider";
 import type {
@@ -28,6 +36,10 @@ export function AccessibilityInspectorController({
 	deviceRuntime,
 	applicationName,
 	connected,
+	integrated = false,
+	panelHost,
+	devices,
+	onDeviceChange,
 }: {
 	children: ReactNode;
 	state: AccessibilityInspectorState;
@@ -39,9 +51,26 @@ export function AccessibilityInspectorController({
 	deviceRuntime: string | null;
 	applicationName?: string | null;
 	connected: boolean;
+	integrated?: boolean;
+	panelHost?: HTMLElement | null;
+	devices?: readonly { id: string; name: string }[];
+	onDeviceChange?: (id: string) => void;
 }) {
-	const { snapshot, status, refreshing, refresh, sourceEndpoint } =
-		useAxSnapshotContext();
+	const {
+		snapshot,
+		lastUsableSnapshot,
+		status,
+		refreshing,
+		refresh,
+		sourceEndpoint,
+	} = useAxSnapshotContext();
+	const errors = snapshot?.errors?.filter((error) => error.trim()) ?? [];
+	const retainedTree = !!(
+		errors.length &&
+		!snapshot?.elements.length &&
+		lastUsableSnapshot?.elements.length
+	);
+	const treeSnapshot = retainedTree ? lastUsableSnapshot : snapshot;
 	const { highlightedKey, selectedKey, setHighlightedKey, setSelectedKey } =
 		useAxSelectionContext();
 	const [detailsClosed, setDetailsClosed] = useState(false);
@@ -50,7 +79,7 @@ export function AccessibilityInspectorController({
 	const escapeHandledRef = useRef(false);
 	const panelPosition = useAccessibilityPanelPosition(
 		anchor,
-		state.open,
+		!integrated && state.open,
 		deviceId,
 	);
 
@@ -95,17 +124,140 @@ export function AccessibilityInspectorController({
 	}, [detailsClosed, dispatch, focused, selectedKey, state.open]);
 
 	const selectedElement = selectedKey
-		? (snapshot?.elements.find(
+		? (treeSnapshot?.elements.find(
 				(element) => axElementKey(element) === selectedKey,
 			) ?? null)
 		: null;
 	const nativeChain =
-		selectedKey && snapshot
-			? accessibilityNativeChain(snapshot.elements, selectedKey)
+		selectedKey && treeSnapshot
+			? accessibilityNativeChain(treeSnapshot.elements, selectedKey)
 			: [];
+	const headerActions = (
+		<AccessibilityHeaderActions
+			selecting={state.picking}
+			onSelectingChange={(picking) => {
+				setHighlightedKey(null);
+				dispatch({ type: "PICKING_CHANGED", picking });
+			}}
+			allNodesVisible={state.showAllNodes}
+			onAllNodesVisibleChange={(visible) =>
+				dispatch({ type: "ALL_NODES_CHANGED", visible })
+			}
+			status={errors.length ? "AX error" : status}
+			elementCount={treeSnapshot?.elements.length}
+			sourceCount={
+				treeSnapshot?.elements.filter((element) => element.source).length
+			}
+			onRefresh={() => void refresh()}
+			refreshing={refreshing}
+		/>
+	);
+	const inspector = (
+		<AccessibilityView
+			tree={
+				<div className="flex h-full min-h-0 flex-col">
+					{!!errors.length && (
+						<div
+							role="alert"
+							className="shrink-0 border-b border-amber-300/15 bg-amber-300/5 px-3 py-2 text-xs leading-relaxed text-amber-200/90"
+						>
+							{errors.map((error, index) => (
+								<p key={index} className="break-words font-mono">
+									{error}
+								</p>
+							))}
+							<p>
+								{retainedTree ? "Showing the last tree. " : ""}
+								Select Refresh to try again.
+							</p>
+						</div>
+					)}
+					<div className="min-h-0 flex-1">
+						{!errors.length || treeSnapshot?.elements.length ? (
+							<AccessibilityTree
+								snapshot={treeSnapshot ?? null}
+								selectedKey={selectedKey}
+								highlightedKey={highlightedKey}
+								phoneSelectionRevealToken={state.phoneSelectionRevealToken}
+								selecting={state.picking}
+								onSelectedKeyChange={(key) => {
+									detailInteractionActiveRef.current = false;
+									setDetailsClosed(false);
+									setSelectedKey(key, "tree");
+								}}
+								onHighlightedKeyChange={(key) => setHighlightedKey(key, "tree")}
+							/>
+						) : null}
+					</div>
+				</div>
+			}
+			details={
+				selectedElement && !detailsClosed ? (
+					<AccessibilityDetails
+						element={selectedElement}
+						sourceEndpoint={
+							integrated && (!state.open || !focused)
+								? undefined
+								: sourceEndpoint
+						}
+						nativeChain={nativeChain}
+						onInteract={() => {
+							detailInteractionActiveRef.current = true;
+						}}
+						onClose={() => {
+							detailInteractionActiveRef.current = false;
+							setDetailsClosed(true);
+						}}
+					/>
+				) : undefined
+			}
+		/>
+	);
 
-	const panel =
-		typeof document !== "undefined"
+	const panel = integrated
+		? panelHost
+			? createPortal(
+					<div
+						data-agentsims-accessibility-panel-host
+						hidden={!state.open || !focused}
+						style={{ display: state.open && focused ? undefined : "none" }}
+						className="flex h-full min-h-0 min-w-0 flex-col"
+					>
+						<PanelToolbar className="pe-12">
+							{devices?.length && onDeviceChange ? (
+								<Select
+									value={deviceId}
+									onValueChange={(id) => {
+										if (id && id !== deviceId) onDeviceChange(id);
+									}}
+								>
+									<SelectTrigger
+										aria-label="Accessibility device"
+										className="w-48 max-w-[40%]"
+									>
+										<SelectValue>
+											{devices.find((device) => device.id === deviceId)?.name ??
+												deviceName ??
+												deviceId}
+										</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										{devices.map((device) => (
+											<SelectItem key={device.id} value={device.id}>
+												{device.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							) : null}
+							{headerActions}
+						</PanelToolbar>
+						<div className="min-h-0 flex-1">{inspector}</div>
+					</div>,
+					panelHost,
+				)
+			: null
+		: typeof document !== "undefined"
 			? createPortal(
 					<AnimatePresence>
 						{state.open && focused && (
@@ -134,65 +286,9 @@ export function AccessibilityInspectorController({
 									onMovePointerDown={panelPosition.onMovePointerDown}
 									onResizePointerDown={panelPosition.onResizePointerDown}
 									onResizeKeyDown={panelPosition.onResizeKeyDown}
-									headerActions={
-										<AccessibilityHeaderActions
-											selecting={state.picking}
-											onSelectingChange={(picking) => {
-												setHighlightedKey(null);
-												dispatch({ type: "PICKING_CHANGED", picking });
-											}}
-											allNodesVisible={state.showAllNodes}
-											onAllNodesVisibleChange={(visible) =>
-												dispatch({ type: "ALL_NODES_CHANGED", visible })
-											}
-											status={status}
-											elementCount={snapshot?.elements.length}
-											sourceCount={
-												snapshot?.elements.filter((element) => element.source)
-													.length
-											}
-											onRefresh={() => void refresh()}
-											refreshing={refreshing}
-										/>
-									}
+									headerActions={headerActions}
 								>
-									<AccessibilityView
-										tree={
-											<AccessibilityTree
-												snapshot={snapshot}
-												selectedKey={selectedKey}
-												highlightedKey={highlightedKey}
-												phoneSelectionRevealToken={
-													state.phoneSelectionRevealToken
-												}
-												selecting={state.picking}
-												onSelectedKeyChange={(key) => {
-													detailInteractionActiveRef.current = false;
-													setDetailsClosed(false);
-													setSelectedKey(key, "tree");
-												}}
-												onHighlightedKeyChange={(key) =>
-													setHighlightedKey(key, "tree")
-												}
-											/>
-										}
-										details={
-											selectedElement && !detailsClosed ? (
-												<AccessibilityDetails
-													element={selectedElement}
-													sourceEndpoint={sourceEndpoint}
-													nativeChain={nativeChain}
-													onInteract={() => {
-														detailInteractionActiveRef.current = true;
-													}}
-													onClose={() => {
-														detailInteractionActiveRef.current = false;
-														setDetailsClosed(true);
-													}}
-												/>
-											) : undefined
-										}
-									/>
+									{inspector}
 								</DevicePanel>
 							</div>
 						)}

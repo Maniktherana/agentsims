@@ -16,7 +16,9 @@ export function useSimulatorBounds(
 			stackElement.closest<HTMLElement>("[data-agentsims-workspace-scroll]") ??
 			stackElement.parentElement;
 		if (!canvas) return;
+		let scrollPaddingBottom = canvas.style.scrollPaddingBottom;
 		const measure = () => {
+			scrollPaddingBottom = canvas.style.scrollPaddingBottom;
 			const style = getComputedStyle(canvas);
 			const stackStyle = getComputedStyle(stackElement);
 			const children = Array.from(stackElement.children).filter(
@@ -46,6 +48,7 @@ export function useSimulatorBounds(
 					: Math.max(
 							1,
 							canvas.clientHeight -
+								parseFloat(style.scrollPaddingBottom || "0") -
 								parseFloat(style.paddingTop || "0") -
 								parseFloat(style.paddingBottom || "0") -
 								chrome,
@@ -60,12 +63,20 @@ export function useSimulatorBounds(
 		};
 		measure();
 		const observer = new ResizeObserver(measure);
+		const styleObserver = new MutationObserver(() => {
+			if (canvas.style.scrollPaddingBottom !== scrollPaddingBottom) measure();
+		});
+		styleObserver.observe(canvas, {
+			attributes: true,
+			attributeFilter: ["style"],
+		});
 		observer.observe(canvas);
 		observer.observe(stackElement);
 		observer.observe(frameElement);
 		document.addEventListener("fullscreenchange", measure);
 		return () => {
 			observer.disconnect();
+			styleObserver.disconnect();
 			document.removeEventListener("fullscreenchange", measure);
 		};
 	}, [stack, frame]);

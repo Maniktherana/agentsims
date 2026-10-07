@@ -7,7 +7,13 @@ import {
 } from "nuqs";
 import { useEffect } from "react";
 
-export type WorkspacePanel = "devices" | "tools" | "devtools";
+export type WorkspacePanel =
+	| "devices"
+	| "tools"
+	| "devtools"
+	| "logs"
+	| "traces"
+	| "accessibility";
 export type CanvasPan = { x: number; y: number };
 export type WorkspaceDeviceOffset = { x: number; y: number };
 export type WorkspaceDeviceOffsets = Record<string, WorkspaceDeviceOffset>;
@@ -123,6 +129,9 @@ export function useWorkspaceUrlState() {
 				"devices",
 				"tools",
 				"devtools",
+				"logs",
+				"traces",
+				"accessibility",
 			]),
 			settings: parseAsString,
 			target: parseAsString,

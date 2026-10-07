@@ -1,0 +1,17 @@
+{
+  "type": "records",
+  "records": [],
+  "cursor": {
+    "epoch": "android%3Aemulator-5554~00000000-0000-0000-0000-000000000004",
+    "sequence": 0
+  },
+  "dropped": 0,
+  "gap": {
+    "reason": "reconnect",
+    "requested": {
+      "epoch": "android%3Aemulator-5554~00000000-0000-0000-0000-000000000005",
+      "sequence": 0
+    },
+    "dropped": null
+  }
+}

@@ -201,19 +201,12 @@ export function useTracing(
 		void syncStatus(device);
 		return subscribeTraceEvents((event) => {
 			if (event.device !== device) return;
-			const current = stateRef.current;
+			// Background starts and other controls synchronize silently. Only the
+			// control that handles a user request reports its result.
 			if (event.type === "stopped") {
-				if (current.status === "tracing")
-					notify("success", "Trace saved", {
-						description: "Another client stopped tracing this device.",
-					});
 				dispatch(device, { type: "status", trace: null });
 				return;
 			}
-			if (event.type === "started" && current.status === "idle")
-				notify("success", "Tracing started", {
-					description: "Another client started tracing this device.",
-				});
 			dispatch(device, { type: "status", trace: event.trace });
 		});
 	}, [device, dispatch, syncStatus]);

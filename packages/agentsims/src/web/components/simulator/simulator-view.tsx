@@ -827,9 +827,13 @@ export function SimulatorView({
 	}, [getViewElement]);
 
 	const handleTouch = useCallback(
-		(type: "begin" | "move" | "end", event: ReactPointerEvent<HTMLElement>) => {
+		(
+			type: "begin" | "move" | "end",
+			event: ReactPointerEvent<HTMLElement>,
+			inputRect?: DOMRect,
+		) => {
 			if (inputDisabled) return;
-			const rect = getInputRect();
+			const rect = inputRect ?? getInputRect();
 			if (!rect) return;
 			const x = Math.min(
 				Math.max((event.clientX - rect.left) / rect.width, 0),
@@ -1281,7 +1285,7 @@ export function SimulatorView({
 								sendTouch({ type: "begin", x, y, edge });
 							} else {
 								edgeGestureRef.current = false;
-								handleTouch("begin", e);
+								handleTouch("begin", e, rect);
 							}
 						}}
 						onPointerMove={(e) => {
@@ -1330,7 +1334,7 @@ export function SimulatorView({
 							if (edgeGestureRef.current) {
 								sendTouch({ type: "move", x, y, edge: HID_EDGE_BOTTOM });
 							} else {
-								handleTouch("move", e);
+								handleTouch("move", e, rect);
 							}
 						}}
 						onPointerUp={(e) => {
@@ -1630,7 +1634,8 @@ export function SimulatorView({
 					}}
 				>
 					<Button
-						variant="unstyled" size="unstyled"
+						variant="unstyled"
+						size="unstyled"
 						onClick={handleHomeClick}
 						style={{
 							background: "none",

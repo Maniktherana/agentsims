@@ -35,11 +35,7 @@ export function TraceScreenshot({
 		traceScreenshotUrl(traceId, path, sourceId);
 
 	useEffect(() => {
-		for (
-			let offset = -PRELOAD_RADIUS;
-			offset <= PRELOAD_RADIUS;
-			offset += 1
-		) {
+		for (let offset = -PRELOAD_RADIUS; offset <= PRELOAD_RADIUS; offset += 1) {
 			const candidate = screenshotIndexForCall(calls, index + offset);
 			const screenshot = candidate < 0 ? null : calls[candidate]?.screenshot;
 			if (screenshot)
@@ -50,13 +46,13 @@ export function TraceScreenshot({
 	return (
 		<div
 			data-trace-screenshot
-			className="flex h-full min-h-0 items-center justify-end overflow-hidden"
+			className="flex h-full min-h-0 max-w-[40%] shrink-0 items-start overflow-hidden"
 		>
 			{capturedAt?.screenshot ? (
 				<img
 					src={resolveScreenshot(capturedAt.screenshot)}
 					alt={`Screen after ${capturedAt.command}`}
-					className="size-full object-contain object-right"
+					className="h-full w-auto max-w-full object-contain object-left-top"
 				/>
 			) : (
 				<span className="px-3 text-center font-mono text-[11px] text-white/35">

@@ -46,30 +46,8 @@ export function DevToolsPanel({
 		`devtools:${udid}`,
 	);
 	if (typeof document === "undefined") return null;
-	const selected = selectedTargetId
-		? (targets.find((target) => target.id === selectedTargetId) ?? null)
-		: null;
-	const body: ReactNode = error ? (
-		<div className="flex h-full items-center justify-center bg-panel-deep p-6 text-center text-[13px] text-white/[0.58]">
-			{error}
-		</div>
-	) : selected ? (
-		<iframe
-			key={selected.id}
-			src={selected.devtoolsFrontendUrl}
-			title={`DevTools - ${selected.title || selected.url || selected.id}`}
-			className="block size-full border-none bg-white"
-			onLoad={(event) => {
-				if (selected.provider === "webkit") {
-					collapseScreencastPane(event.currentTarget);
-				}
-			}}
-		/>
-	) : (
-		<div className="flex h-full items-center justify-center bg-panel-deep p-6 text-center text-[13px] text-white/[0.58]">
-			{loading ? "Looking for browser targets" : "Select a browser target."}
-		</div>
-	);
+	const selected =
+		targets.find((target) => target.id === selectedTargetId) ?? null;
 	return createPortal(
 		<AnimatePresence>
 			{open && (
@@ -135,7 +113,15 @@ export function DevToolsPanel({
 							</Tooltip>
 						</header>
 						<div className="min-h-0 flex-1 overflow-hidden rounded-b-[13px] bg-white">
-							{body}
+							<DevToolsContent
+								active
+								deviceName={deviceName}
+								targets={targets}
+								selectedTargetId={selectedTargetId}
+								onSelectTarget={onSelectTarget}
+								loading={loading}
+								error={error}
+							/>
 						</div>
 						<FloatingPanelResizeHandle
 							onPointerDown={position.onResizePointerDown}
@@ -147,5 +133,64 @@ export function DevToolsPanel({
 			)}
 		</AnimatePresence>,
 		document.body,
+	);
+}
+
+export function DevToolsContent({
+	active,
+	deviceName,
+	targets,
+	selectedTargetId,
+	onSelectTarget,
+	loading,
+	error,
+}: {
+	active: boolean;
+	deviceName: string;
+	targets: DevToolsTarget[];
+	selectedTargetId: string | null;
+	onSelectTarget: (id: string) => void;
+	loading: boolean;
+	error: string | null;
+}) {
+	const selected = selectedTargetId
+		? (targets.find((target) => target.id === selectedTargetId) ?? null)
+		: null;
+	const body: ReactNode = error ? (
+		<div className="flex h-full items-center justify-center bg-panel-deep p-6 text-center text-[13px] text-white/[0.58]">
+			{error}
+		</div>
+	) : selected && active ? (
+		<iframe
+			key={selected.id}
+			src={selected.devtoolsFrontendUrl}
+			title={`DevTools - ${selected.title || selected.url || selected.id}`}
+			className="block size-full border-none bg-white"
+			onLoad={(event) => {
+				if (selected.provider === "webkit") {
+					collapseScreencastPane(event.currentTarget);
+				}
+			}}
+		/>
+	) : (
+		<div className="flex h-full items-center justify-center bg-panel-deep p-6 text-center text-[13px] text-white/[0.58]">
+			{loading ? "Looking for browser targets" : "Select a browser target."}
+		</div>
+	);
+
+	return (
+		<div className="flex h-full min-h-0 flex-col">
+			<div className="flex h-10 shrink-0 items-center gap-2 px-3">
+				<span className="min-w-0 truncate text-[12px] text-white/60">
+					{deviceName}
+				</span>
+				<DevToolsTargetPicker
+					targets={targets}
+					selected={selected}
+					onSelectTarget={onSelectTarget}
+				/>
+			</div>
+			<div className="min-h-0 flex-1 overflow-hidden">{body}</div>
+		</div>
 	);
 }

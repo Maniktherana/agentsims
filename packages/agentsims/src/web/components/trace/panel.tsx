@@ -1,4 +1,6 @@
 import { Button } from "@agentsims/ui/components/button";
+import { PanelToolbar } from "@agentsims/ui/components/panel-toolbar";
+import { Switch } from "@agentsims/ui/components/switch";
 import {
 	Tooltip,
 	TooltipContent,
@@ -11,6 +13,7 @@ import {
 	type PointerEventHandler,
 } from "react";
 import { openFileCommand } from "../../hooks/simulator/use-screen-recording";
+import { useTracing } from "../../hooks/simulator/use-tracing";
 import {
 	openTraceSource,
 	useTrace,
@@ -78,8 +81,10 @@ export function TracePanel({
 	onMovePointerDown,
 	onResizePointerDown,
 	onResizeKeyDown,
+	embedded = false,
 }: {
 	open: boolean;
+	embedded?: boolean;
 	device: DevicePanelIdentity;
 	onClose: () => void;
 	onMovePointerDown?: PointerEventHandler<HTMLElement>;
@@ -88,6 +93,7 @@ export function TracePanel({
 }) {
 	const [source, setSource] = useState<TraceSource | null>(null);
 	const trace = useTrace(device.id, open, "all", source);
+	const tracing = useTracing(execOnHost, open ? device.id : null);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const detail = trace.detail;
 	const calls = detail?.calls ?? [];
@@ -140,6 +146,107 @@ export function TracePanel({
 			);
 	};
 
+	const content = (
+		<div className="flex h-full min-h-0 flex-col">
+			<PanelToolbar className={embedded ? "pe-12" : undefined}>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Open trace library"
+								size="icon-sm"
+								variant="toolbar"
+								onClick={openLibrary}
+							/>
+						}
+					>
+						<FolderOpen size={14} strokeWidth={1.9} />
+					</TooltipTrigger>
+					<TooltipContent>Open trace library</TooltipContent>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Choose trace folder"
+								size="icon-sm"
+								variant="toolbar"
+								onClick={chooseTrace}
+							/>
+						}
+					>
+						<Search size={14} strokeWidth={1.9} />
+					</TooltipTrigger>
+					<TooltipContent>Choose trace folder</TooltipContent>
+				</Tooltip>
+				{trace.traces.length > 0 ? (
+					<Select
+						value={trace.selectedId ?? ""}
+						onValueChange={(id) => {
+							if (id === null) return;
+							setActiveIndex(0);
+							trace.select(id);
+						}}
+					>
+						<SelectTrigger aria-label="Trace" className="min-w-0 flex-1">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{trace.traces.map((entry) => (
+								<SelectItem key={entry.id} value={entry.id}>
+									{traceOptionLabel(entry, true)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				) : (
+					<span className="min-w-0 flex-1 text-[12px] text-white/40">
+						No traces found
+					</span>
+				)}
+				<span className="shrink-0 font-mono text-[11px] tabular-nums text-white/45">
+					{live ? "Live" : `${calls.length} calls`}
+				</span>
+				<label className="flex min-w-0 shrink items-center gap-2 text-[12px] text-white/65">
+					<span className="min-w-0 truncate">Trace {device.name}</span>
+					<Switch
+						aria-label={`Trace ${device.name}`}
+						checked={tracing.active}
+						disabled={tracing.busy}
+						onCheckedChange={tracing.toggle}
+					/>
+				</label>
+			</PanelToolbar>
+
+			{!detail || calls.length === 0 ? (
+				<div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
+					<p className="text-[12px] leading-[1.6] text-white/45">
+						{trace.error ??
+							(live ? "Waiting for the first call…" : "No traces found.")}
+					</p>
+				</div>
+			) : (
+				<div className="flex min-h-0 flex-1">
+					<TraceScreenshot
+						traceId={detail.id}
+						calls={calls}
+						index={activeIndex}
+						sourceId={source?.id}
+					/>
+					<div className="min-h-0 min-w-0 flex-1">
+						<TraceCallList
+							key={detail.id}
+							traceId={detail.id}
+							device={detail.device}
+							calls={calls}
+							onActiveIndexChange={setActiveIndex}
+						/>
+					</div>
+				</div>
+			)}
+		</div>
+	);
+	if (embedded) return content;
 	return (
 		<DevicePanel
 			open={open}
@@ -151,95 +258,7 @@ export function TracePanel({
 			onResizePointerDown={onResizePointerDown}
 			onResizeKeyDown={onResizeKeyDown}
 		>
-			<div className="flex h-full min-h-0 flex-col">
-				<div className="flex min-w-0 shrink-0 items-center gap-2 px-2 pb-2">
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Button
-									aria-label="Open trace library"
-									size="icon-sm"
-									variant="toolbar"
-									onClick={openLibrary}
-								/>
-							}
-						>
-							<FolderOpen size={14} strokeWidth={1.9} />
-						</TooltipTrigger>
-						<TooltipContent>Open trace library</TooltipContent>
-					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Button
-									aria-label="Choose trace folder"
-									size="icon-sm"
-									variant="toolbar"
-									onClick={chooseTrace}
-								/>
-							}
-						>
-							<Search size={14} strokeWidth={1.9} />
-						</TooltipTrigger>
-						<TooltipContent>Choose trace folder</TooltipContent>
-					</Tooltip>
-					{trace.traces.length > 0 ? (
-						<Select
-							value={trace.selectedId ?? ""}
-							onValueChange={(id) => {
-								if (id === null) return;
-								setActiveIndex(0);
-								trace.select(id);
-							}}
-						>
-							<SelectTrigger aria-label="Trace" className="min-w-0 flex-1">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{trace.traces.map((entry) => (
-									<SelectItem key={entry.id} value={entry.id}>
-										{traceOptionLabel(entry, true)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					) : (
-						<span className="min-w-0 flex-1 text-[12px] text-white/40">
-							No traces found
-						</span>
-					)}
-					<span className="shrink-0 font-mono text-[11px] tabular-nums text-white/45">
-						{live ? "Live" : `${calls.length} calls`}
-					</span>
-				</div>
-
-				{!detail || calls.length === 0 ? (
-					<div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
-						<p className="text-[12px] leading-[1.6] text-white/45">
-							{trace.error ??
-								(live ? "Waiting for the first call…" : "No traces found.")}
-						</p>
-					</div>
-				) : (
-					<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-						<TraceScreenshot
-							traceId={detail.id}
-							calls={calls}
-							index={activeIndex}
-							sourceId={source?.id}
-						/>
-						<div className="min-h-0">
-							<TraceCallList
-								key={detail.id}
-								traceId={detail.id}
-								device={detail.device}
-								calls={calls}
-								onActiveIndexChange={setActiveIndex}
-							/>
-						</div>
-					</div>
-				)}
-			</div>
+			{content}
 		</DevicePanel>
 	);
 }

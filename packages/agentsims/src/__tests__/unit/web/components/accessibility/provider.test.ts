@@ -10,6 +10,25 @@ import {
 } from "../../../../../web/components/accessibility/provider";
 
 describe("decodeAxSnapshotEvent", () => {
+	const usableSnapshot = (platform: "android" | "ios"): AxSnapshot => ({
+		screen:
+			platform === "android"
+				? { width: 1080, height: 2424 }
+				: { width: 390, height: 844 },
+		elements: [
+			{
+				id: "title",
+				path: "0.1",
+				label: "Home",
+				value: "",
+				role: "text",
+				type: platform === "android" ? "android.widget.TextView" : "StaticText",
+				enabled: true,
+				frame: { x: 20, y: 60, width: 120, height: 24 },
+			},
+		],
+	});
+
 	test("skips an identical replay before parsing or replacing the tree", () => {
 		const replay = "{not-valid-json";
 		expect(decodeAxSnapshotEvent(replay, replay)).toBeNull();
@@ -58,6 +77,88 @@ describe("decodeAxSnapshotEvent", () => {
 		expect(decodeAxSnapshotEvent(payload, null)?.status).toBe(
 			"UIAutomator timed out",
 		);
+	});
+
+	test("decodes the actual killed Android server error without a synthetic ready count", () => {
+		const nativeError = "Android AX server exited (137): Killed";
+		const result = decodeAxSnapshotEvent(
+			JSON.stringify({
+				screen: { width: 1080, height: 2424 },
+				elements: [],
+				errors: [nativeError],
+			}),
+			null,
+		);
+		expect(result?.status).toBe(nativeError);
+		expect(result?.snapshot.errors).toEqual([nativeError]);
+		expect(result?.snapshot.elements).toHaveLength(0);
+		expect(result?.lastUsableSnapshot).toBeNull();
+	});
+
+	for (const platform of ["android", "ios"] as const) {
+		test(`${platform}: retains the last usable tree separately from failed current data, then recovers`, () => {
+			const ready = decodeAxSnapshotEvent(
+				JSON.stringify(usableSnapshot(platform)),
+				null,
+			)!;
+			expect(ready.lastUsableSnapshot).toBe(ready.snapshot);
+			const errors = ["Native capture stopped", "No current hierarchy"];
+			const failed = decodeAxSnapshotEvent(
+				JSON.stringify({
+					screen: { width: 1, height: 1 },
+					elements: [],
+					errors,
+				}),
+				ready.payload,
+				ready.lastUsableSnapshot,
+			)!;
+			expect(failed.snapshot.elements).toHaveLength(0);
+			expect(failed.snapshot.errors).toEqual(errors);
+			expect(failed.lastUsableSnapshot).toBe(ready.snapshot);
+			expect(failed.lastUsableSnapshot?.screen).toEqual(ready.snapshot.screen);
+			const recovered = usableSnapshot(platform);
+			recovered.elements[0]!.label = "Next screen";
+			const next = decodeAxSnapshotEvent(
+				JSON.stringify(recovered),
+				failed.payload,
+				failed.lastUsableSnapshot,
+			)!;
+			expect(next.lastUsableSnapshot).toBe(next.snapshot);
+			expect(next.snapshot.errors).toBeUndefined();
+			expect(next.lastUsableSnapshot?.elements[0]!.label).toBe("Next screen");
+		});
+	}
+
+	test("partial failures keep their actual nodes but do not replace the last usable tree", () => {
+		const previous = usableSnapshot("android");
+		const partial = usableSnapshot("android");
+		partial.elements[0]!.label = "Partial result";
+		partial.errors = ["One window could not be read"];
+		const next = decodeAxSnapshotEvent(
+			JSON.stringify(partial),
+			null,
+			previous,
+		)!;
+		expect(next.snapshot.elements[0]!.label).toBe("Partial result");
+		expect(next.snapshot.errors).toEqual(partial.errors);
+		expect(next.lastUsableSnapshot).toBe(previous);
+	});
+
+	test("a new endpoint starts without retained evidence from a different device", () => {
+		const first = decodeAxSnapshotEvent(
+			JSON.stringify(usableSnapshot("ios")),
+			null,
+		)!;
+		const otherDevice = decodeAxSnapshotEvent(
+			JSON.stringify({
+				screen: { width: 1080, height: 2424 },
+				elements: [],
+				errors: ["Android AX server exited (137): Killed"],
+			}),
+			null,
+		)!;
+		expect(first.lastUsableSnapshot?.elements).toHaveLength(1);
+		expect(otherDevice.lastUsableSnapshot).toBeNull();
 	});
 
 	test("reuses the full snapshot when a new payload is semantically identical", () => {

@@ -141,6 +141,8 @@ export function useAvccStream({
 			const ctx = canvas.getContext("2d");
 			if (!ctx) return;
 			ctx.drawImage(source, 0, 0, width, height);
+			if (firstFrameTimer) clearTimeout(firstFrameTimer);
+			firstFrameTimer = null;
 			callbacks.current.onFrame?.({
 				width,
 				height,
@@ -155,8 +157,6 @@ export function useAvccStream({
 		};
 
 		const queuePaint = (frame: VideoFrame) => {
-			if (firstFrameTimer) clearTimeout(firstFrameTimer);
-			firstFrameTimer = null;
 			const generation = decodeGenerations.shift();
 			if (!isLive()) {
 				frame.close();

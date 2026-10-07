@@ -12,6 +12,8 @@ const buttonVariants = cva(
 				flat: "bg-[var(--agentsims-button-flat)] text-white/85 hover:bg-[var(--agentsims-button-flat-hover)] active:bg-[var(--agentsims-button-flat-pressed)]",
 				raised:
 					"bg-[var(--agentsims-button-raised)] text-white/90 shadow-[var(--agentsims-button-raised-shadow)] hover:bg-[var(--agentsims-button-raised-hover)] active:bg-[var(--agentsims-button-raised-pressed)]",
+				contrast:
+					"bg-white text-black hover:bg-white/90 active:bg-white/80 focus-visible:ring-2 focus-visible:ring-white/45 disabled:bg-white/10 disabled:text-white/35",
 				outline:
 					"border border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
 				secondary:
@@ -27,6 +29,8 @@ const buttonVariants = cva(
 					"border border-transparent bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30",
 				"danger-ghost":
 					"border border-transparent bg-transparent text-white/45 hover:bg-red-500/10 hover:text-red-300 focus-visible:text-red-300",
+				"danger-icon":
+					"bg-transparent text-red-300 hover:bg-red-500/15 hover:text-red-200 active:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-red-400/35",
 				link: "text-primary underline-offset-4 hover:underline",
 				unstyled:
 					"rounded-none border-0 bg-transparent p-0 font-[inherit] text-inherit transition-none active:scale-100",

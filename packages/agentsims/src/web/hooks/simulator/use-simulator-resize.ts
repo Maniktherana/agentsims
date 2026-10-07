@@ -8,6 +8,7 @@ import {
 	type PointerEvent as ReactPointerEvent,
 } from "react";
 import { usePrefersReducedMotion } from "./use-prefers-reduced-motion";
+import { fittedPhoneWidth } from "../../workspace/phone-fit";
 import {
 	SIMULATOR_RESIZE_DETENT_RADIUS,
 	SIMULATOR_RESIZE_MIN_WIDTH,
@@ -44,6 +45,7 @@ export function useSimulatorResize({
 	viewportWidth,
 	viewportHeight,
 	aspectRatio,
+	constrainToViewport = false,
 	onStart,
 }: {
 	deviceId?: string;
@@ -51,6 +53,7 @@ export function useSimulatorResize({
 	viewportWidth: number;
 	viewportHeight: number;
 	aspectRatio: number;
+	constrainToViewport?: boolean;
 	onStart: () => void;
 }) {
 	const reducedMotion = usePrefersReducedMotion();
@@ -96,7 +99,7 @@ export function useSimulatorResize({
 		viewportHeight,
 		aspectRatio,
 	);
-	const maxWidth = Number.POSITIVE_INFINITY;
+	const maxWidth = constrainToViewport ? fitWidth : Number.POSITIVE_INFINITY;
 	const minWidth = Math.min(SIMULATOR_RESIZE_MIN_WIDTH, fitWidth);
 	const fitModeRef = useRef(
 		typeof window === "undefined" ||
@@ -105,7 +108,15 @@ export function useSimulatorResize({
 
 	// `width` is the displayed width (may include rubber-band overshoot during drag/inertia).
 	// `committedWidth` is the bound-clamped value used for aria, keyboard math, and persistence.
-	const width = resolvedFrameGeometry.width;
+	const width =
+		constrainToViewport && !isResizing && !isInertia
+			? fittedPhoneWidth(
+					resolvedFrameGeometry.width,
+					viewportWidth,
+					viewportHeight,
+					aspectRatio,
+				)
+			: resolvedFrameGeometry.width;
 	const committedWidth = clampSimulatorFrameWidth(
 		width,
 		defaultWidth,
@@ -282,7 +293,7 @@ export function useSimulatorResize({
 		(pointerId: number, clientX: number, clientY: number) => {
 			cancelTween();
 			fitModeRef.current = false;
-			const startWidth = lastWidthRef.current ?? defaultWidth;
+			const startWidth = width;
 			dragStartRef.current = {
 				pointerId,
 				startX: clientX,
@@ -293,7 +304,7 @@ export function useSimulatorResize({
 			onStart();
 			setIsResizing(true);
 		},
-		[cancelTween, defaultWidth, onStart],
+		[cancelTween, width, onStart],
 	);
 
 	const endDrag = useCallback(() => {
@@ -322,8 +333,13 @@ export function useSimulatorResize({
 			viewportHeight,
 			aspectRatio,
 		);
+		const snapped = snapToDetent(
+			projected,
+			[defaultWidth],
+			SIMULATOR_RESIZE_DETENT_RADIUS,
+		);
 		const target = roundToDevicePixel(
-			snapToDetent(projected, [defaultWidth], SIMULATOR_RESIZE_DETENT_RADIUS),
+			constrainToViewport ? Math.min(fitWidth, snapped) : snapped,
 		);
 
 		// Under reduced-motion, or when there's nothing meaningful to animate, snap directly.
@@ -351,6 +367,8 @@ export function useSimulatorResize({
 		});
 	}, [
 		aspectRatio,
+		constrainToViewport,
+		fitWidth,
 		defaultWidth,
 		reducedMotion,
 		schedulePersist,
@@ -467,12 +485,15 @@ export function useSimulatorResize({
 			fitModeRef.current = false;
 			const step = event.shiftKey ? 80 : 24;
 			const next = roundToDevicePixel(
-				clampSimulatorFrameWidth(
-					committedWidth + direction * step,
-					defaultWidth,
-					viewportWidth,
-					viewportHeight,
-					aspectRatio,
+				Math.min(
+					maxWidth,
+					clampSimulatorFrameWidth(
+						committedWidth + direction * step,
+						defaultWidth,
+						viewportWidth,
+						viewportHeight,
+						aspectRatio,
+					),
 				),
 			);
 			writeWidth(next);
@@ -482,6 +503,7 @@ export function useSimulatorResize({
 			aspectRatio,
 			cancelTween,
 			committedWidth,
+			maxWidth,
 			fit,
 			defaultWidth,
 			schedulePersist,
