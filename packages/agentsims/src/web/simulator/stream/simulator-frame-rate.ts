@@ -7,6 +7,12 @@ const DISPLAY_UPDATE_INTERVAL_MS = 500;
 const NATIVE_IDLE_TIMEOUT_MS = 200;
 const HISTORY_WINDOW_SECONDS = 30;
 const HISTORY_MAX_POINTS = 64;
+/**
+ * Simulator displays refresh at 120 Hz at most. During a relayout the surface
+ * can change several times inside one refresh. Those partial updates are not
+ * frames that the user sees, so the rate does not go above the refresh rate.
+ */
+const MAX_DISPLAY_FPS = 120n;
 
 export function appendSimulatorFrameRateHistory(
 	history: SimulatorFrameRatePoint[],
@@ -71,7 +77,9 @@ export class SimulatorFrameRateStore {
 			if (elapsedUs > 0n && producedFrames > 0n) {
 				const rounded =
 					(producedFrames * 1_000_000n + elapsedUs / 2n) / elapsedUs;
-				this.publishMeasured(Number(rounded > 0xffffn ? 0xffffn : rounded));
+				this.publishMeasured(
+					Number(rounded > MAX_DISPLAY_FPS ? MAX_DISPLAY_FPS : rounded),
+				);
 			}
 		}
 

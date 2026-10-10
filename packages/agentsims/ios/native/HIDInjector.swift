@@ -275,13 +275,14 @@ actor HIDInjector {
     // idb target constant (third arg)
     private static let buttonTargetHardware: Int32 = 0x33
 
-    // HID consumer usages that dtuhidd takes for the same buttons. Siri and the
-    // software-keyboard toggle have no known equivalent and use the legacy client.
+    // HID consumer usages that dtuhidd takes for the same buttons. The
+    // software-keyboard toggle has no equivalent and uses the legacy client.
     private static let consumerPage: UInt32 = 0x0c
     private static func consumerUsage(eventSource: Int32) -> UInt32? {
         switch eventSource {
         case buttonSourceHome: return 0x40
         case buttonSourceLock, buttonSourceSideButton: return 0x30
+        case buttonSourceSiri: return 0xcf  // Voice Command
         default: return nil
         }
     }
