@@ -59,7 +59,7 @@ export const AppsLive = Layer.effect(
 		// a file path, not a bundle ID, so forget every cached app on that device.
 		const forgetDevice = (device: string) =>
 			Effect.sync(() => {
-				for (const key of [...cache.keys()])
+				for (const key of cache.keys())
 					if (key.startsWith(`${device}:`)) cache.delete(key);
 			});
 		const changesApps = (input: AppOperation) =>
