@@ -23,6 +23,8 @@ type SocketReply = {
 	data?: string;
 	end?: boolean;
 	ready?: boolean;
+	viewer?: string;
+	viewers?: Record<string, string>;
 	error?: string;
 } & Partial<ExecResult> & { status?: Record<string, string>; ok?: boolean };
 
@@ -42,6 +44,18 @@ let nextRequestId = 1;
 let nextSubId = 1;
 const pendingRequests = new Map<number, PendingRequest>();
 const activeSubscriptions = new Map<number, ActiveSubscription>();
+
+/** This tab's viewer ID and the holder of each device. */
+export type ViewerState = {
+	viewer: string | null;
+	holders: Readonly<Record<string, string>>;
+};
+let viewerState: ViewerState = { viewer: null, holders: {} };
+const viewerListeners = new Set<() => void>();
+function setViewerState(next: Partial<ViewerState>): void {
+	viewerState = { ...viewerState, ...next };
+	for (const listener of viewerListeners) listener();
+}
 
 function execSocketUrl(): string {
 	const url = new URL(simEndpoint("exec-ws"), window.location.href);
@@ -100,12 +114,18 @@ function openExecSocket(): Promise<WebSocket> {
 				return;
 			}
 			if (msg.ready) {
+				if (typeof msg.viewer === "string")
+					setViewerState({ viewer: msg.viewer, holders: msg.viewers ?? {} });
 				if (!settled) {
 					settled = true;
 					clearTimeout(connectTimer);
 					openSocket = ws;
 					resolve(ws);
 				}
+				return;
+			}
+			if (msg.viewers) {
+				setViewerState({ holders: msg.viewers });
 				return;
 			}
 			if (typeof msg.sub === "number") {
@@ -131,6 +151,8 @@ function openExecSocket(): Promise<WebSocket> {
 			failed = true;
 			socketPromise = null;
 			openSocket = null;
+			// A new socket is a new viewer. Its claims start again.
+			setViewerState({ viewer: null, holders: {} });
 			const err = new Error(
 				"control socket closed — reload the page if this persists",
 			);
@@ -295,6 +317,31 @@ export function openHostEventStream(path: string): HostEventStream {
 		}
 	};
 	return stream;
+}
+
+export function subscribeViewerState(listener: () => void): () => void {
+	viewerListeners.add(listener);
+	return () => viewerListeners.delete(listener);
+}
+
+export function getViewerState(): ViewerState {
+	return viewerState;
+}
+
+/** Make this tab the holder of these devices. Other tabs pause them. */
+export async function claimDevices(devices: readonly string[]): Promise<void> {
+	if (devices.length === 0) return;
+	const ws = await openExecSocket();
+	if (ws.readyState === WebSocket.OPEN)
+		ws.send(JSON.stringify({ claim: devices }));
+}
+
+export async function releaseDevices(
+	devices: readonly string[],
+): Promise<void> {
+	if (devices.length === 0 || !openSocket) return;
+	if (openSocket.readyState === WebSocket.OPEN)
+		openSocket.send(JSON.stringify({ release: devices }));
 }
 
 export function shellEscape(s: string): string {

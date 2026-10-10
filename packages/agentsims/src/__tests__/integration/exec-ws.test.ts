@@ -32,6 +32,8 @@ afterAll(async () => {
 
 interface Reply {
 	ready?: boolean;
+	viewer?: string;
+	viewers?: Record<string, string>;
 	id?: number;
 	stdout?: string;
 	stderr?: string;
@@ -93,6 +95,38 @@ function connect(token: string): Promise<{
 }
 
 describe("exec-ws control channel", () => {
+	test("one tab holds a device and the last tab to claim it takes it", async () => {
+		const first = await connect(TOKEN);
+		const second = await connect(TOKEN);
+		try {
+			const a = await first.next();
+			const b = await second.next();
+			expect(a.viewer).toBeString();
+			expect(b.viewer).toBeString();
+			expect(a.viewer).not.toBe(b.viewer);
+
+			first.send({ claim: ["ios-device"] });
+			expect((await first.next()).viewers).toEqual({ "ios-device": a.viewer! });
+			expect((await second.next()).viewers).toEqual({
+				"ios-device": a.viewer!,
+			});
+
+			second.send({ claim: ["ios-device"] });
+			expect((await first.next()).viewers).toEqual({ "ios-device": b.viewer! });
+			expect((await second.next()).viewers).toEqual({
+				"ios-device": b.viewer!,
+			});
+
+			// Closing the holder's tab frees the device for the other tabs.
+			second.close();
+			await second.closed;
+			expect((await first.next()).viewers).toEqual({});
+		} finally {
+			first.close();
+			second.close();
+		}
+	});
+
 	test("returns failed command output and its exit status", async () => {
 		const channel = await connect(TOKEN);
 		try {

@@ -4,6 +4,7 @@ import {
 	HttpServerResponse,
 } from "@effect/platform";
 import { Effect } from "effect";
+import { Socket } from "@effect/platform";
 import type { Scope } from "effect/Scope";
 import { androidSerialFromStateId } from "../../../core/android/device/identifiers";
 import {
@@ -15,6 +16,7 @@ import {
 	type IosSessionsService,
 } from "../../../core/ios/session";
 import { describeError, logRuntime } from "../../../core/logging";
+import { Viewers, type ViewerLeases } from "../../../core/tools/viewers";
 import { ServerConfig } from "../../runtime/config";
 import { HidSocketAdapter } from "../../websocket/hid-socket";
 import { bytes, json, requestSource } from "./shared";
@@ -139,6 +141,36 @@ export function androidAvccResponse(
 	});
 }
 
+/** Ends a live stream when its tab stops being the holder of the device. */
+function endOnLoss(
+	response: Response,
+	subscribe: (stop: () => void) => void,
+): Response {
+	if (!response.body) return response;
+	let terminate = () => {};
+	const relay = new TransformStream<Uint8Array, Uint8Array>({
+		start: (controller) => {
+			terminate = () => controller.terminate();
+		},
+	});
+	// terminate() closes the client stream normally and cancels the source.
+	// The pipe then rejects on purpose. That rejection is not an error.
+	void response.body.pipeTo(relay.writable).catch(() => {});
+	subscribe(() => terminate());
+	return new Response(relay.readable, {
+		status: response.status,
+		headers: response.headers,
+	});
+}
+
+const heldElsewhere = () =>
+	HttpServerResponse.unsafeJson(
+		{
+			error: "Another tab holds this device. Click the device to use it here.",
+		},
+		{ status: 409 },
+	);
+
 /** Log a failure when it starts and when it ends, never once per retry. */
 const recentFailures = new Map<string, { message: string; repeats: number }>();
 
@@ -249,11 +281,10 @@ async function response(
 				return subscriptionResponse("application/octet-stream", (sink) =>
 					session.subscribeAvcc(sink),
 				);
-			case "screenshot.png":
-				{
-					const screenshot = await session.captureScreenshot();
-					return bytes(screenshot.bytes, screenshot.mimeType);
-				}
+			case "screenshot.png": {
+				const screenshot = await session.captureScreenshot();
+				return bytes(screenshot.bytes, screenshot.mimeType);
+			}
 			case "config":
 				return json(session.screenConfig());
 			case "health":
@@ -276,6 +307,8 @@ async function response(
 function upgrade(
 	request: HttpServerRequest.HttpServerRequest,
 	device: string,
+	viewers: ViewerLeases,
+	viewer: string | null,
 ): Effect.Effect<
 	HttpServerResponse.HttpServerResponse,
 	unknown,
@@ -287,6 +320,15 @@ function upgrade(
 		const socket = yield* request.upgrade;
 		const write = yield* socket.writer;
 		const adapter = new HidSocketAdapter(write);
+		const stopOnLoss = viewer
+			? viewers.onLoss(device, viewer, () => {
+					Effect.runFork(
+						write(new Socket.CloseEvent(4001, "held by another tab")).pipe(
+							Effect.catchAll(() => Effect.void),
+						),
+					);
+				})
+			: () => {};
 		const serial = androidSerialFromStateId(device);
 		if (serial) (yield* androidSessions.get(serial)).attachHidSocket(adapter);
 		else {
@@ -297,7 +339,12 @@ function upgrade(
 		yield* socket
 			.run((data) => adapter.message(data))
 			.pipe(
-				Effect.ensuring(Effect.sync(() => adapter.emitClose())),
+				Effect.ensuring(
+					Effect.sync(() => {
+						stopOnLoss();
+						adapter.emitClose();
+					}),
+				),
 				Effect.catchAll(() => Effect.sync(() => adapter.emitError())),
 			);
 		return HttpServerResponse.empty();
@@ -324,18 +371,30 @@ export const helperRoutes = HttpRouter.empty.pipe(
 					{ error: "iOS Simulator requires a macOS server with Xcode." },
 					{ status: 503 },
 				);
-			if (match.endpoint === "ws")
-				return yield* upgrade(serverRequest, match.device);
-			return HttpServerResponse.fromWeb(
-				yield* Effect.promise(() =>
-					response(
-						request,
-						match.device,
-						match.endpoint,
-						androidSessions,
-						iosSessions,
-					),
+			// Browser tabs send their viewer ID. Only the holder gets live video and input.
+			const viewer = new URL(request.url).searchParams.get("viewer");
+			const live =
+				match.endpoint === "ws" || match.endpoint.startsWith("stream.");
+			const viewers = live ? yield* Viewers : null;
+			if (viewers && !viewers.allows(match.device, viewer))
+				return heldElsewhere();
+			if (match.endpoint === "ws" && viewers)
+				return yield* upgrade(serverRequest, match.device, viewers, viewer);
+			const result = yield* Effect.promise(() =>
+				response(
+					request,
+					match.device,
+					match.endpoint,
+					androidSessions,
+					iosSessions,
 				),
+			);
+			return HttpServerResponse.fromWeb(
+				viewers && viewer
+					? endOnLoss(result, (stop) =>
+							viewers.onLoss(match.device, viewer, stop),
+						)
+					: result,
 			);
 		}),
 	),

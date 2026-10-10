@@ -50,6 +50,9 @@ import { useSimulatorBounds } from "../../hooks/simulator/use-simulator-bounds";
 import { AccessibilityInspectorController } from "../accessibility/controller";
 import { AxDomOverlay } from "../accessibility/overlay";
 import { AccessibilityStateProvider } from "../accessibility/provider";
+import { useViewerLease } from "../../hooks/workspace/use-viewer-lease";
+import { withViewer } from "../../workspace/viewer";
+import { ViewerPausedOverlay } from "./viewer-paused-overlay";
 import {
 	accessibilityInspectorReducer,
 	createAccessibilityInspectorState,
@@ -234,6 +237,9 @@ export function SimulatorDeviceView({
 		() => new SimulatorFrameRateStore(),
 		[config.device],
 	);
+	// Only the tab that holds the device streams video, reads AX, and sends input.
+	const lease = useViewerLease(config.device);
+	const leaseViewer = lease.active ? lease.viewer : null;
 	const [streamRetry, retryStream] = useReducer(
 		(value: number) => value + 1,
 		0,
@@ -365,7 +371,9 @@ export function SimulatorDeviceView({
 			codecPreference !== "mjpeg";
 	const videoCodec = isAndroidDevice ? "avcc" : useAvccVideo ? "avcc" : "mjpeg";
 	const mjpeg = useMjpegStream(
-		useAvccVideo || isAndroidDevice ? null : config.streamUrl,
+		useAvccVideo || isAndroidDevice || !leaseViewer || !config.streamUrl
+			? null
+			: withViewer(config.streamUrl, leaseViewer),
 		streamRetry,
 	);
 
@@ -499,7 +507,8 @@ export function SimulatorDeviceView({
 		};
 
 		const connect = () => {
-			const ws = new WebSocket(config.wsUrl);
+			if (!leaseViewer) return;
+			const ws = new WebSocket(withViewer(config.wsUrl, leaseViewer));
 			ws.binaryType = "arraybuffer";
 			currentWs = ws;
 			wsRef.current = ws;
@@ -543,7 +552,7 @@ export function SimulatorDeviceView({
 			if (wsRef.current === currentWs) wsRef.current = null;
 			currentWs?.close();
 		};
-	}, [config.wsUrl]);
+	}, [config.wsUrl, leaseViewer]);
 
 	const sendWs = useCallback((tag: number, payload: object) => {
 		pendingWsMessagesRef.current = sendOrQueueWsMessage(
@@ -731,7 +740,7 @@ export function SimulatorDeviceView({
 	const nativePreview = useNativeAnnotationPreview({
 		endpoint: config.axEndpoint,
 		identity: annotationIdentity,
-		active: annotationActive,
+		active: annotationActive && lease.active,
 		connected:
 			lifecyclePhase !== "available" && lifecyclePhase !== "shutting-down",
 	});
@@ -1151,7 +1160,7 @@ export function SimulatorDeviceView({
 
 	return (
 		<AccessibilityStateProvider
-			endpoint={config?.axEndpoint}
+			endpoint={lease.active ? config?.axEndpoint : undefined}
 			refreshSignal={axRefreshSignal}
 			state={accessibilityState}
 			dispatch={dispatchAccessibility}
@@ -1287,6 +1296,8 @@ export function SimulatorDeviceView({
 									<SimulatorView
 										key={`${config.streamUrl}:${streamRetry}`}
 										url={config.url}
+										paused={!leaseViewer}
+										viewer={leaseViewer}
 										wsUrl={config.wsUrl}
 										style={{
 											width: "100%",
@@ -1386,6 +1397,9 @@ export function SimulatorDeviceView({
 								const rawScreenContent = (
 									<>
 										{streamView}
+										{lease.viewer && !lease.active ? (
+											<ViewerPausedOverlay onClaim={lease.claim} />
+										) : null}
 										{!isAndroidDevice && accessibilityOpen ? (
 											<AxDomOverlay
 												mode={

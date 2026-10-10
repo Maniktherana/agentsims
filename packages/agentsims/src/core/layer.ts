@@ -25,6 +25,7 @@ import { DeviceLifecycleLive } from "./tools/devices/lifecycle";
 import { foregroundAppsLayer } from "./tools/devices/foreground-apps";
 import { deviceStateStoreLayer, STATE_DIR } from "./tools/devices/state";
 import { shellExecLayer } from "./tools/host-commands";
+import { ViewersLive } from "./tools/viewers";
 import { AppsLive } from "./tools/apps";
 import { PermissionOperationsLive } from "./tools/permissions";
 import { mediaRoutingLayer } from "./tools/media";
@@ -118,5 +119,6 @@ export function coreServicesLayer(
 		AppsLive.pipe(Layer.provide(androidTools)),
 		PermissionOperationsLive,
 		AndroidLogsLive,
+		ViewersLive,
 	);
 }
