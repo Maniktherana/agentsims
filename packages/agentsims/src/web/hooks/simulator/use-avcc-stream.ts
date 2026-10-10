@@ -14,6 +14,8 @@ export interface UseAvccStreamOptions {
 	url: string;
 	/** When false, the hook tears down any active decode and does nothing. */
 	enabled: boolean;
+	/** This tab's viewer ID. The server streams only to the holder of the device. */
+	viewer?: string | null;
 	/** Target canvas the decoded frames are painted into. */
 	canvasRef: React.RefObject<HTMLCanvasElement | null>;
 	/** Called the first time any frame (seed or decoded) is painted. */
@@ -58,6 +60,7 @@ const FRAME_DURATION_US = 16_667;
 export function useAvccStream({
 	url,
 	enabled,
+	viewer,
 	canvasRef,
 	onFirstFrame,
 	onFrame,
@@ -323,7 +326,10 @@ export function useAvccStream({
 			awaitingKeyframe = true;
 			let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 			try {
-				const res = await fetch(`${url}/stream.avcc`, {
+				const streamUrl = viewer
+					? `${url}/stream.avcc?viewer=${encodeURIComponent(viewer)}`
+					: `${url}/stream.avcc`;
+				const res = await fetch(streamUrl, {
 					signal: controller.signal,
 					cache: "no-store",
 				});
@@ -391,5 +397,5 @@ export function useAvccStream({
 			}
 			decoder = null;
 		};
-	}, [url, enabled, canvasRef]);
+	}, [url, enabled, viewer, canvasRef]);
 }

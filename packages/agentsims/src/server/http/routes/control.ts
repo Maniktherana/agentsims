@@ -19,12 +19,20 @@ import {
 	ShellExec,
 	type ShellExecService,
 } from "../../../core/tools/host-commands";
+import { Viewers, type ViewerLeases } from "../../../core/tools/viewers";
 import { json, requestSource, requestedDevice } from "./shared";
+
+function deviceList(value: unknown): string[] {
+	return Array.isArray(value)
+		? value.filter((device): device is string => typeof device === "string")
+		: [];
+}
 
 function execSocket(
 	request: HttpServerRequest.HttpServerRequest,
 	config: ServerConfigValue,
 	shell: ShellExecService,
+	viewers: ViewerLeases,
 ): Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, Scope> {
 	return Effect.gen(function* () {
 		const source = requestSource(request.source);
@@ -38,6 +46,8 @@ function execSocket(
 		const write = yield* socket.writer;
 		const subscriptions = new Map<number, AbortController>();
 		let authenticated = false;
+		// This socket is one browser tab. It is a viewer after authentication.
+		let viewer: string | null = null;
 		const send = (value: unknown) =>
 			write(JSON.stringify(value)).pipe(Effect.catchAll(() => Effect.void));
 		const authTimeout = yield* Effect.sleep("10 seconds").pipe(
@@ -71,8 +81,19 @@ function execSocket(
 						if ("token" in value && value.token === config.execToken) {
 							authenticated = true;
 							yield* Fiber.interrupt(authTimeout);
-							yield* send({ ready: true });
+							viewer = viewers.register((holders) =>
+								Effect.runFork(send({ viewers: holders })),
+							);
+							yield* send({ ready: true, viewer, viewers: viewers.snapshot() });
 						} else yield* write(new Socket.CloseEvent(1008));
+						return;
+					}
+					if ("claim" in value && viewer) {
+						viewers.claim(viewer, deviceList(value.claim));
+						return;
+					}
+					if ("release" in value && viewer) {
+						viewers.release(viewer, deviceList(value.release));
 						return;
 					}
 					if ("unsub" in value && typeof value.unsub === "number") {
@@ -97,8 +118,28 @@ function execSocket(
 							yield* send({ sub, end: true, error: "path not allowed" });
 							return;
 						}
+						// Accessibility data goes only to the tab that holds the device.
+						const axDevice =
+							path.split("?", 1)[0] === `${config.basePath}/ax`
+								? new URL(path, source.url).searchParams.get("device")
+								: null;
+						if (axDevice && !viewers.allows(axDevice, viewer)) {
+							yield* send({
+								sub,
+								end: true,
+								error: "device held by another tab",
+							});
+							return;
+						}
 						const controller = new AbortController();
 						subscriptions.set(sub, controller);
+						const stopOnLoss =
+							axDevice && viewer
+								? viewers.onLoss(axDevice, viewer, () => controller.abort())
+								: () => {};
+						controller.signal.addEventListener("abort", stopOnLoss, {
+							once: true,
+						});
 						yield* Effect.promise(async () => {
 							try {
 								const response = await fetch(new URL(path, source.url), {
@@ -131,6 +172,7 @@ function execSocket(
 									);
 								}
 							}
+							stopOnLoss();
 							subscriptions.delete(sub);
 							Effect.runFork(send({ sub, end: true }));
 						}).pipe(Effect.forkScoped);
@@ -193,6 +235,7 @@ function execSocket(
 				Effect.ensuring(
 					Effect.sync(() => {
 						for (const controller of subscriptions.values()) controller.abort();
+						if (viewer) viewers.unregister(viewer);
 					}),
 				),
 				Effect.catchAll(() => Effect.void),
@@ -251,6 +294,7 @@ export const controlRoutes = HttpRouter.empty.pipe(
 				yield* HttpServerRequest.HttpServerRequest,
 				yield* ServerConfig,
 				yield* ShellExec,
+				yield* Viewers,
 			);
 		}),
 	),

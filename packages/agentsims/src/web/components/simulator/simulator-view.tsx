@@ -152,6 +152,10 @@ export interface SimulatorViewProps {
 	streamConfig?: StreamConfig | null;
 	/** Called when the rendered stream reports new dimensions or orientation. */
 	onScreenConfigChange?: (config: StreamConfig) => void;
+	/** Stops video while another tab holds the device. The last frame stays. */
+	paused?: boolean;
+	/** This tab's viewer ID, sent with the video request. */
+	viewer?: string | null;
 	/** Hide the bottom controls bar (Home button + FPS). */
 	hideControls?: boolean;
 	/** Called when streaming state changes (true = frames are flowing). */
@@ -211,6 +215,8 @@ export interface SimulatorViewProps {
  */
 export function SimulatorView({
 	url,
+	paused = false,
+	viewer,
 	wsUrl: wsUrlProp,
 	style,
 	imageStyle,
@@ -531,7 +537,8 @@ export function SimulatorView({
 	);
 	useAvccStream({
 		url,
-		enabled: useAvcc,
+		enabled: useAvcc && !paused,
+		viewer,
 		canvasRef,
 		onFirstFrame: onAvccFirstFrame,
 		onFrame: onAvccFrame,
