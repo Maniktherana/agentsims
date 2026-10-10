@@ -55,79 +55,95 @@ export const AppsLive = Layer.effect(
 	Effect.gen(function* () {
 		const android = yield* AndroidTools;
 		const cache = new Map<string, unknown>();
+		// An install can replace the icon and name of an app. The install value is
+		// a file path, not a bundle ID, so forget every cached app on that device.
+		const forgetDevice = (device: string) =>
+			Effect.sync(() => {
+				for (const key of [...cache.keys()])
+					if (key.startsWith(`${device}:`)) cache.delete(key);
+			});
+		const changesApps = (input: AppOperation) =>
+			input.operation === "install" || input.operation === "uninstall";
+		const execute = (
+			device: string,
+			input: AppOperation,
+		): Effect.Effect<unknown, ApplicationCommandError> => {
+			const serial = androidSerialFromStateId(device);
+			if (input.operation === "details")
+				return requireValue(input).pipe(
+					Effect.flatMap((bundleId) => {
+						const key = `${device}:${bundleId}`;
+						if (cache.has(key)) return Effect.succeed(cache.get(key));
+						const read = serial
+							? android.details(device, bundleId)
+							: Effect.tryPromise({
+									try: () => appDetails(device, bundleId),
+									catch: commandFailure,
+								});
+						return read.pipe(
+							Effect.tap((details) =>
+								Effect.sync(() => {
+									if (cache.size >= 128)
+										cache.delete(cache.keys().next().value!);
+									cache.set(key, details);
+								}),
+							),
+						);
+					}),
+					Effect.mapError(commandFailure),
+				);
+			if (serial) {
+				if (input.operation === "list")
+					return android.execute(device, { type: "apps" });
+				return requireValue(input).pipe(
+					Effect.flatMap((value) =>
+						input.operation === "install"
+							? android.execute(device, { type: "install", path: value })
+							: android.execute(device, {
+									type: "app",
+									operation: input.operation,
+									package: value,
+								}),
+					),
+					Effect.mapError(commandFailure),
+				);
+			}
+			if (process.platform !== "darwin")
+				return Effect.fail(
+					new CommandUnavailable({
+						message: "iOS app operations require a macOS server with Xcode.",
+					}),
+				);
+			const operation: Effect.Effect<unknown, ApplicationCommandError> =
+				input.operation === "list"
+					? Effect.tryPromise({
+							try: () => listApps(device),
+							catch: commandFailure,
+						})
+					: requireValue(input).pipe(
+							Effect.flatMap((value) =>
+								Effect.tryPromise({
+									try: async () => {
+										if (input.operation === "launch")
+											return launchApp(device, value);
+										if (input.operation === "stop")
+											await terminateApp(device, value);
+										else if (input.operation === "install")
+											await installApp(device, value);
+										else await uninstallApp(device, value);
+										return { ok: true };
+									},
+									catch: commandFailure,
+								}),
+							),
+						);
+			return operation.pipe(Effect.mapError(commandFailure));
+		};
 		return Apps.of({
-			execute: (device, input) => {
-				const serial = androidSerialFromStateId(device);
-				if (input.operation === "details")
-					return requireValue(input).pipe(
-						Effect.flatMap((bundleId) => {
-							const key = `${device}:${bundleId}`;
-							if (cache.has(key)) return Effect.succeed(cache.get(key));
-							const read = serial
-								? android.details(device, bundleId)
-								: Effect.tryPromise({
-										try: () => appDetails(device, bundleId),
-										catch: commandFailure,
-									});
-							return read.pipe(
-								Effect.tap((details) =>
-									Effect.sync(() => {
-										if (cache.size >= 128)
-											cache.delete(cache.keys().next().value!);
-										cache.set(key, details);
-									}),
-								),
-							);
-						}),
-						Effect.mapError(commandFailure),
-					);
-				if (serial) {
-					if (input.operation === "list")
-						return android.execute(device, { type: "apps" });
-					return requireValue(input).pipe(
-						Effect.flatMap((value) =>
-							input.operation === "install"
-								? android.execute(device, { type: "install", path: value })
-								: android.execute(device, {
-										type: "app",
-										operation: input.operation,
-										package: value,
-									}),
-						),
-						Effect.mapError(commandFailure),
-					);
-				}
-				if (process.platform !== "darwin")
-					return Effect.fail(
-						new CommandUnavailable({
-							message: "iOS app operations require a macOS server with Xcode.",
-						}),
-					);
-				const operation: Effect.Effect<unknown, ApplicationCommandError> =
-					input.operation === "list"
-						? Effect.tryPromise({
-								try: () => listApps(device),
-								catch: commandFailure,
-							})
-						: requireValue(input).pipe(
-								Effect.flatMap((value) =>
-									Effect.tryPromise({
-										try: async () => {
-											if (input.operation === "launch")
-												return launchApp(device, value);
-											if (input.operation === "stop")
-												await terminateApp(device, value);
-											else if (input.operation === "install")
-												await installApp(device, value);
-											else await uninstallApp(device, value);
-											return { ok: true };
-										},
-										catch: commandFailure,
-									}),
-								),
-							);
-				return operation.pipe(Effect.mapError(commandFailure));
-			},
+			execute: (device, input) =>
+				changesApps(input)
+					? execute(device, input).pipe(Effect.tap(() => forgetDevice(device)))
+					: execute(device, input),
 		});
 	}),
 );
