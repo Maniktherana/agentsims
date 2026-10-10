@@ -122,6 +122,15 @@ describe("SimulatorFrameRateStore", () => {
 		});
 	});
 
+	test("partial surface updates inside one refresh do not raise the rate above 120", () => {
+		const rate = new SimulatorFrameRateStore();
+		rate.start();
+		for (let index = 0; index < 7; index++)
+			rate.recordTiming(BigInt(1 + index), BigInt(1_000_000 + index * 2_500));
+		expect(rate.getSnapshot()).toBe(120);
+		rate.reset();
+	});
+
 	test("returns to zero after 200ms without a native frame", () => {
 		withClock((advance) => {
 			const rate = new SimulatorFrameRateStore();
