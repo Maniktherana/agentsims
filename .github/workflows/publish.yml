@@ -198,18 +198,90 @@ jobs:
           git add Formula/agentsims.rb
           git commit -m "agentsims $AGENTSIMS_RELEASE_VERSION"
           git push
-  verify-homebrew:
+  # Homebrew treats a formula without a bottle as a source build. A source build
+  # stops when the Command Line Tools are older than the macOS version. A
+  # bottle installs without that check. Bottles built on macOS 15 also install
+  # on newer macOS versions.
+  bottle:
     needs: homebrew
     strategy:
       fail-fast: false
       matrix:
         runner: [macos-15, macos-15-intel]
     runs-on: "${{ matrix.runner }}"
+    permissions:
+      contents: write
     steps:
-      - name: Install the published formula on a fresh Mac
+      - name: Build and upload the bottle
+        env:
+          GH_TOKEN: "${{ github.token }}"
         run: |
           set -euo pipefail
-          brew install maniktherana/tap/agentsims
+          brew install --build-bottle maniktherana/tap/agentsims
+          brew bottle --json \
+            --root-url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$AGENTSIMS_RELEASE_VERSION" \
+            maniktherana/tap/agentsims
+          # brew bottle writes "name--version" files. The download URL uses "name-version".
+          for file in agentsims--*.bottle.tar.gz; do mv "$file" "${file/--/-}"; done
+          gh release upload "v$AGENTSIMS_RELEASE_VERSION" agentsims-*.bottle.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "bottle-${{ matrix.runner }}"
+          path: "*.bottle.json"
+          if-no-files-found: error
+  bottle-formula:
+    needs: bottle
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Maniktherana/homebrew-tap
+          ssh-key: "${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bottle-*
+          path: "${{ runner.temp }}/bottles"
+          merge-multiple: true
+      - name: Add the bottles to the formula
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP"/bottles/*.bottle.json <<'EOF'
+          import json, re, sys
+          lines, root_url = [], None
+          for path in sys.argv[1:]:
+              for formula in json.load(open(path)).values():
+                  bottle = formula["bottle"]
+                  root_url = bottle["root_url"]
+                  cellar = bottle["cellar"]
+                  cellar = f'"{cellar}"' if cellar.startswith("/") else f":{cellar}"
+                  for tag, value in bottle["tags"].items():
+                      lines.append(f'    sha256 cellar: {cellar}, {tag}: "{value["sha256"]}"')
+          block = "\n".join(["  bottle do", f'    root_url "{root_url}"', *sorted(lines), "  end", ""])
+          path = "Formula/agentsims.rb"
+          text = re.sub(r"\n  bottle do\n.*?\n  end\n\n", "\n", open(path).read(), flags=re.S)
+          text = text.replace('  license "Apache-2.0"\n', '  license "Apache-2.0"\n\n' + block, 1)
+          open(path, "w").write(text)
+          EOF
+          ruby -c Formula/agentsims.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/agentsims.rb
+          git commit -m "agentsims $AGENTSIMS_RELEASE_VERSION bottles"
+          git push
+  verify-homebrew:
+    needs: bottle-formula
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: "${{ matrix.runner }}"
+    steps:
+      - name: Install the published bottle on a fresh Mac
+        run: |
+          set -euo pipefail
+          brew install maniktherana/tap/agentsims 2>&1 | tee install.log
+          grep -q "Pouring agentsims" install.log
           brew test maniktherana/tap/agentsims
           test "$(agentsims --version)" = "$AGENTSIMS_RELEASE_VERSION"
   # Configure the npm trusted publisher for publish.yml and the npm environment.
