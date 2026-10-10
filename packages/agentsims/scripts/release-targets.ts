@@ -1,5 +1,8 @@
 import { win32 } from "node:path";
 
+export const REPOSITORY = "Maniktherana/agentsims";
+export const HOMEBREW_TAP = "Maniktherana/homebrew-tap";
+
 export const RUNTIME_TARGETS = [
 	"darwin-arm64",
 	"darwin-x64",
@@ -7,9 +10,6 @@ export const RUNTIME_TARGETS = [
 	"windows-x64",
 ] as const;
 export type RuntimeTarget = (typeof RUNTIME_TARGETS)[number];
-export const HOMEBREW_TARGETS = RUNTIME_TARGETS.filter(
-	(target) => target !== "windows-x64",
-);
 
 export function runtimeTarget(
 	platform: string,
@@ -36,8 +36,6 @@ export function runtimeArchiveTool(
 		: "tar";
 }
 
-export const LIBRARY_ARCHIVE_NAME = "agentsims-library.tar.gz";
-
 export const LIBRARY_ARTIFACTS = [
 	"metro.js",
 	"metro.cjs",
@@ -53,16 +51,6 @@ export const LIBRARY_DECLARATIONS = [
 ] as const;
 
 export const CHATGPT_ARCHIVE_NAME = "agentsims-chatgpt.tar.gz";
-export const CHATGPT_ARTIFACTS = [
-	"LICENSE",
-	"README.md",
-	"plugin.json",
-	"mcp.json",
-	"mcp-app.json",
-	"assets/workspace.html",
-	"skills/getting-started/SKILL.md",
-	"skills/workspace/SKILL.md",
-] as const;
 
 export function runtimeCompileTarget(
 	target: RuntimeTarget,

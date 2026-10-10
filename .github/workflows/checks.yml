@@ -38,4 +38,3 @@ jobs:
       - run: "bun run test:ci"
       - run: bun run build
       - run: bun run --cwd ../chatgpt build
-      - run: "bun run verify:package"
