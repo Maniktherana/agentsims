@@ -15,7 +15,6 @@ brew install Maniktherana/tap/agentsims
 
 ```sh
 curl -fsSL https://agentsims.dev/install | bash
-export PATH="$HOME/.agentsims/bin:$PATH"
 ```
 
 **Windows x64 — [PowerShell installation](docs/installation.md#windows)**

@@ -94,20 +94,11 @@ Run `agentsims <command> --help` for supported operations and options.
 
 Run these commands from `packages/agentsims`:
 
-| Command                   | Purpose                                                               |
-| ------------------------- | --------------------------------------------------------------------- |
-| `bun run build`           | Build the runtime, browser workspace, and native helpers.             |
-| `bun run verify:package`  | Check the runtime, RN library, and ChatGPT extension artifacts.       |
-| `bun run test:native`     | Run native device checks. Use `--assets-only` for asset checks.       |
-| `bun run release:prepare` | Record native or portable artifacts, then prepare a complete release. |
+| Command           | Purpose                                                                     |
+| ----------------- | --------------------------------------------------------------------------- |
+| `bun run build`   | Build the runtime, browser workspace, and native helpers.                   |
+| `bun run release` | Write the checksums, metadata, formula, and installer for built archives.   |
 
-`release:prepare` keeps the `record`, `record-portable`, and `prepare` operations.
-Release metadata requires `schemaVersion: 1`, an exact stable `version`, and a GitHub `repository` in `owner/name` form.
-`artifacts` requires `darwin-arm64`, `darwin-x64`, `linux-x64`, and `windows-x64`.
-`artifacts[target].file` must match the archive name from `runtimeArchiveName(target)`.
-`artifacts[target].sha256` requires 64 lowercase hexadecimal characters.
-Preparation creates the formula and checksums from this validated metadata. Existing output directories remain unchanged on failure.
-
-Formula tests use Ruby and temporary fixtures. For Homebrew verification, run installation, upgrade, removal, and audit checks on supported hosts.
+`bun run release <version> <directory>` reads the four runtime archives and the extension archive from the directory.
 
 [Full guide](https://github.com/Maniktherana/agentsims#readme) · [Source](https://github.com/Maniktherana/agentsims)

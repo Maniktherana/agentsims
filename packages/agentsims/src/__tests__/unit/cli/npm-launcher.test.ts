@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
 	LIBRARY_ARTIFACTS,
 	LIBRARY_DECLARATIONS,
-	HOMEBREW_TARGETS,
 	RUNTIME_TARGETS,
 	runtimeArchiveName,
 	runtimeArchiveTool,
@@ -57,11 +56,6 @@ describe("library and runtime artifact contracts", () => {
 		expect(runtimeExecutableName("windows-x64")).toBe("agentsims.exe");
 		expect(runtimeCompileTarget("windows-x64")).toBe("bun-windows-x64");
 		expect(runtimeTarget("win32", "x64")).toBe("windows-x64");
-		expect(HOMEBREW_TARGETS).toEqual([
-			"darwin-arm64",
-			"darwin-x64",
-			"linux-x64",
-		]);
 	});
 	test("Windows archives use native tar with native drive-letter paths", () => {
 		expect(runtimeArchiveTool("win32", { SystemRoot: "D:\\Windows" })).toBe(

@@ -16,10 +16,11 @@ private func hidLog(_ message: @autoclosure () -> String) {
 
 /// Injects touch, button, and orientation HID events into the iOS Simulator.
 ///
-/// Uses IndigoHIDMessageForMouseNSEvent to create touch messages and
-/// IndigoHIDMessageForButton for hardware button presses, sent via
-/// SimDeviceLegacyHIDClient. Orientation goes through a separate transport
-/// (PurpleWorkspacePort / GSEvent mach messages), matching idb's approach.
+/// Touches, keys, and hardware buttons go through the simulator's CoreDevice
+/// HID service (see `CoreDeviceHID`) when the runtime has one. Otherwise they
+/// use IndigoHIDMessageForMouseNSEvent and IndigoHIDMessageForButton messages,
+/// sent via SimDeviceLegacyHIDClient. Orientation goes through a separate
+/// transport (PurpleWorkspacePort / GSEvent mach messages), matching idb's approach.
 ///
 /// The real C signature for touch is:
 ///   IndigoHIDMessageForMouseNSEvent(CGPoint*, CGPoint*, IndigoHIDTarget, NSEventType, NSSize, IndigoHIDEdge)
@@ -34,6 +35,8 @@ actor HIDInjector {
     private var hidClient: NSObject?
     private var sendSel: Selector?
     private var simDevice: NSObject?
+    private var coreDevice: CoreDeviceHID?
+    private var coreDeviceRetryAt: ContinuousClock.Instant?
 
     // IndigoHIDMessageForMouseNSEvent(CGPoint*, CGPoint*, IndigoHIDTarget, NSEventType, NSSize, IndigoHIDEdge)
     // arm64 ABI: pointer/int params → x0-x4, float params → d0-d1 (independent numbering).
@@ -71,6 +74,7 @@ actor HIDInjector {
                           userInfo: [NSLocalizedDescriptionKey: "Device \(deviceUDID) not found"])
         }
         self.simDevice = device
+        self.coreDevice = CoreDeviceHID(device: device)
 
         guard let funcPtr = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "IndigoHIDMessageForMouseNSEvent") else {
             throw NSError(domain: "HIDInjector", code: 5,
@@ -144,6 +148,8 @@ actor HIDInjector {
         hidClient = nil
         sendSel = nil
         simDevice = nil
+        coreDevice = nil
+        coreDeviceRetryAt = nil
         mouseFunc = nil
         buttonFunc = nil
         hidArbitraryFunc = nil
@@ -160,6 +166,27 @@ actor HIDInjector {
     static let edgeTop: UInt32    = 2  // Top edge (notification center)
     static let edgeLeft: UInt32   = 1  // Left edge
     static let edgeRight: UInt32  = 4  // Right edge
+
+    /// Returns the CoreDevice transport when the runtime has one. A closed
+    /// connection, for example after dtuhidd restarts, reconnects at most once
+    /// per second. A runtime without dtuhidd is checked again every 10 s.
+    private func coreDeviceTransport() -> CoreDeviceHID? {
+        if let coreDevice, coreDevice.isConnected { return coreDevice }
+        let now = ContinuousClock.now
+        if let coreDeviceRetryAt, now < coreDeviceRetryAt { return nil }
+        coreDevice = simDevice.flatMap { CoreDeviceHID(device: $0) }
+        coreDeviceRetryAt = now + (coreDevice == nil ? .seconds(10) : .seconds(1))
+        return coreDevice
+    }
+
+    private static func coreDeviceEventType(_ type: String) -> UInt64? {
+        switch type {
+        case "begin": return 0
+        case "move":  return 1
+        case "end":   return 2
+        default:      return nil
+        }
+    }
 
     /// Synchronously hand an already-built Indigo message to the guest, freeing it.
     /// Must run on `inputQueue`.
@@ -190,16 +217,26 @@ actor HIDInjector {
     /// Synchronously build + send a single touch. For use inside gesture blocks
     /// already running on `inputQueue`.
     private func rawSendTouch(type: String, x: Double, y: Double, edge: UInt32 = 0) {
+        if let coreDevice = coreDeviceTransport() {
+            if let eventType = Self.coreDeviceEventType(type) {
+                coreDevice.touch(eventType: eventType, x: x, y: y, edge: edge)
+            }
+            return
+        }
         if let msg = touchMessage(type: type, x: x, y: y, edge: edge) { rawSend(msg) }
     }
 
     func sendTouch(type: String, x: Double, y: Double, screenWidth: Int, screenHeight: Int, edge: UInt32 = 0) {
-        guard let msg = touchMessage(type: type, x: x, y: y, edge: edge) else { return }
         hidLog("[hid] Sending \(type) at (\(String(format:"%.3f",x)),\(String(format:"%.3f",y)))\(edge > 0 ? " edge=\(edge)" : "")")
-        rawSend(msg)
+        rawSendTouch(type: type, x: x, y: y, edge: edge)
     }
 
     func sendMultiTouch(type: String, x1: Double, y1: Double, x2: Double, y2: Double, screenWidth: Int, screenHeight: Int) {
+        if let coreDevice = coreDeviceTransport() {
+            guard let eventType = Self.coreDeviceEventType(type) else { return }
+            coreDevice.touch(eventType: eventType, x: x1, y: y1, second: CGPoint(x: x2, y: y2), edge: 0)
+            return
+        }
         guard let mouseFunc = mouseFunc else { return }
 
         let eventType: Int32
@@ -238,6 +275,17 @@ actor HIDInjector {
     // idb target constant (third arg)
     private static let buttonTargetHardware: Int32 = 0x33
 
+    // HID consumer usages that dtuhidd takes for the same buttons. Siri and the
+    // software-keyboard toggle have no known equivalent and use the legacy client.
+    private static let consumerPage: UInt32 = 0x0c
+    private static func consumerUsage(eventSource: Int32) -> UInt32? {
+        switch eventSource {
+        case buttonSourceHome: return 0x40
+        case buttonSourceLock, buttonSourceSideButton: return 0x30
+        default: return nil
+        }
+    }
+
     // Target for arbitrary (page, usage) HID — the digitizer, matching the touch
     // path that's honored on Xcode 26 (0x32).
     private static let buttonHIDTarget: UInt32 = 0x32
@@ -245,6 +293,10 @@ actor HIDInjector {
     /// Synchronously build + send a hardware-button message. Call only inside an
     /// `inputQueue` block (button sequences below run there).
     private func sendHIDButton(eventSource: Int32, direction: Int32) {
+        if let coreDevice = coreDeviceTransport(), let usage = Self.consumerUsage(eventSource: eventSource) {
+            coreDevice.button(page: Self.consumerPage, usage: usage, down: direction == Self.buttonDown)
+            return
+        }
         guard let buttonFunc = buttonFunc else { return }
         guard let msg = buttonFunc(eventSource, direction, Self.buttonTargetHardware) else {
             print("[hid] IndigoHIDMessageForButton returned nil")
@@ -260,16 +312,21 @@ actor HIDInjector {
     ///   - type: "down" or "up"
     ///   - usage: HID usage code (e.g. 0x04 = 'A', 0x28 = Enter, 0xE1 = LeftShift)
     func sendKey(type: String, usage: UInt32) {
-        guard let keyboardFunc = keyboardFunc else {
-            print("[hid] Keyboard injection unavailable")
-            return
-        }
-
         let direction: UInt32
         switch type {
         case "down": direction = 1
         case "up":   direction = 2
         default: return
+        }
+
+        if let coreDevice = coreDeviceTransport() {
+            hidLog("[hid] Key \(type) usage=0x\(String(usage, radix: 16))")
+            coreDevice.key(usage: usage, down: direction == 1)
+            return
+        }
+        guard let keyboardFunc = keyboardFunc else {
+            print("[hid] Keyboard injection unavailable")
+            return
         }
 
         guard let msg = keyboardFunc(usage, direction) else {
@@ -405,13 +462,18 @@ actor HIDInjector {
     /// - phase: "down" / "up" hold the button for natural long-presses (power
     ///   off slider, side-button menus); "press" sends a momentary down+up.
     func sendButtonHID(page: UInt32, usage: UInt32, phase: String) async {
-        guard let arb = hidArbitraryFunc else {
+        let coreDevice = coreDeviceTransport()
+        guard coreDevice != nil || hidArbitraryFunc != nil else {
             print("[hid] Arbitrary HID injection unavailable (page=\(page) usage=\(usage))")
             return
         }
         let target = Self.buttonHIDTarget
         func emit(_ direction: UInt32) {
-            guard let msg = arb(target, page, usage, direction) else {
+            if let coreDevice {
+                coreDevice.button(page: page, usage: usage, down: direction == 1)
+                return
+            }
+            guard let msg = hidArbitraryFunc?(target, page, usage, direction) else {
                 print("[hid] IndigoHIDMessageForHIDArbitrary returned nil (page=\(page) usage=\(usage) dir=\(direction))")
                 return
             }

@@ -80,7 +80,58 @@ describe("device lifecycle reconciliation", () => {
 		});
 		expect(calls.slice(1)).toEqual([
 			`simctl boot ${IOS}`,
-			`simctl bootstatus ${IOS} -b`,
+			`simctl bootstatus ${IOS}`,
+			"simctl list devices -j",
+		]);
+	});
+
+	test("a rejected iOS boot stops the start without a second boot", async () => {
+		const calls: string[] = [];
+		const lifecycle = new DeviceLifecycle(
+			async (_command, args) => {
+				calls.push(args.join(" "));
+				return args[1] === "boot"
+					? {
+							error: new Error("exit 149"),
+							stdout: "",
+							stderr: "Invalid argument\n",
+						}
+					: { error: null, stdout: "", stderr: "" };
+			},
+			undefined,
+			"darwin",
+		);
+
+		expect(await lifecycle.start(IOS, 3200, "/.sim")).toEqual({
+			error: `Device ${IOS} could not boot: Invalid argument`,
+			device: IOS,
+		});
+		expect(calls).toEqual([`simctl boot ${IOS}`]);
+	});
+
+	test("an iOS simulator that is already booted continues to the boot check", async () => {
+		const calls: string[] = [];
+		const lifecycle = new DeviceLifecycle(
+			async (_command, args) => {
+				calls.push(args.join(" "));
+				if (args[1] === "boot")
+					return {
+						error: new Error("exit 149"),
+						stdout: "",
+						stderr: "Unable to boot device in current state: Booted\n",
+					};
+				if (args[1] === "list")
+					return { error: null, stdout: JSON.stringify({ devices: {} }), stderr: "" };
+				return { error: new Error("timed out"), stdout: "", stderr: "" };
+			},
+			undefined,
+			"darwin",
+		);
+
+		await lifecycle.start(IOS, 3200, "/.sim");
+		expect(calls).toEqual([
+			`simctl boot ${IOS}`,
+			`simctl bootstatus ${IOS}`,
 			"simctl list devices -j",
 		]);
 	});

@@ -39,7 +39,6 @@ bun run --cwd packages/agentsims-react-native test
 bun run --cwd packages/agentsims-react-native typecheck
 bun run --cwd packages/agentsims-react-native lint
 bun run build
-bun run --cwd packages/agentsims verify:package
 ```
 
 To build only the RN library, run:
@@ -67,22 +66,17 @@ RN and extension builds do not require mobile SDKs. The runtime build compiles n
 The release workflow checks all native targets and publishes one portable plugin archive.
 
 Pull-request CI uses `bun run test:ci` for the device-free source suite, then
-builds and verifies the fresh package. `bun test` also lists the explicit
-native opt-in cases as skips when their gate variables are absent.
+builds the runtime and the extension. `bun test` lists the device tests as skips
+when their device variables are absent.
 
-Ordinary CI does not inspect ambient devices. The native release gate requires
-explicit IDs for one booted iOS simulator, one Android emulator, and one
-physical Android device:
+CI does not use devices. To run the device tests, give the ID of one booted
+iOS simulator and one Android device or emulator:
 
 ```sh
 AGENTSIMS_E2E_IOS_DEVICE=<simulator-udid> \
-AGENTSIMS_E2E_ANDROID_EMULATOR=<emulator-serial> \
-AGENTSIMS_E2E_ANDROID_PHYSICAL_DEVICE=<device-serial> \
-bun run --cwd packages/agentsims test:native
+AGENTSIMS_E2E_ANDROID_DEVICE=<device-serial> \
+bun run --cwd packages/agentsims test src/__tests__/e2e
 ```
-
-The requested gate fails when an ID or fresh native artifact is missing. It
-does not turn a missing prerequisite into a passing skip.
 
 Run the source build:
 
@@ -99,14 +93,19 @@ The separate `publish_npm` option defaults to false.
 GitHub release delivery does not depend on npm publication.
 
 The workflow builds macOS arm64, macOS x64, Linux x64, and Windows x64 runtimes on their native runners.
-It prepares one portable RN library and one extension archive.
-Release assets include platform archives, checksums, metadata, the Homebrew formula, and the generated installer.
+Each runner starts its archive once and checks the version, status, and browser page.
+`scripts/release.ts` then writes the checksums, metadata, Homebrew formula, and installer.
+Release assets include these files, the platform archives, and the extension archive.
+
+A `public` release pushes `agentsims.rb` to the [Homebrew tap](https://github.com/Maniktherana/homebrew-tap).
+Then it installs the formula on new macOS arm64 and x64 runners.
+The `HOMEBREW_TAP_DEPLOY_KEY` secret holds a deploy key with write access to the tap.
 
 The macOS build applies ad hoc signatures to native helpers.
 Developer ID signing and notarization are not part of this release path.
 
 The installer template is `packages/agentsims/scripts/install.sh`.
-Release preparation inserts the version into this template.
+`scripts/release.ts` inserts the version into this template.
 The website redirects `https://agentsims.dev/install` to the installer in the latest GitHub release.
 The redirect uses `apps/web/public/_redirects`. It shares the existing installer implementation.
 

@@ -115,7 +115,8 @@ AGENTSIMS_NATIVE="$AGENTSIMS_INSTALL_ROOT/current/dist/agentsims"
 file -L "$AGENTSIMS_NATIVE"
 ```
 
-The curl installer preserves versioned files under `~/.agentsims` and does not change PATH by default.
+The curl installer preserves versioned files under `~/.agentsims` and adds `~/.agentsims/bin` to PATH in the shell profile.
+A desktop host does not always read that profile. Pass `--no-modify-path` to keep the profile unchanged.
 Its `bin/agentsims` command is the known shim described above.
 Inspect the native target after installation. Then repeat the version, MCP, and platform diagnostic checks.
 Use the expanded absolute executable path in native host configuration if the desktop cannot find it through PATH.
