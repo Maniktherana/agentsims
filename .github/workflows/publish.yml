@@ -218,17 +218,18 @@ jobs:
         run: |
           set -euo pipefail
           brew install --build-bottle maniktherana/tap/agentsims
-          brew bottle --json \
+          # A new version needs no bottle rebuild number. Keep the file names predictable.
+          brew bottle --json --no-rebuild \
             --root-url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$AGENTSIMS_RELEASE_VERSION" \
             maniktherana/tap/agentsims
           # brew bottle writes "name--version" files. The download URL uses "name-version".
-          for file in agentsims--*.bottle.tar.gz; do mv "$file" "${file/--/-}"; done
-          gh release upload "v$AGENTSIMS_RELEASE_VERSION" agentsims-*.bottle.tar.gz \
+          for file in agentsims--*.tar.gz; do mv "$file" "${file/--/-}"; done
+          gh release upload "v$AGENTSIMS_RELEASE_VERSION" agentsims-*.bottle*.tar.gz \
             --repo "$GITHUB_REPOSITORY" --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: "bottle-${{ matrix.runner }}"
-          path: "*.bottle.json"
+          path: "agentsims--*.json"
           if-no-files-found: error
   bottle-formula:
     needs: bottle
@@ -246,7 +247,7 @@ jobs:
       - name: Add the bottles to the formula
         run: |
           set -euo pipefail
-          python3 - "$RUNNER_TEMP"/bottles/*.bottle.json <<'EOF'
+          python3 - "$RUNNER_TEMP"/bottles/*.json <<'EOF'
           import json, re, sys
           lines, root_url = [], None
           for path in sys.argv[1:]:
