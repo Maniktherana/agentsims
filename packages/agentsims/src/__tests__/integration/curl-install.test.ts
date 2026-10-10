@@ -147,7 +147,7 @@ function expectClean() {
 test("curl installation and normal startup work without Node, npm, or shell edits", () => {
 	makeRelease("1.0.0");
 	const originalProfile = readFileSync(profile, "utf8");
-	const result = install("1.0.0", [], { AGENTSIMS_SOURCE_PACKAGE: "/missing/legacy-npm-package", AGENTSIMS_INSTALL_VERSION: "9.9.9" });
+	const result = install("1.0.0", ["--no-modify-path"], { AGENTSIMS_SOURCE_PACKAGE: "/missing/legacy-npm-package", AGENTSIMS_INSTALL_VERSION: "9.9.9" });
 	expect(result.error).toBeUndefined();
 	expect(result.status).toBe(0);
 	expect(installedVersion()).toBe("1.0.0");
@@ -269,14 +269,17 @@ test("an incomplete existing version is retained rather than overwritten", () =>
 	expectClean();
 });
 
-test("PATH changes require the flag and repeat without duplicate entries", () => {
+test("installation adds the command to PATH once, unless the user opts out", () => {
 	makeRelease("1.0.0");
 	const originalProfile = readFileSync(profile, "utf8");
-	expect(install("1.0.0").status).toBe(0);
+	expect(install("1.0.0", ["--no-modify-path"]).status).toBe(0);
 	expect(readFileSync(profile, "utf8")).toBe(originalProfile);
-	expect(install("1.0.0", ["--add-to-path"]).status).toBe(0);
+	const result = install("1.0.0");
+	expect(result.status).toBe(0);
+	expect(result.stderr).toContain(`Added ${installRoot}/bin to PATH`);
 	const updatedProfile = readFileSync(profile, "utf8");
 	expect(updatedProfile.startsWith(originalProfile)).toBe(true);
+	expect(install("1.0.0").status).toBe(0);
 	expect(install("1.0.0", ["--add-to-path"]).status).toBe(0);
 	expect(readFileSync(profile, "utf8")).toBe(updatedProfile);
 	const sourced = spawnSync(bash, ["-c", '. "$1"; printf "%s" "$PATH"', "fixture", profile], {
@@ -285,6 +288,15 @@ test("PATH changes require the flag and repeat without duplicate entries", () =>
 	expect(sourced.status).toBe(0);
 	expect(sourced.stdout).toBe(`${installRoot}/bin:${commandDirectory}`);
 	expectClean();
+});
+
+test("a fish profile gets fish syntax", () => {
+	makeRelease("1.0.0");
+	const fishProfile = join(directory, "fish", "config.fish");
+	expect(install("1.0.0", [], { AGENTSIMS_SHELL_PROFILE: fishProfile }).status).toBe(0);
+	expect(readFileSync(fishProfile, "utf8")).toContain(
+		`set -gx PATH '${installRoot.replaceAll("'", "\\'")}/bin' $PATH`,
+	);
 });
 
 test("an existing installer lock is not removed by another invocation", () => {
@@ -299,7 +311,7 @@ test("an existing installer lock is not removed by another invocation", () => {
 test("help and invalid options do not install anything", () => {
 	const help = install("1.0.0", ["--help"]);
 	expect(help.status).toBe(0);
-	expect(help.stdout).toContain("--add-to-path");
+	expect(help.stdout).toContain("--no-modify-path");
 	expect(install("1.0.0", ["--unknown"]).status).toBe(1);
 	expect(existsSync(installRoot)).toBe(false);
 	expect(readFileSync(requests, "utf8")).toBe("");

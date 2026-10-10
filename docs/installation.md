@@ -32,13 +32,16 @@ brew install Maniktherana/tap/agentsims
 
 ```sh
 curl -fsSL https://agentsims.dev/install | bash
-export PATH="$HOME/.agentsims/bin:$PATH"
+```
+
+The installer adds `~/.agentsims/bin` to PATH in your shell profile.
+Open a new terminal, or run the `export` command that the installer prints.
+Then run:
+
+```sh
 agentsims doctor
 agentsims start
 ```
-
-The `export` command changes PATH for the current terminal only.
-You can also use the full command path: `~/.agentsims/bin/agentsims`.
 
 ### What the installer does
 
@@ -54,10 +57,10 @@ The installer:
 5. Keeps the release in `~/.agentsims/versions/<version>`.
 6. Sets `~/.agentsims/current` to that release.
 7. Writes `~/.agentsims/bin/agentsims`, which launches the selected native executable.
+8. Adds `~/.agentsims/bin` to PATH in `.zshrc`, `.bash_profile` on macOS, `.bashrc` on Linux, or fish `config.fish`.
 
 A repeat installation reuses a valid copy of that version.
 Updates preserve older versions and runtime data.
-The script changes no shell profile by default.
 It does not install mobile SDKs, npm packages, or agent instructions.
 
 To inspect the script before installation:
@@ -68,18 +71,19 @@ less install.sh
 bash install.sh
 ```
 
-To add the command to future terminal sessions:
+To keep your shell profile unchanged:
 
 ```sh
-bash install.sh --add-to-path
+bash install.sh --no-modify-path
 ```
 
-This option adds PATH to `.zshrc` or `.bashrc` for your shell.
-For another shell, the installer prints the directory to add.
-Open a new terminal after the profile changes.
+Then use the full command path, `~/.agentsims/bin/agentsims`, or add `~/.agentsims/bin` to PATH yourself.
 
 `AGENTSIMS_INSTALL_DIR` selects another installation directory.
-With `--add-to-path`, `AGENTSIMS_SHELL_PROFILE` selects a profile.
+`AGENTSIMS_SHELL_PROFILE` selects another shell profile.
+
+Runtime data, such as logs, state, screenshots, and recordings, stays in `~/.agentsims` for every install method, including Homebrew.
+`AGENTSIMS_HOME_DIR` selects another data directory.
 
 ## Windows
 

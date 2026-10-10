@@ -6,14 +6,17 @@ fail() {
   exit 1
 }
 
-add_to_path=0
+modify_path=1
 profile=${AGENTSIMS_SHELL_PROFILE:-}
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --add-to-path) add_to_path=1 ;;
+    --no-modify-path) modify_path=0 ;;
+    # The default now updates PATH. The old flag stays valid.
+    --add-to-path) modify_path=1 ;;
     --help)
-      printf 'Usage: bash install.sh [--add-to-path]\n'
-      printf 'Install the runtime. Use --add-to-path to update the shell profile.\n'
+      printf 'Usage: bash install.sh [--no-modify-path]\n'
+      printf 'Install the runtime and add it to PATH in your shell profile.\n'
+      printf 'Use --no-modify-path to keep the shell profile unchanged.\n'
       exit 0 ;;
     *) fail "Unknown option: $1" ;;
   esac
@@ -131,36 +134,45 @@ else
 fi
 activated=1
 
+bin_dir="$install_root/bin"
 profile_updated=0
-if [[ "$add_to_path" == 1 ]]; then
+if [[ "$modify_path" == 1 && ":$PATH:" != *":$bin_dir:"* ]]; then
   if [[ -z "$profile" ]]; then
     case "${SHELL:-}" in
-      */zsh) profile="$HOME/.zshrc" ;;
-      */bash) profile="$HOME/.bashrc" ;;
-      *) printf 'PATH was not updated. Add this directory to PATH: %s/bin\n' "$install_root" >&2 ;;
+      */zsh) profile="${ZDOTDIR:-$HOME}/.zshrc" ;;
+      */bash)
+        # Terminal on macOS starts login shells, which read .bash_profile.
+        if [[ "$target" == darwin-* ]]; then profile="$HOME/.bash_profile"; else profile="$HOME/.bashrc"; fi ;;
+      */fish) profile="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish" ;;
     esac
   fi
   if [[ -n "$profile" ]]; then
-    printf -v path_entry 'export PATH=%q:"$PATH"' "$install_root/bin"
+    if [[ "$profile" == *.fish ]]; then
+      quote="'" escaped_quote="\\'"
+      path_entry="set -gx PATH '${bin_dir//$quote/$escaped_quote}' \$PATH"
+    else
+      printf -v path_entry 'export PATH=%q:"$PATH"' "$bin_dir"
+    fi
     if [[ -f "$profile" ]] && grep -Fxq "$path_entry" "$profile"; then
       profile_updated=1
-    elif printf '\n# Agentsims PATH\n%s\n' "$path_entry" >> "$profile"; then
+    elif mkdir -p "$(dirname "$profile")" &&
+      printf '\n# Agentsims PATH\n%s\n' "$path_entry" >> "$profile"; then
       profile_updated=1
-    else
-      printf 'PATH was not updated. Add this directory to PATH: %s/bin\n' "$install_root" >&2
     fi
   fi
 fi
 
 if [[ "${AGENTSIMS_INSTALL_QUIET:-}" != 1 ]]; then
   printf 'Installed Agentsims %s in %s\n' "$version" "$install_root" >&2
-  printf 'Command: %s/bin/agentsims\n' "$install_root" >&2
-  if [[ ":$PATH:" != *":$install_root/bin:"* ]]; then
+  if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
     if [[ "$profile_updated" == 1 ]]; then
-      printf 'Open a new terminal to use the updated PATH.\n' >&2
+      printf 'Added %s to PATH in %s.\n' "$bin_dir" "$profile" >&2
+      printf 'Open a new terminal, or run this command in this terminal:\n' >&2
     else
-      printf 'Add this directory to PATH: %s/bin\n' "$install_root" >&2
+      printf 'Add %s to PATH. For this terminal, run:\n' "$bin_dir" >&2
     fi
+    printf -v export_command 'export PATH=%q:"$PATH"' "$bin_dir"
+    printf '  %s\n' "$export_command" >&2
   fi
   printf 'Next: agentsims doctor\n' >&2
 fi
