@@ -279,13 +279,13 @@ test("the installed default command starts native stdio without Node, npm, Bun, 
 	const connection = startPlugin(installed.mcp.mcpServers.agentsims, runtime.origin, installed.directory);
 	expect((await connection.initialize()).result.serverInfo.name).toBe("agentsims");
 	const tools = (await connection.request("tools/list")).result.tools as Json[];
-	expect(tools).toHaveLength(19);
-	expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["devices_list", "app_logs", "context_read", "context_export"]));
+	expect(tools).toHaveLength(15);
+	expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["devices_list", "app_logs", "context_read", "context_export", "workspace_open", "workspace_http", "workspace_socket"]));
 	expect(tools.find((tool) => tool.name === "workspace_open")?._meta).toEqual({ ui: { resourceUri: "ui://agentsims/workspace.html" }, "openai/ui": { entrypoints: [{ type: "global" }, { type: "thread" }] } });
 	const resource = await connection.request("resources/read", { uri: "ui://agentsims/workspace.html" });
 	expect(resource.result.contents).toEqual([{ uri: "ui://agentsims/workspace.html", mimeType: "text/html;profile=mcp-app", text: fixtureHtml, _meta: {} }]);
 	const workspace = await connection.request("tools/call", { name: "workspace_open", arguments: {} });
-	expect(workspace.result.structuredContent.capabilities).toEqual({ embeddedTransport: true, workspaceProtocol: 1 });
+	expect(workspace.result.structuredContent.devices).toBeDefined();
 	const devices = await connection.request("tools/call", { name: "devices_list", arguments: {} });
 	expect(devices.result.structuredContent.data.map((device: Json) => device.udid)).toEqual(["selected-ios", "android:emulator-5554"]);
 	const context = await connection.request("tools/call", { name: "context_list", arguments: { workspace: "installed/plugin" } });

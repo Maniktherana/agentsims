@@ -29,7 +29,7 @@ try {
   assert.equal(url.hostname, "127.0.0.1");
   assert(Number(url.port) > 0);
   const capabilities = await (await fetch(runtime.origin + "/capabilities")).json();
-  assert.deepEqual(capabilities.runtime, { managedServer: 1, sourceContext: 1, appLogs: 1, context: 1, workspace: 1 });
+  assert.deepEqual(capabilities.runtime, { managedServer: 1, sourceContext: 1, appLogs: 1, context: 1 });
   assert.equal(readFileSync(record, "utf8"), original);
   assert.deepEqual([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")], signals);
 } finally {

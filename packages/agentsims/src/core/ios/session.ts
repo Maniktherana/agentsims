@@ -319,6 +319,30 @@ export class DeviceSession {
 		});
 	}
 
+	/**
+	 * The newest JPEG with a sequence after `after`. If no newer frame arrives
+	 * within one second, this returns the current frame (an idle screen).
+	 */
+	async readFrame(after: number): Promise<IosScreenshot | null> {
+		await this.start();
+		const current = this.latestScreenshot();
+		if (current && current.sequence > after)
+			return { ...current, bytes: Buffer.from(current.bytes) };
+		return new Promise((resolve) => {
+			const waiter: ScreenshotWaiter = {
+				afterSequence: after,
+				resolve,
+				reject: () => resolve(null),
+			};
+			waiter.timeout = setTimeout(() => {
+				this.screenshotWaiters.delete(waiter);
+				const latest = this.latestScreenshot();
+				resolve(latest ? { ...latest, bytes: Buffer.from(latest.bytes) } : null);
+			}, 1_000);
+			this.screenshotWaiters.add(waiter);
+		});
+	}
+
 	async readAccessibility(): Promise<unknown> {
 		const raw = await this.readAccessibilityFresh();
 		this.accessibilityReadback = raw;

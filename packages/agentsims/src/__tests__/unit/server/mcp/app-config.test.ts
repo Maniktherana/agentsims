@@ -100,12 +100,9 @@ test("actual SDK advertises plugin entrypoints and serves one stable UI resource
 		return response.promise;
 	};
 	const devices = { devices: [{ device: "android:emulator-5554", platform: "android" }] };
-	const workspace = crypto.randomUUID();
-	const server = createMcpServer({ version: "fixture", app, client: () => {
+	const server = createMcpServer({ version: "fixture", app, origin: "http://127.0.0.1:3200", client: () => {
 		const client = new ApplicationCommandClient();
 		client.listDevices = async () => devices;
-		client.createWorkspace = async () => ({ workspace });
-		client.renewWorkspace = async () => ({ workspace });
 		return client;
 	} });
 	try {
@@ -113,16 +110,12 @@ test("actual SDK advertises plugin entrypoints and serves one stable UI resource
 		await request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "fixture", version: "1" } });
 		await peer.send({ jsonrpc: "2.0", method: "notifications/initialized" });
 		const tools = (await request("tools/list", {})).result as { tools: Array<{ name: string; _meta: unknown }> };
-		expect(tools.tools).toHaveLength(19);
+		expect(tools.tools).toHaveLength(15);
 		expect(tools.tools.find((tool) => tool.name === "workspace_open")?._meta).toEqual(app.tool.meta);
 		const resource = (await request("resources/read", { uri: app.resource.uri })).result as { contents: Array<{ uri: string; text: string; mimeType: string; _meta: unknown }> };
 		expect(resource.contents).toHaveLength(1);
 		expect(resource.contents[0]).toEqual({ uri: app.resource.uri, text: installed.html, mimeType: app.resource.mimeType, _meta: app.resource.meta });
-		const opened = (await request("tools/call", { name: "workspace_open", arguments: {} })).result as { structuredContent: { workspace: string; devices: unknown; capabilities: unknown } };
+		const opened = (await request("tools/call", { name: "workspace_open", arguments: {} })).result as { structuredContent: { devices: unknown } };
 		expect(opened.structuredContent.devices).toEqual(devices);
-		expect(opened.structuredContent.workspace.length).toBeGreaterThan(0);
-		expect(opened.structuredContent.capabilities).toEqual({ embeddedTransport: true, workspaceProtocol: 1 });
-		const reopened = (await request("tools/call", { name: "workspace_open", arguments: {} })).result as typeof opened;
-		expect(reopened.structuredContent.workspace).toBe(opened.structuredContent.workspace);
 	} finally { await server.close(); await peer.close(); }
 });

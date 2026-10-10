@@ -7,18 +7,6 @@ import type {
 	LogTarget,
 } from "../core/tools/logs/contracts";
 import { logRequestParams } from "../core/tools/logs/target";
-import { WORKSPACE_LIMITS } from "../core/tools/workspace/contracts";
-import type { WorkspaceLease, WorkspaceConfiguration, WorkspaceInputReply, WorkspaceView } from "../core/tools/workspace/service";
-
-export type WorkspaceVideoPacket = WorkspaceView & {
-	leaseId: string; device: string; cursor: number; epoch: number; reset: boolean;
-	mimeType: "application/x-agentsims-avcc" | "image/jpeg";
-	bytes: Uint8Array; reservationId?: string;
-};
-
-function workspacePath(workspace: string, viewId?: string, leaseId?: string): string {
-	return `/workspace/${encodeURIComponent(workspace)}${viewId === undefined ? "" : `/views/${encodeURIComponent(viewId)}`}${leaseId === undefined ? "" : `/leases/${encodeURIComponent(leaseId)}`}`;
-}
 
 export type CommandClientOptions = {
 	origin?: string;
@@ -107,70 +95,6 @@ export class ApplicationCommandClient {
 
 	async listDevices(): Promise<unknown> {
 		return this.request("/grid/api");
-	}
-
-	async createWorkspace(): Promise<{ workspace: string }> { return this.request("/workspace", { method: "POST" }) as Promise<{ workspace: string }>; }
-	async renewWorkspace(workspace: string): Promise<{ workspace: string }> { return this.request(workspacePath(workspace), { method: "PUT" }) as Promise<{ workspace: string }>; }
-	async openWorkspaceView(workspace: string): Promise<WorkspaceView> { return this.request(`${workspacePath(workspace)}/views`, { method: "POST" }) as Promise<WorkspaceView>; }
-	async openWorkspaceLease(workspace: string, viewId: string, device: string, codec: "avcc" | "jpeg" = "avcc"): Promise<WorkspaceLease> {
-		return this.request(`${workspacePath(workspace, viewId)}/leases`, { method: "POST", body: JSON.stringify({ device, codec }) }) as Promise<WorkspaceLease>;
-	}
-	async workspaceLeaseConfig(workspace: string, viewId: string, leaseId: string): Promise<WorkspaceConfiguration> { return this.request(`${workspacePath(workspace, viewId, leaseId)}/config`) as Promise<WorkspaceConfiguration>; }
-	async workspaceInput(workspace: string, viewId: string, batch: unknown): Promise<WorkspaceInputReply> {
-		const leaseId = (batch as { leaseId?: unknown } | null)?.leaseId;
-		if (typeof leaseId !== "string") throw new CommandRequestError("Workspace input requires its lease ID.");
-		return this.request(`${workspacePath(workspace, viewId, leaseId)}/input`, { method: "POST", body: JSON.stringify(batch) }) as Promise<WorkspaceInputReply>;
-	}
-	async closeWorkspaceLease(workspace: string, viewId: string, leaseId: string): Promise<WorkspaceView & { leaseId: string; closed: true }> { return this.request(workspacePath(workspace, viewId, leaseId), { method: "DELETE" }) as Promise<WorkspaceView & { leaseId: string; closed: true }>; }
-	async closeWorkspaceView(workspace: string, viewId: string): Promise<WorkspaceView & { closed: true }> { return this.request(workspacePath(workspace, viewId), { method: "DELETE" }) as Promise<WorkspaceView & { closed: true }>; }
-	async closeWorkspace(workspace: string): Promise<{ workspace: string; closed: true }> { return this.request(workspacePath(workspace), { method: "DELETE" }) as Promise<{ workspace: string; closed: true }>; }
-	async resizeWorkspaceReservation(workspace: string, viewId: string, reservationId: string, bytes: number): Promise<{ reservationId: string }> {
-		return this.request(`${workspacePath(workspace)}/reservations/${encodeURIComponent(reservationId)}`, { method: "PUT", body: JSON.stringify({ viewId, bytes }) }) as Promise<{ reservationId: string }>;
-	}
-	async releaseWorkspaceReservation(workspace: string, reservationId: string): Promise<{ released: true }> {
-		return this.request(`${workspacePath(workspace)}/reservations/${encodeURIComponent(reservationId)}`, { method: "DELETE" }) as Promise<{ released: true }>;
-	}
-	async readWorkspaceVideo(workspace: string, viewId: string, leaseId: string, options: { cursor?: number; epoch?: number; retain?: boolean } = {}): Promise<WorkspaceVideoPacket> {
-		const query = new URLSearchParams();
-		if (options.cursor !== undefined) query.set("cursor", String(options.cursor));
-		if (options.epoch !== undefined) query.set("epoch", String(options.epoch));
-		if (options.retain) query.set("retain", "1");
-		const signal = AbortSignal.any([AbortSignal.timeout(this.timeoutMs), ...(this.signal ? [this.signal] : [])]);
-		let reservationId: string | undefined;
-		let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-		try {
-			const response = await fetch(`${this.origin}${workspacePath(workspace, viewId, leaseId)}/video?${query}`, { signal, redirect: "error" });
-			reservationId = response.headers.get("X-Agentsims-Reservation") ?? undefined;
-			if (!response.ok) {
-				const value = await response.json() as { error?: string; code?: string };
-				throw new CommandRequestError(value.error ?? "Workspace video is unavailable.", undefined, value.code, "WorkspaceError");
-			}
-			const maximum = WORKSPACE_LIMITS.accessUnitBytes + WORKSPACE_LIMITS.descriptionBytes + WORKSPACE_LIMITS.metadataBytes + 128;
-			const length = Number(response.headers.get("Content-Length"));
-			const cursor = Number(response.headers.get("X-Agentsims-Cursor")), epoch = Number(response.headers.get("X-Agentsims-Epoch"));
-			const mimeType = response.headers.get("Content-Type"), reset = response.headers.get("X-Agentsims-Reset");
-			if (response.headers.get("X-Agentsims-Workspace") !== workspace || response.headers.get("X-Agentsims-View") !== viewId || response.headers.get("X-Agentsims-Lease") !== leaseId ||
-				!response.body || !Number.isSafeInteger(length) || length < 1 || length > maximum || !Number.isSafeInteger(cursor) || cursor < 1 || !Number.isSafeInteger(epoch) || epoch < 1 ||
-				(mimeType !== "application/x-agentsims-avcc" && mimeType !== "image/jpeg") || (reset !== "0" && reset !== "1") ||
-				(options.retain && (!reservationId || !/^[0-9a-f-]{36}$/i.test(reservationId))))
-				throw new CommandRequestError("The runtime returned invalid workspace video metadata.");
-			const device = decodeURIComponent(response.headers.get("X-Agentsims-Device") ?? "");
-			if (!device || device.length > 256) throw new CommandRequestError("The runtime returned an invalid workspace video device.");
-			reader = response.body.getReader();
-			const chunks: Uint8Array[] = [];
-			let size = 0;
-			for (;;) {
-				const next = await reader.read(); if (next.done) break;
-				size += next.value.length;
-				if (size > length) throw new CommandRequestError("The runtime returned oversized workspace video.");
-				chunks.push(next.value);
-			}
-			if (size !== length) throw new CommandRequestError("The runtime returned incomplete workspace video.");
-			return { workspace, viewId, leaseId, device, cursor, epoch, reset: reset === "1", mimeType, bytes: Buffer.concat(chunks, size), ...(reservationId ? { reservationId } : {}) };
-		} catch (error) {
-			if (reservationId) await new ApplicationCommandClient({ origin: this.origin, timeoutMs: 5000 }).releaseWorkspaceReservation(workspace, reservationId).catch(() => {});
-			throw error;
-		} finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); }
 	}
 
 	async appLogs(target: LogTarget, query: unknown): Promise<LogRead> {

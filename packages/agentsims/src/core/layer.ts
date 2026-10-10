@@ -36,7 +36,6 @@ import { ScreenshotStoreLive } from "./tools/observe/screenshot-store";
 import { rnSourcesLayer } from "./react-native/sources";
 import { ContextsLive } from "./tools/context/context";
 import { applicationLogsLayer } from "./tools/logs/application";
-import { WorkspaceSessionsLive } from "./tools/workspace/service";
 
 /** Compose platform and domain services without importing server transports. */
 export function coreServicesLayer(
@@ -105,7 +104,6 @@ export function coreServicesLayer(
 	return Layer.mergeAll(
 		ContextsLive,
 		applicationLogs,
-		WorkspaceSessionsLive.pipe(Layer.provide(sessions)),
 		mediaRoutingLayer(basePath).pipe(Layer.provideMerge(devices)),
 		RecordingsLive.pipe(Layer.provide(sessions)),
 		TracesLive.pipe(Layer.provide(devices)),
