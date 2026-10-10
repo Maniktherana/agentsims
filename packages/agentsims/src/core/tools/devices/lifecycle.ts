@@ -313,10 +313,14 @@ export class DeviceLifecycle {
 		port: number,
 		base: string,
 	): Promise<string | null> {
-		await this.execute("xcrun", ["simctl", "boot", udid], 30_000);
+		const boot = await this.execute("xcrun", ["simctl", "boot", udid], 30_000);
+		// A second boot after a rejected boot can start the simulator without a
+		// display, and SpringBoard then crashes in a loop. Stop at the first error.
+		if (boot.error && !/current state: Booted/.test(boot.stderr))
+			return `Device ${udid} could not boot: ${boot.stderr.trim() || boot.error.message}`;
 		const ready = await this.execute(
 			"xcrun",
-			["simctl", "bootstatus", udid, "-b"],
+			["simctl", "bootstatus", udid],
 			180_000,
 		);
 		if (ready.error) {
