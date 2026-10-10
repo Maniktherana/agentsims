@@ -98,7 +98,9 @@ Each runner starts its archive once and checks the version, status, and browser 
 Release assets include these files, the platform archives, and the extension archive.
 
 A `public` release pushes `agentsims.rb` to the [Homebrew tap](https://github.com/Maniktherana/homebrew-tap).
-Then it installs the formula on new macOS arm64 and x64 runners.
+Then macOS arm64 and x64 runners build Homebrew bottles, upload them to the release, and add them to the formula.
+Without a bottle, Homebrew treats the formula as a source build and stops when the Command Line Tools are older than macOS.
+Last, new macOS arm64 and x64 runners install the bottle and run `brew test`.
 The `HOMEBREW_TAP_DEPLOY_KEY` secret holds a deploy key with write access to the tap.
 
 The macOS build applies ad hoc signatures to native helpers.
