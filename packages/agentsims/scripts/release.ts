@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Write the checksums, metadata, installer, and Homebrew formula for built release archives.
+// Write the checksums, metadata, installers, and Homebrew formula for built release archives.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -99,6 +99,13 @@ export function writeRelease(version: string, directory: string): ReleaseMetadat
 	writeFileSync(
 		join(directory, "install.sh"),
 		readFileSync(new URL("./install.sh", import.meta.url), "utf8").replaceAll(
+			"__AGENTSIMS_RELEASE_VERSION__",
+			version,
+		),
+	);
+	writeFileSync(
+		join(directory, "install.ps1"),
+		readFileSync(new URL("./install.ps1", import.meta.url), "utf8").replaceAll(
 			"__AGENTSIMS_RELEASE_VERSION__",
 			version,
 		),

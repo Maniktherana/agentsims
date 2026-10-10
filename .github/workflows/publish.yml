@@ -126,6 +126,14 @@ jobs:
           curl -fsS "$url/status" >/dev/null
           curl -fsS "$url/" | grep -q '<script'
           "$agentsims" stop
+      - name: Parse the Windows installer
+        if: "runner.os == 'Windows'"
+        shell: powershell
+        working-directory: packages/agentsims
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: "runtime-${{ matrix.target }}"
@@ -175,6 +183,21 @@ jobs:
             --target "$GITHUB_SHA" --title "Agentsims $AGENTSIMS_RELEASE_VERSION" --generate-notes)
           [[ "$RELEASE_MODE" != draft ]] || args+=(--draft)
           gh "${args[@]}"
+  verify-windows-install:
+    if: "inputs.release_mode == 'public'"
+    needs: release
+    runs-on: windows-2025
+    steps:
+      - name: Install with the published one-line command
+        # Windows PowerShell 5.1 is the default shell for most users.
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          irm "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$env:AGENTSIMS_RELEASE_VERSION/install.ps1" | iex
+          $reported = (agentsims --version | Out-String).Trim()
+          if ($reported -ne $env:AGENTSIMS_RELEASE_VERSION) { throw "agentsims --version printed $reported" }
+          $bin = Join-Path $env:LOCALAPPDATA "Agentsims\bin"
+          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ';') -notcontains $bin) { throw "The user PATH does not contain $bin" }
   # The HOMEBREW_TAP_DEPLOY_KEY secret holds a write deploy key for Maniktherana/homebrew-tap.
   homebrew:
     if: "inputs.release_mode == 'public'"

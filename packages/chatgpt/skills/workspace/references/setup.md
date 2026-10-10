@@ -124,29 +124,16 @@ Linux requires x64 and glibc. No Linux ARM64 archive is included.
 
 ### Windows x64: PowerShell
 
-Use native PowerShell download, SHA256, and extraction commands:
+Run the installer in PowerShell:
 
 ```powershell
-$ErrorActionPreference = "Stop"
-$Repository = "https://github.com/Maniktherana/agentsims"
-$Release = Invoke-RestMethod "$Repository/releases/latest/download/release-metadata.json"
-$Artifact = $Release.artifacts.'windows-x64'
-if (-not $Artifact) { throw "This release has no Windows x64 archive." }
-$Archive = Join-Path $env:TEMP $Artifact.file
-$Destination = Join-Path $env:LOCALAPPDATA "Agentsims\$($Release.version)"
-Invoke-WebRequest "$Repository/releases/download/v$($Release.version)/$($Artifact.file)" -OutFile $Archive
-if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Artifact.sha256) {
-    throw "The archive checksum does not match."
-}
-New-Item -ItemType Directory -Force $Destination | Out-Null
-tar.exe -xzf $Archive -C $Destination
-if ($LASTEXITCODE -ne 0) { throw "Archive extraction failed." }
-$Runtime = Join-Path $Destination "dist\agentsims.exe"
+irm https://agentsims.dev/install.ps1 | iex
+$Runtime = Join-Path $env:LOCALAPPDATA "Agentsims\bin\agentsims.cmd"
 ```
 
-Repeat the native header, CPU architecture, version, MCP, and Android diagnostic checks with this `$Runtime` path.
-Keep the extracted directory together. The executable needs its adjacent browser and platform assets.
-This path changes no PATH setting. It requires neither curl nor an `install.ps1` script.
+The installer verifies the archive checksum and adds `%LOCALAPPDATA%\Agentsims\bin` to the user PATH.
+Set `$env:AGENTSIMS_NO_MODIFY_PATH = "1"` first to keep PATH unchanged.
+Repeat the version, MCP, and Android diagnostic checks with this `$Runtime` path.
 
 ## Configure the executable
 

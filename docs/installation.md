@@ -87,30 +87,39 @@ Runtime data, such as logs, state, screenshots, and recordings, stays in `~/.age
 
 ## Windows
 
-Use PowerShell to download, verify, and extract the Windows x64 archive:
+Run this command in PowerShell:
 
 ```powershell
-$ErrorActionPreference = "Stop"
-$Repository = "https://github.com/Maniktherana/agentsims"
-$Release = Invoke-RestMethod "$Repository/releases/latest/download/release-metadata.json"
-$Artifact = $Release.artifacts.'windows-x64'
-if (-not $Artifact) { throw "This release has no Windows x64 archive." }
-$Archive = Join-Path $env:TEMP $Artifact.file
-$Destination = Join-Path $env:LOCALAPPDATA "Agentsims\$($Release.version)"
-Invoke-WebRequest "$Repository/releases/download/v$($Release.version)/$($Artifact.file)" -OutFile $Archive
-if ((Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Artifact.sha256) {
-    throw "The archive checksum does not match."
-}
-New-Item -ItemType Directory -Force $Destination | Out-Null
-tar.exe -xzf $Archive -C $Destination
-if ($LASTEXITCODE -ne 0) { throw "Archive extraction failed." }
-& "$Destination\dist\agentsims.exe" doctor --platform android
-& "$Destination\dist\agentsims.exe" start
+irm https://agentsims.dev/install.ps1 | iex
 ```
 
-This procedure changes no PATH setting.
-Use the full executable path, or add its `dist` directory to your user PATH.
-Keep the extracted directory together. The executable uses its adjacent browser and platform assets.
+The installer:
+
+1. Downloads the Windows x64 archive and checksums from the latest GitHub release.
+2. Verifies the archive's SHA-256 checksum, extracts it, and checks the executable version.
+3. Keeps the release in `%LOCALAPPDATA%\Agentsims\versions\<version>`.
+4. Writes `%LOCALAPPDATA%\Agentsims\bin\agentsims.cmd` and adds that directory to your user PATH.
+
+The command works in the same PowerShell window at once. New terminals also find it.
+Windows on Arm runs the x64 runtime through emulation.
+
+To keep PATH unchanged, set `$env:AGENTSIMS_NO_MODIFY_PATH = "1"` before you run the installer.
+`AGENTSIMS_INSTALL_DIR` selects another installation directory.
+
+To inspect the script before installation:
+
+```powershell
+irm https://agentsims.dev/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Then check the Android tools:
+
+```powershell
+agentsims doctor --platform android
+agentsims start
+```
 
 ## Start the workspace
 
