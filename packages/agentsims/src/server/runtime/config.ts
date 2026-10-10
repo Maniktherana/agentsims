@@ -5,7 +5,6 @@ export const RUNTIME_CAPABILITIES = Object.freeze({
 	sourceContext: 1,
 	appLogs: 1,
 	context: 1,
-	workspace: 1,
 });
 
 export type ServerConfigValue = {

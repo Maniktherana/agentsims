@@ -127,7 +127,6 @@ export function createChatgptHost(options: { app?: App; transport?: Transport } 
 			teardownListeners.add(listener);
 			return () => { teardownListeners.delete(listener); };
 		},
-		supportsWorkspaceTransport: () => connected && Boolean(app.getHostCapabilities()?.serverTools && app.getHostCapabilities()?.serverResources),
 		callTool,
 		readResource: (uri, signal) => request(() => {
 			if (!app.getHostCapabilities()?.serverResources) throw new Error("The host cannot read workspace resources.");

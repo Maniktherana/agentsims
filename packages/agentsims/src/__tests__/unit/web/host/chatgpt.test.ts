@@ -6,8 +6,6 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createChatgptHost } from "../../../../../../../packages/chatgpt/src/host";
 import type { WorkspaceHostAdapter } from "../../../../web/host/workspace-host";
-import { createWorkspaceTransport } from "../../../../web/host/workspace-transport";
-import { AVCC_TAG_DESCRIPTION, AVCC_TAG_KEYFRAME, avccEnvelope } from "../../../../core/stream/avcc-wire";
 
 // Resolve the real SDKs from their private build package, not the generic runtime's dependencies.
 const sdk = createRequire(resolve(import.meta.dir, "../../../../../../../packages/chatgpt/package.json"));
@@ -100,14 +98,6 @@ test("missing real host capabilities produce no tool, resource, or message reque
 	expect(host.messages).toEqual([]);
 });
 
-test("the live bridge rejects missing SDK resource capability before allocating runtime leases", async () => {
-	const host = await fixture({ serverTools: {} });
-	const controller = createWorkspaceTransport(host.adapter);
-	await expect(controller.openLease("ios:simulator")).rejects.toThrow("cannot proxy");
-	expect(host.tools).toEqual([]); expect(host.resources).toEqual([]);
-	await controller.close();
-});
-
 test("reviewed send preserves retained IDs, original prompt, and exported evidence through the SDK", async () => {
 	const host = await fixture();
 	await host.adapter.connect();
@@ -193,76 +183,6 @@ test("resource cancellation and adapter closure cancel real SDK requests", async
 	await cancelled.promise;
 	expect(host.adapter.snapshot()).toEqual({ kind: "mcp-app", connected: false, sendToChat: false, displayModes: [] });
 	expect(calls).toBe(1);
-});
-
-test("real SDK workspace teardown cancels the read and closes view leases before its channel retires", async () => {
-	const host = await fixture();
-	const workspace = "sdk-workspace", viewId = "sdk-view", leaseId = "sdk-lease", device = "android:emulator-5554";
-	const videoUri = `agentsims://workspace/${workspace}/views/${viewId}/leases/${leaseId}/video`;
-	let cancelled = false;
-	host.bridge.oncalltool = async (params: any) => {
-		host.tools.push(params);
-		let result: any;
-		switch (params.name) {
-			case "workspace_open": result = { workspace, devices: [], capabilities: { embeddedTransport: true, workspaceProtocol: 1 } }; break;
-			case "workspace_view_open": result = { workspace, viewId }; break;
-			case "workspace_lease_open": result = { workspace, viewId, leaseId, device, codec: "avcc", videoUri, config: { device, platform: "android", width: 400, height: 800, orientation: "portrait", revision: 1 } }; break;
-			case "workspace_lease_close": expect(cancelled).toBe(true); result = { workspace, viewId, leaseId, closed: true }; break;
-			case "workspace_close": result = { workspace, viewId, closed: true }; break;
-			default: throw new Error("Unexpected fixture tool");
-		}
-		return { content: [], structuredContent: result };
-	};
-	const started = Promise.withResolvers<void>(), aborted = Promise.withResolvers<void>();
-	host.bridge.onreadresource = async (_: any, extra: any) => {
-		started.resolve();
-		await new Promise<void>((resolve) => extra.signal.addEventListener("abort", () => { cancelled = true; aborted.resolve(); resolve(); }, { once: true }));
-		return { contents: [] };
-	};
-	const controller = createWorkspaceTransport(host.adapter);
-	const lease = await controller.openLease(device);
-	const read = lease.video().getReader().read().catch((error: unknown) => error);
-	await started.promise;
-	await host.bridge.teardownResource({});
-	await aborted.promise;
-	expect(await read).toBeInstanceOf(Error);
-	expect(host.tools.map((tool) => tool.name)).toEqual(["workspace_open", "workspace_view_open", "workspace_lease_open", "workspace_lease_close", "workspace_close"]);
-	expect(controller.snapshot()).toMatchObject({ status: "closed", remoteCleanup: true });
-	expect(host.adapter.snapshot().connected).toBe(false);
-});
-
-test("real SDK live resource carries exact two-device identities and preserves state through display changes", async () => {
-	const host = await fixture();
-	const workspace = "sdk-workspace", viewId = "sdk-view";
-	const leases = new Map<string, any>();
-	host.bridge.oncalltool = async (params: any) => {
-		host.tools.push(params);
-		const args = params.arguments;
-		let result: any;
-		if (params.name === "workspace_open") result = { workspace, devices: [], capabilities: { embeddedTransport: true, workspaceProtocol: 1 } };
-		else if (params.name === "workspace_view_open") result = { workspace, viewId };
-		else if (params.name === "workspace_lease_open") {
-			const leaseId = `sdk-lease-${leases.size}`;
-			result = { ...args, leaseId, videoUri: `agentsims://workspace/${workspace}/views/${viewId}/leases/${leaseId}/video`, config: { device: args.device, platform: args.device.startsWith("ios:") ? "ios" : "android", width: 400, height: 800, orientation: "portrait", revision: 1 } };
-			leases.set(leaseId, result);
-		} else result = { ...args, closed: true };
-		return { content: [], structuredContent: result };
-	};
-	const bytes = Buffer.concat([avccEnvelope(AVCC_TAG_DESCRIPTION, new Uint8Array([1, 100, 0, 40])), avccEnvelope(AVCC_TAG_KEYFRAME, new Uint8Array([42]))]);
-	host.bridge.onreadresource = async ({ uri }: any) => {
-		host.resources.push(uri);
-		const lease = [...leases.values()].find((value) => value.videoUri === uri)!;
-		return { contents: [{ uri, mimeType: "application/x-agentsims-avcc", blob: bytes.toString("base64"), _meta: { workspace, viewId, leaseId: lease.leaseId, device: lease.device, cursor: 1, epoch: 1, reset: true } }] };
-	};
-	const controller = createWorkspaceTransport(host.adapter);
-	const ios = await controller.openLease("ios:simulator"), android = await controller.openLease("android:emulator");
-	const before = controller.snapshot();
-	await host.bridge.sendHostContextChange({ displayMode: "fullscreen", availableDisplayModes: ["fullscreen"] });
-	expect(controller.snapshot()).toBe(before);
-	const reads = await Promise.all([ios.video().getReader().read(), android.video().getReader().read()]);
-	expect(reads.map((read) => read.value)).toEqual([new Uint8Array(bytes), new Uint8Array(bytes)]);
-	expect(host.resources).toEqual([ios.snapshot().videoUri, android.snapshot().videoUri]);
-	await controller.close();
 });
 
 test("the OpenAI marker alone cannot advertise unsupported message delivery", async () => {

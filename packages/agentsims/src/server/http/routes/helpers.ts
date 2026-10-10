@@ -285,6 +285,20 @@ async function response(
 				const screenshot = await session.captureScreenshot();
 				return bytes(screenshot.bytes, screenshot.mimeType);
 			}
+			// The Codex panel reads one frame at a time: the newest after `after`.
+			case "frame": {
+				const frame = await session.readFrame(
+					Number(url.searchParams.get("after")) || 0,
+				);
+				if (!frame) return json({ error: "No frame is available yet" }, 503);
+				return new Response(new Uint8Array(frame.bytes), {
+					headers: {
+						"Content-Type": "image/jpeg",
+						"Cache-Control": "no-store",
+						"X-Agentsims-Frame": String(frame.sequence),
+					},
+				});
+			}
 			case "config":
 				return json(session.screenConfig());
 			case "health":
@@ -374,7 +388,9 @@ export const helperRoutes = HttpRouter.empty.pipe(
 			// Browser tabs send their viewer ID. Only the holder gets live video and input.
 			const viewer = new URL(request.url).searchParams.get("viewer");
 			const live =
-				match.endpoint === "ws" || match.endpoint.startsWith("stream.");
+				match.endpoint === "ws" ||
+				match.endpoint === "frame" ||
+				match.endpoint.startsWith("stream.");
 			const viewers = live ? yield* Viewers : null;
 			if (viewers && !viewers.allows(match.device, viewer))
 				return heldElsewhere();

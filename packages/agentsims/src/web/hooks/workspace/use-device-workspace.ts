@@ -51,8 +51,14 @@ function setInjectedPreviewConfig(config: PreviewConfig | null): void {
 		return;
 	}
 	if (!window.__SIM_PREVIEW__) return;
-	const { basePath, execToken } = window.__SIM_PREVIEW__;
-	window.__SIM_PREVIEW__ = { basePath, execToken } as Window["__SIM_PREVIEW__"];
+	// Host settings stay. Only the device identity is cleared.
+	const { basePath, execToken, codec, proxyHelpers } = window.__SIM_PREVIEW__;
+	window.__SIM_PREVIEW__ = {
+		basePath,
+		execToken,
+		codec,
+		proxyHelpers,
+	} as Window["__SIM_PREVIEW__"];
 }
 
 export function reconcileStreamingDeviceVisibility(

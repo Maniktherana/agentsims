@@ -9,7 +9,7 @@ import { TargetActionSchema } from "../../core/tools/observe/targets";
 import { TextInputSchema } from "../../core/tools/text-input";
 import { boundedResult, contextImageUri, contextItem, contextResult, contextSummary, deviceResult, imageBytes, MCP_LIMITS, record, toolError } from "./result";
 import type { McpAppConfiguration } from "./app-config";
-import { registerWorkspaceApp, type WorkspaceAppOptions } from "./app-tools";
+import { registerWorkspaceApp } from "./app-tools";
 
 const identity = z.string().min(1).max(256).refine((value) => [...value].every((character) => character.codePointAt(0)! >= 32 && character.codePointAt(0) !== 127), "Use an ID without control characters.");
 const workspaceIdentity = identity.refine((value) => value !== "." && value !== "..", "Use a workspace ID other than '.' or '..'.");
@@ -33,7 +33,7 @@ const boundedActions = z.union([
 	TextInputSchema.extend({ text, into: text.min(1).optional(), capture: identity.optional() }).strict(),
 ]);
 
-export function createMcpServer(options: { version: string; client: (signal: AbortSignal) => ApplicationCommandClient; cleanupClient?: () => ApplicationCommandClient; app?: McpAppConfiguration; outputReservations?: WorkspaceAppOptions["outputReservations"]; onWorkspace?: (workspace: string) => void }): McpServer {
+export function createMcpServer(options: { version: string; client: (signal: AbortSignal) => ApplicationCommandClient; app?: McpAppConfiguration; origin?: string }): McpServer {
 	const server = new McpServer({ name: "agentsims", version: options.version }, { capabilities: { tools: {}, resources: {} }, maxToolInputElements: 2048 });
 	const client = (context: ServerContext) => options.client(context.mcpReq.signal);
 	const execute = async (run: () => Promise<CallToolResult>): Promise<CallToolResult> => {
@@ -42,7 +42,8 @@ export function createMcpServer(options: { version: string; client: (signal: Abo
 	const readOnly = { readOnlyHint: true, openWorldHint: false };
 	const mutation = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 	if (options.app) {
-		registerWorkspaceApp(server, { app: options.app, client: options.client, cleanupClient: options.cleanupClient, outputReservations: options.outputReservations, onWorkspace: options.onWorkspace });
+		if (!options.origin) throw new Error("The workspace panel needs the local server origin.");
+		registerWorkspaceApp(server, { app: options.app, origin: options.origin, client: options.client });
 	}
 	server.registerTool("devices_list", { description: "List iOS and Android devices and their IDs.", inputSchema: z.object({}).strict(), annotations: readOnly }, async (_, ctx) => execute(async () => boundedResult(await client(ctx).listDevices())));
 	server.registerTool("device_start", { description: "Start the selected iOS simulator or Android emulator.", inputSchema: device, annotations: mutation }, async ({ device }, ctx) => execute(async () => boundedResult(await client(ctx).startDevice(device))));

@@ -13,7 +13,6 @@ export type WorkspaceHostAdapter = {
 	subscribe(listener: () => void): () => void;
 	/** Normal teardown permits cleanup calls. A lost channel permits local cleanup only. */
 	subscribeTeardown?(listener: (reason: "teardown" | "disconnected") => Promise<void> | void): () => void;
-	supportsWorkspaceTransport?(): boolean;
 	callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
 	readResource(uri: string, signal?: AbortSignal): Promise<unknown>;
 	sendReviewedContext(input: ReviewedContext, signal?: AbortSignal): Promise<ContextSendResult>;
@@ -22,7 +21,6 @@ export type WorkspaceHostAdapter = {
 const browser: WorkspaceHostSnapshot = Object.freeze({ kind: "browser", connected: false, sendToChat: false, displayModes: Object.freeze([]) });
 const listeners = new Set<() => void>();
 let adapter: WorkspaceHostAdapter | undefined;
-let transport: WorkspaceTransport | undefined;
 let detach: (() => void) | undefined;
 let snapshot: WorkspaceHostSnapshot = browser;
 let pending: Promise<ContextSendResult> | undefined;
@@ -30,12 +28,10 @@ let pendingKey: string | undefined;
 const delivered = new Map<string, ContextSendResult>();
 const publish = () => { for (const listener of listeners) listener(); };
 
-/** Install a host transport; feature routing and browser composition stay separate. */
+/** Install the MCP host. The workspace uses it to send reviewed context to the chat. */
 export function configureWorkspaceHost(value: WorkspaceHostAdapter): () => void {
 	if (adapter) throw new Error("A workspace host is already configured.");
 	adapter = value;
-	const live = createWorkspaceTransport(value);
-	transport = live;
 	const refresh = () => {
 		if (adapter !== value) return;
 		const current = value.snapshot();
@@ -51,14 +47,11 @@ export function configureWorkspaceHost(value: WorkspaceHostAdapter): () => void 
 	});
 	return () => {
 		if (adapter !== value) return;
-		detach?.(); detach = undefined; adapter = undefined; transport = undefined; snapshot = browser;
+		detach?.(); detach = undefined; adapter = undefined; snapshot = browser;
 		publish();
-		void live.close().finally(() => value.close()).catch(() => {});
+		void Promise.resolve(value.close()).catch(() => {});
 	};
 }
-
-/** The controller opens its view lazily, when product controls first request it. */
-export function workspaceTransport(): WorkspaceTransport | undefined { return transport; }
 
 export function workspaceHostSnapshot(): WorkspaceHostSnapshot { return snapshot; }
 export function subscribeWorkspaceHost(listener: () => void): () => void {
@@ -99,4 +92,3 @@ export async function sendReviewedContext(input: ReviewedContext, signal?: Abort
 		return result;
 	} finally { if (pending === request) { pending = undefined; pendingKey = undefined; } }
 }
-import { createWorkspaceTransport, type WorkspaceTransport } from "./workspace-transport";
