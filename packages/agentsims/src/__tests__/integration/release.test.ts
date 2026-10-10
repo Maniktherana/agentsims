@@ -47,6 +47,10 @@ test("the checksums, metadata, installer, and formula select the same archives",
 		0,
 	);
 
+	const windowsInstaller = readFileSync(join(directory, "install.ps1"), "utf8");
+	expect(windowsInstaller).toContain('$Version = "0.1.0"');
+	expect(windowsInstaller).not.toContain("__AGENTSIMS_");
+
 	const formula = readFileSync(join(directory, "agentsims.rb"), "utf8");
 	expect(formula).toContain('version "0.1.0"');
 	for (const target of ["darwin-arm64", "darwin-x64", "linux-x64"] as const) {
@@ -68,6 +72,6 @@ test("an invalid version or a missing archive writes no release files", () => {
 	);
 	rmSync(join(directory, runtimeArchiveName("linux-x64")));
 	expect(() => writeRelease("0.1.0", directory)).toThrow();
-	for (const file of ["SHA256SUMS", "agentsims.rb", "install.sh"])
+	for (const file of ["SHA256SUMS", "agentsims.rb", "install.sh", "install.ps1"])
 		expect(() => readFileSync(join(directory, file))).toThrow();
 });

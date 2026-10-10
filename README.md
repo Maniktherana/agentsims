@@ -17,7 +17,11 @@ brew install Maniktherana/tap/agentsims
 curl -fsSL https://agentsims.dev/install | bash
 ```
 
-**Windows x64 — [PowerShell installation](docs/installation.md#windows)**
+**Windows x64 — PowerShell**
+
+```powershell
+irm https://agentsims.dev/install.ps1 | iex
+```
 
 [Requirements and installer behavior](docs/installation.md).
 The runtime requires no Node.js or npm.
