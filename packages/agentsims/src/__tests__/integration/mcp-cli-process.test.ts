@@ -1,10 +1,24 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { PreviewServer } from "../../server/http/server";
+import { startTestServer } from "../helpers/server";
+
 const entry = join(import.meta.dir, "../../cli/main.ts");
+
+let server: PreviewServer;
+let origin: string;
+beforeAll(async () => {
+	const started = await startTestServer({ execToken: "mcp-cli-test-token" });
+	server = started.server;
+	origin = started.origin;
+});
+afterAll(async () => {
+	await server?.stop();
+});
 
 test("the MCP CLI writes no protocol or readiness text before initialization", () => {
 	const directory = mkdtempSync(join(tmpdir(), "agentsims-mcp-cli-eof-"));
@@ -25,10 +39,10 @@ test("the MCP CLI writes no protocol or readiness text before initialization", (
 });
 
 test.each(["SIGINT", "SIGTERM"] as const)(
-	"the initialized MCP CLI disposes its owned runtime after %s",
+	"the initialized MCP CLI exits cleanly after %s",
 	async (signal) => {
 		const directory = mkdtempSync(join(tmpdir(), "agentsims-mcp-cli-signal-"));
-		const child = Bun.spawn([process.execPath, entry, "mcp"], {
+		const child = Bun.spawn([process.execPath, entry, "mcp", "--url", origin], {
 			stdin: "pipe",
 			stdout: "pipe",
 			stderr: "pipe",
@@ -70,7 +84,7 @@ test.each(["SIGINT", "SIGTERM"] as const)(
 				if (part.done) break;
 			}
 			expect(await stderr).toBe("");
-			// Every stdout line must be protocol JSON. No owned-server readiness log.
+			// Every stdout line must be protocol JSON.
 			expect(
 				stdout
 					.trim()

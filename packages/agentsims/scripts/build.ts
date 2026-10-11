@@ -10,7 +10,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
-import { gzipSync } from "node:zlib";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { build as viteBuild } from "vite";
@@ -27,7 +26,6 @@ import {
 	runtimeTarget,
 } from "./release-targets";
 import { buildAndroidAccessibility } from "../android/accessibility/build";
-import { loadMcpAppConfiguration } from "../src/server/mcp/app-config";
 import {
 	assertPreviewDynamicImportsPresent,
 	assertPreviewManifestAssetsPresent,
@@ -71,96 +69,21 @@ function run(command: string, ...args: string[]): void {
 		);
 }
 
-async function buildPlugin(): Promise<void> {
+/** The Codex plugin is static files: a manifest, one skill, and the logo. */
+function buildPlugin(): void {
 	rmSync(pluginDist, { recursive: true, force: true });
-	const output = resolve(pluginDist, "assets");
 	const installed = resolve(pluginDist, "plugin");
-	await viteBuild({
-		configFile: false,
-		root: pluginRoot,
-		base: "./",
-		publicDir: false,
-		logLevel: "warn",
-		plugins: [react(), tailwindcss()],
-		resolve: { alias: { "@": resolve(root, "src/web") } },
-		define,
-		build: {
-			outDir: output,
-			emptyOutDir: true,
-			assetsInlineLimit: Number.MAX_SAFE_INTEGER,
-			cssCodeSplit: false,
-			modulePreload: false,
-			minify: true,
-			rolldownOptions: {
-				input: resolve(pluginRoot, "index.html"),
-				output: { codeSplitting: false },
-			},
-		},
-	});
-	let html = readFileSync(resolve(output, "index.html"), "utf8");
-	const scripts: string[] = [];
-	const styles: string[] = [];
-	html = html.replace(
-		/<script\b[^>]*\bsrc="([^"]+)"[^>]*><\/script>/g,
-		(_, asset: string) => {
-			scripts.push(readFileSync(resolve(output, asset), "utf8"));
-			return "";
-		},
-	);
-	html = html.replace(
-		/<link\b(?=[^>]*\brel="stylesheet")[^>]*\bhref="([^"]+)"[^>]*>/g,
-		(_, asset: string) => {
-			styles.push(readFileSync(resolve(output, asset), "utf8"));
-			return "";
-		},
-	);
-	if (scripts.length !== 1 || styles.length !== 1)
-		throw new Error(
-			"The ChatGPT build must produce one module and stylesheet.",
-		);
-	// The app resource is bounded HTML. Keep the shared UI intact and embed its
-	// compressed build assets. The browser inserts the decoded module without eval.
-	const encode = (text: string) =>
-		gzipSync(text, { level: 9 }).toString("base64");
-	const bootstrap = `<script type="module">
-async function unpack(value) {
- const bytes = Uint8Array.from(atob(value), character => character.charCodeAt(0));
- return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
-}
-const [css, js] = await Promise.all([unpack(${JSON.stringify(encode(styles[0]!))}), unpack(${JSON.stringify(encode(scripts[0]!))})]);
-const style = document.createElement("style"); style.textContent = css; document.head.appendChild(style);
-const script = document.createElement("script"); script.type = "module"; script.textContent = js; document.body.appendChild(script);
-</script>`;
-	html = html.replace("</body>", `${bootstrap}</body>`);
-	if (
-		/<script\b[^>]*\bsrc=|<link\b[^>]*\brel="(?:stylesheet|modulepreload)"/.test(
-			html,
-		)
-	)
-		throw new Error("The ChatGPT resource contains an external build asset.");
-	rmSync(installed, { recursive: true, force: true });
-	mkdirSync(resolve(installed, "assets"), { recursive: true });
-	for (const file of [
-		"plugin.json",
-		"mcp.json",
-		"mcp-app.json",
-		"README.md",
-		"skills",
-	]) {
+	for (const file of [".codex-plugin", "skills", "assets", "README.md"])
 		cpSync(resolve(pluginRoot, file), resolve(installed, file), {
 			recursive: true,
 		});
-	}
-	const pluginManifest = JSON.parse(
-		readFileSync(resolve(installed, "plugin.json"), "utf8"),
-	);
-	writeFileSync(
-		resolve(installed, "plugin.json"),
-		JSON.stringify({ ...pluginManifest, version }, null, 2) + "\n",
-	);
 	cpSync(resolve(root, "LICENSE"), resolve(installed, "LICENSE"));
-	writeFileSync(resolve(installed, "assets/workspace.html"), html);
-	await loadMcpAppConfiguration(resolve(installed, "mcp-app.json"));
+	const manifestPath = resolve(installed, ".codex-plugin/plugin.json");
+	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+	writeFileSync(
+		manifestPath,
+		JSON.stringify({ ...manifest, version }, null, 2) + "\n",
+	);
 	run(
 		runtimeArchiveTool(process.platform),
 		"-czf",
@@ -169,12 +92,11 @@ const script = document.createElement("script"); script.type = "module"; script.
 		installed,
 		".",
 	);
-	rmSync(output, { recursive: true, force: true });
-	console.log(`Built ChatGPT plugin (${Buffer.byteLength(html)} HTML bytes)`);
+	console.log("Built Codex plugin");
 }
 
 if (pluginOnly) {
-	await buildPlugin();
+	buildPlugin();
 	process.exit(0);
 }
 

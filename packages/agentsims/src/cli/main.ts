@@ -90,7 +90,6 @@ import {
 	localServerLogFile,
 	readLocalServer,
 	runLocalServer,
-	startManagedPreview,
 	startDetached,
 	stopLocalServer,
 	type LocalServerOptions,
@@ -221,6 +220,28 @@ type ServerFlags = {
 	detach?: boolean;
 };
 const serverOptions = (flags: ServerFlags): LocalServerOptions => flags;
+
+/**
+ * MCP sessions share one server with the browser and the CLI. Reuse the
+ * running server, or start the normal detached server. The shared server
+ * outlives the MCP session. `agentsims stop` stops it.
+ */
+async function startSharedServer(): Promise<{ origin: string; close(): Promise<void> }> {
+	let record = readLocalServer();
+	if (!record) {
+		try {
+			record = await startDetached({ host: "127.0.0.1", port: 3200, basePath: "/", codec: "auto" });
+		} catch (error) {
+			// Another session can start the server at the same time. Use that server.
+			for (let attempt = 0; attempt < 100 && !record; attempt++) {
+				await new Promise((resolve) => setTimeout(resolve, 100));
+				record = readLocalServer();
+			}
+			if (!record) throw error;
+		}
+	}
+	return { origin: record.url, close: async () => {} };
+}
 function addServerFlags(command: Command): Command {
 	return command
 		.option(
@@ -926,7 +947,7 @@ Examples:
 	});
 	registerMcpCommands(program, {
 		version: version(),
-		startRuntime: startManagedPreview,
+		startRuntime: startSharedServer,
 		existingRuntime: () => readLocalServer()?.url,
 		run: async (session) => {
 			const failed = Promise.withResolvers<never>();

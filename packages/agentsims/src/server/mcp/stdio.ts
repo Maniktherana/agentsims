@@ -6,7 +6,6 @@ import type { Readable, Writable } from "node:stream";
 import { ApplicationCommandClient } from "../../cli/application-command-client";
 import { createMcpServer } from "./server";
 import { MCP_LIMITS } from "./result";
-import type { McpAppConfiguration } from "./app-config";
 import {
 	serializeMessage,
 	type JSONRPCMessage,
@@ -22,7 +21,6 @@ export type McpStdioOptions = {
 	stdin?: Readable;
 	stdout?: Writable;
 	onError?: (error: Error) => void;
-	app?: McpAppConfiguration;
 };
 
 export function localRuntimeOrigin(value: string): string {
@@ -197,8 +195,6 @@ export function startMcpStdio(options: McpStdioOptions): McpStdioSession {
 			if (closing) throw new Error("The MCP connection is closed.");
 			return createMcpServer({
 				version: options.version,
-				app: options.app,
-				origin: runtime.origin,
 				client: (signal) =>
 					new ApplicationCommandClient({
 						origin: runtime.origin,

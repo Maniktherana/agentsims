@@ -1,0 +1,23 @@
+{
+  "name": "agentsims",
+  "version": "0.1.7",
+  "description": "Run and control local iOS simulators and Android devices with Agentsims, in the Codex in-app browser.",
+  "author": { "name": "Agentsims contributors" },
+  "homepage": "https://agentsims.dev",
+  "repository": "https://github.com/Maniktherana/agentsims",
+  "license": "Apache-2.0",
+  "keywords": ["ios", "android", "simulator", "emulator", "testing"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agentsims",
+    "shortDescription": "Run mobile apps on simulators",
+    "longDescription": "Open the Agentsims workspace in the in-app browser to see and control iOS simulators and Android devices. The agent uses the agentsims CLI to tap, type, inspect the screen, install apps, and read logs.",
+    "developerName": "Agentsims contributors",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "logo": "./assets/logo.png",
+    "composerIcon": "./assets/logo.png",
+    "websiteURL": "https://agentsims.dev",
+    "defaultPrompt": ["Run an end-to-end test of the app on the Pixel 10 and iPhone 18 simulators."]
+  }
+}
