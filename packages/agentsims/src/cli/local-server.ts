@@ -152,25 +152,6 @@ function previewConfiguration(
 	};
 }
 
-/** Start a task-owned runtime without writing a server record or protocol stdout. */
-export async function startManagedPreview(): Promise<{
-	origin: string;
-	close(): Promise<void>;
-}> {
-	const server = await servePreview(
-		previewConfiguration({
-			host: "127.0.0.1",
-			port: 0,
-			basePath: "/",
-			codec: "auto",
-		}),
-	);
-	return {
-		origin: `http://127.0.0.1:${server.port}`,
-		close: () => server.stop(),
-	};
-}
-
 export async function runLocalServer(
 	options: LocalServerOptions,
 ): Promise<void> {

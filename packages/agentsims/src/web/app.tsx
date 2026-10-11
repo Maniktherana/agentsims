@@ -14,17 +14,10 @@ import {
 	useCallback,
 	useRef,
 	useState,
-	useSyncExternalStore,
 	type Dispatch,
 	type SetStateAction,
 } from "react";
-import {
-	sendReviewedContext,
-	subscribeWorkspaceHost,
-	workspaceHostSnapshot,
-} from "./host/workspace-host";
 import type {
-	AnnotationSendPayload,
 	LiveAnnotationSummaryController,
 } from "./annotation/live-contracts";
 import { WorkspaceAnnotationSummary } from "./components/annotation/workspace-annotation-summary";
@@ -50,20 +43,6 @@ const DEFAULT_DEVICE_OFFSETS = {};
 export function App() {
 	const urlState = useWorkspaceUrlState();
 	const workspace = useDeviceWorkspace(urlState);
-	const host = useSyncExternalStore(
-		subscribeWorkspaceHost,
-		workspaceHostSnapshot,
-		workspaceHostSnapshot,
-	);
-	const sendAnnotation = useCallback((payload: AnnotationSendPayload) => {
-		if (!payload.retainedContext)
-			return Promise.resolve({
-				status: "failed" as const,
-				message:
-					"Save the notes before sending them. You can also copy the reviewed notes.",
-			});
-		return sendReviewedContext(payload.retainedContext);
-	}, []);
 	const [settingsRevisions, setSettingsRevisions] = useState<
 		Record<string, number>
 	>({});
@@ -250,9 +229,6 @@ export function App() {
 							toolPanelSlot={toolPanelSlot}
 							onCurrentAppChange={onCurrentAppChange}
 							annotationActive={annotationActive}
-							annotationSend={
-								host.connected && host.sendToChat ? sendAnnotation : undefined
-							}
 							onAnnotationEnd={() => setAnnotationActive(false)}
 							onAnnotationEscape={onAnnotationEscape}
 							onAnnotationStart={() => {
@@ -362,7 +338,6 @@ export function App() {
 						setAnnotationActive(true);
 						void urlState.setPanel(null);
 					}}
-					send={host.connected && host.sendToChat ? sendAnnotation : undefined}
 				/>
 			</motion.div>
 			<Toaster
