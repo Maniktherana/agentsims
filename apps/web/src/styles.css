@@ -1,4 +1,6 @@
 @import "@agentsims/ui/globals.css";
+@import "fumadocs-ui/css/shadcn.css";
+@import "fumadocs-ui/css/preset.css";
 @source "./";
 
 @custom-variant dark (&:is(.dark *));
@@ -88,6 +90,14 @@
 	--ring: oklch(0.753513 0.138989 232.661);
 	--subtle-foreground: oklch(0.619979 0.014898 285.957);
 	--brand: oklch(0.625 0.205 256);
+	--code-surface: #101010;
+	--sidebar: var(--background);
+	--sidebar-foreground: var(--muted-foreground);
+	--sidebar-border: var(--border);
+	--sidebar-accent: var(--accent);
+	--sidebar-accent-foreground: var(--foreground);
+	--sidebar-primary-foreground: var(--primary-foreground);
+	--sidebar-ring: var(--ring);
 	--workflow-observe-text: oklch(0.75 0.16 251);
 	--workflow-headline-muted: oklch(0.58 0 0);
 	--workflow-observe-surface: oklch(0.31 0.09 253);
@@ -933,8 +943,30 @@
 	.workspace-demo[data-chrome="shown"]::before {
 		opacity: 1;
 	}
+	/* The hero fills the viewport, but stops 7rem below the laptop on tall
+	   screens. The laptop is 16:9 and at most 58rem tall. */
+	.hero {
+		container-type: inline-size;
+		min-height: min(
+			calc(100svh - 4rem),
+			calc(min((min(100vw, 132rem) - 4rem) * 0.5625, 58rem) + 7rem)
+		);
+	}
+	/* Center the copy on the laptop screen, slightly above its middle because
+	   the lower part of the screen fades to black. */
 	.hero-copy {
 		inset-inline-start: max(5.5%, calc((100% - 82rem) / 2));
+		top: calc(min(56.25cqw, 58rem) * 0.46);
+		translate: 0 -50%;
+	}
+	@media (width < 64rem) {
+		.hero {
+			min-height: calc(100svh - 4rem);
+		}
+		.hero-copy {
+			top: auto;
+			translate: none;
+		}
 	}
 	.device-island {
 		--agentsims-device-screen-on: oklch(0.58 0.1 245);
@@ -1239,4 +1271,68 @@
 		opacity: 0.9;
 		transform: scale(1);
 	}
+}
+
+/* A step that holds a code block turns the whole Markdown list into
+   paragraphs. Keep those steps as tight as a plain list. This rule stays
+   outside the layers so that it overrides the typography plugin. */
+.prose li > p {
+	margin-block: 0;
+}
+.prose li > figure {
+	margin-block: 0.75rem;
+}
+
+/* The docs drawer uses the motion of the shadcn Base UI sheet. The panel
+   fades and moves 2.5rem over 200ms. The backdrop is 10% black with a small
+   blur and fades over 150ms. */
+@keyframes docs-sheet-panel {
+	from {
+		opacity: 0;
+		translate: 2.5rem 0;
+	}
+}
+@keyframes docs-sheet-backdrop {
+	from {
+		opacity: 0;
+	}
+}
+/* The exits need their own keyframes. A reversed copy of the same animation
+   does not restart, so the drawer never receives its end event. */
+@keyframes docs-sheet-panel-out {
+	to {
+		opacity: 0;
+		translate: 2.5rem 0;
+	}
+}
+@keyframes docs-sheet-backdrop-out {
+	to {
+		opacity: 0;
+	}
+}
+#nd-sidebar-mobile[data-state="open"] {
+	animation: docs-sheet-panel 200ms ease-in-out;
+}
+#nd-sidebar-mobile[data-state="closed"] {
+	animation: docs-sheet-panel-out 200ms ease-in-out forwards;
+}
+/* Only the backdrop has data-state. Without the backdrop, the element before
+   the drawer is the header, which must stay solid. */
+div[data-state]:has(+ #nd-sidebar-mobile) {
+	background-color: oklch(0 0 0 / 0.1);
+	backdrop-filter: blur(4px);
+}
+div[data-state]:has(+ #nd-sidebar-mobile)[data-state="open"] {
+	animation: docs-sheet-backdrop 150ms ease-in-out;
+}
+div[data-state]:has(+ #nd-sidebar-mobile)[data-state="closed"] {
+	animation: docs-sheet-backdrop-out 150ms ease-in-out forwards;
+}
+
+/* The page outline bar under the docs header on small screens is solid, so
+   text does not show through it. */
+[data-toc-popover] > header {
+	background-color: var(--background);
+	border-color: oklch(1 0 0 / 0.08);
+	backdrop-filter: none;
 }

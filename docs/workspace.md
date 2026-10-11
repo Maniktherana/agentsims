@@ -1,59 +1,108 @@
 # Browser workspace
 
-Start the runtime with `agentsims start`, then open the printed URL.
-Start your app before you select its device.
+The workspace shows your iOS simulators and Android devices in one browser page.
+You can watch each screen, control it with the mouse and keyboard, and inspect the app.
 
-## Devices and canvas
+## Start the workspace
 
-The workspace shows iOS simulators, Android emulators, and physical Android devices on one canvas.
-Use the device picker to add, boot, or remove a device from the view.
-Drag and resize phone views on the canvas.
-Each device has separate state and tools.
-Closing the workspace does not shut down its devices.
+1. Start your app on a simulator, an emulator, or an Android device.
+2. Keep the development server of the app open.
+3. Start Agentsims:
 
-## Phone controls and settings
+   ```sh
+   agentsims start
+   ```
 
-Use a phone's header controls for device actions, screenshots, and recordings.
-Open Settings from the bottom dock for the selected device.
-Settings include app permissions and supported device conditions.
-iOS and Android expose different platform controls.
+4. Open the URL that the command prints. The default URL is `http://127.0.0.1:3200`.
 
-Android settings include network, battery, locale, density, and emulator snapshots.
-iOS controls include appearance, camera input, and location.
-Host webcam input and app permissions also have [CLI commands](cli.md#test-camera-and-permission-behavior).
+To stop the workspace, press `Ctrl+C` in its terminal.
 
-## Accessibility inspection
+### Run the workspace in the background
 
-The accessibility view shows native elements and their properties.
-With the optional [React Native integration](react-native.md), elements can include component names and source locations.
-Accessibility inspection and annotation are separate tools.
+```sh
+agentsims start --detach
+```
 
-## Annotations
+Use these commands to manage the background workspace:
 
-Use the annotation control in the dock.
-Select a target on a phone and enter a note beside it.
-The summary collects notes for review.
-Use **Copy prompt** to transfer the reviewed notes to an agent.
+| Command                     | Result                                         |
+| --------------------------- | ---------------------------------------------- |
+| `agentsims status`          | Shows the URL and state of the workspace.      |
+| `agentsims logs --follow`   | Shows the output of the workspace.             |
+| `agentsims stop`            | Stops the background workspace.                |
 
-A compatible extension host can expose **Send to chat**.
-That action depends on host capabilities and the embedded workspace integration.
-See [extension setup](agents.md#workspace-extension) for host integration.
+### Change the address or port
 
-## Logs, traces, and web tools
+```sh
+agentsims start --host 127.0.0.1 --port 3300
+```
 
-Logs and traces open in an integrated bottom panel.
-The phone canvas adjusts to the available area.
-Settings and the device picker retain their own controls.
+To open the workspace from another computer, read [Use the workspace from another computer](agents.md#use-the-workspace-from-another-computer).
 
-The log panel supports device selection, search, filters, pause, clear, and copy.
-Use [application log commands](cli.md#application-logs) for terminal output.
+## Add a device
 
-Agentsims records command traces automatically.
-The trace panel shows those operations and their captured evidence.
-Command traces are not an app performance profiler.
+1. Open the device picker in the bottom dock.
+2. Select a device. If the device is off, Agentsims boots it.
 
-Web DevTools opens from the selected phone's header into the bottom panel.
-Its availability depends on the app's web or React Native inspector connection.
-There is no separate global Web DevTools dock button.
+The workspace shows each device as a phone on one canvas.
+You can drag and resize each phone.
+Each phone has its own state and tools.
 
-See [installation requirements](installation.md#requirements) for platform support.
+When you close the browser page, the devices continue to operate.
+
+## Take a screenshot or a recording
+
+Use the controls in the header of a phone.
+The browser saves recordings to your Downloads folder.
+
+## Change device settings
+
+1. Select a phone.
+2. Open **Settings** in the bottom dock.
+
+The settings are different for each platform:
+
+| Platform | Settings                                                                     |
+| -------- | ---------------------------------------------------------------------------- |
+| iOS      | Appearance, camera input, location, and app permissions                      |
+| Android  | Network, battery, locale, display density, emulator snapshots, and app permissions |
+
+You can also change camera input and app permissions [from the terminal](cli.md#test-the-camera-and-app-permissions).
+
+## Inspect the app
+
+Open the accessibility view to see the native elements on the screen and their properties.
+
+If you connect a React Native app, each element also shows its component name and source file.
+Read [Connect a React Native app](react-native.md).
+
+## Send notes to an agent
+
+Use annotations to mark problems on the screen and give them to a coding agent.
+
+1. Select the annotation control in the bottom dock.
+2. Select a target on a phone.
+3. Type a note beside the target.
+4. Open the summary to read all notes.
+5. Select **Copy prompt**. Then paste the prompt into your agent.
+
+Annotation and accessibility inspection are different tools. You can use one without the other.
+
+## Read logs and traces
+
+Logs and traces open in a panel at the bottom of the workspace.
+The phones move to fit the remaining space.
+
+The log panel shows the logs of one device.
+You can search, filter, pause, clear, and copy the logs.
+To read logs in a terminal, use [`agentsims app-logs`](cli.md#read-app-logs).
+
+Agentsims records a trace of each command automatically.
+The trace panel shows each operation and the screenshot and output that it captured.
+A trace does not measure the CPU or memory of your app.
+
+## Open Web DevTools
+
+Open Web DevTools from the header of a phone.
+DevTools opens in the bottom panel.
+This function is available only when the app has a web or React Native inspector connection.

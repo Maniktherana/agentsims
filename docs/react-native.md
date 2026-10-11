@@ -1,60 +1,61 @@
 # React Native and Expo
 
-Basic video, input, screenshots, and accessibility inspection need no app
-integration. The optional Metro integration adds React Native component names,
-source files, and line numbers to accessibility results.
+Agentsims works with every app without a change to the app.
+For a React Native or Expo app, you can add the Metro plugin.
+Then each element in the accessibility view also shows its component name, source file, and line number.
 
-Install Agentsims in the app project:
+## Connect a React Native app
 
-```sh
-npm install --save-dev agentsims
-```
+You need Node.js 20 or newer.
 
-Open `metro.config.js`. Import `withAgentsims`, then wrap the final Metro
-configuration:
+1. Install the package in the app project:
 
-```js
-const { getDefaultConfig } = require("expo/metro-config");
-const { withAgentsims } = require("agentsims/metro");
+   ```sh
+   npm install --save-dev agentsims
+   ```
 
-const config = getDefaultConfig(__dirname);
+2. Open `metro.config.js`.
+3. Wrap the Metro configuration with `withAgentsims`:
 
-module.exports = withAgentsims(config);
-```
+   ```js
+   const { getDefaultConfig } = require("expo/metro-config");
+   const { withAgentsims } = require("agentsims/metro");
+
+   const config = getDefaultConfig(__dirname);
+
+   module.exports = withAgentsims(config);
+   ```
+
+4. Restart Metro.
+5. Reload the app.
 
 For a bare React Native app, wrap the result of `mergeConfig` in the same way.
-If the configuration uses another wrapper, keep `withAgentsims` outside that wrapper.
+If the configuration uses other wrappers, put `withAgentsims` on the outside.
 
-Restart Metro and reload the app after you change the configuration.
+The `agentsims` npm package contains only the Metro and Babel plugins. It does not install the Agentsims CLI.
+[Install Agentsims](installation.md) separately.
 
-### Start Agentsims from Metro
+## Open the workspace from Metro
 
-You can also start Agentsims when the Metro preview first opens:
+You can let Metro start Agentsims for you:
 
 ```js
-const { getDefaultConfig } = require("expo/metro-config");
-const { withAgentsims } = require("agentsims/metro");
-
 module.exports = withAgentsims(getDefaultConfig(__dirname), {
 	preview: true,
 });
 ```
 
-The `preview: true` option starts Agentsims when you first open `/.sim` on the
-Metro server. For example, open `http://localhost:8081/.sim`. Metro redirects
-the browser to the Agentsims server. Device traffic uses the Agentsims port.
+1. Start Metro.
+2. Open `/.sim` on the Metro server, for example `http://localhost:8081/.sim`.
 
-Metro stops only the Agentsims process that it starts. An existing workspace
-remains under the control of its original owner.
+Metro starts its own Agentsims process and sends the browser to that workspace.
+When Metro stops, it also stops this process.
+Metro does not stop an Agentsims process that you started yourself.
 
-## Package boundaries
+## Package exports
 
-The npm package supplies Metro, Babel, and source records.
-It does not contain a CLI launcher or runtime installer.
-The native runtime receives those records and adds source details to inspection results.
-
-The package exports `agentsims/metro`, `agentsims/babel-plugin`, and `agentsims/state`.
-Node.js 20 or newer is required.
-
-See [development](development.md) for package boundaries and build commands.
-See [runtime installation](installation.md) for native downloads.
+| Export                   | Purpose                                  |
+| ------------------------ | ---------------------------------------- |
+| `agentsims/metro`        | The Metro configuration wrapper          |
+| `agentsims/babel-plugin` | The Babel plugin that records source locations |
+| `agentsims/state`        | The device state API                     |

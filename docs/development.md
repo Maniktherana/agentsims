@@ -1,117 +1,100 @@
 # Development
 
-## Architecture
+This page is for contributors to the Agentsims repository.
 
-```text
-iOS Simulator ── native capture and HID ──┐
-                                          ├── Agentsims server ── Browser
-Android device ── ADB and H.264 video ────┘          │
-                                                     └── CLI / Metro / agents
-```
+## Set up the repository
 
-The server owns device sessions, streams, and HTTP transport. Platform code
-owns simulator and Android host operations. The browser connects directly to
-the server for video, device input, and tools.
-
-## Packages and builds
-
-The repository has three package boundaries:
-
-| Package                                                | Purpose                                                    | User installation             |
-| ------------------------------------------------------ | ---------------------------------------------------------- | ----------------------------- |
-| `packages/agentsims` (`@agentsims/runtime`, private)   | Native runtime, CLI, shared workspace, and device services | Homebrew, curl, or PowerShell |
-| `packages/agentsims-react-native` (`agentsims` on npm) | Optional Metro and Babel source mapping                    | Project npm dependency        |
-| `packages/chatgpt`                                     | Workspace extension, host adapter, skills, and onboarding  | Plugin host                   |
-
-The extension and RN integration reuse an installed runtime.
-The npm library has no executable or runtime installer.
-The extension uses the CLI for agent commands and MCP Apps for its embedded UI.
-See [React Native integration](react-native.md) and [coding agents and extensions](agents.md).
-
-Run these commands from the repository root:
+Install the dependencies from the repository root:
 
 ```sh
 bun install --frozen-lockfile
+```
+
+## Run the checks
+
+Run these commands from the repository root before you open a pull request:
+
+```sh
 bun run --cwd packages/agentsims typecheck
 bun run --cwd packages/agentsims lint
 bun run --cwd packages/agentsims test
 bun run --cwd packages/agentsims-react-native test
 bun run --cwd packages/agentsims-react-native typecheck
 bun run --cwd packages/agentsims-react-native lint
-bun run build
 ```
 
-To build only the RN library, run:
+Continuous integration runs `bun run test:ci`. These tests do not need a device.
+`bun test` skips the device tests when the device variables are not set.
 
-```sh
-bun run --cwd packages/agentsims-react-native build
-```
+### Run the device tests
 
-To build only the workspace extension, run:
+1. Boot one iOS simulator.
+2. Boot one Android emulator, or connect one Android device.
+3. Run the tests with the IDs of the two devices:
 
-```sh
-bun run --cwd packages/chatgpt build
-```
+   ```sh
+   AGENTSIMS_E2E_IOS_DEVICE=<simulator-udid> \
+   AGENTSIMS_E2E_ANDROID_DEVICE=<device-serial> \
+   bun run --cwd packages/agentsims test src/__tests__/e2e
+   ```
 
-Each build writes only that product's output. Root `bun run build` schedules each product once.
+## Build
 
-| Artifact                                                       | Contents                                            |
-| -------------------------------------------------------------- | --------------------------------------------------- |
-| `packages/agentsims/dist/releases/agentsims-<platform>.tar.gz` | Native executable, preview, and platform helpers    |
-| `packages/agentsims-react-native/dist/npm/agentsims`           | Optional RN npm library                             |
-| `packages/chatgpt/dist/agentsims-chatgpt.tar.gz`               | Plugin manifest, skills, and bundled extension HTML |
+To build all products, run `bun run build` from the repository root.
 
-The unpacked plugin is also available at `packages/chatgpt/dist/plugin` for local installation.
-RN and extension builds do not require mobile SDKs. The runtime build compiles native helpers.
-The release workflow checks all native targets and publishes one portable plugin archive.
+To build one product, use its command:
 
-Pull-request CI uses `bun run test:ci` for the device-free source suite, then
-builds the runtime and the extension. `bun test` lists the device tests as skips
-when their device variables are absent.
+| Product                      | Command                                                 |
+| ---------------------------- | ------------------------------------------------------- |
+| React Native npm package     | `bun run --cwd packages/agentsims-react-native build`   |
+| Codex extension              | `bun run --cwd packages/chatgpt build`                  |
 
-CI does not use devices. To run the device tests, give the ID of one booted
-iOS simulator and one Android device or emulator:
+Each build writes to its own output directory:
 
-```sh
-AGENTSIMS_E2E_IOS_DEVICE=<simulator-udid> \
-AGENTSIMS_E2E_ANDROID_DEVICE=<device-serial> \
-bun run --cwd packages/agentsims test src/__tests__/e2e
-```
+| Output                                                         | Contents                                         |
+| -------------------------------------------------------------- | ------------------------------------------------ |
+| `packages/agentsims/dist/releases/agentsims-<platform>.tar.gz` | Native executable, preview, and platform helpers |
+| `packages/agentsims-react-native/dist/npm/agentsims`           | The React Native npm package                     |
+| `packages/chatgpt/dist/agentsims-chatgpt.tar.gz`               | The extension archive                            |
 
-Run the source build:
+The runtime build compiles native helpers. The React Native and extension builds do not need mobile SDKs.
+
+### Run your build
 
 ```sh
 ./packages/agentsims/dist/agentsims doctor
 ./packages/agentsims/dist/agentsims start
 ```
 
-## Release delivery
+## Publish a release
 
-The [Publish workflow](../.github/workflows/publish.yml) accepts an exact stable version.
-Its `release_mode` is `build-only`, `draft`, or `public`.
-The separate `publish_npm` option defaults to false.
-GitHub release delivery does not depend on npm publication.
+1. Open the [Publish workflow](../.github/workflows/publish.yml) in GitHub Actions.
+2. Enter an exact stable version.
+3. Select a `release_mode`: `build-only`, `draft`, or `public`.
+4. To also publish the npm package, set `publish_npm` to true. The default is false.
 
-The workflow builds macOS arm64, macOS x64, Linux x64, and Windows x64 runtimes on their native runners.
-Each runner starts its archive once and checks the version, status, and browser page.
-`scripts/release.ts` then writes the checksums, metadata, Homebrew formula, and installer.
-Release assets include these files, the platform archives, and the extension archive.
+The workflow builds the runtime for macOS arm64, macOS x64, Linux x64, and Windows x64.
+Each build starts once on its own runner. Then the workflow examines the version, the status, and the browser page.
+
+`scripts/release.ts` writes the checksums, the release metadata, the Homebrew formula, and the installer.
+The installer template is `packages/agentsims/scripts/install.sh`.
+
+### Homebrew
 
 A `public` release pushes `agentsims.rb` to the [Homebrew tap](https://github.com/Maniktherana/homebrew-tap).
-Then macOS arm64 and x64 runners build Homebrew bottles, upload them to the release, and add them to the formula.
-Without a bottle, Homebrew treats the formula as a source build and stops when the Command Line Tools are older than macOS.
-Last, new macOS arm64 and x64 runners install the bottle and run `brew test`.
+Then the workflow builds bottles for macOS arm64 and x64, and adds them to the formula.
+Last, it installs each bottle on a new runner and runs `brew test`.
+
 The `HOMEBREW_TAP_DEPLOY_KEY` secret holds a deploy key with write access to the tap.
 
-The macOS build applies ad hoc signatures to native helpers.
-Developer ID signing and notarization are not part of this release path.
+Without a bottle, Homebrew builds from source. This build stops when the Command Line Tools are older than macOS.
 
-The installer template is `packages/agentsims/scripts/install.sh`.
-`scripts/release.ts` inserts the version into this template.
-The website redirects `https://agentsims.dev/install` to the installer in the latest GitHub release.
-The redirect uses `apps/web/public/_redirects`. It shares the existing installer implementation.
+### Signatures
 
-## Website deployment
+The macOS build applies ad hoc signatures to the native helpers.
+The release does not use Developer ID signatures or notarization.
+
+## Deploy the website
 
 Run these commands from the repository root:
 
@@ -120,5 +103,35 @@ bun run build:site
 bun run deploy:site
 ```
 
-`deploy:site` runs `wrangler deploy` with the root `wrangler.jsonc`.
-It publishes the static assets in `apps/web/dist/client`.
+`deploy:site` runs `wrangler deploy` with the root `wrangler.jsonc`. It publishes `apps/web/dist/client`.
+
+`apps/web/public/_redirects` sends `https://agentsims.dev/install` to the installer in the latest GitHub release.
+
+### Edit the documentation
+
+The website shows the files in `docs/` at `agentsims.dev/docs`, except `README.md` and this page.
+`docs/meta.json` sets the order of the pages in the sidebar.
+The site also shows `CHANGELOG.md` at `/docs/changelog`.
+
+Each page takes its title from its first heading. Links to other `.md` files in `docs/` become links to docs pages.
+
+## Repository structure
+
+```text
+iOS Simulator ── native capture and HID ──┐
+                                          ├── Agentsims server ── Browser
+Android device ── ADB and H.264 video ────┘          │
+                                                     └── CLI / Metro / agents
+```
+
+The server owns the device sessions, the video streams, and the HTTP transport.
+The browser connects to the server for video, input, and tools.
+
+| Package                           | Contents                                                   | How users get it              |
+| --------------------------------- | ---------------------------------------------------------- | ----------------------------- |
+| `packages/agentsims`              | Native runtime, CLI, browser workspace, and device services | Homebrew, curl, or PowerShell |
+| `packages/agentsims-react-native` | Metro and Babel plugins (`agentsims` on npm)               | npm dependency of the app     |
+| `packages/chatgpt`                | Codex extension, host adapter, and skills                  | Plugin host                   |
+| `apps/web`                        | The agentsims.dev website and docs                         | agentsims.dev                 |
+
+The React Native package and the extension use an installed runtime. The npm package has no executable.

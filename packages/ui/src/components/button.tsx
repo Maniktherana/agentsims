@@ -14,6 +14,8 @@ const buttonVariants = cva(
 					"bg-[var(--agentsims-button-raised)] text-white/90 shadow-[var(--agentsims-button-raised-shadow)] hover:bg-[var(--agentsims-button-raised-hover)] active:bg-[var(--agentsims-button-raised-pressed)]",
 				contrast:
 					"bg-white text-black hover:bg-white/90 active:bg-white/80 focus-visible:ring-2 focus-visible:ring-white/45 disabled:bg-white/10 disabled:text-white/35",
+				surface:
+					"border border-border bg-linear-to-b from-[oklch(0.214267_0.003881_286.068)] to-[oklch(0.173482_0.002043_286.185)] text-foreground shadow-[inset_0_1px_0_oklch(1_0_0/0.031373)] hover:from-[oklch(0.24_0.004_286.068)] hover:to-[oklch(0.195_0.002_286.185)]",
 				outline:
 					"border border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
 				secondary:

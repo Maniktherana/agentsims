@@ -1,66 +1,68 @@
-# Coding agents and extensions
+# Coding agents
 
-## Agent skill
+A coding agent can use Agentsims to see your app, operate it, and make sure that each change works on a device.
+The agent uses the same [CLI](cli.md) that you use.
 
-Install the optional **Agentsims** skill to let a coding agent control and inspect devices:
+## Give the skill to your agent
 
-```sh
-npx skills add Maniktherana/agentsims --skill agentsims
-```
+The Agentsims skill teaches an agent how to use the CLI.
+It works with Claude Code, Codex, Cursor, Gemini CLI, and other agents that support Agent Skills.
 
-The skill teaches an agent to inspect and control iOS simulators, Android emulators,
-and connected Android devices with the Agentsims CLI.
-Install the [native runtime and host tools](installation.md) separately.
-See the [CLI guide](cli.md) for device operations.
+1. [Install Agentsims](installation.md).
+2. Install the skill:
 
-## Workspace extension
+   ```sh
+   npx skills add Maniktherana/agentsims --skill agentsims
+   ```
 
-The workspace extension uses [OpenAI MCP Extensions](https://developers.openai.com/plugins/build/extensions).
-It packages the existing workspace UI, agent skills, and a local stdio connection for Codex.
-The skill guides runtime installation when the native executable is absent.
-Later sessions reuse that installation.
+3. Start a new agent session.
 
-CLI commands remain the agent interface for device operations.
-The MCP connection supplies embedded UI transport and supported extension entrypoints.
-The package declares global and conversation entrypoints.
+The `npx` command needs Node.js 20 or newer. Agentsims itself does not need Node.js.
 
-For a prepared local marketplace, register its root and install the extension with Codex:
+## Ask the agent to do a task
 
-```sh
-codex plugin marketplace add /absolute/path/to/marketplace
-codex plugin add agentsims@agentsims-local
-```
+Give the agent a task that has a result on the device. For example:
 
-Use the actual marketplace root. If its catalog has another name, replace `agentsims-local` with that name.
-Start a fresh Codex session after installation.
-The graphical host must support the [OpenAI MCP Extensions APIs](https://developers.openai.com/plugins/build/extensions).
-CLI installation does not verify the graphical UI.
-Inspect `workspace_open` and its `embeddedTransport` capability before using live controls.
-If embedded transport is unavailable, use the browser workspace.
+- "Open the app on the Pixel emulator and sign in with the test account."
+- "Turn on dark mode on the iPhone simulator, and make sure that the settings screen is readable."
+- "Deny the camera permission, then open the scanner screen. Tell me what the app shows."
 
-## Process integration
+The agent reads the screen, does one action, and reads the result. It continues until the device shows the requested state.
 
-A custom tool can start an owned server and read its readiness record:
+To review what the agent did, open the trace panel in the [workspace](workspace.md#read-logs-and-traces).
+
+## Give screen notes to the agent
+
+Use [annotations](workspace.md#send-notes-to-an-agent) to mark problems on a phone screen.
+Then select **Copy prompt** and paste the notes into the agent.
+
+## Use Agentsims inside Codex
+
+A Codex side panel for the workspace is in development.
+Until it is available, use the skill and the browser workspace.
+
+## Start Agentsims from your own tool
+
+A tool can start its own Agentsims server and stop it when the work is complete:
 
 ```sh
 agentsims serve --port 0 --host 127.0.0.1 --json --managed
 ```
 
-The command selects an available port and prints a JSON record with the server
-URL. Keep the input pipe open while the server is needed. The server stops and
-releases device sessions when the pipe closes.
+1. Read the JSON record that the command prints. It contains the URL of the server.
+2. Keep the standard input of the process open while you use the server.
+3. To stop the server, close the standard input. The server then releases its devices.
 
-An integration must stop only the process that it starts. A URL grants access
-to a workspace, but it does not grant process ownership.
+A tool must stop only a server that it started.
+A tool that gets a workspace URL can use the workspace, but it must not stop it.
 
-## Remote access
+## Use the workspace from another computer
 
-Forward the Agentsims port and the app development port for remote use. A Metro
-redirect to a loopback URL works only when the browser can reach that URL.
+1. Forward the Agentsims port, which is `3200` by default.
+2. If you use Metro, also forward the port of the development server.
 
-Use a reverse proxy with WebSocket support when one public origin is required.
-Forward `X-Forwarded-Proto` when the proxy terminates HTTPS.
+If you need one public address, use a reverse proxy that supports WebSocket.
+If the proxy terminates HTTPS, forward the `X-Forwarded-Proto` header.
 
 > [!WARNING]
-> Expose Agentsims only to trusted users. The workspace provides device control
-> and access to host tools.
+> Give access only to people that you trust. A person with access to the workspace can control your devices and use the tools on your computer.

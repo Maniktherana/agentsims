@@ -9,7 +9,12 @@
 		"skipLibCheck": true,
 		"noEmit": true,
 		"baseUrl": ".",
-		"paths": { "@/*": ["./src/*"] },
+		"paths": {
+			"@/*": ["./src/*"],
+			// fumadocs-mdx resolves its own fumadocs-core copy. One copy of the
+			// source types lets `loader()` infer the page data.
+			"fumadocs-core/source": ["./node_modules/fumadocs-core/dist/source/index.d.ts"]
+		},
 		"types": ["vite/client"]
 	},
 	"include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]

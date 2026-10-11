@@ -11,6 +11,7 @@ export const Route = createRootRoute({
 	head: () => ({
 		meta: [
 			{ charSet: "utf-8" },
+			{ name: "color-scheme", content: "dark" },
 			{
 				name: "viewport",
 				content: "width=device-width, initial-scale=1",
@@ -46,7 +47,13 @@ function RootComponent() {
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
 	return (
-		<html lang="en" className="dark">
+		// The inline background paints the page black before the stylesheet
+		// loads, so a full page load never shows a white frame.
+		<html
+			lang="en"
+			className="dark"
+			style={{ backgroundColor: "#000", colorScheme: "dark" }}
+		>
 			<head>
 				<HeadContent />
 			</head>

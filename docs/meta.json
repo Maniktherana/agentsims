@@ -1,0 +1,11 @@
+{
+	"pages": [
+		"installation",
+		"workspace",
+		"cli",
+		"react-native",
+		"agents",
+		"---",
+		"CHANGELOG"
+	]
+}
