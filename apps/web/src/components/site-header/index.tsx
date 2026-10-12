@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { pressable } from "@agentsims/ui/motion/pressable";
 import { cn } from "@agentsims/ui/lib/utils";
 import { docsRoute, repositoryUrl } from "../../docs/links";
-import { GetStartedButton } from "./get-started-button";
+import { DownloadButton } from "./download-button";
 
 function GitHubMark() {
 	return (
@@ -109,7 +109,7 @@ export function SiteHeader({
 					>
 						<GitHubMark />
 					</a>
-					<GetStartedButton size="header" className="ms-1" />
+					<DownloadButton className="ms-1" />
 				</div>
 			</div>
 		</header>

@@ -25,7 +25,7 @@ export const Route = createFileRoute("/docs/$")({
 		return { slugs, title: page.data.title };
 	},
 	head: ({ loaderData }) => ({
-		meta: [{ title: `${loaderData?.title ?? "Docs"} — Agentsims docs` }],
+		meta: [{ title: `${loaderData?.title ?? "Docs"} - Agentsims docs` }],
 	}),
 	component: DocsRoute,
 });

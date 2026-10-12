@@ -21,3 +21,25 @@ export function installationCommand(platform: InstallPlatform): string {
 	if (platform === "Windows") return powershellCommand;
 	return platform === "macOS" ? brewCommand : curlCommand;
 }
+
+/**
+ * Runs in the document head before the first paint. It records the platform
+ * on <html>, so the page shows the matching install command at once.
+ */
+export const installPlatformScript = `document.documentElement.dataset.installPlatform=(${detectInstallPlatform.toString()})(navigator.userAgent,navigator.maxTouchPoints)||""`;
+
+/**
+ * Reads the platform that the head script recorded. If the script did not run,
+ * for example after a hot reload, this records it now.
+ */
+export function readInstallPlatform(): InstallPlatform {
+	const root = document.documentElement;
+	if (root.dataset.installPlatform === undefined)
+		root.dataset.installPlatform =
+			detectInstallPlatform(navigator.userAgent, navigator.maxTouchPoints) ??
+			"";
+	const value = root.dataset.installPlatform;
+	return value === "macOS" || value === "Windows" || value === "Linux"
+		? value
+		: null;
+}

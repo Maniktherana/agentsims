@@ -1,12 +1,44 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@agentsims/ui/components/button";
 import { CopyIconSwap } from "../copy/copy-icon-swap";
-import { GetStartedButton } from "../site-header/get-started-button";
 import {
-	detectInstallPlatform,
+	brewCommand,
+	curlCommand,
 	installationCommand,
+	powershellCommand,
+	readInstallPlatform,
 	type InstallPlatform,
 } from "./commands";
+
+// The head script sets data-install-platform before the first paint. Each
+// variant shows only on its platform, so the command never changes on screen.
+const variants = [
+	{
+		prompt: "$",
+		command: brewCommand,
+		className: "hidden [:root[data-install-platform=macOS]_&]:contents",
+	},
+	{
+		prompt: ">",
+		command: powershellCommand,
+		className: "hidden [:root[data-install-platform=Windows]_&]:contents",
+	},
+	{
+		prompt: "$",
+		command: curlCommand,
+		className:
+			"contents [:root[data-install-platform=macOS]_&]:hidden [:root[data-install-platform=Windows]_&]:hidden",
+	},
+];
+
+function CommandTokens({ command }: { command: string }) {
+	return command.split(" ").map((token, index) => (
+		<Fragment key={`${index}-${token}`}>
+			{index > 0 ? " " : null}
+			<span className="inline-block whitespace-nowrap">{token}</span>
+		</Fragment>
+	));
+}
 
 export function InstallationControls() {
 	const [platform, setPlatform] = useState<InstallPlatform>(null);
@@ -15,9 +47,7 @@ export function InstallationControls() {
 	const copyResetTimer = useRef<number | null>(null);
 	const command = installationCommand(platform);
 	useEffect(() => {
-		setPlatform(
-			detectInstallPlatform(navigator.userAgent, navigator.maxTouchPoints),
-		);
+		setPlatform(readInstallPlatform());
 		return () => {
 			if (copyResetTimer.current !== null)
 				window.clearTimeout(copyResetTimer.current);
@@ -41,35 +71,28 @@ export function InstallationControls() {
 	return (
 		<>
 			<div className="flex flex-wrap items-center gap-3 max-lg:mx-auto max-lg:w-full max-lg:max-w-[28.5rem] max-lg:flex-col max-lg:items-stretch">
-				<GetStartedButton size="hero" className="shrink-0" />
 				<Button
 					variant="surface"
 					size="lg"
 					onClick={copyCommand}
 					aria-label={
-						copied
-							? "Installation command copied"
-							: platform === "Windows"
-								? "Copy PowerShell install command"
-								: "Copy install command"
+						copied ? "Installation command copied" : "Copy install command"
 					}
 					className="h-auto min-h-11 max-w-full min-w-0 gap-3 rounded-full px-5 py-2.5 font-mono text-[0.8125rem] max-lg:w-full max-lg:gap-2 max-lg:px-3"
 				>
-					<span className="shrink-0 text-muted-foreground" aria-hidden="true">
-						{platform === "Windows" ? ">" : "$"}
-					</span>
-					<span className="min-w-0 overflow-x-auto whitespace-normal text-left">
-						{platform === "Windows"
-							? "Copy PowerShell install command"
-							: command.split(" ").map((token, index) => (
-									<Fragment key={`${index}-${token}`}>
-										{index > 0 ? " " : null}
-										<span className="inline-block whitespace-nowrap">
-											{token}
-										</span>
-									</Fragment>
-								))}
-					</span>
+					{variants.map(({ prompt, command, className }) => (
+						<span key={command} className={className}>
+							<span
+								className="shrink-0 text-muted-foreground"
+								aria-hidden="true"
+							>
+								{prompt}
+							</span>
+							<span className="min-w-0 overflow-x-auto whitespace-normal text-left">
+								<CommandTokens command={command} />
+							</span>
+						</span>
+					))}
 					<span
 						className={
 							copied

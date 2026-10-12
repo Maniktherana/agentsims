@@ -5,6 +5,7 @@ import {
 	createRootRoute,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { installPlatformScript } from "../components/installation/commands";
 import "../styles.css";
 
 export const Route = createRootRoute({
@@ -17,7 +18,7 @@ export const Route = createRootRoute({
 				content: "width=device-width, initial-scale=1",
 			},
 			{
-				title: "Agentsims — Mobile tooling for developers and coding agents",
+				title: "Agentsims - Mobile tooling for developers and coding agents",
 			},
 			{
 				name: "description",
@@ -33,6 +34,7 @@ export const Route = createRootRoute({
 			},
 			{ rel: "icon", href: "/favicon.ico", sizes: "any" },
 		],
+		scripts: [{ children: installPlatformScript }],
 	}),
 	component: RootComponent,
 });
@@ -53,6 +55,8 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
 			lang="en"
 			className="dark"
 			style={{ backgroundColor: "#000", colorScheme: "dark" }}
+			// The head script adds data-install-platform before hydration.
+			suppressHydrationWarning
 		>
 			<head>
 				<HeadContent />
