@@ -12,7 +12,7 @@ import {
 	InvalidCommandInput,
 } from "../../../core/tools/errors";
 import { commandErrorStatus, commandResponse, requestJson } from "../command";
-import { requestSource } from "./shared";
+import { requestSource, eventStream } from "./shared";
 
 const sameOriginRequest = Effect.gen(function* () {
 	const request = requestSource(
@@ -106,16 +106,7 @@ export const logsRoutes = HttpRouter.empty.pipe(
 					Effect.as(encoder.encode(": keepalive\n\n")),
 				),
 			);
-			return HttpServerResponse.stream(
-				updates.pipe(Stream.merge(heartbeat, { haltStrategy: "left" })),
-				{
-					headers: {
-						"Content-Type": "text/event-stream",
-						"Cache-Control": "no-cache",
-						"X-Accel-Buffering": "no",
-					},
-				},
-			);
+			return eventStream(updates.pipe(Stream.merge(heartbeat, { haltStrategy: "left" })));
 		}),
 	),
 );

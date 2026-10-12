@@ -8,7 +8,7 @@ import { RnSources } from "../../../core/react-native/sources";
 import { AxStreamers } from "../../../core/tools/observe/accessibility";
 import { DeviceLifecycleService } from "../../../core/tools/devices/lifecycle";
 import { ServerConfig } from "../../runtime/config";
-import { json, requestSource, requestedDevice } from "./shared";
+import { json, requestSource, requestedDevice, eventStream } from "./shared";
 import { selectDeviceState } from "../../../core/tools/devices/lifecycle";
 
 export const accessibilityRoutes = HttpRouter.empty.pipe(
@@ -112,13 +112,7 @@ export const accessibilityRoutes = HttpRouter.empty.pipe(
 			const stream = Stream.succeed(encoder.encode(":\n\n")).pipe(
 				Stream.concat(updates),
 			);
-			return HttpServerResponse.stream(stream, {
-				headers: {
-					"Content-Type": "text/event-stream",
-					"Cache-Control": "no-cache",
-					"X-Accel-Buffering": "no",
-				},
-			});
+			return eventStream(stream);
 		}),
 	),
 );

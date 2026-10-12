@@ -49,6 +49,7 @@ export function useUnifiedLogs(options: {
 			? store.session(device.id)
 			: null;
 	// Collection belongs to each phone, independent of which channel is displayed.
+	// It runs only while Logs is open and the page is visible. Log streams cost CPU on the host.
 	const targetKey = JSON.stringify(
 		options.devices
 			.map((device) => consoleTarget(device, store.session(device.id).filters))
@@ -71,10 +72,10 @@ export function useUnifiedLogs(options: {
 	useEffect(() => {
 		reader.update({
 			targets: JSON.parse(targetKey) as LogTarget[],
-			active: visible,
+			active: options.active && visible,
 			basePath: options.basePath,
 		});
-	}, [reader, targetKey, options.basePath, visible]);
+	}, [reader, targetKey, options.basePath, options.active, visible]);
 	useEffect(() => {
 		store.retainDevices(JSON.parse(deviceIds) as string[]);
 		refresh();

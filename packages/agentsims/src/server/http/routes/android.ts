@@ -15,7 +15,7 @@ import {
 } from "../../../core/tools/errors";
 import type { AndroidLogLevel } from "../../../core/android/contracts";
 import { commandResponse, requestJson } from "../command";
-import { requestSource } from "./shared";
+import { requestSource, eventStream } from "./shared";
 
 const requestContext = Effect.gen(function* () {
 	const request = requestSource(
@@ -217,16 +217,7 @@ export const androidRoutes = HttpRouter.empty.pipe(
 					Effect.as(encoder.encode(": keepalive\n\n")),
 				),
 			);
-			return HttpServerResponse.stream(
-				updates.pipe(Stream.merge(heartbeat, { haltStrategy: "left" })),
-				{
-					headers: {
-						"Content-Type": "text/event-stream",
-						"Cache-Control": "no-cache",
-						"X-Accel-Buffering": "no",
-					},
-				},
-			);
+			return eventStream(updates.pipe(Stream.merge(heartbeat, { haltStrategy: "left" })));
 		}),
 	),
 );

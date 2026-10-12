@@ -28,6 +28,7 @@ type Results = {
 		shared: { device: string; app: string | null }[];
 		history: string[];
 	};
+	finalOpened: string[];
 	disposed: string[];
 };
 
@@ -264,6 +265,7 @@ async function fixture(): Promise<Results> {
 	render(devices[0]!, "device", false);
 	await settle();
 	logs = render(devices[0]!, "all", true);
+	await settle();
 	logs = render(devices[0]!, "all", true);
 	const resumed = capture(logs);
 	logs = render(devices[0]!);
@@ -289,9 +291,11 @@ async function fixture(): Promise<Results> {
 		shared: targets.slice(-2),
 		history: logs.getHistory().map((record) => record.id),
 	};
+	const finalOpened = [...opened];
 	for (const effect of effects.values()) effect.cleanup?.();
 	await settle();
 	return {
+		finalOpened,
 		initial,
 		switched,
 		returned,
@@ -337,24 +341,26 @@ if (process.argv.includes("--logs-fixture")) {
 			expect(results.all.opened).toHaveLength(2);
 			expect(results.all.records).toHaveLength(4);
 		});
-		test("closed Logs keeps collecting without publishing React updates and exports full paused, filtered history", () => {
-			expect(results.closed.canceled).toEqual([]);
+		test("closed Logs stops both readers and collects nothing until it opens again", () => {
+			expect(results.closed.canceled.sort()).toEqual(["android-1", "ios-1"]);
 			expect(results.closed.records).toHaveLength(0);
-			expect(results.closed.history).toHaveLength(3);
-			expect(results.closed.historyCount).toBe(3);
+			// Records sent while Logs is closed never arrive.
+			expect(results.closed.history).toEqual(results.returned.history);
 			expect(results.backgroundWrites).toBe(0);
 		});
-		test("hidden pages cancel both readers and restore original history after runtime expiration; unmount releases all channels", () => {
-			expect(results.hidden.canceled.sort()).toEqual(["android-1", "ios-1"]);
-			expect(results.resumed.history).toHaveLength(6);
-			expect(results.resumed.historyCount).toBe(6);
-			expect(results.resumed.opened).toHaveLength(4);
-			expect(
-				results.disposed.filter((device) => device === "ios-1"),
-			).toHaveLength(4);
-			expect(
-				results.disposed.filter((device) => device === "android-1"),
-			).toHaveLength(3);
+		test("hidden pages open no reader; opening Logs reopens both; unmount releases every reader", () => {
+			expect(results.hidden.opened).toEqual(results.closed.opened);
+			expect(results.resumed.opened.slice(results.closed.opened.length).sort()).toEqual([
+				"android-1",
+				"ios-1",
+			]);
+			expect(results.resumed.history).toEqual(results.all.history);
+			const count = (devices: string[], device: string) =>
+				devices.filter((value) => value === device).length;
+			for (const device of ["ios-1", "android-1"])
+				expect(count(results.disposed, device)).toBe(
+					count(results.finalOpened, device),
+				);
 		});
 		test("app target changes replace only that phone's reader; focus, All and display filters preserve the target", () => {
 			expect(results.appChange.changed).toEqual(["ios-1"]);
@@ -367,7 +373,7 @@ if (process.argv.includes("--logs-fixture")) {
 				{ device: "android-1", app: "com.shared" },
 				{ device: "ios-1", app: "com.shared" },
 			]);
-			expect(results.appChange.history).toHaveLength(6);
+			expect(results.appChange.history).toEqual(results.resumed.history);
 		});
 	});
 }

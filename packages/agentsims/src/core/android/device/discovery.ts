@@ -292,8 +292,19 @@ export async function getAndroidForegroundApp(
 	execute: (args: string[], timeout?: number) => Promise<string> = adbText,
 ): Promise<AndroidForegroundApp | null> {
 	const generation = androidDeviceGenerations.get(serial) ?? 0;
+	// adb joins shell arguments, so the device filters the large dump before it reaches the host.
 	const activities = await execute(
-		["-s", serial, "shell", "dumpsys", "activity", "activities"],
+		[
+			"-s",
+			serial,
+			"shell",
+			"dumpsys",
+			"activity",
+			"activities",
+			"|",
+			"grep",
+			"ResumedActivity",
+		],
 		5_000,
 	).catch(() => null);
 	if (activities === null) return null;

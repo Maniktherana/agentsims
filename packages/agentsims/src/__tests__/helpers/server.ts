@@ -86,6 +86,7 @@ export async function startTestServer(
 	const LifecycleTest = test.readDeviceStates
 		? Layer.succeed(DeviceLifecycleService, {
 				invalidate: () => {},
+				generation: () => 0,
 				reconcileCatalogState: () => {},
 				isStartSuppressed: () => false,
 				states: test.readDeviceStates,

@@ -71,7 +71,8 @@ const ANDROID_SCROLL_GESTURE_END_MS = 80;
 // Android moves input focus on the next frames after a tap.
 const ANDROID_FOCUS_TAP_SETTLE_MS = 120;
 const EMULATOR_CONFIG_DEBOUNCE_MS = 50;
-const EMULATOR_VIEWPORT_POLL_MS = 500;
+// Frame metadata already reports size and rotation. This poll only catches what it misses.
+const EMULATOR_VIEWPORT_POLL_MS = 5_000;
 // A sampler reads frames in bursts. The tap outlives the gap between two
 // reads, and no longer, so an idle stream still closes itself.
 const FRAME_TAP_IDLE_MS = 3_000;

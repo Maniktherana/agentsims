@@ -123,7 +123,11 @@ const UNCONFIGURED_LIFECYCLE_DEPENDENCIES: DeviceLifecycleDependencies = {
 export const DEVICE_SHUTTING_DOWN_ERROR = "Device is shutting down";
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 
+/** `simctl list` and `adb devices` cost real CPU. Starts and shutdowns clear this cache. */
+export const DEVICE_LIST_MS = 5_000;
+
 export class DeviceLifecycle {
+	private invalidations = 0;
 	private iosSnapshot: { at: number; devices: Set<string> | null } = {
 		at: 0,
 		devices: null,
@@ -147,6 +151,12 @@ export class DeviceLifecycle {
 	invalidate(): void {
 		this.iosSnapshot = { at: 0, devices: null };
 		this.androidSnapshot = { at: 0, devices: null };
+		this.invalidations++;
+	}
+
+	/** Changes on each start, shutdown, or invalidation. Other device caches compare it. */
+	generation(): number {
+		return this.invalidations;
 	}
 
 	reconcileCatalogState(
@@ -470,7 +480,7 @@ export class DeviceLifecycle {
 	private async bootedIosDevices(): Promise<Set<string> | null> {
 		if (this.platform !== "darwin") return new Set();
 		const now = Date.now();
-		if (this.iosSnapshot.devices && now - this.iosSnapshot.at < 1_500) {
+		if (this.iosSnapshot.devices && now - this.iosSnapshot.at < DEVICE_LIST_MS) {
 			return this.iosSnapshot.devices;
 		}
 		const result = await this.execute(
@@ -495,7 +505,7 @@ export class DeviceLifecycle {
 
 	private async connectedAndroidDevices(): Promise<Set<string> | null> {
 		const now = Date.now();
-		if (this.androidSnapshot.devices && now - this.androidSnapshot.at < 1_500) {
+		if (this.androidSnapshot.devices && now - this.androidSnapshot.at < DEVICE_LIST_MS) {
 			return this.androidSnapshot.devices;
 		}
 		try {
@@ -515,6 +525,7 @@ export class DeviceLifecycle {
 export type DeviceLifecycleServiceValue = Pick<
 	DeviceLifecycle,
 	| "invalidate"
+	| "generation"
 	| "reconcileCatalogState"
 	| "isStartSuppressed"
 	| "states"

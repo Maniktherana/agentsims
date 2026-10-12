@@ -10,6 +10,7 @@ import { Effect, Fiber, Layer, Stream, TestClock, TestContext } from "effect";
 import {
 	iosApplicationLogStream,
 	iosLogCommand,
+	iosLogMarker,
 	iosLogLines,
 	parseIosApplicationPid,
 	parseIosLogLine,
@@ -30,6 +31,27 @@ const processFixture = new URL(
 	"../../../fixtures/logs/ios-launchctl.txt",
 	import.meta.url,
 );
+
+/** Markers of the readers that the scope stopped with `pkill`. */
+const stopped: string[] = [];
+
+/** Answers `pkill` at once. Other commands go to `start`. */
+function logExecutor(start: Parameters<typeof makeExecutor>[0]) {
+	return makeExecutor((input) => {
+		const command = Command.flatten(input)[0];
+		if (command.command !== "pkill") return start(input);
+		stopped.push(command.args.at(-1)!);
+		return Effect.succeed({
+			stdout: Stream.empty,
+			stderr: Stream.empty,
+			exitCode: Effect.succeed(ExitCode(1)),
+		} as unknown as Process);
+	});
+}
+
+/** The PID from the `log stream` predicate. */
+const logPid = (args: readonly string[]) =>
+	Number(/processIdentifier == (\d+)/.exec(args.at(-1) ?? "")?.[1]);
 
 function nativeLine(message: string, pid = 123): Uint8Array {
 	return encoder.encode(
@@ -229,7 +251,8 @@ describe("iOS native log parsing", () => {
 	});
 
 	test("the command always selects one simulator and one numeric process", () => {
-		const command = Command.flatten(iosLogCommand(device, 123))[0];
+		const marker = iosLogMarker();
+		const command = Command.flatten(iosLogCommand(device, 123, marker))[0];
 		expect(command.command).toBe("xcrun");
 		expect(command.args).toEqual([
 			"simctl",
@@ -240,14 +263,15 @@ describe("iOS native log parsing", () => {
 			"--style",
 			"ndjson",
 			"--level",
-			"debug",
+			"info",
 			"--type",
 			"log",
-			"--process",
-			"123",
+			"--predicate",
+			`processIdentifier == 123 OR process == "${marker}"`,
 		]);
-		expect(() => iosLogCommand("booted", 123)).toThrow("simulator UDID");
-		expect(() => iosLogCommand(device, -1)).toThrow("positive PID");
+		expect(() => iosLogCommand("booted", 123, marker)).toThrow("simulator UDID");
+		expect(() => iosLogCommand(device, -1, marker)).toThrow("positive PID");
+		expect(() => iosLogCommand(device, 123, "x\" OR 1")).toThrow("marker");
 	});
 });
 
@@ -255,10 +279,15 @@ describe("iOS log process scope", () => {
 	test("malformed lines do not stop collection and closing the scope stops the owned process", async () => {
 		let starts = 0;
 		let releases = 0;
-		const executor = makeExecutor(() =>
+		let marker = "";
+		const executor = logExecutor((input) =>
 			Effect.acquireRelease(
 				Effect.sync(() => {
 					starts++;
+					marker =
+						/process == "([^"]+)"/.exec(
+							Command.flatten(input)[0].args.at(-1) ?? "",
+						)?.[1] ?? "";
 					return {
 						stdout: Stream.concat(
 							Stream.make(
@@ -322,6 +351,9 @@ describe("iOS log process scope", () => {
 					expect(starts).toBe(1);
 					yield* Fiber.interrupt(fiber);
 					expect(releases).toBe(1);
+					// simctl does not stop its child. The reader must stop it by marker.
+					expect(marker).toMatch(/^agentsims-log-/);
+					expect(stopped).toContain(marker);
 				}),
 			).pipe(
 				Effect.provide(
@@ -357,9 +389,9 @@ describe("iOS log process scope", () => {
 		};
 		const starts: number[] = [];
 		let releases = 0;
-		const executor = makeExecutor((input) => {
+		const executor = logExecutor((input) => {
 			const command = Command.flatten(input)[0];
-			const pid = Number(command.args.at(-1));
+			const pid = logPid(command.args);
 			return Effect.acquireRelease(
 				Effect.sync(() => {
 					starts.push(pid);
@@ -442,10 +474,10 @@ describe("iOS log process scope", () => {
 		let fixedPid = 123;
 		const starts: number[] = [];
 		let releases = 0;
-		const executor = makeExecutor((input) =>
+		const executor = logExecutor((input) =>
 			Effect.acquireRelease(
 				Effect.sync(() => {
-					starts.push(Number(Command.flatten(input)[0].args.at(-1)));
+					starts.push(logPid(Command.flatten(input)[0].args));
 					return {
 						stdout: Stream.never,
 						stderr: Stream.empty,
@@ -505,7 +537,7 @@ describe("iOS log process scope", () => {
 	test("reader exit restarts after a delay and closing the scope cancels retries", async () => {
 		let starts = 0;
 		let releases = 0;
-		const executor = makeExecutor(() =>
+		const executor = logExecutor(() =>
 			Effect.acquireRelease(
 				Effect.sync(() => {
 					const id = ++starts;
@@ -566,7 +598,7 @@ describe("iOS log process scope", () => {
 
 	test("missing, ambiguous, and explicit stale PID selections never start unfiltered logs", async () => {
 		let starts = 0;
-		const executor = makeExecutor(() => {
+		const executor = logExecutor(() => {
 			starts++;
 			return Effect.die("A log process must not start");
 		});
@@ -619,7 +651,7 @@ describe("iOS log process scope", () => {
 	test("default PID lookup runs inside the selected simulator", async () => {
 		const table = await readFile(processFixture, "utf8");
 		const commands: string[][] = [];
-		const executor = makeExecutor((input) => {
+		const executor = logExecutor((input) => {
 			const args = [...Command.flatten(input)[0].args];
 			commands.push(args);
 			return Effect.acquireRelease(
@@ -669,12 +701,12 @@ describe("iOS log process scope", () => {
 			"log",
 			"stream",
 		]);
-		expect(commands[1]?.slice(-2)).toEqual(["--process", "123"]);
+		expect(logPid(commands[1] ?? [])).toBe(123);
 	});
 
 	test("non-macOS hosts report unavailable and invalid device targets fail before startup", async () => {
 		let starts = 0;
-		const executor = makeExecutor(() => {
+		const executor = logExecutor(() => {
 			starts++;
 			return Effect.die("No process expected");
 		});
@@ -720,7 +752,7 @@ describe("iOS log process scope", () => {
 
 	test("cancellation releases a producer blocked by its bounded handoff", async () => {
 		let released = 0;
-		const executor = makeExecutor(() =>
+		const executor = logExecutor(() =>
 			Effect.acquireRelease(
 				Effect.succeed({
 					stdout: Stream.repeatEffect(Effect.succeed(nativeLine("message"))),

@@ -35,19 +35,35 @@ export type ForegroundAppReads = {
 	readIos(device: string): Effect.Effect<unknown>;
 };
 
+/** A read spawns `adb` or queries accessibility. Callers in this window share one read. */
+const FOREGROUND_SHARE_MS = 2_000;
+
 /** Build foreground-app reads from injected platform operations. */
 export const foregroundAppsLayer = <R>(
 	reads: Effect.Effect<ForegroundAppReads, never, R>,
 ) =>
 	Layer.effect(
 		ForegroundApps,
-		Effect.map(reads, (platform) =>
-			ForegroundApps.of({
+		Effect.map(reads, (platform) => {
+			const recent = new Map<
+				string,
+				{ at: number; value: Promise<ForegroundApp | null> }
+			>();
+			return ForegroundApps.of({
 				read: (device) =>
-					(device.startsWith("android:")
-						? platform.readAndroid(device)
-						: platform.readIos(device)
-					).pipe(Effect.map(decodeForegroundApp)),
-			}),
-		),
+					Effect.suspend(() => {
+						const hit = recent.get(device);
+						if (hit && Date.now() - hit.at < FOREGROUND_SHARE_MS)
+							return Effect.promise(() => hit.value);
+						const value = Effect.runPromise(
+							(device.startsWith("android:")
+								? platform.readAndroid(device)
+								: platform.readIos(device)
+							).pipe(Effect.map(decodeForegroundApp)),
+						).catch(() => null);
+						recent.set(device, { at: Date.now(), value });
+						return Effect.promise(() => value);
+					}),
+			});
+		}),
 	);

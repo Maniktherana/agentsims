@@ -141,28 +141,6 @@ export function androidAvccResponse(
 	});
 }
 
-/** Ends a live stream when its tab stops being the holder of the device. */
-function endOnLoss(
-	response: Response,
-	subscribe: (stop: () => void) => void,
-): Response {
-	if (!response.body) return response;
-	let terminate = () => {};
-	const relay = new TransformStream<Uint8Array, Uint8Array>({
-		start: (controller) => {
-			terminate = () => controller.terminate();
-		},
-	});
-	// terminate() closes the client stream normally and cancels the source.
-	// The pipe then rejects on purpose. That rejection is not an error.
-	void response.body.pipeTo(relay.writable).catch(() => {});
-	subscribe(() => terminate());
-	return new Response(relay.readable, {
-		status: response.status,
-		headers: response.headers,
-	});
-}
-
 const heldElsewhere = () =>
 	HttpServerResponse.unsafeJson(
 		{
@@ -389,13 +367,8 @@ export const helperRoutes = HttpRouter.empty.pipe(
 					iosSessions,
 				),
 			);
-			return HttpServerResponse.fromWeb(
-				viewers && viewer
-					? endOnLoss(result, (stop) =>
-							viewers.onLoss(match.device, viewer, stop),
-						)
-					: result,
-			);
+			// The tab stops its own video when it loses the device. Frames go straight to it.
+			return HttpServerResponse.fromWeb(result);
 		}),
 	),
 );

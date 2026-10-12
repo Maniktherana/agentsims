@@ -13,7 +13,7 @@ import {
 	type DeviceFrameDescriptor,
 	type DevicePlaceholderAssetDescriptor,
 } from "../../ios/device-assets";
-import type { DeviceLifecycleServiceValue } from "./lifecycle";
+import { DEVICE_LIST_MS, type DeviceLifecycleServiceValue } from "./lifecycle";
 import type { DeviceState } from "./state";
 import { hostCommandText } from "../../host";
 
@@ -87,6 +87,11 @@ export function parseGridPaging(rawUrl: string): {
 }
 
 export class DeviceCatalog {
+	private iosInventory: {
+		at: number;
+		generation: number;
+		value: ReturnType<typeof listIosDevices>;
+	} = { at: 0, generation: -1, value: Promise.resolve(null) };
 	private preferredSnapshot: { at: number; udid: string | null } = {
 		at: 0,
 		udid: null,
@@ -303,10 +308,17 @@ export class DeviceCatalog {
 	}
 
 	private async listIosSimulators(): Promise<SimctlDevice[]> {
-		const inventory = await listIosDevices({
-			platform: this.platform,
-			timeoutMs: 3000,
-		});
+		const generation = this.lifecycle.generation();
+		if (
+			this.iosInventory.generation !== generation ||
+			Date.now() - this.iosInventory.at >= DEVICE_LIST_MS
+		)
+			this.iosInventory = {
+				at: Date.now(),
+				generation,
+				value: listIosDevices({ platform: this.platform, timeoutMs: 3000 }),
+			};
+		const inventory = await this.iosInventory.value;
 		return Object.entries(inventory ?? {}).flatMap(([runtime, entries]) =>
 			/SimRuntime\.(iOS|watchOS|visionOS|xrOS)-/i.test(runtime)
 				? entries
@@ -322,7 +334,7 @@ export class DeviceCatalog {
 	private async preferredIosDevice(): Promise<string | null> {
 		if (this.platform !== "darwin") return null;
 		const now = Date.now();
-		if (now - this.preferredSnapshot.at < 1_500)
+		if (now - this.preferredSnapshot.at < DEVICE_LIST_MS)
 			return this.preferredSnapshot.udid;
 		const udid = await hostCommandText(
 			"defaults",

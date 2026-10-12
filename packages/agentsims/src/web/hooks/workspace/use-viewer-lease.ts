@@ -18,7 +18,8 @@ function tabInUse(): boolean {
  *
  * `active` is false until this tab has a viewer ID, so every live request
  * carries it. A tab claims its device when the device has no holder, when the
- * tab gets focus, and when `claim` is called (for example, on a click).
+ * tab gets focus, and when `claim` is called (for example, on a click). A tab
+ * never takes a device back only because another tab claimed it.
  */
 export function useViewerLease(device: string): {
 	active: boolean;
@@ -45,7 +46,7 @@ export function useViewerLease(device: string): {
 			const retry = setInterval(claim, RECONNECT_MS);
 			return () => clearInterval(retry);
 		}
-		if (holder === undefined || (holder !== viewer && tabInUse())) claim();
+		if (holder === undefined) claim();
 	}, [claim, holder, viewer]);
 
 	// The tab that the user moves to takes the device.

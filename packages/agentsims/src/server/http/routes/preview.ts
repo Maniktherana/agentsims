@@ -12,7 +12,7 @@ import {
 	previewAssetContentType,
 	previewAssetKeyForRequest,
 } from "../static-files";
-import { json, previewConfig, requestSource, selectedState } from "./shared";
+import { json, previewConfig, requestSource, selectedState, eventStream } from "./shared";
 
 function previewAssetResponse(
 	assetKey: string,
@@ -101,31 +101,25 @@ const previewHandler = Effect.gen(function* () {
 });
 
 const sseEncoder = new TextEncoder();
-const ssePollSchedule = Schedule.spaced("500 millis");
+/** Each poll can spawn `simctl` or `adb`. Keep these slow enough to cost nothing at idle. */
+const FOREGROUND_POLL = Schedule.spaced("2 seconds");
+const DEVICE_POLL = Schedule.spaced("5 seconds");
 
 /** `reportAbsence` sends `data: null` when the value goes away, for routes
  *  where that is a transition the client must act on rather than "nothing yet". */
 function pollingSse(
 	values: Effect.Effect<Option.Option<string>>,
+	schedule: Schedule.Schedule<unknown>,
 	reportAbsence = false,
 ) {
-	const updates = Stream.repeatEffectWithSchedule(values, ssePollSchedule).pipe(
+	const updates = Stream.repeatEffectWithSchedule(values, schedule).pipe(
 		reportAbsence
 			? Stream.map(Option.getOrNull)
 			: Stream.filterMap((value) => value),
 		Stream.changes,
 		Stream.map((value) => sseEncoder.encode(`data: ${value ?? "null"}\n\n`)),
 	);
-	return HttpServerResponse.stream(
-		Stream.succeed(sseEncoder.encode(":\n\n")).pipe(Stream.concat(updates)),
-		{
-			headers: {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-cache",
-				"X-Accel-Buffering": "no",
-			},
-		},
-	);
+	return eventStream(Stream.succeed(sseEncoder.encode(":\n\n")).pipe(Stream.concat(updates)));
 }
 
 export const previewRoutes = HttpRouter.empty.pipe(
@@ -166,6 +160,7 @@ export const previewRoutes = HttpRouter.empty.pipe(
 						),
 					),
 				),
+				DEVICE_POLL,
 				true,
 			);
 		}),
@@ -190,7 +185,7 @@ export const previewRoutes = HttpRouter.empty.pipe(
 						Option.fromNullable(value ? JSON.stringify(value) : null),
 					),
 				);
-			return pollingSse(readForeground);
+			return pollingSse(readForeground, FOREGROUND_POLL);
 		}),
 	),
 	HttpRouter.get("/", previewHandler),

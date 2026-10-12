@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Command, CommandExecutor } from "@effect/platform";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { captureHostCommand } from "../host";
@@ -232,11 +233,22 @@ export function parseIosApplicationPid(
 	return pids.size === 1 ? [...pids][0]! : null;
 }
 
-export function iosLogCommand(device: string, pid: number): Command.Command {
+/**
+ * `simctl spawn` does not stop its child when it stops. The marker names no
+ * process, so it does not change the selection. It lets the reader find and
+ * stop its own `log stream` inside the simulator.
+ */
+export function iosLogCommand(
+	device: string,
+	pid: number,
+	marker: string,
+): Command.Command {
 	if (!UDID_PATTERN.test(device) || !validPid(pid))
 		throw new InvalidCommandInput({
 			message: "iOS logs require a simulator UDID and positive PID",
 		});
+	if (!/^agentsims-log-[0-9a-f]{32}$/.test(marker))
+		throw new InvalidCommandInput({ message: "Invalid iOS log marker" });
 	return Command.make(
 		"xcrun",
 		"simctl",
@@ -247,13 +259,16 @@ export function iosLogCommand(device: string, pid: number): Command.Command {
 		"--style",
 		"ndjson",
 		"--level",
-		"debug",
+		"info",
 		"--type",
 		"log",
-		"--process",
-		String(pid),
+		"--predicate",
+		`processIdentifier == ${pid} OR process == "${marker}"`,
 	);
 }
+
+export const iosLogMarker = () =>
+	`agentsims-log-${randomUUID().replaceAll("-", "")}`;
 
 function validate(target: LogTarget, options: IosLogOptions): void {
 	if (!UDID_PATTERN.test(target.device))
@@ -408,8 +423,16 @@ export function iosApplicationLogStream(
 							type: "status",
 							status: status("connecting", undefined, selection),
 						});
+						const marker = iosLogMarker();
+						yield* Effect.addFinalizer(() =>
+							captureHostCommand(executor, Command.make("pkill", "-f", marker), {
+								stdoutLimit: 4_096,
+								stderrLimit: 4_096,
+								timeoutMs: 5_000,
+							}).pipe(Effect.ignore),
+						);
 						const child = yield* executor.start(
-							iosLogCommand(target.device, selection.pid),
+							iosLogCommand(target.device, selection.pid, marker),
 						);
 						yield* emit({
 							type: "status",

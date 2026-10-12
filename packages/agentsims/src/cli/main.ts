@@ -279,12 +279,12 @@ export function createProgram(): Command {
 		.option("--json", "Print readiness as JSON")
 		.action(async (flags: ServerFlags) => {
 			if (flags.detach) json(await startDetached(serverOptions(flags)));
-			else await runLocalServer(serverOptions(flags));
+			else await serveUntilStopped(serverOptions(flags));
 		});
 	addServerFlags(program.command("serve", { hidden: true }))
 		.option("--json")
 		.option("--managed")
-		.action((flags: ServerFlags) => runLocalServer(serverOptions(flags)));
+		.action((flags: ServerFlags) => serveUntilStopped(serverOptions(flags)));
 	program
 		.command("stop")
 		.description("Stop the locally owned detached server")
@@ -969,6 +969,18 @@ Examples:
 		},
 	});
 	return program;
+}
+
+/**
+ * The server scopes are closed when `runLocalServer` returns. Bun does not
+ * close open browser connections on stop, and they keep the process alive.
+ */
+async function serveUntilStopped(
+	options: Parameters<typeof runLocalServer>[0],
+): Promise<void> {
+	await runLocalServer(options);
+	await new Promise<void>((resolve) => process.stdout.write("", () => resolve()));
+	process.exit();
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {

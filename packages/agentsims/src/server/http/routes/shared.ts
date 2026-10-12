@@ -1,8 +1,31 @@
+import { HttpServerResponse } from "@effect/platform";
+import { Cause, Stream } from "effect";
 import type { DeviceState } from "../../../core/tools/devices/state";
 import type { ServerConfigValue } from "../../runtime/config";
 import { exposeDeviceState } from "../device-urls";
 import { selectDeviceState } from "../../../core/tools/devices/lifecycle";
 import { previewConfigForState } from "../connection-config";
+
+/**
+ * A server-sent event response. Shutdown interrupts the stream. The response
+ * then ends normally, so the server does not report the interrupt as an error.
+ */
+export function eventStream<E>(stream: Stream.Stream<Uint8Array, E>) {
+	return HttpServerResponse.stream(
+		stream.pipe(
+			Stream.catchAllCause((cause) =>
+				Cause.isInterruptedOnly(cause) ? Stream.empty : Stream.failCause(cause),
+			),
+		),
+		{
+			headers: {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				"X-Accel-Buffering": "no",
+			},
+		},
+	);
+}
 
 export function json(body: unknown, status = 200): Response {
 	return Response.json(body, {
