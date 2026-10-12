@@ -10,17 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiSearchDotjsonRouteImport } from './routes/api/search[.]json'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSearchDotjsonRoute = ApiSearchDotjsonRouteImport.update({
-  id: '/api/search.json',
-  path: '/api/search.json',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
@@ -31,31 +25,27 @@ const DocsSplatRoute = DocsSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/api/search.json': typeof ApiSearchDotjsonRoute
   '/docs/$': typeof DocsSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/api/search.json': typeof ApiSearchDotjsonRoute
   '/docs/$': typeof DocsSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/api/search.json': typeof ApiSearchDotjsonRoute
   '/docs/$': typeof DocsSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/search.json' | '/docs/$'
+  fullPaths: '/' | '/docs/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/search.json' | '/docs/$'
-  id: '__root__' | '/' | '/api/search.json' | '/docs/$'
+  to: '/' | '/docs/$'
+  id: '__root__' | '/' | '/docs/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ApiSearchDotjsonRoute: typeof ApiSearchDotjsonRoute
   DocsSplatRoute: typeof DocsSplatRoute
 }
 
@@ -66,13 +56,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/search.json': {
-      id: '/api/search.json'
-      path: '/api/search.json'
-      fullPath: '/api/search.json'
-      preLoaderRoute: typeof ApiSearchDotjsonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/$': {
@@ -87,7 +70,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ApiSearchDotjsonRoute: ApiSearchDotjsonRoute,
   DocsSplatRoute: DocsSplatRoute,
 }
 export const routeTree = rootRouteImport

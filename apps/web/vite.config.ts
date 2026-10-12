@@ -16,9 +16,6 @@ export default defineConfig({
 			// HTML. The header and the laptop shell are then painted before any
 			// script runs, instead of after the client mounts.
 			prerender: { enabled: true, crawlLinks: true },
-			// The docs search index is not linked from any page, so the
-			// crawler cannot find it.
-			pages: [{ path: "/api/search.json" }],
 		}),
 		tailwindcss(),
 		viteReact(),

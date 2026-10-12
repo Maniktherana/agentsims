@@ -15,7 +15,7 @@ export function DocsHeader() {
 	return (
 		<SiteHeader
 			section="docs"
-			className="sticky top-0 z-30 border-b border-white/[0.08] bg-background [contain:inline-size]"
+			className="sticky top-0 z-30 bg-background [contain:inline-size]"
 			style={{ gridArea: "header", gridColumn: "1 / -1" }}
 			actions={
 				<>

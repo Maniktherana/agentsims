@@ -46,11 +46,15 @@ export function CodeBlock({
 
 	return (
 		<figure className="not-prose relative my-5 overflow-hidden rounded-xl bg-[var(--code-surface)] shadow-[inset_0_0_0_1px_oklch(1_0_0/0.06)]">
+			{/* A single line scrolls in a box that ends at the copy button, so a
+			    long command fades out toward the button instead of passing under
+			    it. Longer blocks keep the full width. */}
 			<pre
 				ref={preRef}
 				{...props}
 				className={cn(
-					"m-0 overflow-x-auto bg-transparent! py-3.5 ps-4 pe-12 font-mono text-[0.8125rem] leading-6 [&_.line]:min-h-6 [&_.line]:px-0!",
+					"m-0 overflow-x-auto bg-transparent! py-3.5 ps-4 pe-12 font-mono text-[0.8125rem] leading-6 [scrollbar-color:oklch(1_0_0/0.16)_transparent] [scrollbar-width:thin] [&_.line]:min-h-6 [&_.line]:px-0!",
+					"not-has-[.line+.line]:me-11 not-has-[.line+.line]:pe-4 not-has-[.line+.line]:scroll-fade-x not-has-[.line+.line]:scroll-fade-16",
 					className,
 				)}
 			>

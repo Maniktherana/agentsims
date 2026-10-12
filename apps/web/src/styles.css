@@ -1336,3 +1336,264 @@ div[data-state]:has(+ #nd-sidebar-mobile)[data-state="closed"] {
 	border-color: oklch(1 0 0 / 0.08);
 	backdrop-filter: none;
 }
+
+/* Docs text colors and type. The docs use a neutral gray text scale and a
+   compact type scale: 14px body text, 13px navigation, and regular-weight
+   headings. The Fumadocs color variables resolve on the root element, so
+   they are declared again here for the docs page. */
+body:has(#nd-notebook-layout) {
+	--docs-gray-2: #191919;
+	--docs-gray-3: #222;
+	--docs-gray-a3: oklch(1 0 0 / 0.07);
+	--docs-gray-a4: oklch(1 0 0 / 0.1);
+	--docs-gray-8: #606060;
+	--docs-gray-9: #6e6e6e;
+	--docs-gray-10: #7b7b7b;
+	--docs-gray-11: #b4b4b4;
+	--docs-gray-12: #eee;
+	--foreground: var(--docs-gray-12);
+	--muted-foreground: var(--docs-gray-10);
+	--border: var(--docs-gray-a3);
+	--color-fd-foreground: var(--foreground);
+	--color-fd-muted: var(--docs-gray-2);
+	--color-fd-muted-foreground: var(--muted-foreground);
+	--color-fd-border: var(--border);
+	--color-fd-primary: var(--foreground);
+	--sidebar-border: var(--border);
+}
+
+/* The docs use one centered column, 69rem wide: a 12.5rem sidebar, a 3rem
+   gap, the page, a 3rem gap, and a 12.5rem outline. The Fumadocs widths are
+   set through a :has() selector, so the doubled ID is necessary to override
+   them. */
+#nd-notebook-layout#nd-notebook-layout {
+	--fd-layout-width: 69rem;
+	--docs-gutter: 1rem;
+	padding-inline: var(--docs-gutter);
+}
+@media (width >= 48rem) {
+	#nd-notebook-layout#nd-notebook-layout {
+		--fd-sidebar-width: 15.5rem;
+		--docs-gutter: 2rem;
+	}
+}
+@media (width >= 80rem) {
+	#nd-notebook-layout#nd-notebook-layout {
+		--fd-toc-width: 15.5rem;
+	}
+}
+/* The header spans the full window, as on every other page, so its layout
+   does not change between pages. */
+#nd-notebook-layout > header {
+	width: auto;
+	margin-inline: calc(var(--docs-gutter) * -1);
+}
+#nd-page {
+	padding-inline: 0;
+	padding-top: 1.5rem;
+}
+#nd-sidebar > [role="presentation"] > [role="presentation"] {
+	padding-inline: 0 3rem;
+}
+/* Page links keep their Fumadocs indent, so the list moves back by the
+   indent to put the text on the sidebar edge. */
+#nd-sidebar > [role="presentation"] > [role="presentation"] > div {
+	margin-inline-start: -0.5rem;
+}
+#nd-toc {
+	padding-inline: 3rem 0;
+}
+/* The outline bar on narrower screens starts its text on the page edge. */
+[data-toc-popover] > header > button {
+	padding-inline: 0;
+}
+
+/* The page title, the first page link, and the outline title start 2.5rem
+   below the header. On narrower screens, the outline bar above the page adds
+   its height. The small offsets put the tops of the capital letters on one
+   line, because the three items use different font sizes and line heights. */
+@media (width >= 48rem) {
+	#nd-page {
+		padding-top: 2.5rem;
+	}
+}
+#nd-sidebar > [role="presentation"] > [role="presentation"] {
+	padding-top: calc(var(--fd-toc-popover-height, 0px) + 2.5rem - 2px);
+}
+#nd-toc {
+	padding-top: calc(2.5rem + 3px);
+}
+
+#nd-sidebar {
+	font-size: 0.8125rem;
+	line-height: 1.125rem;
+}
+
+/* The page content fades out as it scrolls under the header, or under the
+   outline bar on narrower screens. The fade and the page share one grid cell,
+   so the fade stays in the content column and covers only the page padding
+   before scrolling starts. */
+#nd-notebook-layout :has(> #nd-page)::before {
+	position: sticky;
+	z-index: 1;
+	top: calc(var(--fd-header-height) + var(--fd-toc-popover-height, 0px));
+	grid-area: 1 / 1;
+	align-self: start;
+	height: 1.5rem;
+	background-image: linear-gradient(var(--background), transparent);
+	content: "";
+	pointer-events: none;
+}
+#nd-page {
+	grid-area: 1 / 1;
+}
+
+#nd-sidebar a {
+	padding-block: 0.3125rem;
+	color: var(--docs-gray-10);
+}
+#nd-sidebar a:hover {
+	background-color: transparent;
+	color: var(--docs-gray-11);
+}
+#nd-sidebar a[data-active="true"] {
+	background-color: transparent;
+	color: var(--docs-gray-12);
+}
+#nd-sidebar a + a {
+	margin-top: -0.125rem;
+}
+
+#nd-toc {
+	--color-fd-primary: var(--docs-gray-12);
+}
+#nd-toc a {
+	font-size: 0.8125rem;
+	line-height: 1.125rem;
+	color: var(--docs-gray-9);
+}
+#nd-toc a:hover,
+#nd-toc a[data-active="true"] {
+	color: var(--docs-gray-12);
+}
+#toc-title {
+	font-size: 0.8125rem;
+	color: var(--docs-gray-11);
+}
+
+#nd-page .prose {
+	--tw-prose-body: var(--docs-gray-11);
+	--tw-prose-headings: var(--docs-gray-12);
+	--tw-prose-bold: var(--docs-gray-12);
+	--tw-prose-links: var(--docs-gray-12);
+	--tw-prose-code: var(--docs-gray-12);
+	--tw-prose-bullets: var(--docs-gray-8);
+	--tw-prose-counters: var(--docs-gray-8);
+	--tw-prose-th-borders: var(--docs-gray-a3);
+	--tw-prose-td-borders: var(--docs-gray-a3);
+	font-size: 0.875rem;
+	line-height: 1.5rem;
+	letter-spacing: -0.006em;
+}
+#nd-page .prose > :where(p, ul, ol) {
+	margin-block: 0 1rem;
+}
+#nd-page .prose :where(ul, ol) {
+	padding-inline-start: 1.25rem;
+}
+#nd-page .prose :where(li) {
+	margin-block: 0 0.25rem;
+	padding-inline-start: 0;
+	line-height: 1.3125rem;
+}
+#nd-page .prose :where(h1, h2, h3, h4) {
+	font-weight: 500;
+	letter-spacing: -0.011em;
+}
+/* The copy page button sits at the end of the title row on all screens. The
+   title wraps before it reaches the button. The title links to the page
+   itself, so it has no copy link button. */
+#nd-page .prose :where(h1) {
+	padding-inline-end: 7.5rem;
+	font-size: 1.25rem;
+	line-height: 1.875rem;
+	letter-spacing: -0.0167em;
+	margin-block: 0 0.5rem;
+}
+#nd-page .prose h1 > button {
+	display: none;
+}
+#nd-page .prose :where(h2) {
+	font-size: 1rem;
+	line-height: 1.5rem;
+	margin-block: 1.5rem 0.5rem;
+}
+#nd-page .prose :where(h3, h4) {
+	font-size: 0.9375rem;
+	line-height: 1.40625rem;
+	letter-spacing: -0.0088em;
+	margin-block: 1rem 0.5rem;
+}
+#nd-page .prose :where(strong) {
+	font-weight: 500;
+}
+#nd-page .prose :where(a:not(.peer, [data-card])) {
+	font-weight: 400;
+	text-decoration-line: underline;
+	text-decoration-color: var(--docs-gray-a4);
+	text-underline-offset: 0.2em;
+}
+#nd-page .prose :where(a:not(.peer, [data-card])):hover {
+	text-decoration-color: var(--docs-gray-11);
+}
+#nd-page .prose :where(:not(pre) > code) {
+	padding: 0.125rem 0.25rem;
+	border: 0;
+	border-radius: 0.25rem;
+	background-color: var(--docs-gray-3);
+	box-shadow: inset 0 0 0 1px var(--docs-gray-a3);
+	font-size: 0.75rem;
+}
+#nd-page .prose :where(table) {
+	font-size: 0.875rem;
+	line-height: 1.3125rem;
+}
+/* Tables have no outer border and no column lines. The header row is a
+   filled, rounded bar. Thin lines separate the body rows, but not the header
+   and the first body row. */
+#nd-page .prose > div:has(> table) {
+	margin-block: 0 1rem;
+	border: 0;
+	border-radius: 0;
+}
+#nd-page .prose table {
+	border: 0;
+	background-color: transparent;
+	border-collapse: separate;
+	border-spacing: 0;
+}
+#nd-page .prose :is(th, td) {
+	padding: 0.75rem 1rem;
+	border: 0;
+}
+#nd-page .prose th {
+	background-color: var(--docs-gray-2);
+	font-size: 0.8125rem;
+	font-weight: 600;
+	color: var(--docs-gray-12);
+}
+#nd-page .prose th:first-child {
+	border-start-start-radius: 0.625rem;
+	border-end-start-radius: 0.625rem;
+}
+#nd-page .prose th:last-child {
+	border-start-end-radius: 0.625rem;
+	border-end-end-radius: 0.625rem;
+}
+#nd-page .prose tbody tr + tr td {
+	border-top: 1px solid var(--docs-gray-a3);
+}
+#nd-page .prose > figure {
+	margin-block: 0 1.5rem;
+	border-radius: 0.625rem;
+}

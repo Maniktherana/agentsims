@@ -45,7 +45,7 @@ export function SiteHeader({
 	style,
 }: {
 	section?: "docs";
-	/** Extra controls before the primary button, such as docs search. */
+	/** Extra controls before the primary button, such as the docs menu button. */
 	actions?: ReactNode;
 	className?: string;
 	style?: CSSProperties;
