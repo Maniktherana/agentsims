@@ -9,7 +9,7 @@
 		"dev": "turbo dev",
 		"build": "turbo build",
 		"build:site": "bun run --cwd apps/web build",
-		"deploy:site": "wrangler deploy",
+		"deploy:site": "bun run build:site && wrangler deploy",
 		"preview:site": "wrangler preview",
 		"typecheck": "turbo typecheck",
 		"lint": "turbo lint",
