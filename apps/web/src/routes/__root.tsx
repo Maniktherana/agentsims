@@ -25,6 +25,26 @@ export const Route = createRootRoute({
 				content:
 					"Run, inspect, and control iOS simulators and Android devices from one browser, CLI, and agent skill.",
 			},
+			{
+				property: "og:title",
+				content: "Agentsims - Mobile tooling for developers and coding agents",
+			},
+			{
+				property: "og:description",
+				content:
+					"Run, inspect, and control iOS simulators and Android devices from one browser, CLI, and agent skill.",
+			},
+			{ property: "og:url", content: "https://agentsims.dev" },
+			{ property: "og:site_name", content: "agentsims" },
+			{ property: "og:type", content: "website" },
+			{ property: "og:image", content: "https://agentsims.dev/og.png" },
+			{ property: "og:image:width", content: "1200" },
+			{ property: "og:image:height", content: "630" },
+			{
+				property: "og:image:alt",
+				content: "agentsims with an iPhone and a Pixel device",
+			},
+			{ name: "twitter:card", content: "summary_large_image" },
 		],
 		links: [
 			{
