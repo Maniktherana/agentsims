@@ -59,6 +59,14 @@ class Agentsims < Formula
     bin.write_exec_script libexec/"dist/agentsims"
   end
 
+  def caveats
+    <<~EOS
+      To give the Agentsims skill to Claude Code, Codex, Cursor, and other
+      coding agents, run:
+        agentsims skill
+    EOS
+  end
+
   test do
     assert_equal version.to_s, shell_output("#{bin}/agentsims --version").strip
   end

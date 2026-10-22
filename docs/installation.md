@@ -40,6 +40,20 @@ irm https://agentsims.dev/install.ps1 | iex
 You can use `agentsims` in the same window at once.
 Windows on Arm runs the x64 version through emulation.
 
+## Give the skill to your coding agent
+
+The Agentsims skill teaches Claude Code, Codex, Cursor, and other coding agents how to use Agentsims.
+
+```sh
+agentsims skill
+```
+
+The curl and PowerShell installers run this command for you when Node.js is installed.
+After you install with Homebrew, run it yourself.
+
+The command needs Node.js 20 or newer. Agentsims itself does not need Node.js.
+For more information, see [coding agents](agents.md).
+
 ## Make sure that it works
 
 ```sh
@@ -57,6 +71,18 @@ Then [start the workspace](workspace.md).
 | Homebrew            | `brew upgrade agentsims`                            |
 | curl                | `curl -fsSL https://agentsims.dev/install \| bash`  |
 | Windows             | `irm https://agentsims.dev/install.ps1 \| iex`      |
+
+## Install without the skill
+
+To prevent the installer from installing the skill, use one of these options:
+
+```sh
+curl -fsSL https://agentsims.dev/install | bash -s -- --no-skill
+```
+
+```powershell
+$env:AGENTSIMS_NO_SKILL = "1"; irm https://agentsims.dev/install.ps1 | iex
+```
 
 ## Install without a change to PATH
 

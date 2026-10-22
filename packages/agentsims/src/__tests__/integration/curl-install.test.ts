@@ -316,3 +316,55 @@ test("help and invalid options do not install anything", () => {
 	expect(existsSync(installRoot)).toBe(false);
 	expect(readFileSync(requests, "utf8")).toBe("");
 });
+
+function addNpx() {
+	writeFileSync(join(commandDirectory, "npx"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+}
+
+/** Runs the installer in a pseudo-terminal, as `curl | bash` runs in a terminal. */
+function installInTerminal(version: string, args: string[] = []) {
+	const script = join(directory, `install-${version}.sh`);
+	writeFileSync(script, installer.replaceAll("__AGENTSIMS_RELEASE_VERSION__", version));
+	const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+	const command = [bash, script, ...args];
+	const terminalArgs = process.platform === "darwin"
+		? ["-q", "/dev/null", ...command]
+		: ["-qec", command.map(quote).join(" "), "/dev/null"];
+	return spawnSync(toolPath("script"), terminalArgs, {
+		encoding: "utf8",
+		timeout: 10000,
+		env: {
+			PATH: commandDirectory,
+			TMPDIR: temporaryDirectory,
+			SHELL: bash,
+			AGENTSIMS_INSTALL_DIR: installRoot,
+			AGENTSIMS_SHELL_PROFILE: profile,
+			FIXTURE_REQUESTS: requests,
+			FIXTURE_RELEASES: releases,
+			FIXTURE_VERSION: version,
+			FIXTURE_REAL_MOVE: realMove,
+		},
+	});
+}
+
+test("installation in a terminal installs the skill for the user", () => {
+	makeRelease("1.0.0");
+	addNpx();
+	const result = installInTerminal("1.0.0", ["--no-modify-path"]);
+	expect(result.status).toBe(0);
+	expect(result.stdout).toContain("<skill>\r\n<--global>");
+	expect(installInTerminal("1.0.0", ["--no-modify-path", "--no-skill"]).stdout).not.toContain("<skill>");
+});
+
+test("installation without a terminal or Node.js tells the user how to install the skill", () => {
+	makeRelease("1.0.0");
+	const withoutNode = install("1.0.0", ["--no-modify-path"]);
+	expect(withoutNode.status).toBe(0);
+	expect(withoutNode.stderr).toContain("Install Node.js, then run:\n  agentsims skill\n");
+	addNpx();
+	const withoutTerminal = install("1.0.0", ["--no-modify-path"]);
+	expect(withoutTerminal.status).toBe(0);
+	expect(withoutTerminal.stderr).toContain("To install the skill, run:\n  agentsims skill\n");
+	expect(withoutTerminal.stdout).not.toContain("<skill>");
+	expect(install("1.0.0", ["--no-modify-path", "--no-skill"]).stderr).not.toContain("agentsims skill");
+});

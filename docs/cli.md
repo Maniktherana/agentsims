@@ -225,6 +225,7 @@ agentsims stop
 agentsims status [--json]
 agentsims logs [--follow]
 agentsims doctor [--platform android|ios]
+agentsims skill [--global] [--agent <agents>] [--yes]
 
 agentsims devices list [--all|--inactive|--json]
 agentsims devices show <device>

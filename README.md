@@ -26,6 +26,17 @@ irm https://agentsims.dev/install.ps1 | iex
 [Requirements and installer behavior](docs/installation.md).
 The runtime requires no Node.js or npm.
 
+**Give the skill to your coding agent**
+
+The curl and PowerShell installers do this for you. After a Homebrew install, run:
+
+```sh
+agentsims skill
+```
+
+This teaches Claude Code, Codex, Cursor, and other agents to use Agentsims.
+It needs Node.js 20 or newer.
+
 ## Start
 
 Start your app on a simulator, emulator, or Android device. Then run:

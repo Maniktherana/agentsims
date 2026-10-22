@@ -58,6 +58,7 @@ test("the public command surface is canonical", () => {
 		"app",
 		"permissions",
 		"doctor",
+		"skill",
 		"trace",
 		"context",
 		"app-logs",

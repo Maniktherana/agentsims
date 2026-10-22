@@ -78,6 +78,7 @@ import { registerRunCommands } from "./commands/run";
 import { registerTraceCommands } from "./commands/trace";
 import { registerContextCommands } from "./commands/context";
 import { registerAppLogCommands } from "./commands/app-logs";
+import { registerSkillCommands } from "./commands/skill";
 import { registerMcpCommands } from "./commands/mcp";
 import { followLogFile } from "./log-file";
 import {
@@ -926,6 +927,7 @@ Examples:
 				if (!report.ok) process.exitCode = 1;
 			},
 		);
+	registerSkillCommands(program);
 	registerTraceCommands(program);
 	registerContextCommands(program, {
 		client: (url, options) => client(url, options?.timeoutMs),

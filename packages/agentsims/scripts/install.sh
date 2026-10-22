@@ -7,16 +7,21 @@ fail() {
 }
 
 modify_path=1
+install_skill=1
+[[ "${AGENTSIMS_NO_SKILL:-}" != 1 ]] || install_skill=0
 profile=${AGENTSIMS_SHELL_PROFILE:-}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-modify-path) modify_path=0 ;;
     # The default now updates PATH. The old flag stays valid.
     --add-to-path) modify_path=1 ;;
+    --no-skill) install_skill=0 ;;
     --help)
-      printf 'Usage: bash install.sh [--no-modify-path]\n'
+      printf 'Usage: bash install.sh [--no-modify-path] [--no-skill]\n'
       printf 'Install the runtime and add it to PATH in your shell profile.\n'
+      printf 'Then install the Agentsims skill for your coding agents.\n'
       printf 'Use --no-modify-path to keep the shell profile unchanged.\n'
+      printf 'Use --no-skill to skip the skill.\n'
       exit 0 ;;
     *) fail "Unknown option: $1" ;;
   esac
@@ -173,6 +178,19 @@ if [[ "${AGENTSIMS_INSTALL_QUIET:-}" != 1 ]]; then
     fi
     printf -v export_command 'export PATH=%q:"$PATH"' "$bin_dir"
     printf '  %s\n' "$export_command" >&2
+  fi
+  if [[ "$install_skill" == 1 ]]; then
+    printf '\nAgentsims skill for Claude Code, Codex, Cursor, and other coding agents\n' >&2
+    if ! command -v npx >/dev/null; then
+      printf 'Node.js 20 or newer is necessary for the skill. Install Node.js, then run:\n' >&2
+      printf '  agentsims skill\n' >&2
+    elif [[ ! -t 2 ]] || ! { : </dev/tty; } 2>/dev/null; then
+      printf 'To install the skill, run:\n  agentsims skill\n' >&2
+    # curl | bash gives the script on standard input, so the prompts read the terminal.
+    elif ! "$bin_dir/agentsims" skill --global </dev/tty; then
+      printf 'The skill was not installed. To try again, run:\n  agentsims skill\n' >&2
+    fi
+    printf '\n' >&2
   fi
   printf 'Next: agentsims doctor\n' >&2
 fi

@@ -86,17 +86,23 @@ The skill lives under `skills/agentsims/`, so the Agent Skills tooling
 finds it in this repository.
 
 ```sh
+agentsims skill
+```
+
+The curl and PowerShell installers run this command for you. It runs:
+
+```sh
 npx skills add Maniktherana/agentsims --skill agentsims
 ```
 
-This command installs the skill. Install the Agentsims CLI and host tools
-separately.
+You can run the `npx` command without Agentsims. Install the Agentsims CLI and
+host tools separately.
 
 ## Requirements on the user's machine
 
 The agent verifies these, but for reference:
 
-- Node.js 20 or newer to run `npx skills add`. The installed Agentsims CLI does
+- Node.js 20 or newer to run `agentsims skill` or `npx skills add`. The installed Agentsims CLI does
   not need Node.js.
 - macOS with Xcode and an iOS Simulator runtime, for iOS.
 - The Android SDK on macOS or Linux, for Android.

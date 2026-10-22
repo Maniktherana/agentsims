@@ -9,15 +9,18 @@ The Agentsims skill teaches an agent how to use the CLI.
 It works with Claude Code, Codex, Cursor, Gemini CLI, and other agents that support Agent Skills.
 
 1. [Install Agentsims](installation.md).
-2. Install the skill:
+   The curl and PowerShell installers also install the skill.
+2. If you installed with Homebrew, or the installer did not install the skill, run:
 
    ```sh
-   npx skills add Maniktherana/agentsims --skill agentsims
+   agentsims skill
    ```
 
 3. Start a new agent session.
 
-The `npx` command needs Node.js 20 or newer. Agentsims itself does not need Node.js.
+`agentsims skill` runs `npx skills add Maniktherana/agentsims --skill agentsims`.
+To install the skill for one agent only, add `--agent <name>`, for example `--agent claude-code`.
+The command needs Node.js 20 or newer. Agentsims itself does not need Node.js.
 
 ## Ask the agent to do a task
 

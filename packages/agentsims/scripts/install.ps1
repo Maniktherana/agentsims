@@ -1,7 +1,8 @@
 # Install Agentsims on Windows.
 # Usage: irm https://agentsims.dev/install.ps1 | iex
 # To keep PATH unchanged, set AGENTSIMS_NO_MODIFY_PATH=1 or pass -NoModifyPath.
-param([switch]$NoModifyPath)
+# To skip the coding agent skill, set AGENTSIMS_NO_SKILL=1 or pass -NoSkill.
+param([switch]$NoModifyPath, [switch]$NoSkill)
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -76,5 +77,20 @@ if ($ModifyPath) {
   Write-Host "Added $Bin to your user PATH. New terminals find agentsims."
 } else {
   Write-Host "PATH was not changed. Command: $Bin\agentsims.cmd"
+}
+if (-not ($NoSkill -or $env:AGENTSIMS_NO_SKILL -eq "1")) {
+  Write-Host ""
+  Write-Host "Agentsims skill for Claude Code, Codex, Cursor, and other coding agents"
+  if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
+    Write-Host "Node.js 20 or newer is necessary for the skill. Install Node.js, then run:"
+    Write-Host "  agentsims skill"
+  } else {
+    & (Join-Path $Bin "agentsims.cmd") skill --global
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "The skill was not installed. To try again, run:"
+      Write-Host "  agentsims skill"
+    }
+  }
+  Write-Host ""
 }
 Write-Host "Next: agentsims doctor --platform android"
