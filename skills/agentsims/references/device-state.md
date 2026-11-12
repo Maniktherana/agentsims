@@ -53,7 +53,7 @@ To test the first permission prompt:
 ## Traces and annotations
 
 - To keep a record of the run for later review: `agentsims trace start -d <id> --name <name>` before the first action, `agentsims trace stop -d <id>` after the last. Each step is written to disk with a screenshot.
-- The user left notes on the screen in the workspace → `agentsims context list -d <id>`, then `agentsims context export <ids...>`.
+- The user left notes on the screen in the workspace → ask the user to select Copy prompt in the workspace and to paste the result. Do not use `agentsims context`: it needs a workspace ID that no command prints.
 
 ## Conditions with no CLI command
 

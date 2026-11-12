@@ -13,7 +13,7 @@ Use Xcode, Gradle, Metro, or Expo to build. Use agentsims only to inspect and co
 1. **Reach a workspace.** Run `agentsims status`.
    - It prints `url` → use that server. You do not own it. Never stop it.
    - It prints `Agentsims is not running` → run `agentsims start --detach`. This task owns that server.
-   - The server is at another address → add `--url <url>` to every command. Never assume port 3200: the user can run the server on any port.
+   - The server is at another address → add `--url <url>` to `agentsims devices list` and to every device command. Never assume port 3200: the user can run the server on any port.
    - A device or stream is missing → run `agentsims doctor --platform ios` or `--platform android` and do its repair steps.
 2. **Pick a device.** Run `agentsims devices list`. Copy one exact ID, such as `android:emulator-5554` or an iOS simulator UUID. Add `-d <id>` to every device command: without it, a workspace with two devices can receive input on the wrong one. Never change to a different device without telling the user.
 3. **Write the end state.** Before the first action, write the end state with the exact names, text, numbers, dates, and order from the task. You compare every result to this.
