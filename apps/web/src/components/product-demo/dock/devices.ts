@@ -9,7 +9,6 @@ export interface DemoDevice {
 	name: string;
 	type: DeviceType;
 	runtime: string;
-	version: string;
 	phase: DevicePhase;
 	visible: boolean;
 }
@@ -25,7 +24,6 @@ export function demoDevices(android: AndroidPhase) {
 			name: "Pixel 10",
 			type: "android",
 			runtime: androidVisible ? "Android 17" : "Android AVD",
-			version: androidVisible ? "17" : "AVD",
 			phase: android,
 			visible: androidVisible,
 		},
@@ -34,7 +32,6 @@ export function demoDevices(android: AndroidPhase) {
 			name: "iPad (A16)",
 			type: "ipad",
 			runtime: "iOS 26.5",
-			version: "26.5",
 			phase: "available",
 			visible: false,
 		},
@@ -43,7 +40,6 @@ export function demoDevices(android: AndroidPhase) {
 			name: "iPhone 17",
 			type: "iphone",
 			runtime: "iOS 26.5",
-			version: "26.5",
 			phase: "streaming",
 			visible: true,
 		},

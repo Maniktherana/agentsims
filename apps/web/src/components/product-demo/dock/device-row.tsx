@@ -51,11 +51,11 @@ export function DeviceRow({
 				<DeviceStatusGlyph phase={phase} />
 			</div>
 			<div className="min-w-0 flex-1">
-				<div className="truncate text-[14px] font-semibold leading-tight max-md:text-[15px]">
+				<div className="truncate text-[13px] font-semibold leading-tight">
 					{device.name}
 				</div>
 				<div
-					className={`truncate text-[12px] leading-tight max-md:text-[13px] ${phase === "streaming" ? "text-[oklch(0.772944_0.15349_163.223)]" : transitioning ? "text-white/45" : active ? "text-white/75" : "text-white/45"}`}
+					className={`truncate text-[11px] leading-tight ${phase === "streaming" ? "text-[#34d399]" : transitioning ? "text-white/45" : active ? "text-white/75" : "text-white/45"}`}
 				>
 					<TextStateSwap>{status}</TextStateSwap>
 				</div>
@@ -65,7 +65,7 @@ export function DeviceRow({
 				className={
 					running
 						? "shrink-0 flex items-center gap-0.5"
-						: "relative shrink-0 w-8 h-6 flex items-center justify-end"
+						: "relative flex h-6 w-[72px] shrink-0 items-center justify-end"
 				}
 			>
 				{running ? (
@@ -100,9 +100,9 @@ export function DeviceRow({
 					</>
 				) : (
 					<span
-						className={`absolute right-0 text-[12px] font-mono tabular-nums [transition:opacity_0.12s] max-md:text-[13px] ${active ? "text-white/85" : "text-white/40"}`}
+						className={`absolute right-0 whitespace-nowrap text-[11px] font-mono tabular-nums [transition:opacity_0.12s] ${active ? "text-white/85" : "text-white/40"}`}
 					>
-						{device.version}
+						{device.runtime}
 					</span>
 				)}
 			</div>

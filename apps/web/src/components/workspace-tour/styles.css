@@ -1,0 +1,885 @@
+/*
+ * The workspace tour. Product values are copied from the running product
+ * (packages/agentsims/src/web). Only transform and opacity animate.
+ */
+
+/* The tour is one image: no pointer input and no text selection. */
+.wt-tour {
+	container-type: inline-size;
+	pointer-events: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+/* The box has its final size before the first paint, from the column width
+   alone, by the rules of layout.ts (designFor): the window fills the column
+   at one zoom; under a 560px column it is phone-sized and 762px tall; under
+   the smallest window width it scales down. */
+.wt-host {
+	width: 100%;
+	height: calc(942px * var(--wt-zoom));
+	container-type: inline-size;
+}
+@container (width < 560px) {
+	.wt-host {
+		height: min(calc(762px * var(--wt-zoom)), 100cqw * 762 / var(--wt-min-w-n));
+	}
+}
+
+/* The steps of the tour: site UI in the gap under the window, as wide as the window. */
+.wt-root {
+	container-type: inline-size;
+}
+.wt-steps {
+	position: absolute;
+	/* Above the caption lines, whose hidden ones form layers of their own: the hit areas reach into the caption. */
+	z-index: 1;
+	/* Centered in the 24px gap above the caption, so the caption does not move. */
+	top: calc(100% + 11px);
+	right: 0;
+	left: 0;
+	display: flex;
+	gap: 4px;
+}
+.wt-step {
+	position: relative;
+	flex: 1 1 0;
+	height: 2px;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: hsl(0 0% 17%);
+	-webkit-tap-highlight-color: transparent;
+}
+/* The hit area: 40px tall for a fine pointer, 44px for a finger. */
+.wt-step::before {
+	content: "";
+	position: absolute;
+	inset: -19px 0;
+}
+@media (pointer: coarse) {
+	.wt-step::before {
+		inset: -21px 0;
+	}
+}
+@media (hover: hover) {
+	.wt-step:hover {
+		background: hsl(0 0% 26%);
+		cursor: pointer;
+	}
+}
+.wt-step:focus-visible {
+	outline: 2px solid #f2f2f2;
+	outline-offset: 4px;
+}
+.wt-step-fill {
+	position: absolute;
+	inset: 0;
+	background: #f2f2f2;
+	transform: scaleX(0);
+	transform-origin: 0 50%;
+}
+
+/* The caption: one line per tool, stacked in one cell, so the cell keeps the
+   height of the longest line at every width and the page never shifts. */
+.wt-caption {
+	display: grid;
+}
+.wt-caption > li {
+	grid-area: 1 / 1;
+	opacity: 0;
+	transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.wt-caption > li[data-active] {
+	opacity: 1;
+}
+.wt-caption .t-h3 {
+	margin-inline-end: 0.5ch;
+}
+@media (prefers-reduced-motion: reduce) {
+	.wt-caption > li {
+		transition: none;
+	}
+}
+
+.wt {
+	--wt-ease: cubic-bezier(0, 0, 0.2, 1);
+	position: relative;
+	/* The column width over the zoom, and never narrower than the smallest window. */
+	width: max(var(--wt-min-w), 100cqw / var(--wt-zoom));
+	height: 942px;
+	/* One zoom, or less where the column is narrower than the smallest window. */
+	zoom: min(var(--wt-zoom), tan(atan2(100cqw, var(--wt-min-w))));
+	font-family: -apple-system, system-ui, sans-serif;
+	font-size: 16px;
+	line-height: 1.5;
+	color: oklch(0.985 0 0);
+	-webkit-font-smoothing: antialiased;
+}
+@container (width < 560px) {
+	.wt {
+		height: 762px;
+	}
+}
+.wt[data-measuring] {
+	visibility: hidden;
+}
+
+.wt-icon {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+}
+.wt-icon > svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+/* The browser window: a thin outline, and the browser bar of the phones picture. */
+.wt-window {
+	display: flex;
+	width: 100%;
+	flex-direction: column;
+	overflow: clip;
+	border: 1px solid hsl(0 0% 100% / 0.09);
+	border-radius: 12px;
+	background: #1a1a1a;
+}
+.wt-chrome {
+	display: flex;
+	flex: none;
+	min-height: 40px;
+	align-items: center;
+	gap: 16px;
+	padding: 8px 12px;
+	background: oklch(0.22728 0.003823 286.092);
+}
+.wt-dots {
+	display: flex;
+	gap: 0.3rem;
+}
+.wt-dots > i {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: oklch(0.451285 0.008054 286.073);
+}
+/* No lock: a page on localhost over http has none. The text is 11px in the
+   wide design, where 9px is lost in a bar 1119px wide. */
+.wt-address {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	padding: 0.3rem;
+	border-radius: 0.3rem;
+	background: oklch(0.294299 0.005378 286.065);
+	font-size: 11px;
+	color: oklch(0.772681 0.012669 286.1);
+}
+.wt[data-short] .wt-address {
+	font-size: 0.5625rem;
+}
+.wt-new-tab {
+	font-size: 1rem;
+	line-height: 1.5rem;
+	color: var(--muted-foreground);
+}
+.wt-viewport {
+	position: relative;
+	overflow: clip;
+}
+
+/* The workspace: the product canvas and its dot grid. */
+.wt-workspace {
+	position: absolute;
+	inset: 0;
+	overflow: clip;
+	background: #0a0a0a;
+}
+.wt-grid {
+	position: absolute;
+	/* Far wider than any pan, so the grid covers the canvas at every position. 1200px is a whole number of cells. */
+	inset: 0 -1200px;
+	background-image: radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, rgba(0, 0, 0, 0) 1px);
+	background-size: 24px 24px;
+	background-position: 12px 12px;
+}
+/* A pan of Arrange moves the grid with the device; the reset puts it back unseen, a whole number of cells away. */
+.wt-grid[data-panning] {
+	transition: transform 240ms var(--wt-ease);
+}
+.wt-brand {
+	position: absolute;
+	top: 12px;
+	left: 12px;
+	z-index: 8;
+	display: inline-flex;
+	height: 30px;
+	align-items: center;
+	padding: 0 8px;
+	border: 1px solid rgb(255 255 255 / 0.08);
+	border-radius: 8px;
+	background: oklch(0.209 0 0 / 0.9);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 18px;
+	color: rgb(255 255 255 / 0.65);
+	white-space: nowrap;
+}
+
+/* Devices. Columns move and frames scale with transforms only. */
+/* The origin of the device layout is the horizontal center of the canvas, at any width. */
+.wt-canvas-devices {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 50%;
+	width: 0;
+}
+.wt-col {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	transition: transform 240ms var(--wt-ease);
+}
+.wt-col-presence {
+	position: absolute;
+	top: 0;
+	left: 0;
+}
+/* The name bar (simulator-device-view.tsx): 6px 10px padding, a 10px gap, 32px tall. */
+.wt-namebar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	display: flex;
+	height: 32px;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 10px;
+	border: 1px solid rgba(255, 255, 255, 0.09);
+	border-radius: 10px;
+	background: #181818;
+	box-shadow: rgba(0, 0, 0, 0.2) 0 1px 2px;
+	transform: translateX(-50%);
+	white-space: nowrap;
+}
+.wt-grip {
+	display: grid;
+	flex: none;
+	place-items: center;
+}
+.wt-frame {
+	position: absolute;
+	transform-origin: 50% 0;
+	transition: transform 240ms var(--wt-ease);
+}
+.wt-iphone-btn {
+	position: absolute;
+	z-index: 0;
+	left: 0.881057%;
+	width: 3.52423%;
+}
+.wt-iphone-frame {
+	position: absolute;
+	z-index: 1;
+	top: 0;
+	left: 1.98238%;
+	width: 96.0352%;
+	height: 100%;
+}
+.wt-iphone-screen {
+	position: absolute;
+	z-index: 2;
+	top: 1.87225%;
+	left: 5.72687%;
+	width: 88.5463%;
+	height: 96.2555%;
+	overflow: clip;
+	border-radius: 15.4229% / 7.09382%;
+	background: #000;
+}
+/* Until the stream shows, Pixel 10 shows the boot gradient of the phones picture. */
+.wt-android-screen {
+	position: absolute;
+	inset: 0;
+	overflow: clip;
+	border-radius: 12.2222% / 5.44555%;
+	background: linear-gradient(
+		155deg,
+		oklch(0.224584 0.026372 258.317),
+		oklch(0.189824 0.027443 258.29) 52%,
+		oklch(0.157319 0.017155 256.284)
+	);
+}
+.wt-screen-img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+/* The stream: the newest screen fades in on top; the one it covers leaves after it is in. */
+.wt-shot {
+	opacity: 0;
+	transition: opacity 200ms ease-in-out;
+}
+.wt-shot[data-on] {
+	opacity: 1;
+}
+.wt-shot[data-covered] {
+	transition-delay: 200ms;
+}
+.wt-shot[data-instant][data-on] {
+	transition: none;
+}
+/* The touch dot of the stream (simulator-view.tsx): 24px, drawn only while the button is down. */
+.wt-touch {
+	position: absolute;
+	z-index: 4;
+	width: calc(24px * var(--inv, 1));
+	height: calc(24px * var(--inv, 1));
+	border-radius: 50%;
+	background: rgba(59, 130, 246, 0.5);
+	box-shadow: 0 0 calc(8px * var(--inv, 1)) rgba(59, 130, 246, 0.3);
+	transform: translate(-50%, -50%);
+}
+/* The screen images stack inside the stream, under the outlines, pins and the touch dot. */
+.wt-stream {
+	position: absolute;
+	inset: 0;
+	isolation: isolate;
+}
+.wt-stream-target {
+	position: absolute;
+}
+.wt-cutout {
+	position: absolute;
+	z-index: 1;
+	top: 1.8%;
+	left: 50%;
+	width: 7.7%;
+	aspect-ratio: 1;
+	border-radius: 50%;
+	background: #000;
+	transform: translateX(-50%);
+}
+.wt-resize-arc {
+	position: absolute;
+	top: 0;
+	left: 0;
+	overflow: visible;
+	opacity: 0.38;
+	transition: transform 240ms var(--wt-ease);
+}
+/* The toolbar under a device: 4px 6px padding, 30px buttons 4px apart, 40px tall. */
+.wt-devbar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 6px;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 10px;
+	background: #181818;
+	box-shadow: rgba(0, 0, 0, 0.2) 0 1px 2px;
+	transition: transform 240ms var(--wt-ease);
+}
+.wt-devbar-icon {
+	display: grid;
+	width: 30px;
+	height: 30px;
+	place-items: center;
+	border-radius: 12px;
+	color: rgba(255, 255, 255, 0.8);
+	transition: scale 100ms ease-out;
+}
+/* The product's hover fill, given at once: only transform and opacity animate. */
+.wt-devbar-icon[data-force-hover]:not([data-disabled]) {
+	background: rgb(255 255 255 / 0.1);
+}
+.wt-devbar-icon[data-force-press] {
+	scale: 0.96;
+}
+/* While annotating, the product disables Back and Home. */
+.wt-devbar-icon[data-disabled] {
+	opacity: 0.5;
+}
+.wt-devbar-more {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	place-items: center;
+	border-radius: 10px;
+	color: rgb(255 255 255 / 0.55);
+}
+
+/* Elements on the iPhone screen. The frame is scaled, so line widths use --inv. */
+.wt-elements {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+}
+.wt-el {
+	position: absolute;
+	box-sizing: border-box;
+	border: calc(1px * var(--inv, 1)) solid transparent;
+	border-radius: calc(3px * var(--inv, 1));
+}
+/* The product's overlay palette (components/accessibility/target.tsx). */
+.wt-el[data-outlined] {
+	border-color: #34d399;
+	background: rgba(16, 185, 129, 0.12);
+}
+.wt-el[data-outlined][data-hovered] {
+	z-index: 1;
+	border-color: #fbbf24;
+	background: rgba(245, 158, 11, 0.28);
+}
+.wt-el[data-outlined][data-selected] {
+	z-index: 2;
+	border-color: #60a5fa;
+	background: rgba(96, 165, 250, 0.24);
+}
+/* The annotation outline (live-annotation-surface.tsx): 2px, primary, a dark edge. */
+.wt-elements[data-mode="annotate"] .wt-el[data-hovered] {
+	z-index: 3;
+	border: calc(2px * var(--inv, 1)) solid oklch(0.922 0 0);
+	border-radius: calc(6px * var(--inv, 1));
+	background: transparent;
+	box-shadow: 0 0 0 calc(1px * var(--inv, 1)) rgba(0, 0, 0, 0.35);
+}
+
+.wt-pin-slot {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 6;
+	transition: transform 240ms var(--wt-ease);
+}
+.wt-pin {
+	position: absolute;
+	display: flex;
+	width: 24px;
+	height: 24px;
+	margin: -12px 0 0 -12px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	background: oklch(0.922 0 0);
+	box-shadow: 0 0 0 2px oklch(0.145 0 0);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 16px;
+	color: oklch(0.205 0 0);
+}
+.wt-composer {
+	position: absolute;
+	z-index: 9;
+	padding: 6px;
+	border-radius: 22px;
+	background: oklch(0.205 0 0);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px oklch(1 0 0 / 10%);
+	color: oklch(0.985 0 0);
+}
+.wt-composer-text {
+	display: block;
+	height: 24px;
+	min-width: 0;
+	flex: 1;
+	overflow: clip;
+	padding: 0 8px;
+	font-size: 13px;
+	line-height: 24px;
+	white-space: nowrap;
+	color: rgb(255 255 255 / 0.9);
+}
+.wt-composer-text[data-empty] {
+	color: rgb(255 255 255 / 0.35);
+}
+.wt-composer-send {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	flex: none;
+	place-items: center;
+	border-radius: 999px;
+	background: #fff;
+	color: #000;
+}
+.wt-composer-send[data-disabled] {
+	background: rgb(255 255 255 / 0.1);
+	color: rgb(255 255 255 / 0.35);
+}
+
+/* Lifted by the drawer: the canvas view chip, the notes chip and the dock. */
+.wt-lift {
+	position: absolute;
+	/* Above the pins of the canvas: the Comments panel covers a pin, as in the product. */
+	z-index: 7;
+	inset: 0;
+	transition: transform 240ms var(--wt-ease);
+}
+.wt-workspace[data-drawer] .wt-lift {
+	transform: translateY(calc(var(--wt-drawer-h) * -1));
+}
+.wt-canvas-view {
+	position: absolute;
+	bottom: 12px;
+	left: 12px;
+	display: flex;
+	gap: 4px;
+	padding: 4px;
+	border: 1px solid rgb(255 255 255 / 0.1);
+	border-radius: 10px;
+	background: #181818;
+	box-shadow: 0 18px 56px rgba(0, 0, 0, 0.5);
+}
+.wt-canvas-btn {
+	display: grid;
+	width: 32px;
+	height: 32px;
+	place-items: center;
+	border-radius: 10px;
+	color: rgb(255 255 255 / 0.55);
+}
+.wt-notes {
+	position: absolute;
+	bottom: 74px;
+	left: 50%;
+	translate: -50% 0;
+}
+.wt-notes-chip {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 6px;
+	border-radius: 999px;
+	background: oklch(0.205 0 0);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px oklch(1 0 0 / 10%);
+}
+/* The Comments panel (workspace-annotation-summary.tsx): 320 wide, 8px above the chip. */
+.wt-comments {
+	position: absolute;
+	bottom: calc(100% + 8px);
+	left: 50%;
+	width: 320px;
+	padding: 8px;
+	border-radius: 14px;
+	background: oklch(0.205 0 0);
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), 0 0 0 1px oklch(1 0 0 / 10%);
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	color: oklch(0.985 0 0);
+	translate: -50% 0;
+}
+.wt-comments-icon {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	flex: none;
+	place-items: center;
+	border-radius: 10px;
+}
+.wt-notes-btn {
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	display: inline-flex;
+	height: 28px;
+	align-items: center;
+	gap: 4px;
+	padding: 0 10px;
+	border-radius: 999px;
+	font-size: 12.8px;
+	font-weight: 500;
+	color: rgb(255 255 255 / 0.7);
+	white-space: nowrap;
+}
+
+/* The dock. */
+.wt-dock {
+	position: absolute;
+	bottom: 12px;
+	left: 50%;
+	z-index: 7;
+	width: 0;
+	height: 0;
+}
+.wt-dock-shape {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	filter: drop-shadow(0 18px 56px rgba(0, 0, 0, 0.5));
+}
+.wt-piece {
+	position: absolute;
+	bottom: 0;
+	display: block;
+	will-change: transform;
+}
+.wt-band {
+	transform-origin: 50% 100%;
+}
+.wt-corner {
+	border-radius: 50%;
+}
+.wt-dock-content > div {
+	will-change: transform, opacity;
+}
+.wt-dock-content {
+	/* The panel keeps its own layer to the end of the open and the close. Without it, the
+	   layer drops when the rise ends and its text is drawn again on other device pixels. */
+	will-change: transform, opacity;
+	position: absolute;
+	bottom: 49px;
+	overflow: clip;
+	border-radius: 15px 15px 0 0;
+}
+.wt-dock-row {
+	position: absolute;
+	/* Above the open panel: the count badge on Devices stays whole, as in the product. */
+	z-index: 1;
+	bottom: 1px;
+	left: -132px;
+	display: flex;
+	width: 264px;
+	height: 48px;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	padding: 4px;
+}
+.wt-dock-row > button {
+	flex: 0 1 40px;
+	min-width: 0;
+}
+
+.wt-scroll {
+	scrollbar-width: thin;
+	scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+}
+
+/* The hover and press states the scripted cursor gives, as the pointer gives
+   them in the product. Fills fade on a layer under the content, so only
+   opacity animates. */
+.wt-row::before,
+.wt-call::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	opacity: 0;
+	transition: opacity 110ms var(--agentsims-ease-standard);
+}
+.wt-row,
+.wt-call {
+	isolation: isolate;
+}
+.wt-row::before {
+	background: rgb(255 255 255 / 0.08);
+}
+.wt-row[data-force-hover]::before {
+	opacity: 1;
+}
+.wt-call {
+	position: relative;
+}
+.wt-call::before {
+	background: rgb(255 255 255 / 0.03);
+}
+.wt-call[data-current]::before {
+	background: rgb(255 255 255 / 0.055);
+}
+.wt-call:is([data-force-hover], [data-current])::before {
+	opacity: 1;
+}
+.wt-dock-btn[data-force-hover] {
+	background: rgb(255 255 255 / 0.08);
+	color: #fff;
+}
+/* The Appearance menu (settings). Fills are given at once: only transform and opacity animate. */
+.wt-select[data-force-hover],
+.wt-select[data-open] {
+	background: var(--agentsims-button-raised-hover);
+}
+.wt-select-chevron {
+	transition: transform 150ms ease-out;
+}
+.wt-select-chevron[data-open] {
+	transform: rotate(180deg);
+}
+/* The menu lines up its chosen option with the trigger, as Base UI places it. */
+.wt-select-popup {
+	position: absolute;
+	top: -4px;
+	right: -4px;
+	left: -4px;
+	z-index: 20;
+	padding: 4px;
+	border-radius: 10px;
+	background: oklch(0.243535 0 0);
+	box-shadow: 0 12px 32px oklch(0 0 0 / 0.5), inset 0 0 0 1px oklch(1 0 0 / 0.08), inset 0 1px 0 oklch(1 0 0 / 0.05);
+	font-size: 13px;
+	color: rgb(255 255 255 / 0.9);
+	transform-origin: 50% 20px;
+}
+.wt-select-item[data-selected] {
+	color: #fff;
+}
+.wt-select-item[data-force-hover] {
+	background: rgb(255 255 255 / 0.08);
+}
+.wt-canvas-btn[data-force-hover] {
+	background: rgb(255 255 255 / 0.06);
+	color: #fff;
+}
+.wt-power[data-force-hover] {
+	background: rgb(239 68 68 / 0.1);
+}
+.wt-power[data-disabled] {
+	opacity: 0.5;
+}
+.wt-notes-btn:is([data-force-hover], [data-open]) {
+	background: rgb(255 255 255 / 0.06);
+	color: rgb(255 255 255 / 0.9);
+}
+
+/* Press feedback belongs to buttons; rows never scale. */
+.wt-dock-btn[data-force-press],
+.wt-canvas-btn[data-force-press],
+.wt-power[data-force-press],
+.wt-notes-btn[data-force-press],
+.wt-composer-send[data-force-press] {
+	scale: 0.96;
+}
+.wt-tree-row {
+	border-left-color: transparent;
+}
+.wt-tree-row[data-selected] {
+	border-left-color: #60a5fa;
+	background: rgb(59 130 246 / 0.14);
+	color: rgb(255 255 255 / 0.95);
+}
+/* A hovered row keeps the amber edge; the pointer's hover fill wins over the tone (tree.tsx). */
+.wt-tree-row[data-highlighted] {
+	border-left-color: #fbbf24;
+	background: rgb(255 255 255 / 0.045);
+	color: rgb(255 255 255 / 0.95);
+}
+
+/* The drawer. */
+.wt-drawer {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 6;
+	display: flex;
+	flex-direction: column;
+	border-top: 1px solid rgb(255 255 255 / 0.1);
+	background: #181818;
+	/* The drawer sits outside the product's canvas root, so it takes the body face. */
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	color: rgb(255 255 255 / 0.9);
+	transform: translateY(100%);
+	visibility: hidden;
+	transition:
+		transform 240ms var(--wt-ease),
+		visibility 0s linear 240ms;
+}
+.wt-drawer[data-open] {
+	transform: none;
+	visibility: visible;
+	transition:
+		transform 240ms var(--wt-ease),
+		visibility 0s;
+}
+.wt-drawer-grip {
+	position: absolute;
+	top: -8px;
+	right: 0;
+	left: 0;
+	z-index: 20;
+	display: flex;
+	height: 16px;
+	align-items: center;
+	justify-content: center;
+}
+.wt-drawer-grip > span {
+	width: 32px;
+	height: 2px;
+	border-radius: 999px;
+	background: rgb(255 255 255 / 0.25);
+}
+
+/* Status glyph loops stop when the picture is out of view or the tab is hidden. */
+@media (prefers-reduced-motion: no-preference) {
+	.wt[data-paused] .agentsims-device-status-spin,
+	.wt[data-paused] .agentsims-device-status-breathe {
+		animation-play-state: paused;
+	}
+}
+
+/* The toast (components/ui/toast.tsx, sonner): 24px from the top, it slides in from above. */
+.wt-toast {
+	position: absolute;
+	top: 24px;
+	left: 50%;
+	z-index: 10;
+	display: flex;
+	width: min(400px, calc(100% - 32px));
+	align-items: center;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid rgb(255 255 255 / 0.12);
+	border-radius: 14px;
+	background: #1c1c1e;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	opacity: 0;
+	transform: translate(-50%, -100%);
+	transition:
+		transform 400ms ease,
+		opacity 400ms ease;
+}
+.wt-toast[data-on] {
+	opacity: 1;
+	transform: translate(-50%, 0);
+}
+
+/* The layer of the cursor, in design pixels. */
+.wt-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 20;
+}
+.wt-cursor {
+	position: absolute;
+	opacity: 0;
+	transition: opacity 100ms ease-out;
+}
+.wt-cursor[data-on] {
+	opacity: 1;
+}
+
+/* A narrow Traces drawer: the folder, search and trace switch leave the toolbar. */
+.wt-drawer:not([data-roomy]) .wt-wide-only {
+	display: none;
+}
+.wt-drawer:not([data-roomy]) .wt-call-grid {
+	grid-template-columns: 18px 76px minmax(0, 1fr) 48px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.wt *,
+	.wt *::before,
+	.wt *::after {
+		transition-duration: 0s !important;
+		animation: none !important;
+	}
+}

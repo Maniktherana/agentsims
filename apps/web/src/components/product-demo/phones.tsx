@@ -2,22 +2,19 @@ import { GripVertical } from "lucide-react";
 import { motion } from "motion/react";
 import { ResizeHandle } from "./resize-handle";
 import { SURFACE } from "./motion";
-import { INTRO_ENTRANCE } from "../intro/use-intro";
 import { cn } from "@agentsims/ui/lib/utils";
 import type { HTMLAttributes, ReactNode } from "react";
 
 const IPHONE_BUTTON = "absolute z-0 left-[0.881%] w-[3.524%]";
-export const IPHONE_SHADOW =
+const IPHONE_SHADOW =
 	"drop-shadow-[0_14px_12px_oklch(0_0_0/0.533333)]";
 
 export function IPhoneMock({
-	name = "iPhone 17",
 	labelScale = 1,
 	className,
 	children,
 	...props
 }: HTMLAttributes<HTMLDivElement> & {
-	name?: string;
 	labelScale?: number | string;
 	children?: ReactNode;
 }) {
@@ -30,7 +27,7 @@ export function IPhoneMock({
 			)}
 			{...props}
 		>
-			<DeviceNamePill name={name} scale={labelScale} />
+			<DeviceNamePill name="iPhone 17" scale={labelScale} />
 			<div className="absolute top-[1.872%] left-[5.727%] z-0 h-[96.256%] w-[88.546%] rounded-[15.174%/6.979%] bg-linear-[155deg,oklch(0.224584_0.026372_258.317),oklch(0.189824_0.027443_258.29)_52%,oklch(0.157319_0.017155_256.284)]" />
 			{children}
 			<img
@@ -66,12 +63,10 @@ export function IPhoneMock({
 }
 
 export function DemoPhones({
-	iphoneVisible,
 	androidVisible,
 	androidStreaming,
 	scale,
 }: {
-	iphoneVisible: boolean;
 	androidVisible: boolean;
 	androidStreaming: boolean;
 	scale: number;
@@ -81,28 +76,17 @@ export function DemoPhones({
 			<motion.div
 				className="relative w-[46cqw] flex-none aspect-[454/908]"
 				initial={false}
-				animate={{
-					x: androidVisible ? "0%" : "51.63%",
-					opacity: iphoneVisible ? 1 : 0,
-					y: iphoneVisible ? 0 : SURFACE.enterY,
-					scale: iphoneVisible ? 1 : SURFACE.enterScale,
-				}}
-				// The intro entrance eases in slowly; the storyboard's slide keeps
-				// the shared spring, so only the first appearance is softened.
-				transition={{
-					x: SURFACE.spring,
-					opacity: INTRO_ENTRANCE,
-					y: INTRO_ENTRANCE,
-					scale: INTRO_ENTRANCE,
-				}}
+				animate={{ x: androidVisible ? "0%" : "51.63%" }}
+				transition={{ x: SURFACE.spring }}
 			>
 				<IPhoneMock className="h-full w-full" labelScale={scale}>
 					<ResizeHandle android={false} scale={scale} />
 					<img
 						className="absolute top-[1.872%] left-[5.727%] z-[2] h-[96.256%] w-[88.546%] rounded-[15.174%/6.979%]"
 						src="/demo/iphone-17-screen.webp"
-						width={1206}
-						height={2622}
+						width={392}
+						height={852}
+						loading="lazy"
 						alt=""
 					/>
 				</IPhoneMock>
@@ -121,8 +105,9 @@ export function DemoPhones({
 				<motion.img
 					className="pointer-events-none absolute inset-px h-[calc(100%-2px)] w-[calc(100%-2px)] rounded-[inherit] object-cover"
 						src="/demo/pixel-10-screen.webp"
-					width={1080}
-					height={2424}
+					width={388}
+					height={871}
+					loading="lazy"
 					alt=""
 					initial={false}
 					animate={{ opacity: androidStreaming ? 1 : 0 }}
@@ -136,7 +121,7 @@ export function DemoPhones({
 }
 
 // Display-only name bar; this demo does not show FPS.
-export function DeviceNamePill({
+function DeviceNamePill({
 	name,
 	scale,
 }: {

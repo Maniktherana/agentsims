@@ -1,0 +1,228 @@
+/*
+ * The product inspector in the pictures of the Overview: the element
+ * outlines on a screen, and the accessibility panel. Every rule uses the
+ * `wf-ax-` prefix. `--u` is one design unit; the pane sets it to 1px.
+ */
+/* Observe: the element box on the screen. The values are the selected state
+   of the product overlay (`axTargetVisualStyle` in
+   packages/agentsims/src/web/components/accessibility/target.tsx). */
+.wf-ax-boxes {
+	position: absolute;
+	z-index: 2;
+	inset: 0;
+	opacity: 0;
+	transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.wf-ax-boxes[data-visible="true"] {
+	opacity: 1;
+}
+/* Every element, in the "show all outlines" style of the product
+   (`axTargetVisualStyle`, outlined). */
+.wf-ax-box-outline {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1px solid #34d399;
+	border-radius: 3px;
+	background: rgba(16, 185, 129, 0.12);
+}
+.wf-ax-box {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1px solid #60a5fa;
+	border-radius: 3px;
+	background: rgba(96, 165, 250, 0.24);
+}
+
+/* Observe: the accessibility panel. The values are from the product
+   DevicePanel, AccessibilityHeaderActions, and AccessibilityTree. */
+.wf-ax-panel {
+	--u: 1px;
+	position: absolute;
+	z-index: 2;
+	display: flex;
+	width: calc(320 * var(--u));
+	flex-direction: column;
+	overflow: hidden;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: calc(14 * var(--u));
+	background: #181818;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+	color: #fff;
+}
+.wf-ax-header {
+	display: flex;
+	height: calc(40 * var(--u));
+	flex: none;
+	align-items: center;
+	gap: calc(6 * var(--u));
+	padding-inline: calc(8 * var(--u));
+}
+.wf-ax-icon {
+	display: grid;
+	width: calc(28 * var(--u));
+	height: calc(28 * var(--u));
+	flex: none;
+	place-items: center;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: calc(6 * var(--u));
+	background: rgba(255, 255, 255, 0.04);
+	color: rgba(255, 255, 255, 0.58);
+}
+.wf-ax-identity {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	align-items: center;
+	gap: calc(6 * var(--u));
+}
+/* The product uses emerald-400 for a connected device
+   (device-panel.tsx, line 134). */
+.wf-ax-live {
+	width: calc(6 * var(--u));
+	height: calc(6 * var(--u));
+	flex: none;
+	border-radius: 999px;
+	background: #34d399;
+}
+.wf-ax-name {
+	overflow: hidden;
+	font-size: calc(12 * var(--u));
+	font-weight: 600;
+	color: rgba(255, 255, 255, 0.9);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.wf-ax-actions {
+	display: flex;
+	align-items: center;
+	gap: calc(4 * var(--u));
+}
+.wf-ax-button {
+	display: grid;
+	width: calc(28 * var(--u));
+	height: calc(28 * var(--u));
+	place-items: center;
+	color: rgba(255, 255, 255, 0.55);
+}
+/* The `toolbar` button of the product when it is pressed. */
+.wf-ax-button[data-pressed] {
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: calc(8 * var(--u));
+	background: rgba(255, 255, 255, 0.075);
+	color: #fff;
+}
+.wf-ax-count {
+	padding-inline: calc(4 * var(--u));
+	font-size: calc(10 * var(--u));
+	font-variant-numeric: tabular-nums;
+	color: rgba(255, 255, 255, 0.38);
+}
+.wf-icon-14 {
+	width: calc(14 * var(--u));
+	height: calc(14 * var(--u));
+}
+.wf-icon-13 {
+	width: calc(13 * var(--u));
+	height: calc(13 * var(--u));
+	flex: none;
+}
+.wf-ax-search {
+	display: flex;
+	height: calc(32 * var(--u));
+	flex: none;
+	align-items: center;
+	gap: calc(6 * var(--u));
+	margin: calc(6 * var(--u)) calc(8 * var(--u)) calc(4 * var(--u));
+	border: 1px solid rgba(255, 255, 255, 0.09);
+	border-radius: calc(6 * var(--u));
+	background: rgba(255, 255, 255, 0.035);
+	padding-inline: calc(8 * var(--u));
+	color: rgba(255, 255, 255, 0.42);
+}
+.wf-ax-placeholder {
+	font-size: calc(12 * var(--u));
+	color: rgba(255, 255, 255, 0.32);
+}
+.wf-ax-tree {
+	display: grid;
+	padding: 0 calc(8 * var(--u)) calc(4 * var(--u));
+}
+.wf-ax-state {
+	position: relative;
+	grid-area: 1 / 1;
+	opacity: 0;
+	transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.wf-ax-state[data-visible="true"] {
+	opacity: 1;
+}
+.wf-ax-guide {
+	position: absolute;
+	z-index: 1;
+	left: calc(14 * var(--u));
+	top: calc(28 * var(--u));
+	bottom: 0;
+	width: 1px;
+	background: rgba(255, 255, 255, 0.09);
+}
+.wf-ax-row {
+	display: flex;
+	height: calc(28 * var(--u));
+	min-width: 0;
+	align-items: center;
+	border-left: 2px solid transparent;
+	border-radius: calc(4 * var(--u));
+	padding-inline: calc(4 * var(--u));
+	font-size: calc(12 * var(--u));
+	color: rgba(255, 255, 255, 0.82);
+}
+.wf-ax-row[data-selected="true"] {
+	border-left-color: #60a5fa;
+	background: rgba(59, 130, 246, 0.14);
+	color: rgba(255, 255, 255, 0.95);
+}
+.wf-ax-indent {
+	width: calc(12 * var(--u));
+	flex: none;
+}
+.wf-ax-toggle {
+	display: grid;
+	width: calc(20 * var(--u));
+	height: calc(20 * var(--u));
+	flex: none;
+	place-items: center;
+	color: rgba(255, 255, 255, 0.48);
+}
+.wf-ax-toggle svg {
+	rotate: 90deg;
+}
+.wf-ax-content {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	align-items: baseline;
+	gap: calc(6 * var(--u));
+	overflow: hidden;
+	padding-right: calc(4 * var(--u));
+	font-family: var(--font-mono);
+	font-size: calc(11 * var(--u));
+	font-variant-ligatures: none;
+}
+.wf-ax-type {
+	max-width: 52%;
+	flex: none;
+	overflow: hidden;
+	color: rgba(255, 255, 255, 0.52);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.wf-ax-type[data-tone="structure"] {
+	color: rgba(255, 255, 255, 0.34);
+}
+.wf-ax-props {
+	min-width: 0;
+	overflow: hidden;
+	color: rgba(255, 255, 255, 0.78);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

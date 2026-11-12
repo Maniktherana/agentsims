@@ -8,17 +8,15 @@ const SCREEN_ON_FILL = "var(--agentsims-device-screen-on)";
 // Device-family glyphs for the landing demo.
 export function DeviceGlyph({
 	type,
-	size = 20,
 	screenOn = false,
 }: {
 	type: DeviceType;
-	size?: number;
 	screenOn?: boolean;
 }) {
 	const reducedMotion = useReducedMotion();
 	const common = {
-		width: size,
-		height: size,
+		width: 20,
+		height: 20,
 		viewBox: "0 0 24 24",
 		fill: "none",
 		stroke: "currentColor",

@@ -6,6 +6,19 @@
 		--agent-terminal-frame: oklch(0.114918 0 0);
 		--agent-terminal-surface: oklch(0.134409 0 0);
 		--agent-terminal-divider: oklch(0.256153 0 0);
+		/* The terminal is a stack of rows. Each row is one box this tall, with
+		   its text centered, so the air between lines belongs to the rows. The
+		   original line pitch was 27.5px (a 19.5px line and an 8px gap). A
+		   scroll position is a whole pixel, so the row is a whole pixel too. */
+		--agent-row: 28px;
+		--agent-frame-height: calc(100cqw * 600 / 743);
+		--agent-header-height: 80px;
+		/* The stage is one column, as wide as the content and at most 880px.
+		   Inside it, the original proportions stay: the frame is 600/743 of
+		   the stage width tall, and the phone is 272/743 of it wide. */
+		width: min(100%, 880px);
+		container-type: inline-size;
+		--hero-phone-width: calc(100cqw * 272 / 743);
 	}
 
 	.agent-workflow-stage {
@@ -17,11 +30,34 @@
 
 	.agent-workflow-terminal-frame {
 		position: relative;
-		height: 37.5rem;
+		height: var(--agent-frame-height);
 		overflow: hidden;
 		border-radius: 16px;
 		background: var(--agent-terminal-frame);
-		box-shadow: 0 28px 72px oklch(0 0 0 / 0.45);
+		/* The frame fades out where the phone covers it, and at its bottom:
+		   the frame, its border, and its text become transparent, so the
+		   page shows through. The right fade runs from 7rem left of the
+		   phone to 2rem right of its left edge. The bottom fade covers the
+		   last 28% of the frame on an eased curve, and is at nothing for
+		   the last 1.5%, so the bottom corners are the page color. */
+		--hero-fade-right: linear-gradient(
+			to right,
+			black calc(100% - var(--hero-phone-width) - 7rem),
+			transparent calc(100% - var(--hero-phone-width) + 2rem)
+		);
+		--hero-fade-bottom: linear-gradient(
+			to top,
+			transparent 0%,
+			transparent 1.5%,
+			oklch(0 0 0 / 0.25) 7%,
+			oklch(0 0 0 / 0.55) 14%,
+			oklch(0 0 0 / 0.85) 21%,
+			black 28%
+		);
+		-webkit-mask-image: var(--hero-fade-right), var(--hero-fade-bottom);
+		-webkit-mask-composite: source-in;
+		mask-image: var(--hero-fade-right), var(--hero-fade-bottom);
+		mask-composite: intersect;
 	}
 
 	.agent-workflow-terminal-frame::before {
@@ -38,7 +74,10 @@
 		position: relative;
 		z-index: 1;
 		display: grid;
-		grid-template-rows: auto minmax(0, 1fr) 28px auto;
+		/* Header, transcript, activity, then the input and status rows. The
+		   remainder of the frame height stays empty below the status row. */
+		grid-template-rows: var(--agent-header-height) auto var(--agent-row) auto;
+		align-content: start;
 		height: 100%;
 		overflow: hidden;
 		border-radius: 15px;
@@ -52,6 +91,7 @@
 
 	.agent-terminal-header {
 		display: flex;
+		height: var(--agent-header-height);
 		flex: none;
 		align-items: flex-start;
 		gap: 10px;
@@ -67,7 +107,14 @@
 		line-height: 19.5px;
 	}
 
+	/* The viewport is the largest whole number of rows that fits. */
 	.agent-terminal-scroll {
+		height: round(
+			down,
+			var(--agent-frame-height) - var(--agent-header-height) - 3 *
+				var(--agent-row),
+			var(--agent-row)
+		);
 		min-height: 0;
 		overflow: hidden;
 		scrollbar-width: none;
@@ -78,9 +125,13 @@
 		-webkit-mask-image: linear-gradient(
 			to bottom,
 			oklch(0 0 0 / 0),
-			oklch(0 0 0) 24px
+			oklch(0 0 0) var(--agent-row)
 		);
-		mask-image: linear-gradient(to bottom, oklch(0 0 0 / 0), oklch(0 0 0) 24px);
+		mask-image: linear-gradient(
+			to bottom,
+			oklch(0 0 0 / 0),
+			oklch(0 0 0) var(--agent-row)
+		);
 	}
 
 	.agent-terminal-scroll::-webkit-scrollbar {
@@ -91,10 +142,11 @@
 		display: grid;
 		grid-template-columns: 1em minmax(0, 1fr);
 		gap: 6px;
-		align-items: start;
+		align-items: center;
+		height: var(--agent-row);
 		margin-inline: 12px;
 		overflow: hidden;
-		padding-block: 8px;
+		line-height: var(--agent-row);
 		background: oklch(1 0 0 / 0.055);
 		color: oklch(1 0 0 / 0.9);
 		white-space: nowrap;
@@ -105,18 +157,19 @@
 	}
 
 	.agent-workflow-transcript {
-		padding: 10px 12px;
+		padding: 0 12px;
 	}
 
 	.agent-terminal-row {
 		display: grid;
 		grid-template-columns: 1em minmax(0, 1fr);
 		gap: 6px;
-		align-items: start;
+		align-items: center;
 		overflow: hidden;
-		max-width: calc(100% - 13rem);
-		min-height: 19.5px;
-		line-height: 19.5px;
+		/* The original 13rem of a 743px stage. */
+		max-width: calc(100% - 100cqw * 208 / 743);
+		height: var(--agent-row);
+		line-height: var(--agent-row);
 		white-space: nowrap;
 	}
 
@@ -124,13 +177,12 @@
 		display: flex;
 		min-width: 0;
 		flex-direction: column;
-		gap: 8px;
 	}
 
 	.agent-terminal-marker {
 		display: flex;
 		width: 1em;
-		height: 19.5px;
+		height: var(--agent-row);
 		align-items: center;
 		justify-content: center;
 		color: oklch(1 0 0 / 0.38);
@@ -153,7 +205,7 @@
 
 	.agent-terminal-activity {
 		display: flex;
-		height: 28px;
+		height: var(--agent-row);
 		flex: none;
 		align-items: center;
 		gap: 6px;
@@ -168,12 +220,17 @@
 		flex: none;
 	}
 
+	/* The asterisk takes the mark column, so the label starts where the
+	   text of every transcript row starts. */
+	.agent-terminal-activity-icon {
+		width: 1em;
+	}
+
 	.agent-terminal-composer {
 		display: flex;
 		flex: none;
 		flex-direction: column;
-		gap: 6px;
-		padding: 0 6px 8px;
+		padding-inline: 6px;
 	}
 
 	.agent-terminal-input {
@@ -181,7 +238,8 @@
 		min-width: 0;
 		align-items: center;
 		gap: 6px;
-		padding: 8px 4px;
+		height: var(--agent-row);
+		padding-inline: 4px;
 		border-block: 1px solid var(--agent-terminal-divider);
 		color: oklch(1 0 0 / 0.88);
 		white-space: nowrap;
@@ -234,42 +292,10 @@
 		min-width: 0;
 		align-items: center;
 		gap: 6px;
-		padding: 2px 4px;
+		height: var(--agent-row);
+		padding-inline: 4px;
 		color: oklch(1 0 0 / 0.27);
 		white-space: nowrap;
-	}
-
-	.agent-terminal-vignette-right,
-	.agent-terminal-vignette-bottom {
-		position: absolute;
-		z-index: 3;
-		pointer-events: none;
-	}
-
-	.agent-terminal-vignette-right {
-		inset-block: 0;
-		right: 0;
-		width: 40%;
-		border-radius: 0 16px 16px 0;
-		background: linear-gradient(
-			to left,
-			oklch(0 0 0 / 0.88) 0%,
-			oklch(0 0 0 / 0.62) 20%,
-			oklch(0 0 0 / 0) 100%
-		);
-	}
-
-	.agent-terminal-vignette-bottom {
-		inset-inline: 0;
-		bottom: 0;
-		height: 40%;
-		border-radius: 0 0 16px 16px;
-		background: linear-gradient(
-			to top,
-			oklch(0 0 0 / 0.86) 0%,
-			oklch(0 0 0 / 0.6) 20%,
-			oklch(0 0 0 / 0) 100%
-		);
 	}
 
 	.agent-workflow-phone {
@@ -278,7 +304,7 @@
 		z-index: 4;
 		right: 0;
 		bottom: 0;
-		width: clamp(14rem, 24vw, 17rem);
+		width: var(--hero-phone-width);
 		container-type: inline-size;
 	}
 
@@ -330,9 +356,20 @@
 		}
 	}
 
+	/* Small screens, as in the original (5ce17a62: agent-control/styles.css,
+	   lines 327-370): the frame is 37.5rem tall at the full content width,
+	   and the phone sits inside it at the bottom right, over the terminal.
+	   Only the bottom fade stays. */
 	@media (width < 48rem) {
+		.agent-workflow-section {
+			--agent-frame-height: 37.5rem;
+			--hero-phone-width: clamp(13.5rem, 36vw, 15rem);
+		}
+
 		.agent-workflow-terminal-frame {
 			height: 37.5rem;
+			-webkit-mask-image: var(--hero-fade-bottom);
+			mask-image: var(--hero-fade-bottom);
 		}
 
 		.agent-workflow-terminal {
@@ -348,22 +385,10 @@
 			max-width: none;
 		}
 
-		.agent-terminal-vignette-right {
-			display: none;
-		}
-
-		.agent-terminal-vignette-bottom {
-			height: 32%;
-			background: linear-gradient(
-				to top,
-				oklch(0 0 0 / 0.68) 0%,
-				oklch(0 0 0 / 0.38) 20%,
-				oklch(0 0 0 / 0) 100%
-			);
-		}
-
 		.agent-workflow-phone {
 			--agent-workflow-label-scale: 0.82;
+			right: 0;
+			bottom: 0;
 			width: clamp(13.5rem, 36vw, 15rem);
 		}
 	}

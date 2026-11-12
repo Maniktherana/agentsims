@@ -1,119 +1,114 @@
 @import "@agentsims/ui/globals.css";
-@import "fumadocs-ui/css/shadcn.css";
-@import "fumadocs-ui/css/preset.css";
 @source "./";
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
-	--ease-hero: cubic-bezier(0.2, 0, 0, 1);
+/* Inter v4: unmodified @fontsource-variable/inter 5.3.0 files, the same as on
+   manikrana.dev. Inter is only for body paragraphs. */
+@font-face {
+	font-family: "Inter";
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url("/fonts/inter/inter-latin-ext.woff2") format("woff2");
+	unicode-range:
+		U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+		U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+		U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+	font-family: "Inter";
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url("/fonts/inter/inter-latin.woff2") format("woff2");
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+		U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+		U+2215, U+FEFF, U+FFFD;
+}
+/* Arial adjusted to the metrics of Inter, so the text does not move when
+   Inter loads. */
+@font-face {
+	font-family: "Inter Fallback";
+	src: local("Arial");
+	size-adjust: 106.28%;
+	ascent-override: 91.15%;
+	descent-override: 22.7%;
+	line-gap-override: 0%;
+}
+/* JetBrains Mono: the files and ranges of manikrana.dev. It is the main face
+   of the site. The root route preloads the latin file. */
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-weight: 100 800;
+	font-display: swap;
+	src: url("/fonts/jetbrains-mono/jetbrains-mono-latin-ext.woff2") format("woff2");
+	unicode-range:
+		U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+		U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+		U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-weight: 100 800;
+	font-display: swap;
+	src: url("/fonts/jetbrains-mono/jetbrains-mono-latin.woff2") format("woff2");
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+		U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+		U+2215, U+FEFF, U+FFFD;
 }
 
-/* The laptop screen fills from black. Registering the property is what lets
-   it transition, and `inherits` is what lets ::before read the animated value. */
-@property --screen-lit {
-	syntax: "<number>";
-	inherits: true;
-	initial-value: 0;
+@theme {
+	--ease-hero: cubic-bezier(0.2, 0, 0, 1);
+	--ease-reveal: cubic-bezier(0.22, 1, 0.36, 1);
+	--font-sans: "Inter", "Inter Fallback", ui-sans-serif, system-ui, sans-serif;
+	--font-mono:
+		"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+		monospace;
 }
 
 @theme inline {
-	--color-background: var(--background);
-	--color-foreground: var(--foreground);
-	--color-card: var(--card);
-	--color-card-foreground: var(--card-foreground);
-	--color-popover: var(--popover);
-	--color-popover-foreground: var(--popover-foreground);
-	--color-primary: var(--primary);
-	--color-primary-foreground: var(--primary-foreground);
-	--color-secondary: var(--secondary);
-	--color-secondary-foreground: var(--secondary-foreground);
-	--color-muted: var(--muted);
-	--color-muted-foreground: var(--muted-foreground);
-	--color-accent: var(--accent);
-	--color-accent-foreground: var(--accent-foreground);
-	--color-destructive: var(--destructive);
-	--color-border: var(--border);
-	--color-input: var(--input);
-	--color-ring: var(--ring);
-	--color-subtle-foreground: var(--subtle-foreground);
 	--color-brand: var(--brand);
-
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: calc(var(--radius) * 0.8);
-	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) * 1.4);
-}
-
-:root {
-	--radius: 0.625rem;
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.141 0.005 285.823);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.141 0.005 285.823);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.141 0.005 285.823);
-	--primary: oklch(0.21 0.006 285.885);
-	--primary-foreground: oklch(0.985 0 0);
-	--secondary: oklch(0.967 0.001 286.375);
-	--secondary-foreground: oklch(0.21 0.006 285.885);
-	--muted: oklch(0.967 0.001 286.375);
-	--muted-foreground: oklch(0.552 0.016 285.938);
-	--accent: oklch(0.967 0.001 286.375);
-	--accent-foreground: oklch(0.21 0.006 285.885);
-	--destructive: oklch(0.577 0.245 27.325);
-	--border: oklch(0.92 0.004 286.32);
-	--input: oklch(0.92 0.004 286.32);
-	--ring: oklch(0.705 0.015 286.067);
-	--subtle-foreground: oklch(0.552 0.016 285.938);
-	--brand: oklch(0.625 0.205 256);
+	--color-rule: var(--rule);
+	--color-faint: var(--faint);
 }
 
 .dark {
-	--background: oklch(0 0 0);
-	--foreground: oklch(0.967 0.001 286.375);
-	--card: oklch(0.145249 0.002132 286.131);
-	--card-foreground: oklch(0.92 0.004 286.32);
+	/* The surfaces of manikrana.dev (packages/ui/src/styles/globals.css). */
+	--background: hsl(0 0% 6%);
+	--card: hsl(0 0% 10%);
+	/* The grey levels of opencode.ai. */
+	--foreground: #f2f2f2;
+	--muted-foreground: #8f8f8f;
+	--faint: #616161;
+	/* Reading text on guide pages. */
+	--prose: #bfbfbf;
+	/* The outline of a box and a full-width rule. The 7% border is for the
+	   dividers inside a box. */
+	--rule: hsl(0 0% 17%);
+	--border: hsl(0 0% 77% / 7%);
+	--primary: hsl(0 0% 95%);
+	--primary-foreground: hsl(0 0% 7%);
+	--secondary: oklch(0.248391 0 0);
+	--secondary-foreground: var(--foreground);
+	--red-foreground: hsl(2 100% 74%);
+	/* The one accent, and it means "selected": the outline of a selected
+	   element in the product (accessibility/target.tsx). */
+	--brand: #60a5fa;
+	/* The product demos use these. They keep the values of the product. */
+	--card-foreground: oklch(0.92 0 0);
 	--popover: oklch(0.209036 0 0);
-	--popover-foreground: oklch(0.967 0.001 286.375);
-	--primary: oklch(0.967 0.001 286.375);
-	--primary-foreground: oklch(0.141 0.005 285.823);
-	--secondary: oklch(0.214267 0.003881 286.068);
-	--secondary-foreground: oklch(0.967 0.001 286.375);
-	--muted: oklch(0.214267 0.003881 286.068);
-	--muted-foreground: oklch(0.7 0 0);
-	--accent: oklch(1 0 0 / 10%);
-	--accent-foreground: oklch(0.967 0.001 286.375);
-	--destructive: oklch(0.704 0.191 22.216);
-	--border: oklch(0.310738 0.00708 285.981);
-	--input: oklch(0.310738 0.00708 285.981);
-	--ring: oklch(0.753513 0.138989 232.661);
-	--subtle-foreground: oklch(0.619979 0.014898 285.957);
-	--brand: oklch(0.625 0.205 256);
-	--code-surface: #101010;
-	--sidebar: var(--background);
-	--sidebar-foreground: var(--muted-foreground);
-	--sidebar-border: var(--border);
-	--sidebar-accent: var(--accent);
-	--sidebar-accent-foreground: var(--foreground);
-	--sidebar-primary-foreground: var(--primary-foreground);
-	--sidebar-ring: var(--ring);
-	--workflow-observe-text: oklch(0.75 0.16 251);
-	--workflow-headline-muted: oklch(0.58 0 0);
-	--workflow-observe-surface: oklch(0.31 0.09 253);
-	--workflow-act-text: oklch(0.8 0.15 78);
-	--workflow-act-surface: oklch(0.32 0.07 75);
-	--workflow-verify-text: oklch(0.76 0.15 151);
-	--workflow-verify-surface: oklch(0.3 0.065 151);
-	--workflow-stage-surface: oklch(0.139791 0 0);
-	--workflow-terminal-surface: oklch(0.205 0 0);
-	--workflow-terminal-surface-deep: oklch(0.17 0 0);
-	--workflow-terminal-border: oklch(1 0 0 / 0.12);
-	--workflow-terminal-text: oklch(0.705757 0 0);
-	--workflow-terminal-text-muted: oklch(0.63676 0 0);
-	--workflow-terminal-amber: oklch(0.86889 0.087746 60.679);
-	--workflow-terminal-green: oklch(0.930037 0.103498 175.069);
-	--workflow-preview-surface: oklch(0.188041 0.019011 270.204);
+	--popover-foreground: var(--foreground);
+	--muted: oklch(0.248391 0 0);
+	--accent: oklch(1 0 0 / 8%);
+	--accent-foreground: var(--foreground);
+	--destructive: var(--red-foreground);
+	--input: oklch(1 0 0 / 10%);
+	--ring: oklch(1 0 0);
 }
 
 @layer base {
@@ -122,853 +117,294 @@
 	}
 	html {
 		color-scheme: dark;
-		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+	/* Unclassed text is body text. Mono and #f2f2f2 come only from the type
+	   scale classes. */
+	body,
+	main {
+		font-family: var(--font-sans);
+		font-size: 16px;
+		line-height: 26px;
+		color: var(--prose);
+		font-feature-settings: "cv11", "ss01";
 	}
 	body {
-		@apply bg-background text-foreground;
-		-webkit-font-smoothing: antialiased;
+		@apply bg-background;
+	}
+	code,
+	pre,
+	kbd {
+		font-variant-ligatures: none;
 	}
 	button,
 	a {
 		-webkit-tap-highlight-color: transparent;
 	}
-	button:focus-visible,
-	a:focus-visible {
-		outline: 2px solid var(--ring);
+	/* Focus: the keyboard shows a 2px light outline 4px outside the
+	   control. A pointer press shows none. */
+	:focus:not(:focus-visible) {
+		outline: none;
+	}
+	:focus-visible {
+		outline: 2px solid #f2f2f2;
 		outline-offset: 4px;
+	}
+	::selection {
+		background: oklch(0.625 0.205 256 / 0.35);
+	}
+}
+
+/* The shell, measured on opencode.ai: one centered group, at most 1728px
+   wide, in three columns of 1 : 2.98 : 1. The side nav is the first column
+   and stays in view. A guide page puts its article in the second column and
+   its contents list in the third. The Overview spans the second and third
+   columns. Below 960px there is one column under a top row. */
+.shell {
+	position: relative;
+	max-width: 1728px;
+	min-height: 100dvh;
+	margin-inline: auto;
+	overflow-x: clip;
+}
+.shell-page {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+}
+.page-main {
+	min-width: 0;
+	flex: 1;
+	padding: 48px 16px 0;
+}
+.page-contents {
+	display: none;
+}
+.shell-footer {
+	padding-inline: 16px;
+	margin-top: 96px;
+}
+@media (width >= 960px) {
+	.shell {
+		display: grid;
+		grid-template-columns: 1fr 2.98fr 1fr;
+		align-items: start;
+	}
+	.shell-nav {
+		position: sticky;
+		top: 0;
+		grid-column: 1;
+		height: 100dvh;
+		flex-direction: column;
+		overflow-y: auto;
+		padding: 25px 16px 25px 22px;
+		scrollbar-width: none;
+	}
+	.shell-github {
+		position: absolute;
+		z-index: 10;
+		top: 19px;
+		right: 32px;
+	}
+	.shell-page {
+		display: grid;
+		min-height: 100dvh;
+		grid-column: 2 / 4;
+		grid-template-columns: 2.98fr 1fr;
+		grid-template-rows: 1fr auto;
+	}
+	.page-main {
+		grid-column: 1 / -1;
+		padding: 80px 16px 0;
+	}
+	.page-main[data-docs] {
+		grid-column: 1;
+	}
+	.shell-footer {
+		grid-column: 1 / -1;
+	}
+}
+@media (width >= 1180px) {
+	.page-contents {
+		display: block;
+		grid-column: 2;
+		grid-row: 1;
+		position: sticky;
+		top: 0;
+		align-self: start;
+		padding: 80px 24px 0 16px;
+	}
+}
+
+/* The Overview: a hero in one column, then sections in two columns. The
+   left column holds only the section heading. The right column holds the
+   text and one artifact, and has its own left edge. */
+.split {
+	display: grid;
+	gap: 24px;
+}
+@media (width >= 960px) {
+	/* The heading and the first line of the right column share a baseline. */
+	.split {
+		grid-template-columns: 280px minmax(0, 1fr);
+		align-items: first baseline;
+		gap: 0;
 	}
 }
 
 @layer components {
-	.workflow-headline-line {
-		display: block;
-		width: fit-content;
-	}
-	.workflow-headline-segment {
-		color: var(--workflow-headline-muted);
-		transition: color 280ms cubic-bezier(0.2, 0, 0, 1);
-	}
-	.workflow-headline-segment[data-active="true"] {
-		color: oklch(0.965 0 0);
-	}
-	.workflow-headline-segment[data-step="0"],
-	.workflow-card[data-step="0"] {
-		--workflow-accent-text: var(--workflow-observe-text);
-		--workflow-accent-surface: var(--workflow-observe-surface);
-	}
-	.workflow-headline-segment[data-step="1"],
-	.workflow-card[data-step="1"] {
-		--workflow-accent-text: var(--workflow-act-text);
-		--workflow-accent-surface: var(--workflow-act-surface);
-	}
-	.workflow-headline-segment[data-step="2"],
-	.workflow-card[data-step="2"] {
-		--workflow-accent-text: var(--workflow-verify-text);
-		--workflow-accent-surface: var(--workflow-verify-surface);
-	}
-	.workflow-headline-action-wrap {
-		position: relative;
-		display: inline-block;
-		padding-inline-end: 1rem;
-		vertical-align: baseline;
-	}
-	.workflow-headline-action {
-		display: inline-block;
-		padding: 0.015em 0.09em 0.055em;
-		border-radius: 0.19em;
-		background: oklch(1 0 0 / 0.085);
-		color: inherit;
-		line-height: 1;
-		transition-duration: 280ms;
-		transition-property: color, background-color;
-		transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-	}
-	.workflow-headline-segment[data-active="true"] .workflow-headline-action {
-		background: var(--workflow-accent-surface);
-		color: var(--workflow-accent-text);
-	}
-	.workflow-step-number {
-		position: absolute;
-		top: 0.2rem;
-		inset-inline-start: calc(100% - 0.875rem);
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		font-weight: 500;
-		line-height: 1;
-		letter-spacing: 0;
-		color: inherit;
-	}
-	.workflow-accent {
-		color: var(--workflow-accent-text);
-	}
-	.workflow-card {
-		min-width: 0;
-	}
-	.workflow-stage {
-		position: relative;
-		height: 26rem;
-		overflow: hidden;
-		isolation: isolate;
-		border-radius: 1.25rem;
-		background: var(--workflow-stage-surface);
-		opacity: 0.62;
-		transition: opacity 360ms cubic-bezier(0.2, 0, 0, 1);
-	}
-	.workflow-card[data-active="true"] .workflow-stage {
-		opacity: 1;
-	}
-	.workflow-stage::before {
-		position: absolute;
-		z-index: 0;
-		inset: 0;
-		background-image: radial-gradient(
-			circle,
-			oklch(1 0 0 / 0.188235) 0.9px,
-			transparent 1px
-		);
-		background-size: 24px 24px;
-		mask-image:
-			linear-gradient(
-				to right,
-				transparent,
-				oklch(0 0 0) 18%,
-				oklch(0 0 0) 82%,
-				transparent
-			),
-			linear-gradient(
-				transparent,
-				oklch(0 0 0) 12%,
-				oklch(0 0 0) 72%,
-				transparent 98%
-			);
-		mask-composite: intersect;
-		content: "";
-		opacity: 0.72;
-		pointer-events: none;
-	}
-	.workflow-stage::after {
-		position: absolute;
-		z-index: 5;
-		inset-inline: 0;
-		bottom: 0;
-		height: 6.25rem;
-		background: linear-gradient(
-			to bottom,
-			transparent 0%,
-			color-mix(in oklch, transparent, var(--background) 4%) 18%,
-			color-mix(in oklch, transparent, var(--background) 13%) 32%,
-			color-mix(in oklch, transparent, var(--background) 28%) 47%,
-			color-mix(in oklch, transparent, var(--background) 48%) 62%,
-			color-mix(in oklch, transparent, var(--background) 72%) 76%,
-			color-mix(in oklch, transparent, var(--background) 91%) 89%,
-			var(--background) 100%
-		);
-		content: "";
-		pointer-events: none;
-	}
-	.workflow-phone {
-		position: absolute;
-		z-index: 2;
-		inset-inline-start: 50%;
-		top: 1rem;
-		width: min(62%, 14.5rem);
-		aspect-ratio: 1080 / 2424;
-		overflow: hidden;
-		border-radius: 14% / 6.24%;
-		background: linear-gradient(
-			155deg,
-			oklch(0.224584 0.026372 258.317),
-			oklch(0.189824 0.027443 258.29) 52%,
-			oklch(0.157319 0.017155 256.284)
-		);
-		box-shadow:
-			inset 0 1px 0 oklch(1 0 0 / 0.070588),
-			inset 0 0 0 1px oklch(1 0 0 / 0.141176);
-		filter: drop-shadow(0 14px 12px oklch(0 0 0 / 0.533333));
-		transform: translateX(-50%);
-	}
-	.workflow-phone video,
-	.workflow-phone img {
-		position: absolute;
-		inset: 1px;
-		display: block;
-		width: calc(100% - 2px);
-		height: calc(100% - 2px);
-		border-radius: inherit;
-		object-fit: cover;
-	}
-	.workflow-phone-camera {
-		position: absolute;
-		z-index: 2;
-		top: 1.8%;
-		inset-inline-start: 50%;
-		width: 7.7%;
-		aspect-ratio: 1;
-		border-radius: 999px;
-		background: oklch(0 0 0);
-		transform: translateX(-50%);
-	}
-	.workflow-observe-layout {
-		position: absolute;
-		z-index: 1;
-		inset: 0;
-	}
-	.workflow-observe-layout .workflow-phone-observe {
-		position: absolute;
-		top: 0.15rem;
-		inset-inline-start: clamp(1rem, 10%, 2.75rem);
-		width: clamp(10.5rem, 52%, 12.75rem);
-		transform: none;
-	}
-	.workflow-ax-bounds,
-	.workflow-ax-box-set {
-		position: absolute;
-		z-index: 2;
-		inset: 1px;
-		border-radius: inherit;
-		pointer-events: none;
-	}
-	.workflow-ax-box-set {
-		inset: 0;
-		opacity: 0;
-		transition: opacity 140ms cubic-bezier(0.2, 0, 0, 1);
-	}
-	.workflow-ax-box-set[data-visible="true"] {
-		opacity: 1;
-	}
-	.workflow-ax-box {
-		position: absolute;
-		border: 1px solid oklch(0.79 0.18 165 / 0.9);
-		border-radius: 0.1875rem;
-		background: oklch(0.79 0.18 165 / 0.04);
-	}
-	.workflow-ax-box-home-glance {
-		top: 7.05%;
-		left: 4.63%;
-		width: 90.74%;
-		height: 10.44%;
-	}
-	.workflow-ax-box-home-date {
-		top: 11.22%;
-		left: 6.39%;
-		width: 22.22%;
-		height: 2.1%;
-	}
-	.workflow-ax-box-home-play,
-	.workflow-ax-box-home-gmail,
-	.workflow-ax-box-home-photos,
-	.workflow-ax-box-home-youtube {
-		top: 65.22%;
-		width: 20%;
-		height: 10.44%;
-	}
-	.workflow-ax-box-home-play {
-		left: 4.63%;
-	}
-	.workflow-ax-box-home-gmail {
-		left: 28.24%;
-	}
-	.workflow-ax-box-home-photos {
-		left: 51.85%;
-	}
-	.workflow-ax-box-home-youtube {
-		left: 75.46%;
-	}
-	.workflow-ax-box-home-phone,
-	.workflow-ax-box-home-messages,
-	.workflow-ax-box-home-chrome,
-	.workflow-ax-box-home-settings {
-		top: 79.64%;
-		width: 15.9%;
-		height: 7.92%;
-	}
-	.workflow-ax-box-home-phone {
-		left: 6.48%;
-	}
-	.workflow-ax-box-home-messages {
-		left: 30.44%;
-	}
-	.workflow-ax-box-home-chrome {
-		left: 54.05%;
-	}
-	.workflow-ax-box-home-settings {
-		left: 77.66%;
-	}
-	.workflow-ax-box-home-search-logo,
-	.workflow-ax-box-home-search-field,
-	.workflow-ax-box-home-search-mic,
-	.workflow-ax-box-home-search-camera {
-		top: 89.06%;
-		height: 5.95%;
-	}
-	.workflow-ax-box-home-search-logo {
-		left: 7.2%;
-		width: 11.62%;
-	}
-	.workflow-ax-box-home-search-field {
-		left: 18.82%;
-		width: 50.9%;
-	}
-	.workflow-ax-box-home-search-mic {
-		left: 69.72%;
-		width: 11.34%;
-	}
-	.workflow-ax-box-home-search-camera {
-		left: 81.06%;
-		width: 11.87%;
-	}
-	.workflow-ax-box-quick-wifi,
-	.workflow-ax-box-quick-bluetooth,
-	.workflow-ax-box-quick-mobile,
-	.workflow-ax-box-quick-share {
-		width: 45.19%;
-		height: 7.8%;
-	}
-	.workflow-ax-box-quick-wifi,
-	.workflow-ax-box-quick-mobile {
-		left: 3.89%;
-	}
-	.workflow-ax-box-quick-bluetooth,
-	.workflow-ax-box-quick-share {
-		left: 50.93%;
-	}
-	.workflow-ax-box-quick-wifi,
-	.workflow-ax-box-quick-bluetooth {
-		top: 5.86%;
-	}
-	.workflow-ax-box-quick-mobile,
-	.workflow-ax-box-quick-share {
-		top: 14.52%;
-	}
-	.workflow-ax-box-quick-empty {
-		top: 55.24%;
-		left: 3.89%;
-		width: 92.22%;
-		height: 14.48%;
-	}
-	.workflow-ax-panel {
-		position: absolute;
-		z-index: 6;
-		inset-inline-end: 0;
-		bottom: 0;
-		width: min(72%, 18rem);
-		height: 16.5rem;
-		overflow: hidden;
-		border: 1px solid oklch(1 0 0 / 0.12);
-		border-inline-end: 0;
-		border-radius: 0.875rem 0 0;
-		background: linear-gradient(
-			to bottom,
-			var(--workflow-terminal-surface),
-			var(--workflow-terminal-surface-deep)
-		);
-		box-shadow: 0 14px 24px oklch(0 0 0 / 0.533333);
-		color: oklch(1 0 0 / 0.82);
-	}
-	.workflow-ax-panel-header {
-		display: flex;
-		height: 2.5rem;
-		align-items: center;
-		gap: 0.375rem;
-		padding-inline: 0.5rem;
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: oklch(1 0 0 / 0.9);
-	}
-	.workflow-ax-panel-icon {
-		display: grid;
-		width: 1.75rem;
-		height: 1.75rem;
-		flex: none;
-		place-items: center;
-		border: 1px solid oklch(1 0 0 / 0.08);
-		border-radius: 0.4375rem;
-		background: oklch(1 0 0 / 0.04);
-		color: oklch(1 0 0 / 0.58);
-	}
-	.workflow-ax-panel-identity {
-		display: flex;
-		min-width: 0;
-		flex: 1;
-		align-items: center;
-		gap: 0.375rem;
-	}
-	.workflow-ax-panel-identity > span:last-child {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.workflow-ax-panel-status {
-		width: 0.375rem;
-		height: 0.375rem;
-		flex: none;
-		border-radius: 999px;
-		background: oklch(0.77 0.18 160);
-	}
-	.workflow-ax-panel-count {
-		flex: none;
-		padding-inline: 0.25rem;
-		font-size: 0.625rem;
-		font-variant-numeric: tabular-nums;
-		font-weight: 400;
-		color: oklch(1 0 0 / 0.38);
-	}
-	.workflow-ax-panel-body {
-		position: relative;
-		height: calc(100% - 2.5rem);
-		overflow: hidden;
-	}
-	.workflow-ax-state {
-		position: absolute;
-		inset: 0;
-		padding: 0.25rem 0.5rem;
-		opacity: 0;
-		transition: opacity 140ms cubic-bezier(0.2, 0, 0, 1);
-	}
-	.workflow-ax-state[data-visible="true"] {
-		opacity: 1;
-	}
-	.workflow-ax-line {
-		position: relative;
-		display: flex;
-		height: 1.625rem;
-		min-width: 0;
-		align-items: center;
-		gap: 0.375rem;
-		overflow: hidden;
-		border-inline-start: 2px solid transparent;
-		border-radius: 0.25rem;
-		padding-inline-end: 0.25rem;
-	}
-	.workflow-ax-line[data-depth="1"] {
-		padding-inline-start: 0.75rem;
-	}
-	.workflow-ax-line[data-depth="1"]::before {
-		position: absolute;
-		inset-block: 0;
-		inset-inline-start: 0.375rem;
-		width: 1px;
-		background: oklch(1 0 0 / 0.09);
-		content: "";
-	}
-	.workflow-ax-toggle {
-		display: grid;
-		width: 1rem;
-		height: 1rem;
-		flex: none;
-		place-items: center;
-		color: oklch(1 0 0 / 0.48);
-	}
-	.workflow-ax-role {
-		max-width: 42%;
-		flex: none;
-		overflow: hidden;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-variant-ligatures: none;
-		line-height: 1;
-		color: oklch(1 0 0 / 0.48);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.workflow-ax-label {
-		min-width: 0;
-		flex: 1;
-		overflow: hidden;
-		font-size: 0.75rem;
-		line-height: 1;
-		color: oklch(1 0 0 / 0.88);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.workflow-ax-ref {
-		flex: none;
-		font-family: var(--font-mono);
-		font-size: 0.625rem;
-		font-variant-ligatures: none;
-		line-height: 1;
-		color: var(--workflow-terminal-amber);
-	}
-	.workflow-terminal {
-		--workflow-terminal-fade: var(--workflow-terminal-surface);
-		--workflow-terminal-safe-top: 0.75rem;
-		--workflow-terminal-command-gap: 0.5rem;
-		position: absolute;
-		z-index: 3;
-		overflow: hidden;
-		border: 1px solid var(--workflow-terminal-border);
-		border-radius: 0.875rem;
-		background: linear-gradient(
-			180deg,
-			var(--workflow-terminal-surface) 0%,
-			var(--workflow-terminal-surface-deep) 100%
-		);
-		box-shadow: 0 28px 72px oklch(0 0 0 / 0.45);
-		font-family: var(--font-mono);
-		font-size: 0.8125rem;
-		font-variant-ligatures: none;
-		line-height: 1.125rem;
-		color: var(--workflow-terminal-text);
-		-webkit-font-smoothing: antialiased;
-	}
-	.workflow-terminal-dots {
-		display: flex;
-		height: 1.1rem;
-		align-items: flex-start;
-		gap: 0.3rem;
-		padding: 0.38rem 0.78rem 0;
-	}
-	.workflow-terminal-dots span {
-		width: 0.4375rem;
-		height: 0.4375rem;
-		border-radius: 999px;
-		background: oklch(0.705757 0 0 / 0.42);
-	}
-	.workflow-phone-act {
-		width: min(62%, 14.5rem);
-	}
-	.workflow-screenshot-scene {
-		--workflow-capture-phone-width: 11.3rem;
-		--workflow-capture-phone-height: 25.362rem;
-		--workflow-capture-preview-width: 5.65rem;
-		--workflow-capture-preview-height: 12.681rem;
-		--workflow-capture-gap: 0.875rem;
-		--workflow-capture-shift: 3.2625rem;
-		position: absolute;
-		inset: 0;
-	}
-	.workflow-phone-capture {
-		z-index: 2;
-		top: 0.15rem;
-		width: var(--workflow-capture-phone-width);
-	}
-	.workflow-screenshot-flash {
-		position: absolute;
-		z-index: 5;
-		top: 0.15rem;
-		inset-inline-start: 50%;
-		width: var(--workflow-capture-phone-width);
-		aspect-ratio: 1080 / 2424;
-		border-radius: 14% / 6.24%;
-		background: oklch(1 0 0);
-		opacity: 0;
-		transform: translateX(-50%);
-		pointer-events: none;
-	}
-	.workflow-screenshot-preview {
-		position: absolute;
-		z-index: 4;
-		top: calc(
-			0.15rem + var(--workflow-capture-phone-height) -
-				var(--workflow-capture-preview-height)
-		);
-		left: calc(
-			50% - var(--workflow-capture-shift) +
-				(var(--workflow-capture-phone-width) / 2) + var(--workflow-capture-gap)
-		);
-		width: var(--workflow-capture-preview-width);
-		aspect-ratio: 1080 / 2424;
-		overflow: hidden;
-		border: 0.5px solid oklch(1 0 0 / 0.09);
-		border-radius: 14% / 6.24%;
-		background: var(--workflow-preview-surface);
-		box-shadow: 0 16px 30px -14px oklch(0 0 0 / 0.9);
-		opacity: 0;
-		transform: translate(
-				calc(
-					-1 *
-						(var(--workflow-capture-phone-width) + var(--workflow-capture-gap))
-				),
-				calc(
-					-1 *
-						(var(--workflow-capture-phone-height) -
-							var(--workflow-capture-preview-height))
-				)
-			)
-			scale(2);
-		transform-origin: top left;
-	}
-	.workflow-screenshot-preview img {
-		display: block;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-	.workflow-terminal-window {
-		inset-inline: 0.75rem;
-		top: 14rem;
-		height: 14rem;
-	}
-	.workflow-terminal-scroll {
-		position: absolute;
-		inset: 1.1rem 0 0;
-		overflow: hidden;
-		padding: 0 0.9rem 2.5rem;
-		scrollbar-width: none;
-	}
-	.workflow-terminal-scroll::before {
-		position: absolute;
-		z-index: 2;
-		inset: 0 0 auto;
-		height: var(--workflow-terminal-safe-top);
-		background: linear-gradient(
-			to bottom,
-			var(--workflow-terminal-fade) 20%,
-			transparent
-		);
-		content: "";
-		opacity: 1;
-		pointer-events: none;
-	}
-	.workflow-terminal-content {
-		padding-top: var(--workflow-terminal-safe-top);
-		transform: translateY(0);
-	}
-	.workflow-terminal-command-gap {
-		height: var(--workflow-terminal-command-gap);
-	}
-	.workflow-terminal-scroll p {
-		margin: 0;
-		min-height: 1.125rem;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.workflow-prompt,
-	.workflow-reference {
-		color: var(--workflow-terminal-amber);
-	}
-	.workflow-kind {
-		color: var(--workflow-terminal-text);
-	}
-	.workflow-string {
-		color: var(--workflow-terminal-green);
-	}
-	.workflow-muted {
-		color: var(--workflow-terminal-text-muted);
-	}
-	.workflow-success {
-		color: var(--workflow-terminal-green);
-	}
-	.workflow-type-line,
-	.workflow-response-line {
-		width: fit-content;
-		max-width: 100%;
-		opacity: 0;
-	}
-	.workflow-type-line,
-	.workflow-type-line .workflow-prompt,
-	.workflow-type-line .workflow-reference {
-		color: oklch(1 0 0);
-	}
-	.workflow-response-line {
-		color: var(--workflow-terminal-text);
-	}
-	.workflow-card:not([data-playing="true"]) .workflow-type-line,
-	.workflow-card:not([data-playing="true"]) .workflow-response-line {
-		opacity: 0;
-	}
-	.workflow-card[data-complete="true"] .workflow-type-line,
-	.workflow-card[data-complete="true"] .workflow-response-line {
-		clip-path: none;
-		opacity: 1;
-	}
-	.workflow-card[data-complete="true"][data-step="1"]
-		.workflow-terminal-content-act {
-		transform: translateY(-3.875rem);
-	}
-	.workflow-card[data-complete="true"] .workflow-phone-capture,
-	.workflow-card[data-complete="true"] .workflow-screenshot-flash {
-		transform: translateX(calc(-50% - var(--workflow-capture-shift)));
-	}
-	.workflow-card[data-complete="true"] .workflow-screenshot-preview {
-		opacity: 1;
-		transform: translate(0, 0) scale(1);
-	}
-	.workflow-touch-cursor {
-		position: absolute;
-		z-index: 3;
-		width: 1.5rem;
-		height: 1.5rem;
-		border: 1.25px solid oklch(0 0 0 / 0.55);
-		border-radius: 999px;
-		background: oklch(1 0 0 / 0.45);
-		box-shadow: 0 1px 2px oklch(0 0 0 / 0.45);
-		opacity: 0;
-		pointer-events: none;
-	}
-	.workflow-swipe-cursor {
-		top: 7%;
-		inset-inline-start: 50%;
-	}
-	.workflow-tap-cursor {
-		top: 8.6%;
-		inset-inline-start: 75%;
-	}
-	.workflow-command-focus {
-		font-weight: 550;
-	}
-	.workflow-card[data-playing="true"] .workflow-terminal-content-act {
-		animation: workflow-scroll-act 6.2s cubic-bezier(0.22, 1, 0.36, 1) both;
-	}
-	.workflow-card[data-playing="true"] .workflow-swipe-cursor {
-		animation: workflow-swipe-cursor 780ms ease-out 500ms both;
-	}
-	.workflow-card[data-playing="true"] .workflow-tap-cursor {
-		animation: workflow-tap-cursor 1180ms linear 1450ms both;
-	}
-	.workflow-card[data-playing="true"] .workflow-phone-capture {
-		animation: workflow-capture-phone 6.2s cubic-bezier(0.2, 0, 0, 1) both;
-	}
-	.workflow-card[data-playing="true"] .workflow-screenshot-flash {
-		animation: workflow-screenshot-flash 6.2s linear both;
-	}
-	.workflow-card[data-playing="true"] .workflow-screenshot-preview {
-		animation: workflow-screenshot-preview 6.2s cubic-bezier(0.2, 0, 0, 1) both;
-	}
-	.workflow-card[data-playing="true"] .workflow-type-line {
-		animation-duration: var(--type-duration);
-		animation-delay: var(--type-delay);
-		animation-fill-mode: both;
-		animation-name: workflow-type-line;
-		animation-timing-function: steps(var(--type-steps), end);
-	}
-	.workflow-card[data-playing="true"] .workflow-response-line {
-		animation-name: workflow-show-line;
-		animation-duration: calc(3s - var(--response-delay));
-		animation-delay: var(--response-delay);
-		animation-timing-function: linear;
-		animation-fill-mode: both;
-	}
-	.workflow-act-observe-command {
-		--type-delay: 60ms;
-		--type-duration: 180ms;
-		--type-steps: 18;
-	}
-	.workflow-act-result {
-		--response-delay: 0.48s;
-	}
-	.workflow-act-state {
-		--response-delay: 0.48s;
-	}
-	.workflow-act-tap-command {
-		--type-delay: 1.18s;
-		--type-duration: 220ms;
-		--type-steps: 21;
-	}
-	.workflow-act-dispatch {
-		--response-delay: 2.72s;
-	}
+/* The type scale of the site. These are the only text styles outside the
+   product pictures. Each class sets the family, size, line height, weight,
+   and color of one role. */
+.t-hero {
+	font-family: var(--font-mono);
+	font-size: 56px;
+	font-weight: 500;
+	line-height: 60px;
+	letter-spacing: -0.03em;
+	color: var(--foreground);
+	text-wrap: balance;
+}
+.t-title {
+	font-family: var(--font-mono);
+	font-size: 40px;
+	font-weight: 600;
+	line-height: 48px;
+	color: var(--foreground);
+}
+.t-h2 {
+	font-family: var(--font-mono);
+	font-size: 24px;
+	font-weight: 600;
+	line-height: 32px;
+	color: var(--foreground);
+}
+.t-h3 {
+	font-family: var(--font-mono);
+	font-size: 16px;
+	font-weight: 600;
+	line-height: 24px;
+	color: var(--foreground);
+}
+.t-body {
+	font-family: var(--font-sans);
+	font-size: 16px;
+	font-weight: 400;
+	line-height: 26px;
+	color: var(--prose);
+	text-wrap: pretty;
+	font-feature-settings: "cv11", "ss01";
+}
+.t-body :where(strong) {
+	font-weight: 600;
+	color: var(--foreground);
+}
+.t-lead {
+	font-family: var(--font-sans);
+	font-size: 18px;
+	font-weight: 400;
+	line-height: 28px;
+	color: var(--prose);
+	text-wrap: pretty;
+	font-feature-settings: "cv11", "ss01";
+}
+.t-nav {
+	font-family: var(--font-mono);
+	font-size: 14px;
+	font-weight: 400;
+	line-height: 20px;
+	color: var(--muted-foreground);
+}
+.t-label {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 400;
+	line-height: 16px;
+	color: var(--muted-foreground);
+}
+.t-code {
+	font-family: var(--font-mono);
+	font-size: 14px;
+	font-weight: 400;
+	line-height: 22px;
+}
 
-	.macbook-display {
-		--screen-lit: 0;
+/* A text link in running text, and a quiet link in a label line. Hover is a
+   150ms color change to the accent. */
+.t-link {
+	color: inherit;
+	text-decoration-line: underline;
+	text-decoration-color: hsl(0 0% 100% / 0.35);
+	text-underline-offset: 4px;
+	transition-property: color, text-decoration-color;
+	transition-duration: 150ms;
+	transition-timing-function: ease-out;
+}
+.t-link:hover {
+	color: var(--brand);
+	text-decoration-color: var(--brand);
+}
+
+/* Buttons: square, 36px tall, Inter 14/20 500. Hover changes the fill in
+   150ms. A press scales the button to 0.97. The skip link is the one
+   primary button. */
+.btn {
+	display: inline-flex;
+	height: 36px;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding-inline: 14px;
+	font-family: var(--font-sans);
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 20px;
+	white-space: nowrap;
+	cursor: pointer;
+	touch-action: manipulation;
+	transition-property: background-color, color, scale;
+	transition-duration: 150ms;
+	transition-timing-function: ease-out;
+}
+.btn:active {
+	scale: 0.97;
+}
+.btn-primary {
+	background: hsl(0 0% 95%);
+	color: hsl(0 0% 7%);
+}
+.btn-primary:hover {
+	background: hsl(0 0% 85%);
+}
+@media (prefers-reduced-motion: reduce) {
+	.btn {
+		transition-property: background-color, color;
+	}
+	.btn:active {
+		scale: none;
+	}
+}
+
+/* Surfaces. A site box is a square, a 1px outline, and a flat fill. */
+.box {
+	border: 1px solid var(--rule);
+	background: var(--card);
+}
+}
+
+/* The phones-and-dock demo (src/components/product-demo). The product
+   stage draws its canvas. */
+@layer components {
+	.workspace-tile {
 		position: relative;
-		width: 100%;
-		aspect-ratio: 16 / 9;
-		max-height: 58rem;
 		overflow: hidden;
-		container-type: inline-size;
 		isolation: isolate;
-		transition: --screen-lit 900ms var(--ease-hero);
-	}
-	.macbook-display[data-screen="lit"] {
-		--screen-lit: 1;
-	}
-	/* The artwork has 108 units of empty canvas at each side. */
-	.macbook-frame {
-		position: absolute;
-		z-index: 1;
-		top: 0;
-		left: -10.794603%;
-		width: 121.53923%;
-		max-width: none;
-		height: auto;
-		pointer-events: none;
-	}
-	.macbook-display::before {
-		position: absolute;
-		z-index: 0;
-		inset: 1.7991cqw 1.849075% 0 1.7991%;
-		border-radius: 1.6cqw 1.6cqw 0 0;
-		background:
-			linear-gradient(
-				oklch(0.169322 0.004122 285.951 / var(--screen-lit)),
-				oklch(0.145249 0.002132 286.131 / var(--screen-lit)) 42%
-			),
-			oklch(0 0 0);
-		content: "";
-	}
-	.macbook-display::after {
-		position: absolute;
-		z-index: 2;
-		inset-inline: -1px;
-		bottom: 0;
-		height: 30%;
-		background: linear-gradient(transparent, oklch(0 0 0) 95%);
-		content: "";
-		pointer-events: none;
-	}
-	/* Screen aperture, relative to the artwork's 1000.5 × 685 bounds. */
-	.workspace-demo {
-		position: absolute;
-		z-index: 4;
-		left: 1.7991%;
-		top: 1.7991cqw;
-		width: 96.351824%;
-		height: calc(100% - 1.7991cqw);
-		overflow: hidden;
-		border-radius: 1.65% 1.65% 0 0 / 2.5% 2.5% 0 0;
-	}
-	.workspace-demo::before {
-		position: absolute;
-		top: 8%;
-		right: 0;
-		bottom: 0;
-		width: 59%;
-		background-image: radial-gradient(
-			circle,
-			oklch(1 0 0 / 0.188235) 0.9px,
-			transparent 1px
-		);
-		background-size: 24px 24px;
-		mask-image:
-			linear-gradient(to right, transparent, black 24%, black 85%, transparent),
-			linear-gradient(transparent, black 15%, black 72%, transparent 98%);
-		mask-composite: intersect;
-		content: "";
-		opacity: 0;
-		transition: opacity 700ms var(--ease-hero);
-		pointer-events: none;
-	}
-	.workspace-demo[data-chrome="shown"]::before {
-		opacity: 1;
-	}
-	/* The hero fills the viewport, but stops 7rem below the laptop on tall
-	   screens. The laptop is 16:9 and at most 58rem tall. */
-	.hero {
-		container-type: inline-size;
-		min-height: min(
-			calc(100svh - 4rem),
-			calc(min((min(100vw, 132rem) - 4rem) * 0.5625, 58rem) + 7rem)
-		);
-	}
-	/* Center the copy on the laptop screen, slightly above its middle because
-	   the lower part of the screen fades to black. */
-	.hero-copy {
-		inset-inline-start: max(5.5%, calc((100% - 82rem) / 2));
-		top: calc(min(56.25cqw, 58rem) * 0.46);
-		translate: 0 -50%;
-	}
-	@media (width < 64rem) {
-		.hero {
-			min-height: calc(100svh - 4rem);
-		}
-		.hero-copy {
-			top: auto;
-			translate: none;
-		}
 	}
 	.device-island {
+		--agentsims-accent: oklch(0.625 0.205 256);
+		font-family: -apple-system, system-ui, sans-serif;
 		--agentsims-device-screen-on: oklch(0.58 0.1 245);
 		--agentsims-duration-hover: 110ms;
 		--agentsims-ease-standard: cubic-bezier(0, 0, 0.2, 1);
@@ -986,272 +422,6 @@
 		.demo-scene[data-playing="false"] .agentsims-device-status-breathe {
 			animation-play-state: paused;
 		}
-	}
-
-	@media (width < 64rem) {
-		.macbook-frame {
-			display: none;
-		}
-		.macbook-display {
-			aspect-ratio: auto;
-			max-height: none;
-			border-radius: 0.875rem 0.875rem 0 0;
-			background:
-				linear-gradient(
-					oklch(0.169322 0.004122 285.951 / var(--screen-lit)),
-					oklch(0.145249 0.002132 286.131 / var(--screen-lit)) 32%,
-					oklch(0 0 0 / var(--screen-lit)) 98%
-				),
-				oklch(0 0 0);
-		}
-		.macbook-display::before {
-			z-index: 6;
-			inset: 0;
-			border: 1px solid oklch(0.322627 0.007013 286);
-			border-radius: inherit;
-			background: transparent;
-			pointer-events: none;
-			mask-image: linear-gradient(black 58%, transparent 98%);
-		}
-		.macbook-display::after {
-			display: none;
-		}
-		.workspace-demo::before {
-			inset: 0;
-			width: 100%;
-			mask-image: radial-gradient(
-				ellipse at 50% 42%,
-				black 15%,
-				transparent 72%
-			);
-			background-size: 18px 18px;
-		}
-	}
-}
-
-@keyframes workflow-scroll-act {
-	0%,
-	17% {
-		transform: translateY(0);
-	}
-	23%,
-	100% {
-		transform: translateY(-3.875rem);
-	}
-}
-
-@keyframes workflow-type-line {
-	from {
-		clip-path: inset(0 100% 0 0);
-		opacity: 1;
-	}
-	to {
-		clip-path: inset(0 0 0 0);
-		opacity: 1;
-	}
-}
-
-@keyframes workflow-show-line {
-	0% {
-		opacity: 0;
-	}
-	0.01%,
-	100% {
-		opacity: 1;
-	}
-}
-
-@keyframes workflow-swipe-cursor {
-	0% {
-		transform: translate(-50%, -50%) translateY(0) scale(1);
-		opacity: 0;
-	}
-	1% {
-		transform: translate(-50%, -50%) translateY(0) scale(1);
-		opacity: 1;
-	}
-	68% {
-		transform: translate(-50%, -50%) translateY(11rem) scale(0.82);
-		opacity: 1;
-	}
-	100% {
-		transform: translate(-50%, -50%) translateY(11rem) scale(0.82);
-		opacity: 0;
-	}
-}
-
-@keyframes workflow-tap-cursor {
-	0% {
-		transform: translate(-50%, -50%) scale(1);
-		opacity: 0;
-	}
-	1%,
-	21% {
-		transform: translate(-50%, -50%) scale(1);
-		opacity: 1;
-	}
-	37% {
-		transform: translate(-50%, -50%) scale(0.72);
-		opacity: 1;
-	}
-	53%,
-	79% {
-		transform: translate(-50%, -50%) scale(1);
-		opacity: 1;
-	}
-	100% {
-		transform: translate(-50%, -50%) scale(1);
-		opacity: 0;
-	}
-}
-
-@keyframes workflow-capture-phone {
-	0%,
-	10% {
-		transform: translateX(-50%);
-	}
-	13%,
-	100% {
-		transform: translateX(calc(-50% - var(--workflow-capture-shift)));
-	}
-}
-
-@keyframes workflow-screenshot-flash {
-	0%,
-	10% {
-		opacity: 0;
-		transform: translateX(-50%);
-	}
-	13%,
-	13.99% {
-		opacity: 0;
-		transform: translateX(calc(-50% - var(--workflow-capture-shift)));
-	}
-	14%,
-	15.21% {
-		opacity: 1;
-		transform: translateX(calc(-50% - var(--workflow-capture-shift)));
-	}
-	18.6%,
-	100% {
-		opacity: 0;
-		transform: translateX(calc(-50% - var(--workflow-capture-shift)));
-	}
-}
-
-@keyframes workflow-screenshot-preview {
-	0%,
-	13.99% {
-		opacity: 0;
-		transform: translate(
-				calc(
-					-1 *
-						(var(--workflow-capture-phone-width) + var(--workflow-capture-gap))
-				),
-				calc(
-					-1 *
-						(var(--workflow-capture-phone-height) -
-							var(--workflow-capture-preview-height))
-				)
-			)
-			scale(2);
-	}
-	14%,
-	18.03% {
-		opacity: 1;
-		transform: translate(
-				calc(
-					-1 *
-						(var(--workflow-capture-phone-width) + var(--workflow-capture-gap))
-				),
-				calc(
-					-1 *
-						(var(--workflow-capture-phone-height) -
-							var(--workflow-capture-preview-height))
-				)
-			)
-			scale(2);
-	}
-	22.87%,
-	100% {
-		opacity: 1;
-		transform: translate(0, 0) scale(1);
-	}
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.macbook-display,
-	.workspace-demo::before {
-		transition: none;
-	}
-	.workflow-card *,
-	.workflow-card *::before,
-	.workflow-card *::after {
-		animation: none !important;
-	}
-	.workflow-touch-cursor {
-		display: none;
-	}
-	.workflow-phone-capture {
-		transform: translateX(calc(-50% - var(--workflow-capture-shift)));
-	}
-	.workflow-screenshot-preview {
-		opacity: 1;
-		transform: none;
-	}
-	.workflow-type-line,
-	.workflow-response-line,
-	.workflow-terminal-content {
-		clip-path: none !important;
-		opacity: 1 !important;
-		transform: none !important;
-	}
-}
-
-@media (width < 62rem) {
-	.workflow-phone {
-		width: min(60%, 14rem);
-	}
-	.workflow-phone-act {
-		width: min(60%, 14rem);
-	}
-	.workflow-observe-layout .workflow-phone-observe {
-		inset-inline-start: calc(50% - 13.375rem);
-	}
-	.workflow-ax-panel {
-		inset-inline-start: calc(50% - 4.75rem);
-		inset-inline-end: auto;
-		border-inline-end: 1px solid oklch(1 0 0 / 0.1);
-		border-radius: 0.875rem;
-	}
-}
-
-@media (width < 30rem) {
-	.workflow-stage {
-		border-radius: 1rem;
-	}
-	.workflow-phone,
-	.workflow-phone-act {
-		width: 12rem;
-	}
-	.workflow-observe-layout .workflow-phone-observe {
-		inset-inline-start: 1.25rem;
-		width: 10.25rem;
-	}
-	.workflow-ax-panel {
-		inset-inline-start: auto;
-		inset-inline-end: 0;
-		border-inline-end: 0;
-		border-radius: 0.875rem 0 0;
-	}
-	.workflow-ax-role {
-		max-width: 40%;
-	}
-	.workflow-ax-ref {
-		display: none;
-	}
-	.workflow-terminal {
-		font-size: 0.58rem;
 	}
 }
 
@@ -1273,327 +443,507 @@
 	}
 }
 
-/* A step that holds a code block turns the whole Markdown list into
-   paragraphs. Keep those steps as tight as a plain list. This rule stays
-   outside the layers so that it overrides the typography plugin. */
-.prose li > p {
-	margin-block: 0;
+/* The mobile page list opens in place under the top row. The row animates
+   from 0fr to 1fr with a hard clip, so no height is measured. */
+.reveal {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	transition-property: grid-template-rows, opacity;
+	transition-duration: 250ms, 120ms;
+	transition-timing-function: var(--ease-reveal), ease-out;
 }
-.prose li > figure {
-	margin-block: 0.75rem;
+.reveal[data-open="true"] {
+	grid-template-rows: 1fr;
+	opacity: 1;
+	transition-duration: 250ms, 250ms;
+	transition-timing-function: var(--ease-reveal), var(--ease-reveal);
 }
-
-/* The docs drawer uses the motion of the shadcn Base UI sheet. The panel
-   fades and moves 2.5rem over 200ms. The backdrop is 10% black with a small
-   blur and fades over 150ms. */
-@keyframes docs-sheet-panel {
-	from {
-		opacity: 0;
-		translate: 2.5rem 0;
+.reveal-clip {
+	min-height: 0;
+	overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+	.reveal {
+		transition: none;
 	}
 }
-@keyframes docs-sheet-backdrop {
-	from {
-		opacity: 0;
+
+/* Tab stages. All panels share one grid cell. A panel that is not selected
+   stays in the DOM and keeps its size, but it is invisible. */
+/* The Tailwind base layer hides [hidden] with !important. An important rule
+   in a later layer loses to it, so this rule is in the same layer, with a
+   more specific selector. */
+@layer base {
+	.tab-stage-panel[hidden] {
+		display: block !important;
+		visibility: hidden;
 	}
 }
-/* The exits need their own keyframes. A reversed copy of the same animation
-   does not restart, so the drawer never receives its end event. */
-@keyframes docs-sheet-panel-out {
-	to {
-		opacity: 0;
-		translate: 2.5rem 0;
-	}
-}
-@keyframes docs-sheet-backdrop-out {
-	to {
-		opacity: 0;
-	}
-}
-#nd-sidebar-mobile[data-state="open"] {
-	animation: docs-sheet-panel 200ms ease-in-out;
-}
-#nd-sidebar-mobile[data-state="closed"] {
-	animation: docs-sheet-panel-out 200ms ease-in-out forwards;
-}
-/* Only the backdrop has data-state. Without the backdrop, the element before
-   the drawer is the header, which must stay solid. */
-div[data-state]:has(+ #nd-sidebar-mobile) {
-	background-color: oklch(0 0 0 / 0.1);
-	backdrop-filter: blur(4px);
-}
-div[data-state]:has(+ #nd-sidebar-mobile)[data-state="open"] {
-	animation: docs-sheet-backdrop 150ms ease-in-out;
-}
-div[data-state]:has(+ #nd-sidebar-mobile)[data-state="closed"] {
-	animation: docs-sheet-backdrop-out 150ms ease-in-out forwards;
+.tab-stage [data-slot="tabs-indicator"] {
+	border-radius: 0;
+	background: oklch(1 0 0 / 0.08);
 }
 
-/* The page outline bar under the docs header on small screens is solid, so
-   text does not show through it. */
-[data-toc-popover] > header {
-	background-color: var(--background);
-	border-color: oklch(1 0 0 / 0.08);
-	backdrop-filter: none;
+/* The body of a release in the changelog, from CHANGELOG.md. It uses the
+   type scale: body text, small labels, and code. */
+.changelog-body {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+.changelog-body :where(*) {
+	margin: 0;
+}
+.changelog-body :where(p, li) {
+	font-family: var(--font-sans);
+	font-size: 16px;
+	font-weight: 400;
+	line-height: 26px;
+	color: var(--prose);
+	text-wrap: pretty;
+	font-feature-settings: "cv11", "ss01";
+}
+.changelog-body :where(h3) {
+	margin-top: 8px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 400;
+	line-height: 16px;
+	text-transform: uppercase;
+	color: var(--muted-foreground);
+}
+.changelog-body :where(strong) {
+	font-weight: 600;
+	color: var(--foreground);
+}
+.changelog-body :where(a) {
+	color: inherit;
+	text-decoration-line: underline;
+	text-decoration-color: hsl(0 0% 100% / 0.25);
+	text-underline-offset: 4px;
+	transition: color 150ms ease-out;
+}
+.changelog-body :where(a:hover) {
+	color: var(--brand);
+}
+.changelog-body :where(code) {
+	padding: 1px 5px;
+	border: 1px solid var(--rule);
+	background: var(--card);
+	font-family: var(--font-mono);
+	font-size: 0.875em;
+	font-weight: 400;
+	line-height: 22px;
+	color: var(--foreground);
+}
+.changelog-body :where(ul, ol) {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding-inline-start: 20px;
+	list-style: square;
+}
+.changelog-body :where(li)::marker {
+	color: var(--faint);
+}
+.changelog-body :where(li > ul, li > pre) {
+	margin-top: 0.375rem;
+}
+.changelog-body :where(pre) {
+	overflow-x: auto;
+	padding: 12px 16px;
+	border: 1px solid var(--rule);
+	background: var(--card) !important;
+	font-family: var(--font-mono);
+	font-size: 14px;
+	line-height: 22px;
+}
+.changelog-body :where(pre code) {
+	padding: 0;
+	border: 0;
+	background: none;
+	font-size: inherit;
+	line-height: inherit;
+	color: inherit;
 }
 
-/* Docs text colors and type. The docs use a neutral gray text scale and a
-   compact type scale: 14px body text, 13px navigation, and regular-weight
-   headings. The Fumadocs color variables resolve on the root element, so
-   they are declared again here for the docs page. */
-body:has(#nd-notebook-layout) {
-	--docs-gray-2: #191919;
-	--docs-gray-3: #222;
-	--docs-gray-a3: oklch(1 0 0 / 0.07);
-	--docs-gray-a4: oklch(1 0 0 / 0.1);
-	--docs-gray-8: #606060;
-	--docs-gray-9: #6e6e6e;
-	--docs-gray-10: #7b7b7b;
-	--docs-gray-11: #b4b4b4;
-	--docs-gray-12: #eee;
-	--foreground: var(--docs-gray-12);
-	--muted-foreground: var(--docs-gray-10);
-	--border: var(--docs-gray-a3);
-	--color-fd-foreground: var(--foreground);
-	--color-fd-muted: var(--docs-gray-2);
-	--color-fd-muted-foreground: var(--muted-foreground);
-	--color-fd-border: var(--border);
-	--color-fd-primary: var(--foreground);
-	--sidebar-border: var(--border);
+/* Code from the build-time highlighter (src/code). The block supplies the
+   surface and the type, so Shiki's own background goes away. Only the token
+   colors stay. */
+.code-block pre {
+	margin: 0;
+	background: transparent !important;
+}
+.code-block pre,
+.code-block code {
+	font-family: var(--font-mono);
+	font-size: 14px;
+	font-weight: 400;
+	line-height: 22px;
+	white-space: pre;
+}
+.code-block pre {
+	width: max-content;
+	min-width: 100%;
 }
 
-/* The docs use one centered column, 69rem wide: a 12.5rem sidebar, a 3rem
-   gap, the page, a 3rem gap, and a 12.5rem outline. The Fumadocs widths are
-   set through a :has() selector, so the doubled ID is necessary to override
-   them. */
-#nd-notebook-layout#nd-notebook-layout {
-	--fd-layout-width: 69rem;
-	--docs-gutter: 1rem;
-	padding-inline: var(--docs-gutter);
-}
-@media (width >= 48rem) {
-	#nd-notebook-layout#nd-notebook-layout {
-		--fd-sidebar-width: 15.5rem;
-		--docs-gutter: 2rem;
-	}
-}
-@media (width >= 80rem) {
-	#nd-notebook-layout#nd-notebook-layout {
-		--fd-toc-width: 15.5rem;
-	}
-}
-/* The header spans the full window, as on every other page, so its layout
-   does not change between pages. */
-#nd-notebook-layout > header {
-	width: auto;
-	margin-inline: calc(var(--docs-gutter) * -1);
-}
-#nd-page {
-	padding-inline: 0;
-	padding-top: 1.5rem;
-}
-#nd-sidebar > [role="presentation"] > [role="presentation"] {
-	padding-inline: 0 3rem;
-}
-/* Page links keep their Fumadocs indent, so the list moves back by the
-   indent to put the text on the sidebar edge. */
-#nd-sidebar > [role="presentation"] > [role="presentation"] > div {
-	margin-inline-start: -0.5rem;
-}
-#nd-toc {
-	padding-inline: 3rem 0;
-}
-/* The outline bar on narrower screens starts its text on the page edge. */
-[data-toc-popover] > header > button {
-	padding-inline: 0;
+/* The product pictures show the product UI. They keep the product type:
+   the system sans face, with mono only where the product uses it. They
+   take no pointer input and no text selection. */
+.product-ui {
+	--brand: oklch(0.625 0.205 256);
+	--agentsims-accent: oklch(0.625 0.205 256);
+	--agentsims-panel-bg: #181818;
+	--agentsims-button-raised: rgba(255, 255, 255, 0.06);
+	--agentsims-button-raised-hover: rgba(255, 255, 255, 0.1);
+	--agentsims-button-raised-pressed: rgba(255, 255, 255, 0.12);
+	--agentsims-button-raised-shadow:
+		0 1px 1px rgba(0, 0, 0, 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+		inset 0 1px 0 rgba(255, 255, 255, 0.06);
+	--agentsims-duration-hover: 110ms;
+	--agentsims-ease-standard: cubic-bezier(0, 0, 0.2, 1);
+	--accent: var(--agentsims-accent);
+	--popover: oklch(0.205 0 0);
+	--popover-foreground: oklch(0.985 0 0);
+	--primary: oklch(0.922 0 0);
+	--border: oklch(1 0 0 / 10%);
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	font-feature-settings: normal;
+	font-variant-ligatures: normal;
+	color: oklch(0.985 0 0);
 }
 
-/* The page title, the first page link, and the outline title start 2.5rem
-   below the header. On narrower screens, the outline bar above the page adds
-   its height. The small offsets put the tops of the capital letters on one
-   line, because the three items use different font sizes and line heights. */
-@media (width >= 48rem) {
-	#nd-page {
-		padding-top: 2.5rem;
-	}
+/* The product stage (src/components/product-stage): one product picture,
+   centered in its column, at most 880px wide. */
+.product-stage {
+	position: relative;
+	width: 100%;
+	min-width: 0;
+	-webkit-user-select: none;
+	user-select: none;
+	cursor: default;
 }
-#nd-sidebar > [role="presentation"] > [role="presentation"] {
-	padding-top: calc(var(--fd-toc-popover-height, 0px) + 2.5rem - 2px);
+.product-stage-picture {
+	position: relative;
+	width: min(100%, 880px);
+	margin-inline: auto;
+	isolation: isolate;
 }
-#nd-toc {
-	padding-top: calc(2.5rem + 3px);
-}
-
-#nd-sidebar {
-	font-size: 0.8125rem;
-	line-height: 1.125rem;
-}
-
-/* The page content fades out as it scrolls under the header, or under the
-   outline bar on narrower screens. The fade and the page share one grid cell,
-   so the fade stays in the content column and covers only the page padding
-   before scrolling starts. */
-#nd-notebook-layout :has(> #nd-page)::before {
-	position: sticky;
-	z-index: 1;
-	top: calc(var(--fd-header-height) + var(--fd-toc-popover-height, 0px));
-	grid-area: 1 / 1;
-	align-self: start;
-	height: 1.5rem;
-	background-image: linear-gradient(var(--background), transparent);
+/* The workspace canvas, behind the workspace picture only: the dot grid
+   of the product, reaching 120px past the picture on each side, with a
+   long radial falloff, so no edge of the grid is visible. */
+.product-stage-picture[data-grid]::before {
+	position: absolute;
+	z-index: -1;
+	inset: -120px;
+	background-image: radial-gradient(circle, oklch(1 0 0 / 0.12) 1px, transparent 1px);
+	background-position: center;
+	background-size: 24px 24px;
+	-webkit-mask-image: radial-gradient(closest-side ellipse at 50% 50%, black 0%, black 35%, transparent 100%);
+	mask-image: radial-gradient(closest-side ellipse at 50% 50%, black 0%, black 35%, transparent 100%);
 	content: "";
 	pointer-events: none;
 }
-#nd-page {
-	grid-area: 1 / 1;
+.product-stage :is(img, video) {
+	-webkit-user-drag: none;
+}
+.product-stage-inert {
+	pointer-events: none;
 }
 
-#nd-sidebar a {
-	padding-block: 0.3125rem;
-	color: var(--docs-gray-10);
+/* The outline mark (src/components/ax-mark): the selected-element box of the
+   product inspector. The line lies on the border box of the element, over
+   its own border, so there is never a second line. The reference chip sits
+   on the top edge at the left corner. */
+.ax-mark {
+	position: relative;
+	display: inline-block;
 }
-#nd-sidebar a:hover {
-	background-color: transparent;
-	color: var(--docs-gray-11);
+.ax-mark::after {
+	position: absolute;
+	inset: 0;
+	border: 1px solid #60a5fa;
+	border-radius: 3px;
+	content: "";
+	pointer-events: none;
 }
-#nd-sidebar a[data-active="true"] {
-	background-color: transparent;
-	color: var(--docs-gray-12);
-}
-#nd-sidebar a + a {
-	margin-top: -0.125rem;
-}
-
-#nd-toc {
-	--color-fd-primary: var(--docs-gray-12);
-}
-#nd-toc a {
-	font-size: 0.8125rem;
-	line-height: 1.125rem;
-	color: var(--docs-gray-9);
-}
-#nd-toc a:hover,
-#nd-toc a[data-active="true"] {
-	color: var(--docs-gray-12);
-}
-#toc-title {
-	font-size: 0.8125rem;
-	color: var(--docs-gray-11);
-}
-
-#nd-page .prose {
-	--tw-prose-body: var(--docs-gray-11);
-	--tw-prose-headings: var(--docs-gray-12);
-	--tw-prose-bold: var(--docs-gray-12);
-	--tw-prose-links: var(--docs-gray-12);
-	--tw-prose-code: var(--docs-gray-12);
-	--tw-prose-bullets: var(--docs-gray-8);
-	--tw-prose-counters: var(--docs-gray-8);
-	--tw-prose-th-borders: var(--docs-gray-a3);
-	--tw-prose-td-borders: var(--docs-gray-a3);
-	font-size: 0.875rem;
-	line-height: 1.5rem;
-	letter-spacing: -0.006em;
-}
-#nd-page .prose > :where(p, ul, ol) {
-	margin-block: 0 1rem;
-}
-#nd-page .prose :where(ul, ol) {
-	padding-inline-start: 1.25rem;
-}
-#nd-page .prose :where(li) {
-	margin-block: 0 0.25rem;
-	padding-inline-start: 0;
-	line-height: 1.3125rem;
-}
-#nd-page .prose :where(h1, h2, h3, h4) {
-	font-weight: 500;
-	letter-spacing: -0.011em;
-}
-/* The copy page button sits at the end of the title row on all screens. The
-   title wraps before it reaches the button. The title links to the page
-   itself, so it has no copy link button. */
-#nd-page .prose :where(h1) {
-	padding-inline-end: 7.5rem;
-	font-size: 1.25rem;
-	line-height: 1.875rem;
-	letter-spacing: -0.0167em;
-	margin-block: 0 0.5rem;
-}
-#nd-page .prose h1 > button {
-	display: none;
-}
-#nd-page .prose :where(h2) {
-	font-size: 1rem;
-	line-height: 1.5rem;
-	margin-block: 1.5rem 0.5rem;
-}
-#nd-page .prose :where(h3, h4) {
-	font-size: 0.9375rem;
-	line-height: 1.40625rem;
-	letter-spacing: -0.0088em;
-	margin-block: 1rem 0.5rem;
-}
-#nd-page .prose :where(strong) {
-	font-weight: 500;
-}
-#nd-page .prose :where(a:not(.peer, [data-card])) {
-	font-weight: 400;
-	text-decoration-line: underline;
-	text-decoration-color: var(--docs-gray-a4);
-	text-underline-offset: 0.2em;
-}
-#nd-page .prose :where(a:not(.peer, [data-card])):hover {
-	text-decoration-color: var(--docs-gray-11);
-}
-#nd-page .prose :where(:not(pre) > code) {
-	padding: 0.125rem 0.25rem;
-	border: 0;
-	border-radius: 0.25rem;
-	background-color: var(--docs-gray-3);
-	box-shadow: inset 0 0 0 1px var(--docs-gray-a3);
-	font-size: 0.75rem;
-}
-#nd-page .prose :where(table) {
-	font-size: 0.875rem;
-	line-height: 1.3125rem;
-}
-/* Tables have no outer border and no column lines. The header row is a
-   filled, rounded bar. Thin lines separate the body rows, but not the header
-   and the first body row. */
-#nd-page .prose > div:has(> table) {
-	margin-block: 0 1rem;
-	border: 0;
+.ax-mark[data-square]::after {
 	border-radius: 0;
 }
-#nd-page .prose table {
-	border: 0;
-	background-color: transparent;
-	border-collapse: separate;
-	border-spacing: 0;
+.ax-mark-ref {
+	position: absolute;
+	bottom: 100%;
+	left: 0;
+	background: #60a5fa;
+	padding: 0 4px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	font-weight: 400;
+	line-height: 14px;
+	letter-spacing: 0;
+	color: var(--background);
+	white-space: nowrap;
 }
-#nd-page .prose :is(th, td) {
-	padding: 0.75rem 1rem;
-	border: 0;
+
+/* The install area of the hero (src/components/installation/install-row.tsx):
+   the install bar, whose cells are the command, Copy, and the menu toggle,
+   then the THEN and OR rows with one label column. */
+.install-bar {
+	display: block;
+	width: 100%;
 }
-#nd-page .prose th {
-	background-color: var(--docs-gray-2);
-	font-size: 0.8125rem;
-	font-weight: 600;
-	color: var(--docs-gray-12);
+.install-cell {
+	display: grid;
+	flex: none;
+	place-items: center;
+	border-inline-start: 1px solid var(--rule);
+	color: var(--muted-foreground);
+	cursor: pointer;
+	touch-action: manipulation;
+	transition-property: background-color, color;
+	transition-duration: 150ms;
+	transition-timing-function: ease-out;
 }
-#nd-page .prose th:first-child {
-	border-start-start-radius: 0.625rem;
-	border-end-start-radius: 0.625rem;
+.install-cell[data-copied] {
+	color: var(--foreground);
 }
-#nd-page .prose th:last-child {
-	border-start-end-radius: 0.625rem;
-	border-end-end-radius: 0.625rem;
+@media (hover: hover) and (pointer: fine) {
+	.install-cell:hover {
+		background: hsl(0 0% 15%);
+		color: var(--foreground);
+	}
 }
-#nd-page .prose tbody tr + tr td {
-	border-top: 1px solid var(--docs-gray-a3);
+.install-toggle {
+	width: 48px;
 }
-#nd-page .prose > figure {
-	margin-block: 0 1.5rem;
-	border-radius: 0.625rem;
+.install-toggle[data-popup-open] {
+	background: hsl(0 0% 15%);
+	color: var(--foreground);
+}
+.install-toggle svg {
+	width: 12px;
+	height: 12px;
+	color: inherit;
+}
+.install-next {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	align-items: start;
+	gap: 8px 12px;
+}
+/* A label sits on the first line of chips, centered on a 36px chip. */
+.install-next > .t-label {
+	padding-block: 10px;
+}
+
+/* A chip: a short command in a small square box. The whole box is one
+   button. Hover changes the fill and the icon. A press scales it to 0.97. */
+.chip {
+	display: inline-flex;
+	height: 36px;
+	max-width: 100%;
+	align-items: center;
+	border: 1px solid var(--rule);
+	background: var(--card);
+	padding-inline-start: 12px;
+	font-family: var(--font-mono);
+	font-size: 14px;
+	font-weight: 400;
+	line-height: 22px;
+	color: var(--foreground);
+	text-align: start;
+	cursor: pointer;
+	touch-action: manipulation;
+	transition-property: background-color, scale;
+	transition-duration: 150ms;
+	transition-timing-function: ease-out;
+}
+.chip:active {
+	scale: 0.97;
+}
+.chip-text {
+	min-width: 0;
+	overflow: hidden;
+	padding-inline-end: 4px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.chip-icon {
+	display: grid;
+	width: 34px;
+	height: 34px;
+	flex: none;
+	place-items: center;
+	color: var(--faint);
+	transition: color 150ms ease-out;
+}
+.chip[data-copied] .chip-icon {
+	color: var(--foreground);
+}
+@media (hover: hover) and (pointer: fine) {
+	.chip:hover {
+		background: oklch(0.321093 0 0);
+	}
+	.chip:hover .chip-icon {
+		color: var(--foreground);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.chip {
+		transition-property: background-color;
+	}
+	.chip:active {
+		scale: none;
+	}
+}
+
+/* The Install button: the trigger of the menu below 48rem, in place of the
+   bar. */
+.install-narrow {
+	display: none;
+	width: fit-content;
+}
+.install-button {
+	display: inline-flex;
+	height: 44px;
+	align-items: center;
+	gap: 12px;
+	padding: 0 12px 0 16px;
+	background: hsl(0 0% 95%);
+	color: hsl(0 0% 7%);
+	font-family: var(--font-sans);
+	font-size: 16px;
+	font-weight: 500;
+	line-height: 24px;
+	cursor: pointer;
+	touch-action: manipulation;
+	transition-property: background-color, scale;
+	transition-duration: 150ms;
+	transition-timing-function: ease-out;
+}
+.install-button:active {
+	scale: 0.97;
+}
+.install-button svg {
+	width: 12px;
+	height: 12px;
+	color: inherit;
+}
+@media (hover: hover) and (pointer: fine) {
+	.install-button:hover {
+		background: hsl(0 0% 85%);
+	}
+}
+@media (width < 48rem) {
+	.install-bar {
+		display: none;
+	}
+	.install-narrow {
+		display: block;
+	}
+}
+
+/* The menu of install commands, one row for each platform. Under the bar
+   it starts 8px below the bar at its left edge, and is at least as wide as
+   the bar. Under the Install button it is as wide as the content column.
+   It opens in 150ms and closes at once. These rules are not in a layer, so
+   they replace the surface and the animation of the shared menu. */
+.install-menu {
+	min-width: var(--install-menu-min, 0);
+	max-width: calc(100vw - 32px);
+	padding: 0;
+	border-radius: 0;
+	background: hsl(0 0% 10%);
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.1),
+		0 1px 1px rgba(0, 0, 0, 0.3),
+		0 2px 4px -1px rgba(0, 0, 0, 0.35),
+		0 6px 12px -4px rgba(0, 0, 0, 0.45);
+	animation: none;
+	transform-origin: top left;
+	transition-property: opacity, transform;
+	transition-duration: 150ms;
+	transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+.install-menu[data-starting-style] {
+	opacity: 0;
+	transform: translateY(-4px) scale(0.98);
+}
+.install-menu[data-ending-style] {
+	transition: none;
+}
+.install-menu-item {
+	display: grid;
+	height: auto;
+	grid-template-columns: 7ch minmax(0, 1fr) 6ch;
+	align-items: baseline;
+	column-gap: 12px;
+	padding: 8px 14px;
+	border-radius: 0;
+	background: transparent;
+	font-family: var(--font-mono);
+	font-size: 14px;
+	font-weight: 400;
+	line-height: 22px;
+	cursor: pointer;
+	transition: none;
+}
+.install-menu-item[data-highlighted] {
+	background: hsl(0 0% 15%);
+}
+.install-menu-platform,
+.install-menu-status {
+	color: #8f8f8f;
+	white-space: nowrap;
+}
+.install-menu-command {
+	color: #f2f2f2;
+	white-space: nowrap;
+}
+.install-menu-method {
+	display: none;
+	color: #8f8f8f;
+	white-space: nowrap;
+}
+.install-menu-status {
+	justify-self: end;
+}
+@media (prefers-reduced-motion: reduce) {
+	.install-menu[data-starting-style] {
+		transform: none;
+	}
+}
+@media (width < 48rem) {
+	.install-menu {
+		width: var(--install-menu-width);
+	}
+	/* A row is the platform, 8px later the install method, and Copy. The
+	   command is not shown, but a click copies it. */
+	.install-menu-item {
+		min-height: 44px;
+		grid-template-columns: max-content minmax(0, 1fr) 6ch;
+		align-items: center;
+		column-gap: 8px;
+	}
+	.install-menu-platform {
+		color: #f2f2f2;
+	}
+	.install-menu-method {
+		display: block;
+	}
+	.install-menu-command {
+		display: none;
+	}
+}
+
+/* A chip is 36px tall. Its hit area reaches 4px past each edge above and
+   below, so it is 44px tall and stops at the middle of the 8px row gap. */
+.chip {
+	position: relative;
+}
+.chip::before {
+	position: absolute;
+	inset: -5px -1px;
+	content: "";
 }

@@ -1,9 +1,14 @@
-export type InstallPlatform = "macOS" | "Windows" | "Linux" | null;
-export const curlCommand = "curl -fsSL https://agentsims.dev/install | bash";
-export const brewCommand = "brew install maniktherana/tap/agentsims";
-export const powershellCommand = "irm https://agentsims.dev/install.ps1 | iex";
+import { ps, sh } from "../../code/tags";
 
-export function detectInstallPlatform(
+export type InstallPlatform = "macOS" | "Windows" | "Linux" | null;
+export const brewSnippet = sh`brew install maniktherana/tap/agentsims`;
+export const curlSnippet = sh`curl -fsSL https://agentsims.dev/install | bash`;
+export const powershellSnippet = ps`irm https://agentsims.dev/install.ps1 | iex`;
+export const curlCommand = curlSnippet.code;
+export const brewCommand = brewSnippet.code;
+export const powershellCommand = powershellSnippet.code;
+
+function detectInstallPlatform(
 	userAgent: string,
 	maxTouchPoints: number,
 ): InstallPlatform {

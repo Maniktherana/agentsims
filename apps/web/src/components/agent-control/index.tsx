@@ -6,10 +6,10 @@ import {
 	AnimatePresence,
 	MotionConfig,
 	motion,
-	useReducedMotion,
 	type Variants,
 } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useReducedMotionAfterHydration } from "../../hooks/use-reduced-motion-after-hydration";
 import { useViewportPlayback } from "../../hooks/use-viewport-playback";
 import { IPhoneMock } from "../product-demo/phones";
 import "./styles.css";
@@ -281,6 +281,20 @@ function nextTimelineTime(time: number) {
 	return nextTime;
 }
 
+/**
+ * The scroll position at which the transcript rests: the end of the
+ * transcript, rounded up to a whole row. Every row is one row tall and the
+ * viewport is a whole number of rows, so no row is ever cut at the top.
+ */
+function restingScrollTop(scroller: HTMLElement) {
+	const row =
+		Number.parseFloat(getComputedStyle(scroller).getPropertyValue("--agent-row")) ||
+		28;
+	const overflow = scroller.scrollHeight - scroller.clientHeight;
+	if (overflow <= 0) return 0;
+	return Math.ceil(overflow / row) * row;
+}
+
 function ClaudeHeader() {
 	return (
 		<header className="agent-terminal-header">
@@ -468,7 +482,7 @@ function WorkflowPhone({
 			{reducedMotion && (
 				<button
 					type="button"
-					className="absolute top-[calc(100%+0.75rem)] left-1/2 min-h-11 -translate-x-1/2 rounded-full border border-[oklch(1_0_0/0.12)] bg-[oklch(1_0_0/0.08)] px-4 text-xs font-medium whitespace-nowrap text-[oklch(1_0_0/0.76)] transition-[background-color,color] duration-150 ease-out hover:bg-[oklch(1_0_0/0.12)] hover:text-[oklch(1_0_0)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(1_0_0/0.6)]"
+					className="pointer-events-auto absolute top-[calc(100%+0.75rem)] left-1/2 min-h-11 -translate-x-1/2 cursor-pointer rounded-full border border-[oklch(1_0_0/0.12)] bg-[oklch(1_0_0/0.08)] px-4 text-xs font-medium whitespace-nowrap text-[oklch(1_0_0/0.76)] transition-[background-color,color] duration-150 ease-out hover:bg-[oklch(1_0_0/0.12)] hover:text-[oklch(1_0_0)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(1_0_0/0.6)]"
 					onClick={onTogglePlayback}
 				>
 					{manualPlaying ? "Pause demo" : "Play demo"}
@@ -478,7 +492,11 @@ function WorkflowPhone({
 	);
 }
 
-export function AgentControlSection() {
+/**
+ * Claude Code puts an iPhone in dark mode, then changes its Home Screen
+ * icons. The phone overlaps the lower right corner of the terminal.
+ */
+export function AgentControlDemo({ className }: { className?: string }) {
 	const [stageRef, inView] = useViewportPlayback<HTMLDivElement>();
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const transcriptRef = useRef<HTMLDivElement>(null);
@@ -486,19 +504,15 @@ export function AgentControlSection() {
 	const holdTimerRef = useRef<number | null>(null);
 	const nextHoldIndexRef = useRef(0);
 	const holdingRef = useRef(false);
-	const reducedMotion = useReducedMotion() ?? false;
+	const reducedMotion = useReducedMotionAfterHydration();
 	const [pageVisible, setPageVisible] = useState(true);
-	const [visibleLineCount, setVisibleLineCount] = useState(
-		reducedMotion ? transcript.length : 0,
-	);
-	const [activityIndex, setActivityIndex] = useState(
-		reducedMotion ? activityTimeline.length - 1 : 0,
-	);
+	const [visibleLineCount, setVisibleLineCount] = useState(0);
+	const [activityIndex, setActivityIndex] = useState(0);
 	const [visibleTouchCount, setVisibleTouchCount] = useState(0);
 	const [manualPlaying, setManualPlaying] = useState(false);
 	const [videoPlaying, setVideoPlaying] = useState(false);
 	const [playbackCycle, setPlaybackCycle] = useState(0);
-	const [promptSent, setPromptSent] = useState(reducedMotion);
+	const [promptSent, setPromptSent] = useState(false);
 	const [transcriptScrolled, setTranscriptScrolled] = useState(false);
 
 	const startPlayback = useCallback(() => {
@@ -608,15 +622,14 @@ export function AgentControlSection() {
 		const transcriptElement = transcriptRef.current;
 		if (!transcriptElement) return;
 		const frame = window.requestAnimationFrame(() => {
-			const overflow =
-				transcriptElement.scrollHeight - transcriptElement.clientHeight;
-			if (overflow <= 0) {
+			const target = restingScrollTop(transcriptElement);
+			if (target <= 0) {
 				transcriptElement.scrollTop = 0;
 				setTranscriptScrolled(false);
 				return;
 			}
 			transcriptElement.scrollTo({
-				top: overflow,
+				top: target,
 				behavior: reducedMotion ? "auto" : "smooth",
 			});
 			setTranscriptScrolled(true);
@@ -721,30 +734,9 @@ export function AgentControlSection() {
 	const activity = activityTimeline[activityIndex] ?? activityTimeline[0];
 
 	return (
-		<section
-			className="agent-workflow-section relative mx-auto max-w-[82rem] overflow-hidden px-[clamp(1.25rem,4vw,4rem)] pt-[clamp(4.5rem,5vw,5rem)] pb-[clamp(6rem,8vw,8rem)]"
-			aria-labelledby="agent-control-title"
-		>
-			<div className="relative grid grid-cols-[minmax(18rem,0.72fr)_minmax(36rem,1.4fr)] items-start gap-[clamp(3rem,5vw,5rem)] max-[64rem]:grid-cols-1">
-				<div className="max-w-[34rem] pt-8 max-[64rem]:max-w-2xl max-[64rem]:pt-0">
-					<h2
-						id="agent-control-title"
-						className="m-0 text-[clamp(2rem,2.6vw,2.5rem)] leading-[1.1] font-medium tracking-[-0.04em] text-balance"
-					>
-						Use it yourself or hand it to an agent.
-					</h2>
-					<p className="mt-6 mb-0 max-w-[31rem] text-base leading-6 text-muted-foreground">
-						Developers get every running iOS simulator and Android device in one
-						browser, with screenshots, recordings, settings, and accessibility
-						inspection.
-					</p>
-					<p className="mt-4 mb-0 max-w-[31rem] text-base leading-6 text-muted-foreground">
-						Give the CLI and skill to any coding agent. It can inspect, control,
-						and verify your app through the same workspace, with React Native
-						source context and a trace of every action.
-					</p>
-				</div>
-
+		// The stage has the width of the demo column of the original section:
+		// see `.agent-workflow-section` in styles.css.
+		<div className={cn("agent-workflow-section", className)}>
 				<MotionConfig reducedMotion="user">
 					<div
 						ref={stageRef}
@@ -868,8 +860,6 @@ export function AgentControlSection() {
 									</div>
 								</div>
 							</div>
-							<div className="agent-terminal-vignette-right" />
-							<div className="agent-terminal-vignette-bottom" />
 						</div>
 
 						<WorkflowPhone
@@ -887,11 +877,10 @@ export function AgentControlSection() {
 						/>
 					</div>
 				</MotionConfig>
-			</div>
 			<p className="sr-only">
 				Demo: the user asks Claude Code to put iPhone 17 in dark mode, use
 				Liquid Glass icons, then replace them with Tinted icons.
 			</p>
-		</section>
+		</div>
 	);
 }

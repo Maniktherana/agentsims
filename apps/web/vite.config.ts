@@ -1,8 +1,9 @@
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { fumadocsMdx } from "fumadocs-mdx/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { changelogPlugin } from "./src/changelog/plugin";
+import { codePlugin } from "./src/code/plugin";
 
 export default defineConfig({
 	resolve: {
@@ -10,11 +11,12 @@ export default defineConfig({
 		alias: { "@": new URL("./src", import.meta.url).pathname },
 	},
 	plugins: [
-		fumadocsMdx(),
+		codePlugin(),
+		changelogPlugin({
+			file: new URL("../../CHANGELOG.md", import.meta.url).pathname,
+		}),
 		tanstackStart({
-			// The landing page has no per-request data, so it ships as static
-			// HTML. The header and the laptop shell are then painted before any
-			// script runs, instead of after the client mounts.
+			// No page has per-request data, so every page ships as static HTML.
 			prerender: { enabled: true, crawlLinks: true },
 		}),
 		tailwindcss(),

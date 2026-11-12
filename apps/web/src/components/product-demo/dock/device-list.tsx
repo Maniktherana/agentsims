@@ -13,7 +13,7 @@ function DeviceSection({
 }) {
 	return (
 		<>
-			<div className="flex items-center justify-between px-2 py-1.5 text-[11px] font-semibold uppercase text-white/35 max-md:text-[12px]">
+			<div className="flex items-center justify-between px-2 py-1.5 text-[10px] font-semibold uppercase text-white/35">
 				<span>{label}</span>
 				<span className="tabular-nums text-white/25">{devices.length}</span>
 			</div>
@@ -47,7 +47,7 @@ export function DeviceList({ devices }: { devices: DemoDevices }) {
 					selectedId={devices.selectedId}
 				/>
 			</div>
-			<div className="flex shrink-0 items-center gap-2 border-t border-white/[0.08] bg-[oklch(0.209036_0_0)] p-2">
+			<div className="flex shrink-0 items-center gap-2 bg-[#181818] p-2">
 				<label className="flex h-10 min-w-0 flex-1 items-center gap-2 bg-white/[0.06] px-2.5 [border-radius:8px] [transition:background-color_150ms_ease] focus-within:bg-white/[0.09]">
 					<Search
 						size={14}
@@ -58,7 +58,7 @@ export function DeviceList({ devices }: { devices: DemoDevices }) {
 						readOnly
 						value=""
 						placeholder="Search devices"
-						className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-white/90 outline-none placeholder:text-white/35 max-md:text-[14px]"
+						className="min-w-0 flex-1 border-none bg-transparent text-[12px] text-white/90 outline-none placeholder:text-white/35"
 					/>
 				</label>
 			</div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { useInView, useReducedMotion } from "motion/react";
+import { useInView } from "motion/react";
+import { useReducedMotionAfterHydration } from "../../hooks/use-reduced-motion-after-hydration";
 import {
 	STORYBOARD,
 	REDUCED_MOTION_FRAME,
@@ -9,10 +10,9 @@ import {
 
 export function useDemoPlayback(
 	sceneRef: RefObject<HTMLDivElement | null>,
-	started: boolean,
 ) {
 	const inView = useInView(sceneRef, { amount: 0.5 });
-	const reducedMotion = useReducedMotion();
+	const reducedMotion = useReducedMotionAfterHydration();
 	const [playback, setPlayback] = useState<DemoPlayback>({
 		phase: "boot",
 		step: 0,
@@ -25,7 +25,7 @@ export function useDemoPlayback(
 		frame: null,
 		remaining: 0,
 	});
-	const playing = started && inView && pageVisible && !reducedMotion;
+	const playing = inView && pageVisible && !reducedMotion;
 	useEffect(() => {
 		const updateVisibility = () => setPageVisible(!document.hidden);
 		updateVisibility();

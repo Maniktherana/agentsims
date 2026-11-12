@@ -1,0 +1,385 @@
+/*
+ * The steps of the skill (skill-steps.tsx): the step list, and one pane
+ * with one Pixel at a fixed place. The phone, the terminal, the keyframes,
+ * and the times come from the original workflow section (5ce17a62:
+ * apps/web/src/styles.css, `.workflow-*`), with these changes:
+ * - The pane has no box, no fill, no fade, and no dot grid.
+ * - The phone does not move. Each companion is at its right, and only the
+ *   companions and the screen change between steps.
+ * - The accessibility panel is the product panel (`.wf-ax-*`).
+ * - The terminal has a flat fill and is as wide and as tall as its lines.
+ * - The screenshot flash and preview are those of the product
+ *   (screenshot-preview.tsx), animated in skill-steps.tsx.
+ */
+
+/* From 837px (SIDE_BY_SIDE_MIN in skill-steps.tsx) the list is 320px wide
+   and the pane is 64px to its right, top-aligned. Below that, the pane is
+   first, at full width, then the list. */
+.skill-steps-host {
+	container-type: inline-size;
+}
+.skill-steps {
+	display: grid;
+	gap: 40px;
+}
+.skill-steps .step-list {
+	order: 2;
+}
+.skill-steps-pane {
+	position: relative;
+	order: 1;
+	min-width: 0;
+	-webkit-user-select: none;
+	user-select: none;
+	cursor: default;
+	--workflow-terminal-surface-deep: oklch(0.17 0 0);
+	--workflow-terminal-border: oklch(1 0 0 / 0.12);
+	--workflow-terminal-text: oklch(0.705757 0 0);
+	--workflow-terminal-text-muted: oklch(0.63676 0 0);
+	--workflow-terminal-amber: oklch(0.86889 0.087746 60.679);
+	--workflow-terminal-green: oklch(0.930037 0.103498 175.069);
+}
+@container (width >= 837px) {
+	.skill-steps {
+		grid-template-columns: 320px minmax(0, 1fr);
+		align-items: start;
+		column-gap: 64px;
+	}
+	.skill-steps .step-list,
+	.skill-steps-pane {
+		order: 0;
+	}
+}
+
+@layer components {
+	/* The design of the pane. On a narrow screen skill-steps.tsx scales it
+	   from its top left corner. */
+	.workflow-stage {
+		position: absolute;
+		inset: 0;
+		isolation: isolate;
+		transform-origin: 0 0;
+	}
+
+	/* The phone. Its place and size come from skill-steps.tsx. */
+	.workflow-phone {
+		position: absolute;
+		z-index: 2;
+		overflow: hidden;
+		border-radius: 14% / 6.24%;
+		background: linear-gradient(
+			155deg,
+			oklch(0.224584 0.026372 258.317),
+			oklch(0.189824 0.027443 258.29) 52%,
+			oklch(0.157319 0.017155 256.284)
+		);
+		box-shadow:
+			inset 0 1px 0 oklch(1 0 0 / 0.070588),
+			inset 0 0 0 1px oklch(1 0 0 / 0.141176);
+		filter: drop-shadow(0 14px 12px oklch(0 0 0 / 0.533333));
+	}
+	/* The screen: one layer for each picture. The incoming layer fades in
+	   over the outgoing one in 240ms, and the outgoing one goes away when the
+	   fade ends. */
+	.workflow-screen {
+		position: absolute;
+		inset: 1px;
+		display: block;
+		width: calc(100% - 2px);
+		height: calc(100% - 2px);
+		border-radius: 14% / 6.24%;
+		object-fit: cover;
+		opacity: 0;
+		transition: opacity 0ms 240ms;
+	}
+	.workflow-screen[data-visible="true"] {
+		z-index: 1;
+		opacity: 1;
+		transition: opacity 240ms ease-out;
+	}
+	.workflow-phone-camera {
+		position: absolute;
+		z-index: 4;
+		top: 1.8%;
+		inset-inline-start: 50%;
+		width: 7.7%;
+		aspect-ratio: 1;
+		border-radius: 999px;
+		background: oklch(0 0 0);
+		transform: translateX(-50%);
+	}
+	/* The element outlines lie on the screen, and fade with the
+	   accessibility panel. */
+	.workflow-boxes {
+		position: absolute;
+		z-index: 2;
+		inset: 1px;
+	}
+
+	/* A companion of the phone: the accessibility panel, the terminal, or
+	   the screenshot. `.step-fade` fades it out and in. */
+	.workflow-companion {
+		position: absolute;
+		z-index: 3;
+		inset: 0;
+	}
+
+	/* The screenshot flash covers the screen of the phone, above the
+	   preview, as in the product. */
+	.workflow-screen-flash {
+		position: absolute;
+		z-index: 6;
+		border-radius: 14% / 6.24%;
+		background: #fff;
+		pointer-events: none;
+	}
+	/* The screenshot preview of the product (screenshot-preview.tsx:393-410,
+	   global.css:349-353): a black box that clips the image, with the corner
+	   radius of the screen and a small shadow. */
+	.workflow-screenshot-preview {
+		position: absolute;
+		z-index: 5;
+		border-radius: 14% / 6.24%;
+	}
+	.workflow-screenshot-image {
+		width: 100%;
+		height: 100%;
+		overflow: hidden;
+		border-radius: 14% / 6.24%;
+		background: #000;
+		box-shadow:
+			0 4px 14px rgba(0, 0, 0, 0.28),
+			0 0 0 1px rgba(255, 255, 255, 0.08);
+	}
+	.workflow-screenshot-image img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+
+	/* The terminal: as wide as its longest line and as tall as its lines. */
+	.workflow-terminal {
+		position: absolute;
+		width: max-content;
+		overflow: hidden;
+		border: 1px solid var(--workflow-terminal-border);
+		border-radius: 0.875rem;
+		background: var(--workflow-terminal-surface-deep);
+		box-shadow: 0 28px 72px oklch(0 0 0 / 0.45);
+		font-family: var(--font-mono);
+		font-size: 13px;
+		font-variant-ligatures: none;
+		line-height: 1.125rem;
+		color: var(--workflow-terminal-text);
+		-webkit-font-smoothing: antialiased;
+	}
+	.workflow-terminal-dots {
+		display: flex;
+		height: 1.1rem;
+		align-items: flex-start;
+		gap: 0.3rem;
+		padding: 0.38rem 0.78rem 0;
+	}
+	.workflow-terminal-dots span {
+		width: 0.4375rem;
+		height: 0.4375rem;
+		border-radius: 999px;
+		background: oklch(0.705757 0 0 / 0.42);
+	}
+	.workflow-terminal-content {
+		padding: 0.75rem 12px 12px;
+	}
+	.workflow-terminal-command-gap {
+		height: 0.5rem;
+	}
+	.workflow-terminal-content p {
+		margin: 0;
+		min-height: 1.125rem;
+		white-space: pre;
+	}
+	.workflow-prompt,
+	.workflow-reference {
+		color: var(--workflow-terminal-amber);
+	}
+	.workflow-kind {
+		color: var(--workflow-terminal-text);
+	}
+	.workflow-string,
+	.workflow-success {
+		color: var(--workflow-terminal-green);
+	}
+	.workflow-muted {
+		color: var(--workflow-terminal-text-muted);
+	}
+	.workflow-type-line,
+	.workflow-response-line {
+		width: fit-content;
+		opacity: 0;
+	}
+	.workflow-type-line,
+	.workflow-type-line .workflow-prompt,
+	.workflow-type-line .workflow-reference {
+		color: oklch(1 0 0);
+	}
+	.workflow-response-line {
+		color: var(--workflow-terminal-text);
+	}
+	.workflow-command-focus {
+		font-weight: 550;
+	}
+
+	.workflow-touch-cursor {
+		position: absolute;
+		z-index: 3;
+		width: 1.5rem;
+		height: 1.5rem;
+		border: 1.25px solid oklch(0 0 0 / 0.55);
+		border-radius: 999px;
+		background: oklch(1 0 0 / 0.45);
+		box-shadow: 0 1px 2px oklch(0 0 0 / 0.45);
+		opacity: 0;
+		pointer-events: none;
+	}
+	/* The original swipe was 11rem on a 458px phone. */
+	.workflow-swipe-cursor {
+		--swipe-distance: calc(var(--phone-height) * 176 / 458);
+		top: 7%;
+		inset-inline-start: 50%;
+	}
+	.workflow-tap-cursor {
+		top: 8.6%;
+		inset-inline-start: 75%;
+	}
+
+	/* A part plays while it has `data-playing`, and shows its finished
+	   state while it has `data-complete`. The times are those of the
+	   original section. */
+	[data-playing="true"] > .workflow-swipe-cursor {
+		animation: workflow-swipe-cursor 780ms ease-out 500ms both;
+	}
+	[data-playing="true"] > .workflow-tap-cursor {
+		animation: workflow-tap-cursor 1180ms linear 1450ms both;
+	}
+	[data-playing="true"] .workflow-type-line {
+		animation-duration: var(--type-duration);
+		animation-delay: var(--type-delay);
+		animation-fill-mode: both;
+		animation-name: workflow-type-line;
+		animation-timing-function: steps(var(--type-steps), end);
+	}
+	[data-playing="true"] .workflow-response-line {
+		animation-name: workflow-show-line;
+		animation-duration: calc(3s - var(--response-delay));
+		animation-delay: var(--response-delay);
+		animation-timing-function: linear;
+		animation-fill-mode: both;
+	}
+	[data-complete="true"] .workflow-type-line,
+	[data-complete="true"] .workflow-response-line {
+		clip-path: none;
+		opacity: 1;
+	}
+	.workflow-act-tap-command {
+		--type-delay: 1.18s;
+		--type-duration: 220ms;
+		--type-steps: 21;
+	}
+	.workflow-act-dispatch {
+		--response-delay: 2.72s;
+	}
+}
+
+/* The product accessibility panel beside the phone. Its place comes from
+   skill-steps.tsx. The `.wf-ax-*` rules are not in a layer, so these are
+   not either. */
+.workflow-ax-slot {
+	position: absolute;
+}
+.workflow-ax-slot .wf-ax-tree {
+	grid-template-columns: minmax(0, 1fr);
+}
+.workflow-ax-slot .wf-ax-panel {
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+
+@keyframes workflow-type-line {
+	from {
+		clip-path: inset(0 100% 0 0);
+		opacity: 1;
+	}
+	to {
+		clip-path: inset(0 0 0 0);
+		opacity: 1;
+	}
+}
+
+@keyframes workflow-show-line {
+	0% {
+		opacity: 0;
+	}
+	0.01%,
+	100% {
+		opacity: 1;
+	}
+}
+
+@keyframes workflow-swipe-cursor {
+	0% {
+		transform: translate(-50%, -50%) translateY(0) scale(1);
+		opacity: 0;
+	}
+	1% {
+		transform: translate(-50%, -50%) translateY(0) scale(1);
+		opacity: 1;
+	}
+	68% {
+		transform: translate(-50%, -50%) translateY(var(--swipe-distance))
+			scale(0.82);
+		opacity: 1;
+	}
+	100% {
+		transform: translate(-50%, -50%) translateY(var(--swipe-distance))
+			scale(0.82);
+		opacity: 0;
+	}
+}
+
+@keyframes workflow-tap-cursor {
+	0% {
+		transform: translate(-50%, -50%) scale(1);
+		opacity: 0;
+	}
+	1%,
+	21% {
+		transform: translate(-50%, -50%) scale(1);
+		opacity: 1;
+	}
+	37% {
+		transform: translate(-50%, -50%) scale(0.72);
+		opacity: 1;
+	}
+	53%,
+	79% {
+		transform: translate(-50%, -50%) scale(1);
+		opacity: 1;
+	}
+	100% {
+		transform: translate(-50%, -50%) scale(1);
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workflow-stage *,
+	.workflow-stage *::before,
+	.workflow-stage *::after {
+		animation: none !important;
+		transition: none !important;
+	}
+	.workflow-touch-cursor {
+		display: none;
+	}
+}

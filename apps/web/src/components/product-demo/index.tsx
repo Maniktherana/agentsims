@@ -1,6 +1,5 @@
 import { useRef } from "react";
 import { MotionConfig } from "motion/react";
-import { BrowserFrame } from "./browser-frame";
 import { DemoCursor } from "./cursor";
 import { DemoDock } from "./dock";
 import { demoDevices } from "./dock/devices";
@@ -8,39 +7,34 @@ import { DemoPhones } from "./phones";
 import { DOCK_SCALE, SURFACE } from "./motion";
 import { useCursorTargets } from "./use-cursor-targets";
 import { useDemoPlayback } from "./use-playback";
-import type { Intro } from "../intro/use-intro";
 
-export function ProductDemo({ intro }: { intro: Intro }) {
+export function ProductDemo() {
 	const sceneRef = useRef<HTMLDivElement>(null);
-	const { frame, phase, playing, reducedMotion } = useDemoPlayback(
-		sceneRef,
-		intro.reached("running"),
-	);
+	const { frame, phase, playing, reducedMotion } = useDemoPlayback(sceneRef);
 	const { sceneScale, target } = useCursorTargets(sceneRef, frame, phase);
 	const devices = demoDevices(frame.android);
 	const scale = sceneScale * DOCK_SCALE;
 	return (
 		<MotionConfig reducedMotion="user" transition={SURFACE.spring}>
-			<div className="relative max-lg:mx-auto max-lg:mt-6 max-lg:w-[calc(100%-2.5rem)] max-lg:max-w-2xl">
-				<BrowserFrame
-					lit={intro.reached("screen")}
-					chrome={intro.reached("workspace")}
-				>
+			<div className="workspace-tile select-none">
+				{/* The name bars sit above the phones, so the tile keeps room for
+				    them at the top. The scene is sized in layout pixels, and the
+				    phones and the dock use `zoom`, as before. A transform scale
+				    would snap the dock by a subpixel when its animation ends. */}
+				<div className="pt-16 pb-7" aria-hidden="true" inert>
 					<div
-						className="demo-scene @container absolute left-[70.5%] bottom-[7%] z-[2] aspect-[480/530] w-[min(40%,36rem)] -translate-x-1/2 [direction:ltr] max-lg:relative max-lg:inset-auto max-lg:mx-auto max-lg:w-full max-lg:max-w-md max-lg:translate-x-0"
+						className="demo-scene @container relative mx-auto aspect-[480/530] w-full max-w-(--workspace-scene-width,480px) [direction:ltr]"
 						ref={sceneRef}
 						data-stage={frame.name}
 						data-phase={reducedMotion ? "static" : phase}
 						data-playing={playing}
 					>
 						<DemoPhones
-							iphoneVisible={intro.reached("workspace")}
 							androidVisible={devices.androidVisible}
 							androidStreaming={frame.android === "streaming"}
 							scale={scale}
 						/>
 						<DemoDock
-							visible={intro.reached("workspace")}
 							expanded={!!frame.dock}
 							scale={scale}
 							devices={devices}
@@ -51,11 +45,7 @@ export function ProductDemo({ intro }: { intro: Intro }) {
 							reducedMotion={reducedMotion}
 						/>
 					</div>
-				</BrowserFrame>
-				<p className="sr-only">
-					Demo: boot an Android device beside an iOS simulator, then shut down
-					Android from the dock. The sequence repeats.
-				</p>
+				</div>
 			</div>
 		</MotionConfig>
 	);

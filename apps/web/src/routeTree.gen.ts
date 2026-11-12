@@ -10,43 +10,91 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as ChangelogRouteImport } from './routes/changelog'
+import { Route as CliRouteImport } from './routes/cli'
+import { Route as InstallationRouteImport } from './routes/installation'
+import { Route as ReactNativeRouteImport } from './routes/react-native'
+import { Route as SkillRouteImport } from './routes/skill'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DocsSplatRoute = DocsSplatRouteImport.update({
-  id: '/docs/$',
-  path: '/docs/$',
+const ChangelogRoute = ChangelogRouteImport.update({
+  id: '/changelog',
+  path: '/changelog',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CliRoute = CliRouteImport.update({
+  id: '/cli',
+  path: '/cli',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InstallationRoute = InstallationRouteImport.update({
+  id: '/installation',
+  path: '/installation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReactNativeRoute = ReactNativeRouteImport.update({
+  id: '/react-native',
+  path: '/react-native',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillRoute = SkillRouteImport.update({
+  id: '/skill',
+  path: '/skill',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/docs/$': typeof DocsSplatRoute
+  '/changelog': typeof ChangelogRoute
+  '/cli': typeof CliRoute
+  '/installation': typeof InstallationRoute
+  '/react-native': typeof ReactNativeRoute
+  '/skill': typeof SkillRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/docs/$': typeof DocsSplatRoute
+  '/changelog': typeof ChangelogRoute
+  '/cli': typeof CliRoute
+  '/installation': typeof InstallationRoute
+  '/react-native': typeof ReactNativeRoute
+  '/skill': typeof SkillRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/docs/$': typeof DocsSplatRoute
+  '/changelog': typeof ChangelogRoute
+  '/cli': typeof CliRoute
+  '/installation': typeof InstallationRoute
+  '/react-native': typeof ReactNativeRoute
+  '/skill': typeof SkillRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/docs/$'
+  fullPaths:
+    '/' | '/changelog' | '/cli' | '/installation' | '/react-native' | '/skill'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/docs/$'
-  id: '__root__' | '/' | '/docs/$'
+  to: '/' | '/changelog' | '/cli' | '/installation' | '/react-native' | '/skill'
+  id:
+    | '__root__'
+    | '/'
+    | '/changelog'
+    | '/cli'
+    | '/installation'
+    | '/react-native'
+    | '/skill'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DocsSplatRoute: typeof DocsSplatRoute
+  ChangelogRoute: typeof ChangelogRoute
+  CliRoute: typeof CliRoute
+  InstallationRoute: typeof InstallationRoute
+  ReactNativeRoute: typeof ReactNativeRoute
+  SkillRoute: typeof SkillRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -58,11 +106,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/docs/$': {
-      id: '/docs/$'
-      path: '/docs/$'
-      fullPath: '/docs/$'
-      preLoaderRoute: typeof DocsSplatRouteImport
+    '/changelog': {
+      id: '/changelog'
+      path: '/changelog'
+      fullPath: '/changelog'
+      preLoaderRoute: typeof ChangelogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cli': {
+      id: '/cli'
+      path: '/cli'
+      fullPath: '/cli'
+      preLoaderRoute: typeof CliRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/installation': {
+      id: '/installation'
+      path: '/installation'
+      fullPath: '/installation'
+      preLoaderRoute: typeof InstallationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/react-native': {
+      id: '/react-native'
+      path: '/react-native'
+      fullPath: '/react-native'
+      preLoaderRoute: typeof ReactNativeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skill': {
+      id: '/skill'
+      path: '/skill'
+      fullPath: '/skill'
+      preLoaderRoute: typeof SkillRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -70,7 +146,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DocsSplatRoute: DocsSplatRoute,
+  ChangelogRoute: ChangelogRoute,
+  CliRoute: CliRoute,
+  InstallationRoute: InstallationRoute,
+  ReactNativeRoute: ReactNativeRoute,
+  SkillRoute: SkillRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

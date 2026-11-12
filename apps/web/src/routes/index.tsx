@@ -1,62 +1,98 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ProductDemo } from "../components/product-demo";
-import { AgentWorkflow } from "../components/agent-workflow";
-import { AgentControlSection } from "../components/agent-control";
-import { StaggerLine, StaggerReveal } from "../components/intro/stagger-reveal";
-import { useIntro } from "../components/intro/use-intro";
-import { InstallationControls } from "../components/installation/installation-controls";
-import { SiteFooter } from "../components/site-footer";
-import { AgentChips } from "../components/agent-chips";
-import { SiteHeader } from "../components/site-header";
-import { MoreFeatures } from "../components/more-features";
+import type { ReactNode } from "react";
+import { HeroInstall } from "../components/installation/install-row";
+import { platformRows } from "../components/installation/requirements";
+import { DataTable } from "../components/page";
+import { HeroPicture, WorkspacePicture, WorkspaceTourPicture } from "../components/pictures";
+import { WORKSPACE_TOOLS } from "../components/workspace-tour/tools";
 
-export const Route = createFileRoute("/")({ component: HomePage });
+export const Route = createFileRoute("/")({
+	// The hero poster is the largest image of the first screen. The video
+	// poster is not found by the preload scanner, so the head asks for it.
+	head: () => ({
+		links: [
+			{
+				rel: "preload",
+				href: "/demo/iphone-dark-mode-poster.webp",
+				as: "image",
+				fetchPriority: "high",
+			},
+		],
+	}),
+	component: OverviewPage,
+});
 
-function HomePage() {
-	const intro = useIntro();
+/**
+ * One section after the hero: a full-width rule with 96px on each side,
+ * the heading in a 280px left column, and the content in the right column.
+ * The heading and the first line of the right column share a baseline.
+ */
+function Split({
+	id,
+	title,
+	children,
+}: {
+	id: string;
+	title: string;
+	children: ReactNode;
+}) {
 	return (
-		<div className="min-h-screen bg-background text-foreground">
-			<a
-				className="absolute inset-auto top-4 left-4 z-30 -translate-y-[200%] bg-white px-4 py-3 text-black focus:translate-y-0"
-				href="#main"
-			>
-				Skip to content
-			</a>
-			<SiteHeader />
+		<section aria-labelledby={id} className="split border-t border-rule py-24">
+			<h2 id={id} className="t-h2 m-0 scroll-mt-8">
+				{title}
+			</h2>
+			<div className="flex min-w-0 flex-col gap-10">{children}</div>
+		</section>
+	);
+}
 
-			<main id="main">
-				<section className="hero relative mx-auto w-[calc(100%-4rem)] max-w-[128rem] max-lg:w-full">
-					<StaggerReveal
-						show={intro.reached("copy")}
-						className="hero-copy absolute z-[5] flex w-[44%] flex-col items-start gap-[clamp(1rem,1.6vw,1.5rem)] max-lg:relative max-lg:inset-auto max-lg:mx-auto max-lg:w-auto max-lg:max-w-2xl max-lg:items-center max-lg:px-5 max-lg:pt-4 max-lg:text-center"
-					>
-						<StaggerLine
-							as="h1"
-							className="mt-10 text-[clamp(2.5rem,4.1vw,3.5rem)] leading-[1.05] font-semibold tracking-[-0.05em] text-balance"
-						>
-							Mobile tooling for agents
-						</StaggerLine>
-						<StaggerLine
-							as="p"
-							className="m-0 max-w-lg text-[clamp(1rem,1.3vw,1.375rem)] leading-normal text-pretty text-muted-foreground"
-						>
-							Give <AgentChips /> and any coding agent a complete interface to
-							iOS and Android simulators.
-						</StaggerLine>
-						<StaggerLine className="mt-2 max-lg:w-full">
-							<InstallationControls />
-						</StaggerLine>
-						<StaggerLine as="p" className="m-0 text-sm text-subtle-foreground">
-							Free &amp; open source · iOS and Android
-						</StaggerLine>
-					</StaggerReveal>
-					<ProductDemo intro={intro} />
-				</section>
-				<AgentWorkflow />
-				<AgentControlSection />
-				<MoreFeatures />
-			</main>
-			<SiteFooter />
-		</div>
+function OverviewPage() {
+	return (
+		<main id="main" className="page-main">
+			<section aria-labelledby="hero" className="flex flex-col items-start pb-24">
+				<h1 id="hero" className="t-hero m-0">
+					Agentic mobile tooling
+				</h1>
+				<p className="t-lead m-0 mt-6 max-w-[35rem]">
+					iOS simulators and Android devices in the browser pane beside your
+					coding agent. You and the agent control the same devices.
+				</p>
+				<div className="mt-10 w-full max-w-[40rem]">
+					<HeroInstall />
+				</div>
+				<div className="mt-16 w-full">
+					<HeroPicture />
+				</div>
+			</section>
+
+			<Split id="workspace" title="What is Agentsims?">
+				<p className="t-body m-0 max-w-[40rem]">
+					Agentsims streams your iOS simulators and Android devices into one
+					browser tab. You control them with the mouse and keyboard. Your coding
+					agent controls the same devices with the CLI.
+				</p>
+				<WorkspacePicture />
+				<ul className="m-0 grid list-none gap-x-10 gap-y-8 p-0 min-[600px]:grid-cols-2">
+					{WORKSPACE_TOOLS.map((tool) => (
+						<li key={tool.id} id={tool.id} className="flex scroll-mt-24 flex-col gap-1">
+							<h3 className="t-h3 m-0">{tool.name}</h3>
+							<p className="t-body m-0">{tool.text}</p>
+						</li>
+					))}
+				</ul>
+			</Split>
+
+			<section aria-labelledby="workspace-tour" className="border-t border-rule py-24">
+				<h2 id="workspace-tour" className="sr-only">
+					The workspace
+				</h2>
+				<WorkspaceTourPicture />
+			</section>
+
+			<Split id="platforms" title="Platforms">
+				<p className="t-body m-0">Agentsims runs on macOS, Linux, and Windows.</p>
+				<DataTable head={["Computer", "Devices"]} rows={platformRows} />
+			</Split>
+		</main>
 	);
 }

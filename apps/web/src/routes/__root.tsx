@@ -6,33 +6,39 @@ import {
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { installPlatformScript } from "../components/installation/commands";
+import { NotFoundPage } from "../components/page";
+import { SiteShell } from "../components/site-shell";
 import "../styles.css";
+
+/** The page background, the same as `--background` in styles.css. */
+const PAGE_COLOR = "hsl(0 0% 6%)";
 
 export const Route = createRootRoute({
 	head: () => ({
 		meta: [
 			{ charSet: "utf-8" },
 			{ name: "color-scheme", content: "dark" },
+			{ name: "theme-color", content: PAGE_COLOR },
 			{
 				name: "viewport",
 				content: "width=device-width, initial-scale=1",
 			},
 			{
-				title: "Agentsims - Mobile tooling for developers and coding agents",
+				title: "Agentsims · Agentic mobile tooling",
 			},
 			{
 				name: "description",
 				content:
-					"Run, inspect, and control iOS simulators and Android devices from one browser, CLI, and agent skill.",
+					"iOS simulators and Android devices in the browser pane beside your coding agent. You and the agent control the same devices.",
 			},
 			{
 				property: "og:title",
-				content: "Agentsims - Mobile tooling for developers and coding agents",
+				content: "Agentsims · Agentic mobile tooling",
 			},
 			{
 				property: "og:description",
 				content:
-					"Run, inspect, and control iOS simulators and Android devices from one browser, CLI, and agent skill.",
+					"iOS simulators and Android devices in the browser pane beside your coding agent. You and the agent control the same devices.",
 			},
 			{ property: "og:url", content: "https://agentsims.dev" },
 			{ property: "og:site_name", content: "agentsims" },
@@ -48,8 +54,17 @@ export const Route = createRootRoute({
 		],
 		links: [
 			{
-				rel: "preconnect",
-				href: "https://fonts.gstatic.com",
+				rel: "preload",
+				href: "/fonts/jetbrains-mono/jetbrains-mono-latin.woff2",
+				as: "font",
+				type: "font/woff2",
+				crossOrigin: "anonymous",
+			},
+			{
+				rel: "preload",
+				href: "/fonts/inter/inter-latin.woff2",
+				as: "font",
+				type: "font/woff2",
 				crossOrigin: "anonymous",
 			},
 			{ rel: "icon", href: "/favicon.ico", sizes: "any" },
@@ -57,24 +72,28 @@ export const Route = createRootRoute({
 		scripts: [{ children: installPlatformScript }],
 	}),
 	component: RootComponent,
+	notFoundComponent: NotFoundPage,
 });
 
 function RootComponent() {
 	return (
 		<RootDocument>
-			<Outlet />
+			{/* The shell stays mounted across pages, so the nav can animate. */}
+			<SiteShell>
+				<Outlet />
+			</SiteShell>
 		</RootDocument>
 	);
 }
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
 	return (
-		// The inline background paints the page black before the stylesheet
+		// The inline background paints the page color before the stylesheet
 		// loads, so a full page load never shows a white frame.
 		<html
 			lang="en"
 			className="dark"
-			style={{ backgroundColor: "#000", colorScheme: "dark" }}
+			style={{ backgroundColor: PAGE_COLOR, colorScheme: "dark" }}
 			// The head script adds data-install-platform before hydration.
 			suppressHydrationWarning
 		>
