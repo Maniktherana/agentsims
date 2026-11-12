@@ -3,7 +3,6 @@ import {
 	IDLE_RECORDING_STATE,
 	elapsedSince,
 	execFailureMessage,
-	formatBytes,
 	formatElapsed,
 	isRecordingActive,
 	isRecordingBusy,
@@ -12,8 +11,6 @@ import {
 	parseRecordStop,
 	recordCommand,
 	screenRecordingReducer,
-	stopDescription,
-	stopTitle,
 	type ScreenRecordingAction,
 	type ScreenRecordingState,
 } from "../../../../../web/hooks/simulator/use-screen-recording";
@@ -247,32 +244,5 @@ describe("elapsed time", () => {
 		expect(formatElapsed(65_000)).toBe("1:05");
 		expect(formatElapsed(600_000)).toBe("10:00");
 		expect(formatElapsed(3_725_000)).toBe("1:02:05");
-	});
-});
-
-describe("stop toast", () => {
-	const result = {
-		paths: ["/tmp/a.mp4"],
-		frames: 300,
-		durationMs: 10_000,
-		bytes: 2_097_152,
-	};
-
-	test("titles the toast with the recording facts", () => {
-		expect(stopTitle(result)).toBe(
-			"Recording saved · 0:10 · 300 frames · 2.0 MB",
-		);
-	});
-
-	test("shows the path, and counts the extra segments", () => {
-		expect(stopDescription(result)).toBe("/tmp/a.mp4");
-		expect(
-			stopDescription({ ...result, paths: ["/tmp/a.mp4", "/tmp/a-2.mp4"] }),
-		).toBe("/tmp/a.mp4 +1 more");
-	});
-
-	test("formats small files in KB", () => {
-		expect(formatBytes(4096)).toBe("4 KB");
-		expect(formatBytes(0)).toBe("0 MB");
 	});
 });

@@ -52,8 +52,34 @@ export type ViewerState = {
 };
 let viewerState: ViewerState = { viewer: null, holders: {} };
 const viewerListeners = new Set<() => void>();
+export function sameViewerHolders(
+	a: Readonly<Record<string, string>>,
+	b: Readonly<Record<string, string>>,
+): boolean {
+	const keys = Object.keys(a);
+	if (keys.length !== Object.keys(b).length) return false;
+	return keys.every((key) => a[key] === b[key]);
+}
+
+/** A repeated server broadcast must not notify listeners. Each notice renders every device. */
+export function nextViewerState(
+	current: ViewerState,
+	next: Partial<ViewerState>,
+): ViewerState {
+	const viewer = next.viewer === undefined ? current.viewer : next.viewer;
+	const holders =
+		next.holders === undefined || sameViewerHolders(current.holders, next.holders)
+			? current.holders
+			: next.holders;
+	return viewer === current.viewer && holders === current.holders
+		? current
+		: { viewer, holders };
+}
+
 function setViewerState(next: Partial<ViewerState>): void {
-	viewerState = { ...viewerState, ...next };
+	const state = nextViewerState(viewerState, next);
+	if (state === viewerState) return;
+	viewerState = state;
 	for (const listener of viewerListeners) listener();
 }
 
@@ -346,4 +372,10 @@ export async function releaseDevices(
 
 export function shellEscape(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** Open a saved file with the host's default application. */
+export function openFileCommand(path: string): string {
+	const target = shellEscape(path);
+	return `open ${target} 2>/dev/null || xdg-open ${target}`;
 }

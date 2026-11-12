@@ -2,6 +2,7 @@ import { renderCommandOutput } from "../../../core/tools/output/render";
 import type { TraceCommand } from "../../../core/tools/traces/trace-file";
 import type { TraceCall } from "../../hooks/simulator/use-trace";
 import { CopyButton } from "../ui/copy-button";
+import { useMemo } from "react";
 
 export function renderCallOutput(
 	command: TraceCommand,
@@ -119,8 +120,8 @@ export function TraceCallDetail({
 	device: string;
 	maxHeight: number;
 }) {
-	const command = traceCommandLine(call, device);
-	const output = callOutputText(call);
+	const command = useMemo(() => traceCommandLine(call, device), [call, device]);
+	const output = useMemo(() => callOutputText(call), [call]);
 
 	return (
 		<div

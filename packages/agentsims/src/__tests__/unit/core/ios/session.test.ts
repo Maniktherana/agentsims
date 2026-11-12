@@ -14,6 +14,11 @@ import {
 } from "../../../../core/ios/stream/native";
 import { iosAxSnapshot } from "../../../../core/ios/accessibility";
 import { makeDeviceActions } from "../../../../core/tools/input";
+import {
+	AVCC_TAG_DELTA,
+	AVCC_TAG_KEYFRAME,
+	avccEnvelope,
+} from "../../../../core/stream/avcc-wire";
 
 function frame(tag: number, payload: unknown): Buffer {
 	return Buffer.concat([
@@ -43,36 +48,49 @@ function testHid(overrides: Partial<TestHid> = {}): TestHid {
 }
 
 class ControlledCapture {
-	private mjpeg: ((frame: MjpegFrame) => Promise<void>) | null = null;
+	mjpegSubscriptions = 0;
+	readonly avccSubscriptions: (number | undefined)[] = [];
+	snapshots = 0;
+	size = { width: 100, height: 200 };
+	frame = { data: Buffer.from("jpeg"), width: 100, height: 200 };
+	private onSize: ((width: number, height: number) => void) | null = null;
 
-	async start(): Promise<void> {}
-	async stop(): Promise<void> {}
-	async subscribeMjpeg(
-		onFrame: (frame: MjpegFrame) => Promise<void>,
-	): Promise<() => void> {
-		this.mjpeg = onFrame;
-		return () => {
-			this.mjpeg = null;
-		};
+	async start(
+		onSize: (width: number, height: number) => void,
+	): Promise<{ width: number; height: number }> {
+		this.onSize = onSize;
+		return this.size;
 	}
-	async subscribeAvcc(
-		_onFrame: (frame: AvccFrame) => Promise<void>,
+	async stop(): Promise<void> {}
+	async snapshot(): Promise<{ data: Uint8Array; width: number; height: number }> {
+		this.snapshots += 1;
+		return this.frame;
+	}
+	async subscribeMjpeg(
+		_onFrame: (frame: MjpegFrame) => Promise<void>,
 	): Promise<() => void> {
+		this.mjpegSubscriptions += 1;
 		return () => {};
 	}
-	async emit(data: string, width: number, height: number): Promise<void> {
-		if (!this.mjpeg) throw new Error("capture is not started");
-		await this.mjpeg({ data: Buffer.from(data), width, height });
+	onAvcc: ((frame: AvccFrame) => Promise<void>) | null = null;
+	async subscribeAvcc(
+		onFrame: (frame: AvccFrame) => Promise<void>,
+		maxEdge?: number,
+	): Promise<() => void> {
+		this.onAvcc = onFrame;
+		this.avccSubscriptions.push(maxEdge);
+		return () => {};
+	}
+	resize(width: number, height: number): void {
+		if (!this.onSize) throw new Error("capture is not started");
+		this.onSize(width, height);
 	}
 }
 
 function sessionWith(
 	hid: Partial<TestHid> = {},
 	onMutation: (udid: string) => void = () => {},
-	options: Pick<
-		DeviceSessionDependencies,
-		"describeAccessibility" | "screenshotWaitMs"
-	> = {},
+	options: Pick<DeviceSessionDependencies, "describeAccessibility"> = {},
 ): { session: DeviceSession; capture: ControlledCapture } {
 	const capture = new ControlledCapture();
 	return {
@@ -245,72 +263,85 @@ test("the browser boundary contains invalid native input", async () => {
 	}
 });
 
-test("a screenshot rejects a cached frame from before its request", async () => {
-	const { session, capture } = sessionWith({}, () => {}, {
-		screenshotWaitMs: 5,
-	});
+test("a started session encodes nothing and knows its device size", async () => {
+	const { session, capture } = sessionWith();
 	await session.start();
-	await capture.emit("old", 100, 200);
 
-	await expect(session.captureScreenshot()).rejects.toThrow(
-		"A newer iOS screenshot was not available within 5 ms",
-	);
+	expect(capture.mjpegSubscriptions).toBe(0);
+	expect(capture.avccSubscriptions).toEqual([]);
+	expect(capture.snapshots).toBe(0);
+	expect(session.screenConfig()).toEqual({
+		width: 100,
+		height: 200,
+		orientation: "portrait",
+	});
 });
 
-test("a screenshot reports unavailable when no frame arrives", async () => {
-	const { session } = sessionWith({}, () => {}, { screenshotWaitMs: 5 });
+test("a start that fails while the device boots can be retried", async () => {
+	const { session, capture } = sessionWith();
+	const start = capture.start.bind(capture);
+	let attempts = 0;
+	capture.start = async (onSize) => {
+		attempts += 1;
+		if (attempts === 1) throw new Error("Device not booted (state: Booting)");
+		return start(onSize);
+	};
 
-	await expect(session.captureScreenshot()).rejects.toThrow(
-		"A newer iOS screenshot was not available within 5 ms",
-	);
+	await expect(session.start()).rejects.toThrow("not booted");
+	await session.start();
+	expect(session.screenConfig()).toMatchObject({ width: 100, height: 200 });
 });
 
-test("a screenshot returns one complete frame from after its request", async () => {
-	const now = spyOn(Date, "now").mockReturnValue(1_234);
-	try {
-		const { session, capture } = sessionWith();
-		await session.start();
-		await capture.emit("old", 100, 200);
+test("a screenshot reads the framebuffer at call time without a stream", async () => {
+	const { session, capture } = sessionWith();
+	capture.frame = { data: Buffer.from("first"), width: 100, height: 200 };
+	const first = await session.captureScreenshot();
+	capture.frame = { data: Buffer.from("second"), width: 100, height: 200 };
+	const second = await session.captureScreenshot();
 
-		const pending = session.captureScreenshot();
-		await Promise.resolve();
-		await capture.emit("new-frame", 300, 400);
-		const screenshot = await pending;
-
-		expect(screenshot).toEqual({
-			sequence: 2,
-			width: 300,
-			height: 400,
-			bytes: Buffer.from("new-frame"),
-			mimeType: "image/jpeg",
-			capturedAt: 1_234,
-		});
-
-		await capture.emit("next", 500, 600);
-		expect(screenshot.bytes).toEqual(Buffer.from("new-frame"));
-	} finally {
-		now.mockRestore();
-	}
+	expect(first.bytes).toEqual(Buffer.from("first"));
+	expect(second.bytes).toEqual(Buffer.from("second"));
+	expect(second.sequence).toBeGreaterThan(first.sequence);
+	expect(capture.mjpegSubscriptions).toBe(0);
+	expect(capture.avccSubscriptions).toEqual([]);
 });
 
-test("a screenshot after an action waits for a post-action frame", async () => {
-	const completion = Promise.withResolvers<void>();
+test("a surface size change reaches config, input sockets, and touch scale without a viewer", async () => {
+	const touches: [number, number][] = [];
 	const { session, capture } = sessionWith({
-		button: async () => completion.promise,
+		touch: async (_type, _x, _y, w, h) => {
+			touches.push([w, h]);
+		},
 	});
 	await session.start();
-	await capture.emit("old", 100, 200);
+	const sent: Buffer[] = [];
+	session.attachHidSocket({ send: (data) => sent.push(data), on: () => {}, close: () => {} });
 
-	const action = session.dispatchInputFrame(frame(0x04, { button: "home" }));
-	await capture.emit("during-action", 100, 200);
-	completion.resolve();
-	await action;
+	capture.resize(200, 100);
 
-	const pending = session.captureScreenshot();
-	await Promise.resolve();
-	await capture.emit("after-action", 100, 200);
+	expect(session.screenConfig()).toMatchObject({ width: 200, height: 100 });
+	const last = sent.at(-1)!;
+	expect(last[0]).toBe(0x82);
+	expect(JSON.parse(last.subarray(1).toString())).toMatchObject({ width: 200, height: 100 });
+	await session.dispatchInputFrame(frame(0x03, { type: "begin", x: 0.5, y: 0.5 }));
+	expect(touches).toEqual([[200, 100]]);
+});
 
-	expect((await pending).bytes).toEqual(Buffer.from("after-action"));
+test("an AVCC viewer gets one snapshot seed and its long-edge limit", async () => {
+	const { session, capture } = sessionWith();
+	await session.start();
+	const writes: Buffer[] = [];
+	await session.subscribeAvcc(
+		{ write: (chunk) => void writes.push(Buffer.from(chunk)) },
+		{ maxEdge: 600 },
+	);
+
+	expect(capture.snapshots).toBe(1);
+	expect(writes).toHaveLength(1);
+	expect(writes[0]![4]).toBe(0x04);
+	expect(writes[0]!.subarray(5)).toEqual(Buffer.from("jpeg"));
+	expect(capture.avccSubscriptions).toEqual([600]);
+	expect(capture.mjpegSubscriptions).toBe(0);
 });
 
 test("focused text identity and selection come from native accessibility", async () => {
@@ -477,4 +508,99 @@ test("rotation refusal is reported after invalidation", async () => {
 		session.dispatchInputFrame(frame(0x07, { orientation: "landscape_left" })),
 	).rejects.toThrow("iOS refused to rotate the simulator");
 	expect(mutations).toEqual(["ios-device"]);
+});
+
+test("browser input runs one message at a time and is acknowledged after native dispatch", async () => {
+	const touches: Array<{ type: string; done: PromiseWithResolvers<void> }> = [];
+	const { session } = sessionWith({
+		touch: async (type) => {
+			const done = Promise.withResolvers<void>();
+			touches.push({ type, done });
+			return done.promise;
+		},
+	});
+	await session.start();
+	let message: ((data: Buffer) => void) | undefined;
+	const sent: Buffer[] = [];
+	session.attachHidSocket({
+		send: (data) => sent.push(Buffer.from(data)),
+		on: (event, callback) => {
+			if (event === "message") message = callback as (data: Buffer) => void;
+		},
+		close: () => {},
+	});
+	const acks = () => sent.filter((data) => data.length === 1 && data[0] === 0x83).length;
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+	message!(frame(0x03, { type: "begin", x: 0.1, y: 0.1 }));
+	message!(frame(0x03, { type: "move", x: 0.2, y: 0.1 }));
+	await settle();
+	// The move waits for the begin. Nothing is acknowledged before the device takes it.
+	expect(touches.map((touch) => touch.type)).toEqual(["begin"]);
+	expect(acks()).toBe(0);
+
+	touches[0]!.done.resolve();
+	await settle();
+	expect(touches.map((touch) => touch.type)).toEqual(["begin", "move"]);
+	expect(acks()).toBe(1);
+	touches[1]!.done.resolve();
+	await settle();
+	expect(acks()).toBe(2);
+	await session.close();
+});
+
+test("a live AVCC viewer that falls behind drops deltas and resumes at a requested keyframe", async () => {
+	const { session, capture } = sessionWith();
+	let keyframeRequests = 0;
+	Object.assign(capture, {
+		requestAvccKeyframe: async () => {
+			keyframeRequests += 1;
+		},
+	});
+	await session.start();
+	const writes: Array<{ tag: number; done: PromiseWithResolvers<void> }> = [];
+	await session.subscribeAvcc(
+		{
+			write: (chunk) => {
+				const done = Promise.withResolvers<void>();
+				writes.push({ tag: chunk[4]!, done });
+				return done.promise;
+			},
+		},
+		{ live: true },
+	);
+	expect(writes.shift()!.tag).toBe(0x04); // seed
+
+	const deliver = async (tag: number) => {
+		let returned = false;
+		const pending = capture.onAvcc!({
+			data: avccEnvelope(tag, new Uint8Array([1])),
+			width: 100,
+			height: 200,
+			isDescription: false,
+			isKeyframe: tag === AVCC_TAG_KEYFRAME,
+		}).then(() => {
+			returned = true;
+		});
+		await Promise.resolve();
+		await pending;
+		return returned;
+	};
+
+	// A viewer that does not read must not hold back the native encoder.
+	expect(await deliver(AVCC_TAG_KEYFRAME)).toBe(true);
+	expect(await deliver(AVCC_TAG_DELTA)).toBe(true);
+	expect(await deliver(AVCC_TAG_DELTA)).toBe(true);
+	expect(writes.map((write) => write.tag)).toEqual([AVCC_TAG_KEYFRAME, AVCC_TAG_DELTA]);
+
+	// Drained: the viewer asks for one keyframe and skips deltas until it arrives.
+	for (const write of writes.splice(0)) write.done.resolve();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(keyframeRequests).toBe(1);
+	await deliver(AVCC_TAG_DELTA);
+	expect(writes).toEqual([]);
+	await deliver(AVCC_TAG_KEYFRAME);
+	await deliver(AVCC_TAG_DELTA);
+	expect(writes.map((write) => write.tag)).toEqual([AVCC_TAG_KEYFRAME, AVCC_TAG_DELTA]);
+	await session.close();
 });

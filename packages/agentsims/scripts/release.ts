@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-	CHATGPT_ARCHIVE_NAME,
 	HOMEBREW_TAP,
 	REPOSITORY,
 	RUNTIME_TARGETS,
@@ -92,10 +91,7 @@ export function writeRelease(version: string, directory: string): ReleaseMetadat
 			}),
 		) as ReleaseMetadata["artifacts"],
 	};
-	const checksums = [
-		...RUNTIME_TARGETS.map((target) => metadata.artifacts[target]),
-		{ file: CHATGPT_ARCHIVE_NAME, sha256: sha256(CHATGPT_ARCHIVE_NAME) },
-	];
+	const checksums = RUNTIME_TARGETS.map((target) => metadata.artifacts[target]);
 	writeFileSync(
 		join(directory, "SHA256SUMS"),
 		checksums.map(({ file, sha256 }) => `${sha256}  ${file}\n`).join(""),

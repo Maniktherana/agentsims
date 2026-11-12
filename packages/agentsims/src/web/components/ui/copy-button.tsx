@@ -14,12 +14,13 @@ const COPIED_MS = 1500;
 
 export function CopyButton({
 	text,
+	copy,
 	label = "Copy",
 	...props
-}: { text: string; label?: string } & Omit<
-	ButtonProps,
-	"children" | "aria-label" | "onClick"
->) {
+}: {
+	label?: string;
+} & ({ text: string; copy?: undefined } | { text?: undefined; copy: () => Promise<void> }) &
+	Omit<ButtonProps, "children" | "aria-label" | "onClick">) {
 	const [copied, setCopied] = useState(false);
 	useEffect(() => {
 		if (!copied) return;
@@ -37,7 +38,11 @@ export function CopyButton({
 						aria-label={currentLabel}
 						onClick={(event: MouseEvent<HTMLButtonElement>) => {
 							event.stopPropagation();
-							void navigator.clipboard?.writeText(text).then(
+							const write = copy
+								? copy()
+								: (navigator.clipboard?.writeText(text ?? "") ??
+									Promise.reject(new Error("Clipboard unavailable")));
+							void write.then(
 								() => setCopied(true),
 								() => notify("error", "Copy failed"),
 							);

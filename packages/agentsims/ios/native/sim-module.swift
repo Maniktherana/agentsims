@@ -24,6 +24,8 @@ private func u32(_ v: Int) -> UInt32 {
     private let injector: HIDInjector
     private let udid: String
     private var setupTask: Task<Void, Error>?
+    private var setupRetryAt = ContinuousClock.now
+    private var setupDone = false
     private var stopped = false
 
     @NodeConstructor init(_ udid: String) throws {
@@ -33,33 +35,54 @@ private func u32(_ v: Int) -> UInt32 {
         self.setupTask = Task { try await injector.setup(deviceUDID: udid) }
     }
 
+    /// A session can start while the simulator still boots, and setup can
+    /// fail then. Retry it at most once per second instead of dropping input.
+    /// After setup succeeds this returns without a suspension, so input
+    /// events keep their order.
+    private func ready() async {
+        if setupDone { return }
+        guard let task = setupTask else { return }
+        if (try? await task.value) != nil { setupDone = true; return }
+        guard !stopped, ContinuousClock.now >= setupRetryAt else { return }
+        setupRetryAt = ContinuousClock.now + .seconds(1)
+        let retry = Task { [injector, udid] in try await injector.setup(deviceUDID: udid) }
+        setupTask = retry
+        if (try? await retry.value) != nil { setupDone = true }
+    }
+
     @NodeMethod func touch(_ type: String, _ x: Double, _ y: Double,
                            _ w: Int, _ h: Int, _ edge: Int) async {
+        await ready()
         await injector.sendTouch(type: type, x: x, y: y,
                            screenWidth: w, screenHeight: h, edge: u32(edge))
     }
 
     @NodeMethod func multiTouch(_ type: String, _ x1: Double, _ y1: Double,
                                 _ x2: Double, _ y2: Double, _ w: Int, _ h: Int) async {
+        await ready()
         await injector.sendMultiTouch(type: type, x1: x1, y1: y1, x2: x2, y2: y2,
                                 screenWidth: w, screenHeight: h)
     }
 
     @NodeMethod func button(_ button: String) async {
+        await ready()
         await injector.sendButton(button: button, deviceUDID: udid)
     }
 
     @NodeMethod func buttonHid(_ page: Int, _ usage: Int, _ phase: String) async {
+        await ready()
         await injector.sendButtonHID(page: u32(page), usage: u32(usage), phase: phase)
     }
 
     @NodeMethod func key(_ type: String, _ usage: Int) async {
+        await ready()
         await injector.sendKey(type: type, usage: u32(usage))
     }
 
     /// NaN anchorX/anchorY mean "center" (the Swift API's nil).
     @NodeMethod func scroll(_ dx: Double, _ dy: Double,
                             _ anchorX: Double, _ anchorY: Double, _ w: Int, _ h: Int) async {
+        await ready()
         await injector.sendScroll(dx: dx, dy: dy,
                             anchorX: anchorX.isNaN ? nil : anchorX,
                             anchorY: anchorY.isNaN ? nil : anchorY,
@@ -67,23 +90,28 @@ private func u32(_ v: Int) -> UInt32 {
     }
 
     @NodeMethod func digitalCrown(_ delta: Double) async {
+        await ready()
         await injector.sendDigitalCrown(delta: delta)
     }
 
     @NodeMethod func orientation(_ orientation: Int) async -> Bool {
-        await injector.sendOrientation(orientation: u32(orientation))
+        await ready()
+        return await injector.sendOrientation(orientation: u32(orientation))
     }
 
     @NodeMethod func memoryWarning() async {
+        await ready()
         await injector.simulateMemoryWarning()
     }
 
     @NodeMethod func softwareKeyboard() async {
+        await ready()
         await injector.toggleSoftwareKeyboard()
     }
 
     @NodeMethod func caDebug(_ name: String, _ enabled: Bool) async -> Bool {
-        await injector.setCADebugOption(name: name, enabled: enabled)
+        await ready()
+        return await injector.setCADebugOption(name: name, enabled: enabled)
     }
 
     @NodeMethod func stop() async {
@@ -126,11 +154,11 @@ private func u32(_ v: Int) -> UInt32 {
     }
 }
 
-/// In-process frame capture + encode for one simulator. MJPEG frames are always
-/// produced; H.264/AVCC runs only while `setAvccActive(true)`. Encoded frames are
-/// produced on a native encode thread and marshalled onto the JS thread through a
-/// NodeAsyncQueue (threadsafe function), then handed to `onFrame` as
-/// (codec, Buffer, width, height, flags).
+/// In-process frame capture + encode for one simulator. Each codec encodes only
+/// while it has a subscriber; `snapshot()` reads the framebuffer on demand.
+/// Encoded frames are produced on a native encode thread and marshalled onto
+/// the JS thread through a NodeAsyncQueue (threadsafe function), then handed to
+/// `onFrame` as (Buffer, width, height, flags).
 @NodeClass @NodeActor final class SimCapture {
     private let engine: CaptureEngine
     private let queue: NodeAsyncQueue
@@ -147,7 +175,8 @@ private func u32(_ v: Int) -> UInt32 {
     // returns a function that can be called to unsubscribe
     @NodeMethod func subscribe(
         codec: Int,
-        onFrame: NodeFunction
+        onFrame: NodeFunction,
+        maxEdge: Int
     ) async throws -> NodeFunction {
         let codecMJPEG: Int = 0
         let codecAVCC: Int = 1
@@ -167,7 +196,7 @@ private func u32(_ v: Int) -> UInt32 {
                 }
             }
         case codecAVCC:
-            unsubscribe = await engine.addAVCCConsumer { [self] dimensions, data, flags in
+            unsubscribe = await engine.addAVCCConsumer(maxEdge: max(0, maxEdge)) { [self] dimensions, data, flags in
                 try? await queue.run {
                     let array = try buffer.setData(data)
                     _ = try? await onFrame.call([
@@ -183,8 +212,28 @@ private func u32(_ v: Int) -> UInt32 {
         return try NodeFunction { await unsubscribe() }
     }
 
-    @NodeMethod func start() async throws {
-        try await engine.start()
+    /// Resolves with [width, height] in device pixels. `onSize(width, height)`
+    /// receives later surface size changes, for example after rotation.
+    @NodeMethod func start(_ onSize: NodeFunction) async throws -> NodeArray {
+        let size = try await engine.start { [queue] width, height in
+            try? queue.run { _ = try onSize.call([width, height]) }
+        }
+        let result = try NodeArray(capacity: 2)
+        try result[0].set(to: size.width)
+        try result[1].set(to: size.height)
+        return result
+    }
+
+    /// Resolves with [jpeg, width, height] read from the framebuffer now.
+    @NodeMethod func snapshot() async throws -> NodeArray {
+        let (data, size) = try await engine.snapshot()
+        let buffer = try NodeArrayBuffer(capacity: data.count)
+        _ = try buffer.withUnsafeMutableBytes { data.copyBytes(to: $0) }
+        let result = try NodeArray(capacity: 3)
+        try result[0].set(to: try NodeTypedArray<UInt8>(for: buffer, count: data.count))
+        try result[1].set(to: size.width)
+        try result[2].set(to: size.height)
+        return result
     }
 
     @NodeMethod func requestAvccKeyframe() async {

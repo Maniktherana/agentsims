@@ -257,7 +257,10 @@ async function response(
 				);
 			case "stream.avcc":
 				return subscriptionResponse("application/octet-stream", (sink) =>
-					session.subscribeAvcc(sink),
+					session.subscribeAvcc(sink, {
+						maxEdge: Number(url.searchParams.get("maxEdge")) || undefined,
+						live: true,
+					}),
 				);
 			case "screenshot.png": {
 				const screenshot = await session.captureScreenshot();
@@ -329,7 +332,49 @@ function upgrade(
 	});
 }
 
+/** A live viewer that fell behind asks for a keyframe to resume from. */
+async function requestKeyframe(
+	device: string,
+	androidSessions: AndroidSessionsService,
+	iosSessions: IosSessionsService,
+): Promise<Response> {
+	const serial = androidSerialFromStateId(device);
+	try {
+		if (serial)
+			await (
+				await Effect.runPromise(androidSessions.get(serial))
+			).requestVideoKeyframe();
+		else await Effect.runSync(iosSessions.get(device)).requestVideoKeyframe();
+		return new Response(null, { status: 204 });
+	} catch (error) {
+		return json({ error: describeError(error) }, 503);
+	}
+}
+
 export const helperRoutes = HttpRouter.empty.pipe(
+	HttpRouter.post(
+		"/helper/*",
+		Effect.gen(function* () {
+			const config = yield* ServerConfig;
+			const androidSessions = yield* AndroidSessions;
+			const iosSessions = yield* IosSessions;
+			const serverRequest = yield* HttpServerRequest.HttpServerRequest;
+			const request = requestSource(serverRequest.source);
+			const url = new URL(request.url);
+			const match = target(url.pathname, config.basePath);
+			if (!match || match.endpoint !== "keyframe")
+				return HttpServerResponse.text("No agentsims device endpoint", {
+					status: 404,
+				});
+			const viewers = yield* Viewers;
+			if (!viewers.allows(match.device, url.searchParams.get("viewer")))
+				return heldElsewhere();
+			const result = yield* Effect.promise(() =>
+				requestKeyframe(match.device, androidSessions, iosSessions),
+			);
+			return HttpServerResponse.fromWeb(result);
+		}),
+	),
 	HttpRouter.get(
 		"/helper/*",
 		Effect.gen(function* () {

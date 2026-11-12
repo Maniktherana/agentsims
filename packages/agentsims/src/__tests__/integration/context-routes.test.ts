@@ -71,8 +71,8 @@ test("HTTP keeps both device drafts, exports captured images, and never calls de
 		android.id,
 	])) as { prompt: string; images: { base64: string }[] };
 	expect(exported.prompt).toContain("Make this easier to read.");
-	expect(exported.prompt).toContain("Device: ios-a (ios)");
-	expect(exported.prompt).toContain("Device: android:b (android)");
+	expect(exported.prompt).toContain("## Screen feedback: ios-a (iOS)");
+	expect(exported.prompt).toContain("## Screen feedback: android:b (Android)");
 	expect(exported.images.map((image) => image.base64)).toEqual([png, png]);
 	const response = await fetch(
 		`${origin}/context/${ios.id}/image?workspace=one`,

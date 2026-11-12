@@ -23,6 +23,12 @@ import {
 	type PreviewConfig,
 } from "../../workspace/workspace-state";
 import { DeviceAutoAttachGuard } from "../../workspace/device-auto-attach-guard";
+import {
+	canvasDeviceIds as composeCanvasDeviceIds,
+	pendingCanvasDeviceIds,
+	settledDeviceLaunches,
+	type DeviceLaunch,
+} from "../../workspace/canvas-devices";
 import type { useWorkspaceUrlState } from "../../workspace/url-state";
 
 type WorkspaceUrlState = ReturnType<typeof useWorkspaceUrlState>;
@@ -146,6 +152,16 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 		Record<string, string | null>
 	>({});
 	const autoAttachGuardRef = useRef(new DeviceAutoAttachGuard());
+	const [launches, setLaunches] = useState<DeviceLaunch[]>([]);
+	const forgetLaunch = useCallback((deviceId: string) => {
+		setLaunches((current) => {
+			const next = current.filter(
+				(launch) =>
+					launch.requested !== deviceId && launch.resolved !== deviceId,
+			);
+			return next.length === current.length ? current : next;
+		});
+	}, []);
 
 	const [endpoints] = useState(() => {
 		const preview = window.__SIM_PREVIEW__;
@@ -184,6 +200,9 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 		return urlState.devices.filter((id) => available.has(id));
 	}, [availableDeviceIds, selection, urlState.devices]);
 	const visibleDeviceIdKey = visibleDeviceIds.join("|");
+	useEffect(() => {
+		setLaunches((current) => settledDeviceLaunches(current, visibleDeviceIds));
+	}, [visibleDeviceIdKey]);
 	useEffect(() => {
 		setStreamingByDevice((current) =>
 			reconcileStreamingDeviceVisibility(current, availableDeviceIds),
@@ -227,12 +246,14 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 					? (next[0] ?? null)
 					: urlState.focus;
 			dispatchSelection({ type: "set-visible", deviceId, visible });
+			if (!visible) forgetLaunch(deviceId);
 			if (!visible && selectedUdid === deviceId) {
 				dispatchSelection({ type: "focus-visible", visibleDeviceIds: next });
 			}
 			void urlState.setDevicesAndFocus(next, nextFocus);
 		},
 		[
+			forgetLaunch,
 			selectedUdid,
 			urlState.devices,
 			urlState.focus,
@@ -330,6 +351,15 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 					return null;
 				}
 				const resolvedDeviceId = body.device;
+				setLaunches((current) =>
+					current.some((launch) => launch.requested === deviceId)
+						? current.map((launch) =>
+								launch.requested === deviceId
+									? { ...launch, resolved: resolvedDeviceId }
+									: launch,
+							)
+						: current,
+				);
 				dispatchSelection({
 					type: "device-started",
 					requestedDeviceId: deviceId,
@@ -355,6 +385,11 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 	const startDevice = useCallback(
 		async (deviceId: string, focusDevice = true) => {
 			autoAttachGuardRef.current.beginExplicitStart(deviceId);
+			// The device takes its canvas slot now and keeps it until it streams.
+			setLaunches((current) => [
+				...current.filter((launch) => launch.requested !== deviceId),
+				{ requested: deviceId, resolved: null },
+			]);
 			const resolvedDeviceId = await requestDeviceStart(deviceId, focusDevice);
 			if (!resolvedDeviceId) return;
 			const current = urlState.devices ?? visibleDeviceIds;
@@ -395,6 +430,7 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 				(device) => device.device === deviceId,
 			)?.catalogDevice;
 			autoAttachGuardRef.current.beginShutdown(deviceId);
+			forgetLaunch(deviceId);
 			setShuttingDown((current) => ({
 				...current,
 				[deviceId]: true,
@@ -439,7 +475,7 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 				grid.refresh();
 			}
 		},
-		[endpoints.shutdown, grid.devices, grid.refresh],
+		[endpoints.shutdown, forgetLaunch, grid.devices, grid.refresh],
 	);
 
 	useEffect(() => {
@@ -537,6 +573,22 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 	);
 	const selectedDevice =
 		grid.devices?.find((device) => device.device === effectiveUdid) ?? null;
+	const pendingDeviceIds = useMemo(
+		() =>
+			pendingCanvasDeviceIds({
+				visibleDeviceIds,
+				focusedDeviceId: urlState.focus,
+				launches,
+				devices: grid.devices,
+			}),
+		[grid.devices, launches, urlState.focus, visibleDeviceIds],
+	);
+	const pendingDeviceIdKey = pendingDeviceIds.join("|");
+	const canvasDeviceIds = useMemo(
+		() => composeCanvasDeviceIds(visibleDeviceIds, pendingDeviceIds),
+		// The keys carry the content. Equal lists keep one array.
+		[visibleDeviceIdKey, pendingDeviceIdKey],
+	);
 	const setDeviceStreaming = useCallback((deviceId: string, value: boolean) => {
 		setStreamingByDevice((current) => {
 			if (!!current[deviceId] === value) return current;
@@ -551,6 +603,7 @@ export function useDeviceWorkspace(urlState: WorkspaceUrlState) {
 		setDeviceStreaming,
 		visibleUdids: new Set(visibleDeviceIds),
 		visibleDeviceIds,
+		canvasDeviceIds,
 		selectedUdid,
 		effectiveUdid,
 		selectedDevice,

@@ -13,10 +13,13 @@ import type {
 import type { AndroidScreenConfig } from "../../../../../core/android/device/types";
 
 class FakeHidSocket extends EventEmitter implements AndroidHidSocket {
+	/** Server pushes other than input acknowledgements. */
 	readonly sent: Buffer[] = [];
+	acks = 0;
 
 	send(data: Buffer): void {
-		this.sent.push(Buffer.from(data));
+		if (data.length === 1 && data[0] === 0x83) this.acks += 1;
+		else this.sent.push(Buffer.from(data));
 	}
 
 	close(): void {

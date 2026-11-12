@@ -1,7 +1,11 @@
-import { createElement, useCallback, useEffect, useRef, useState } from "react";
-import { CopyButton } from "../../components/ui/copy-button";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { notifySavedFile } from "../../components/ui/saved-file-toast";
 import { notify } from "../../components/ui/toast";
-import { shellEscape, type ExecResult } from "../../simulator/input/exec";
+import {
+	openFileCommand,
+	shellEscape,
+	type ExecResult,
+} from "../../simulator/input/exec";
 
 // Screen recording state for one device. The CLI owns the recording; this hook
 // only drives `agentsims record start|stop|status --json` over the toolbar exec
@@ -126,10 +130,7 @@ export function recordCommand(sub: RecordSubcommand, device: string): string {
 	return `agentsims record ${sub} -d ${shellEscape(device)}${out} --json`;
 }
 
-export function openFileCommand(path: string): string {
-	const target = shellEscape(path);
-	return `open ${target} 2>/dev/null || xdg-open ${target}`;
-}
+export { openFileCommand };
 
 export interface RecordStopResult {
 	paths: string[];
@@ -237,76 +238,6 @@ export function formatElapsed(ms: number): string {
 	const mm = hours > 0 ? String(minutes).padStart(2, "0") : String(minutes);
 	const ss = String(seconds).padStart(2, "0");
 	return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-/** Bytes as a short human size. */
-export function formatBytes(bytes: number): string {
-	if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
-	const mb = bytes / (1024 * 1024);
-	return mb < 1
-		? `${Math.max(1, Math.round(bytes / 1024))} KB`
-		: `${mb.toFixed(1)} MB`;
-}
-
-/** The title of the "Recording saved" toast. */
-export function stopTitle(result: RecordStopResult): string {
-	const facts = [
-		formatElapsed(result.durationMs),
-		`${result.frames} frames`,
-		formatBytes(result.bytes),
-	];
-	return `Recording saved · ${facts.join(" · ")}`;
-}
-
-/** The path line under the "Recording saved" toast. */
-export function stopDescription(result: RecordStopResult): string {
-	const [first, ...rest] = result.paths;
-	if (!first) return "";
-	return rest.length > 0 ? `${first} +${rest.length} more` : first;
-}
-
-const TOAST_BUTTON =
-	"shrink-0 rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10";
-
-function toastButton(label: string, onClick: () => void) {
-	return createElement(
-		"button",
-		{
-			type: "button",
-			className: TOAST_BUTTON,
-			onClick: (event: { stopPropagation: () => void }) => {
-				event.stopPropagation();
-				onClick();
-			},
-		},
-		label,
-	);
-}
-
-function stopActions(paths: string[], exec: ExecFn) {
-	const first = paths[0];
-	return createElement(
-		"div",
-		{ className: "flex shrink-0 gap-1.5" },
-		first
-			? toastButton("View", () => {
-					void exec(openFileCommand(first)).then(
-						(result) => {
-							if (result.exitCode !== 0)
-								notify("error", "Could not open the video", {
-									description: result.stderr.trim() || first,
-								});
-						},
-						() => notify("error", "Could not open the video"),
-					);
-				})
-			: null,
-		createElement(CopyButton, {
-			text: paths.join("\n"),
-			size: "icon-xs",
-			variant: "toolbar",
-		}),
-	);
 }
 
 // -- Hook ---------------------------------------------------------------
@@ -420,10 +351,11 @@ export function useScreenRecording(
 			try {
 				const stopped = parseRecordStop(await run("stop", forDevice));
 				dispatch(forDevice, { type: "stopped" });
-				notify("success", stopTitle(stopped), {
-					description: stopDescription(stopped),
-					action: stopActions(stopped.paths, execRef.current),
-					duration: 8000,
+				notifySavedFile({
+					title: "Recording saved",
+					path: stopped.paths[0]!,
+					exec: execRef.current,
+					copy: { kind: "text", text: stopped.paths.join("\n") },
 				});
 			} catch (error) {
 				dispatch(forDevice, { type: "failed" });

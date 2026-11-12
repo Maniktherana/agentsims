@@ -314,6 +314,10 @@ export class LiveAnnotationStore {
 				options.geometry,
 				capture,
 				now,
+				{
+					cache: options.cache,
+					deviceName: options.deviceName ?? undefined,
+				},
 			);
 			const retainedBytes =
 				[...this.devices.values()].reduce(

@@ -1,3 +1,12 @@
+import {
+	InputFlow,
+	WS_MSG_INPUT_ACK,
+} from "../input/input-flow.js";
+import {
+	publishStreamStats,
+	streamStatsKey,
+} from "./stream-stats.js";
+
 export const WS_OPEN_READY_STATE = 1;
 
 export type QueuedWsMessage = {
@@ -9,7 +18,48 @@ export type QueuedWsMessage = {
 export type WsSendTarget = {
 	readyState: number;
 	send(data: ArrayBuffer): void;
+	/** Present on a real WebSocket. Input acknowledgements arrive here. */
+	addEventListener?(
+		type: "message",
+		listener: (event: { data: unknown }) => void,
+	): void;
+	url?: string;
 };
+
+const flows = new WeakMap<WsSendTarget, InputFlow>();
+
+/** The input flow of one socket. It sends one message at a time. */
+export function inputFlowFor(ws: WsSendTarget): InputFlow {
+	let flow = flows.get(ws);
+	if (flow) return flow;
+	const statsKey = ws.url ? streamStatsKey(ws.url) : null;
+	let publishedAt = 0;
+	const created: InputFlow = new InputFlow((message) => {
+		if (ws.readyState === WS_OPEN_READY_STATE)
+			ws.send(encodeWsMessage(message.tag, message.payload).buffer);
+		const now = Date.now();
+		if (statsKey && now - publishedAt >= 1_000) {
+			publishedAt = now;
+			publishStreamStats(statsKey, {
+				inputSent: created.stats.sent,
+				inputInFlight: created.stats.inFlight,
+				inputCoalesced: created.stats.coalesced,
+				inputDropped: created.stats.dropped,
+			});
+		}
+	});
+	ws.addEventListener?.("message", (event) => {
+		const data = event.data;
+		if (
+			data instanceof ArrayBuffer &&
+			data.byteLength >= 1 &&
+			new Uint8Array(data)[0] === WS_MSG_INPUT_ACK
+		)
+			created.acknowledge();
+	});
+	flows.set(ws, created);
+	return created;
+}
 
 const DEFAULT_MAX_QUEUE_SIZE = 32;
 const DEFAULT_MAX_QUEUE_AGE_MS = 1_500;
@@ -46,9 +96,8 @@ export function flushWsMessageQueue(
 		(message) => now - message.createdAt <= maxQueueAgeMs,
 	);
 	if (!ws || ws.readyState !== WS_OPEN_READY_STATE) return fresh;
-	for (const message of fresh) {
-		ws.send(encodeWsMessage(message.tag, message.payload).buffer);
-	}
+	const flow = inputFlowFor(ws);
+	for (const message of fresh) flow.send(message);
 	return [];
 }
 
@@ -61,7 +110,7 @@ export function sendOrQueueWsMessage(
 ): QueuedWsMessage[] {
 	const fresh = flushWsMessageQueue(ws, queue, now);
 	if (ws?.readyState === WS_OPEN_READY_STATE) {
-		ws.send(encodeWsMessage(tag, payload).buffer);
+		inputFlowFor(ws).send({ tag, payload });
 		return fresh;
 	}
 	return enqueueWsMessage(fresh, { tag, payload, createdAt: now });

@@ -60,18 +60,11 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test:ci
-      - run: bun run --cwd ../chatgpt build
       - uses: actions/upload-artifact@v4
         with:
           name: library
           path: packages/agentsims-react-native/dist/npm/agentsims/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: extension
-          path: packages/chatgpt/dist/agentsims-chatgpt.tar.gz
-          if-no-files-found: error
-          compression-level: 0
   build:
     needs: check
     strategy:
@@ -155,10 +148,6 @@ jobs:
           pattern: runtime-*
           path: release
           merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          name: extension
-          path: release
       - name: Write the release files
         run: |
           set -euo pipefail

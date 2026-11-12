@@ -10,7 +10,6 @@ import type {
 
 function renderPlaceholder({
 	name = "Apple Vision Pro",
-	runtime = "xrOS-26-5",
 	chrome = null,
 	placeholderAsset = null,
 }: {
@@ -21,13 +20,17 @@ function renderPlaceholder({
 } = {}) {
 	return renderToStaticMarkup(
 		<DevicePlaceholder
+			deviceId={name}
 			name={name}
-			runtime={runtime}
 			chrome={chrome}
 			placeholderAsset={placeholderAsset}
-			busy={false}
-			error={null}
-			onStart={() => {}}
+			presentation={{
+				phase: "available",
+				status: "Shut down",
+				action: "start",
+				error: null,
+			}}
+			onAction={() => {}}
 		/>,
 	);
 }

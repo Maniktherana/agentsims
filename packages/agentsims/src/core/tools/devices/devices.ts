@@ -136,7 +136,12 @@ export type DeviceListOptions = {
 	exposeState?: (state: DeviceState) => DeviceState;
 };
 
-export type StartDeviceOptions = { port: number; basePath?: string };
+export type StartDeviceOptions = {
+	port: number;
+	basePath?: string;
+	/** iOS only. false opts out of slim boots and persists; true opts back in. */
+	slim?: boolean;
+};
 
 /** One encoded image of the screen and the file extension that fits it. */
 export type DeviceCapture = { bytes: Uint8Array; extension: "png" | "jpg" };
@@ -148,7 +153,9 @@ export function makeDeviceService(
 		DeviceLifecycleServiceValue,
 		"start" | "shutdown" | "states"
 	> &
-		Partial<Pick<DeviceLifecycleServiceValue, "invalidate">>,
+		Partial<
+			Pick<DeviceLifecycleServiceValue, "invalidate" | "slimStatus" | "setSlim">
+		>,
 	resolveSession: (
 		device: string,
 	) => Effect.Effect<
@@ -160,6 +167,15 @@ export function makeDeviceService(
 	store: SnapshotStore = createSnapshotStore(),
 ) {
 	const observation = { resolveSession, store, readForegroundApp };
+	const slimLifecycle = () => {
+		const { slimStatus, setSlim } = lifecycle;
+		if (!slimStatus || !setSlim)
+			throw new Error("Slim boot is not available on this server.");
+		return {
+			slimStatus: slimStatus.bind(lifecycle),
+			setSlim: setSlim.bind(lifecycle),
+		};
+	};
 	const actionRunner = makeDeviceActionRunner(observation);
 	const gone = (
 		device: string,
@@ -383,7 +399,9 @@ export function makeDeviceService(
 		start: (deviceId: string, options: StartDeviceOptions) =>
 			Effect.tryPromise({
 				try: () =>
-					lifecycle.start(deviceId, options.port, options.basePath ?? "/"),
+					lifecycle.start(deviceId, options.port, options.basePath ?? "/", {
+						slim: options.slim,
+					}),
 				catch: commandFailure,
 			}).pipe(
 				Effect.flatMap((result) =>
@@ -396,6 +414,16 @@ export function makeDeviceService(
 							}),
 				),
 			),
+		slimStatus: (deviceId: string) =>
+			Effect.tryPromise({
+				try: () => slimLifecycle().slimStatus(deviceId),
+				catch: commandFailure,
+			}),
+		setSlim: (deviceId: string, enabled: boolean) =>
+			Effect.tryPromise({
+				try: () => slimLifecycle().setSlim(deviceId, enabled),
+				catch: commandFailure,
+			}),
 		shutdown: (deviceId: string) =>
 			Effect.tryPromise({
 				try: () => lifecycle.shutdown(deviceId),

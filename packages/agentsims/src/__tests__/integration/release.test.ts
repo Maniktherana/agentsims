@@ -6,16 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeRelease } from "../../../scripts/release";
 import {
-	CHATGPT_ARCHIVE_NAME,
 	RUNTIME_TARGETS,
 	runtimeArchiveName,
 } from "../../../scripts/release-targets";
 
 let directory: string;
-const archives = [
-	...RUNTIME_TARGETS.map(runtimeArchiveName),
-	CHATGPT_ARCHIVE_NAME,
-];
+const archives = RUNTIME_TARGETS.map(runtimeArchiveName);
 const sha256 = (file: string) =>
 	createHash("sha256")
 		.update(readFileSync(join(directory, file)))

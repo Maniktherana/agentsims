@@ -20,7 +20,8 @@ import {
 	type AndroidSession,
 } from "../../android/session/session";
 import { IosSessions } from "../../ios/session";
-import { debugMw } from "../../logging";
+import { debugMw, logRuntime } from "../../logging";
+import { IosSlimming, type SlimDevice, type SlimStatus } from "../../ios/slim";
 import {
 	DeviceStateStore,
 	inProcessDeviceState,
@@ -94,6 +95,7 @@ export interface DeviceLifecycleDependencies {
 	getIosSession(udid: string): { start(): Promise<void> };
 	closeIosSession(udid: string): Promise<void>;
 	writeDeviceState(state: DeviceState): Promise<void>;
+	slimming?: IosSlimming;
 	removeDeviceState(device: string): Promise<void>;
 	listStateFiles(): Promise<string[]>;
 	readDeviceState(file: string): Promise<DeviceState>;
@@ -122,6 +124,13 @@ const UNCONFIGURED_LIFECYCLE_DEPENDENCIES: DeviceLifecycleDependencies = {
 
 export const DEVICE_SHUTTING_DOWN_ERROR = "Device is shutting down";
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
+const IOS_SESSION_RETRY_MS = 250;
+const IOS_ATTACH_GRACE_MS = 20_000;
+
+export type IosStartOptions = {
+	/** false opts the device out of slim boots; true opts it in. Both persist. */
+	slim?: boolean;
+};
 
 /** `simctl list` and `adb devices` cost real CPU. Starts and shutdowns clear this cache. */
 export const DEVICE_LIST_MS = 5_000;
@@ -243,6 +252,7 @@ export class DeviceLifecycle {
 		device: string,
 		port: number,
 		base: string,
+		options: IosStartOptions = {},
 	): Promise<{ error: string | null; device?: string }> {
 		if (this.isStartSuppressed(device))
 			return { error: DEVICE_SHUTTING_DOWN_ERROR };
@@ -261,7 +271,60 @@ export class DeviceLifecycle {
 			return { error: "Invalid or missing device" };
 		if (this.platform !== "darwin")
 			return { error: "iOS Simulator requires a macOS server with Xcode." };
-		return { error: await this.startIosDevice(device, port, base), device };
+		return {
+			error: await this.startIosDevice(device, port, base, options.slim),
+			device,
+		};
+	}
+
+	async slimStatus(udid: string): Promise<SlimStatus> {
+		return this.requireSlimming().status(udid, await this.iosDevice(udid));
+	}
+
+	/** Persist the choice. A booted device applies it at the next boot. */
+	async setSlim(udid: string, enabled: boolean): Promise<SlimStatus> {
+		return this.requireSlimming().setEnabled(
+			udid,
+			await this.iosDevice(udid),
+			enabled,
+		);
+	}
+
+	private requireSlimming(): IosSlimming {
+		const slimming = this.dependencies.slimming;
+		if (!slimming || this.platform !== "darwin")
+			throw new Error("Slim boot requires a macOS server with Xcode.");
+		return slimming;
+	}
+
+	private async iosDevice(udid: string): Promise<SlimDevice> {
+		if (!isIosSimulatorId(udid)) throw new Error("Invalid or missing device");
+		const list = await this.execute(
+			"xcrun",
+			["simctl", "list", "devices", "-j"],
+			10_000,
+		);
+		const data = JSON.parse(list.stdout) as SimctlBootedList;
+		for (const [runtime, devices] of Object.entries(data.devices)) {
+			const match = devices.find((device) => device.udid === udid);
+			if (match) return { state: match.state, runtime };
+		}
+		throw new Error(`Device ${udid} not found`);
+	}
+
+	/** Slimming never fails a boot. */
+	private async prepareSlim(udid: string, requested?: boolean): Promise<boolean> {
+		const slimming = this.dependencies.slimming;
+		if (!slimming) return false;
+		try {
+			return await slimming.prepare(udid, await this.iosDevice(udid), requested);
+		} catch (error) {
+			logRuntime(
+				`ios:${udid}`,
+				`Slim boot skipped: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return false;
+		}
 	}
 
 	async shutdown(device: string): Promise<string | null> {
@@ -322,17 +385,25 @@ export class DeviceLifecycle {
 		udid: string,
 		port: number,
 		base: string,
+		slim?: boolean,
 	): Promise<string | null> {
+		const slimmed = await this.prepareSlim(udid, slim);
 		const boot = await this.execute("xcrun", ["simctl", "boot", udid], 30_000);
 		// A second boot after a rejected boot can start the simulator without a
 		// display, and SpringBoard then crashes in a loop. Stop at the first error.
 		if (boot.error && !/current state: Booted/.test(boot.stderr))
 			return `Device ${udid} could not boot: ${boot.stderr.trim() || boot.error.message}`;
+		// Stream the boot: start the session while bootstatus waits, so a viewer
+		// can attach now. Resolve only after bootstatus; callers need a ready device.
+		let booting = true;
+		const streaming = this.startIosSession(udid, port, base, () => booting);
 		const ready = await this.execute(
 			"xcrun",
 			["simctl", "bootstatus", udid],
 			180_000,
 		);
+		booting = false;
+		const streamError = await streaming;
 		if (ready.error) {
 			const list = await this.execute(
 				"xcrun",
@@ -348,18 +419,41 @@ export class DeviceLifecycle {
 			} catch (error) {
 				console.warn("[agentsims:server] recoverable operation failed", error);
 			}
-			if (!booted) return `Device ${udid} failed to reach booted state`;
+			if (!booted) {
+				await this.dependencies.closeIosSession(udid);
+				await this.dependencies.removeDeviceState(udid);
+				this.invalidate();
+				return `Device ${udid} failed to reach booted state`;
+			}
 		}
-		try {
-			await this.dependencies.getIosSession(udid).start();
-			await this.dependencies.writeDeviceState(
-				inProcessDeviceState(udid, port, base),
-			);
-			this.invalidate();
-			return null;
-		} catch (error) {
-			await this.dependencies.closeIosSession(udid);
-			return error instanceof Error ? error.message : String(error);
+		if (slimmed) void this.dependencies.slimming?.verify(udid);
+		if (!streamError) return null;
+		// An attached or just-booted device can publish its display late.
+		const deadline = Date.now() + IOS_ATTACH_GRACE_MS;
+		return this.startIosSession(udid, port, base, () => Date.now() < deadline);
+	}
+
+	/** Retries while `retry()` is true: capture fails until the display exists. */
+	private async startIosSession(
+		udid: string,
+		port: number,
+		base: string,
+		retry: () => boolean,
+	): Promise<string | null> {
+		for (;;) {
+			if (this.isStartSuppressed(udid)) return DEVICE_SHUTTING_DOWN_ERROR;
+			try {
+				await this.dependencies.getIosSession(udid).start();
+				await this.dependencies.writeDeviceState(
+					inProcessDeviceState(udid, port, base),
+				);
+				this.invalidate();
+				return null;
+			} catch (error) {
+				if (!retry())
+					return error instanceof Error ? error.message : String(error);
+			}
+			await new Promise((resolve) => setTimeout(resolve, IOS_SESSION_RETRY_MS));
 		}
 	}
 
@@ -532,6 +626,8 @@ export type DeviceLifecycleServiceValue = Pick<
 	| "select"
 	| "start"
 	| "shutdown"
+	| "slimStatus"
+	| "setSlim"
 >;
 
 export class DeviceLifecycleService extends Context.Tag(
@@ -552,6 +648,7 @@ export const DeviceLifecycleLive = Layer.effect(
 			getIosSession: (udid) => Effect.runSync(iosSessions.get(udid)),
 			closeIosSession: (udid) => Effect.runPromise(iosSessions.close(udid)),
 			writeDeviceState: (state) => Effect.runPromise(stateStore.write(state)),
+			slimming: new IosSlimming(execFileResult),
 			removeDeviceState: (device) =>
 				Effect.runPromise(stateStore.remove(device)),
 			listStateFiles: () => Effect.runPromise(stateStore.listFiles()),

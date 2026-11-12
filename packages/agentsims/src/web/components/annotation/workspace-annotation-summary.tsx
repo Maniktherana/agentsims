@@ -13,7 +13,23 @@ import type {
 	AnnotationSendResult,
 	LiveAnnotationSummaryController,
 } from "../../annotation/live-contracts";
-import { copyWorkspaceAnnotationNotes } from "../../annotation/copy";
+import {
+	copyWorkspaceAnnotationNotes,
+	type CopiedAnnotationNotes,
+} from "../../annotation/copy";
+import { copyAnnotationImage } from "../../annotation/client";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@agentsims/ui/components/select";
+import {
+	CONTEXT_PROMPT_DETAILS,
+	isContextPromptDetail,
+} from "../../../core/tools/context/prompt";
+import { useAnnotationDetail } from "../../hooks/annotation/use-annotation-detail";
 import {
 	prepareWorkspaceAnnotationSend,
 	workspaceAnnotationComments,
@@ -29,6 +45,14 @@ export interface WorkspaceAnnotationSummaryProps {
 	send?: (payload: AnnotationSendPayload) => Promise<AnnotationSendResult>;
 }
 
+/** How long Copy prompt stays as Copy image after a prompt copy. */
+const IMAGE_COPY_WINDOW_MS = 10_000;
+const DETAIL_LABELS = {
+	compact: "Compact",
+	standard: "Standard",
+	detailed: "Detailed",
+} as const;
+
 const styles = {
 	chip: "flex items-center gap-1 rounded-full bg-popover p-1.5 text-popover-foreground shadow-[0_8px_24px_rgba(0,0,0,0.3),0_0_0_1px_var(--border)]",
 	list: "absolute bottom-full left-1/2 mb-2 w-80 max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-xl bg-popover p-2 text-popover-foreground shadow-[0_12px_32px_rgba(0,0,0,0.35),0_0_0_1px_var(--border)]",
@@ -43,6 +67,13 @@ export function WorkspaceAnnotationSummary({
 	const [open, setOpen] = useState(false);
 	const [copying, setCopying] = useState(false);
 	const [sending, setSending] = useState(false);
+	const [detail, setDetail] = useAnnotationDetail();
+	// After a prompt copy, the copy button writes only the marked image.
+	const [imageCopy, setImageCopy] = useState<CopiedAnnotationNotes | null>(
+		null,
+	);
+	const imageCopyRef = useRef<CopiedAnnotationNotes | null>(null);
+	const imageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const copyBusy = useRef(false);
 	const sendBusy = useRef(false);
 	const controllersRef = useRef(controllers);
@@ -73,19 +104,62 @@ export function WorkspaceAnnotationSummary({
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [open]);
+	const finishImageCopy = () => {
+		if (imageTimer.current) clearTimeout(imageTimer.current);
+		imageTimer.current = null;
+		const copied = imageCopyRef.current;
+		imageCopyRef.current = null;
+		setImageCopy(null);
+		if (!copied) return;
+		copied.clear();
+		onCopied?.();
+	};
+	const finishImageCopyRef = useRef(finishImageCopy);
+	finishImageCopyRef.current = finishImageCopy;
+	useEffect(() => () => finishImageCopyRef.current(), []);
 	if (!comments.length) return null;
-	const copy = async () => {
-		if (copyBusy.current) return;
+	const copyImage = async (copied: CopiedAnnotationNotes) => {
 		copyBusy.current = true;
 		setCopying(true);
 		try {
-			await copyWorkspaceAnnotationNotes(
+			// Start the write in the click so the browser keeps the user activation.
+			await copyAnnotationImage(copied.payload);
+			notify("success", "Image copied");
+			finishImageCopy();
+		} catch (error) {
+			notify("error", "Image copy failed", {
+				description:
+					error instanceof Error
+						? error.message
+						: "Check clipboard access, then try again. Your notes are retained.",
+			});
+		} finally {
+			copyBusy.current = false;
+			setCopying(false);
+		}
+	};
+	const copy = async () => {
+		if (copyBusy.current) return;
+		if (imageCopyRef.current) return copyImage(imageCopyRef.current);
+		copyBusy.current = true;
+		setCopying(true);
+		try {
+			const copied = await copyWorkspaceAnnotationNotes(
 				controllers,
 				() => controllersRef.current,
+				detail,
 			);
 			setOpen(false);
-			onCopied?.();
-			notify("success", "Prompt copied");
+			imageCopyRef.current = copied;
+			setImageCopy(copied);
+			imageTimer.current = setTimeout(
+				() => finishImageCopyRef.current(),
+				IMAGE_COPY_WINDOW_MS,
+			);
+			notify("success", "Prompt copied", {
+				description:
+					"If the image did not attach, select Copy image and paste again.",
+			});
 		} catch (error) {
 			notify("error", "Copy failed", {
 				description:
@@ -107,6 +181,7 @@ export function WorkspaceAnnotationSummary({
 			const payload = await prepareWorkspaceAnnotationSend(
 				controllers,
 				() => controllersRef.current,
+				detail,
 			);
 			if (!payload) {
 				notify("error", "Context sync is incomplete", {
@@ -153,6 +228,26 @@ export function WorkspaceAnnotationSummary({
 				>
 					<div className="mb-1 flex items-center justify-between gap-2">
 						<span className="text-[13px] font-medium">Comments</span>
+						<Select
+							value={detail}
+							onValueChange={(next) => {
+								if (isContextPromptDetail(next)) setDetail(next);
+							}}
+						>
+							<SelectTrigger
+								aria-label="Prompt detail"
+								className="ml-auto w-28"
+							>
+								<SelectValue>{DETAIL_LABELS[detail]}</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{CONTEXT_PROMPT_DETAILS.map((level) => (
+									<SelectItem key={level} value={level}>
+										{DETAIL_LABELS[level]}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 						<Button
 							variant="quiet"
 							size="icon-sm"
@@ -279,7 +374,7 @@ export function WorkspaceAnnotationSummary({
 					disabled={copying}
 					onClick={() => void copy()}
 				>
-					Copy prompt
+					<TextMorph>{imageCopy ? "Copy image" : "Copy prompt"}</TextMorph>
 				</Button>
 				{canSend ? (
 					<Button

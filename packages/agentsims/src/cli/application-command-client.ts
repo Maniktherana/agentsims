@@ -302,17 +302,34 @@ export class ApplicationCommandClient {
 	async exportContext(
 		workspace: string,
 		ids: readonly string[],
+		detail?: "compact" | "standard" | "detailed",
 	): Promise<unknown> {
 		return this.request("/context/export", {
 			method: "POST",
-			body: JSON.stringify({ workspace, ids }),
+			body: JSON.stringify({ workspace, ids, detail }),
 		});
 	}
 
-	async startDevice(deviceId: string): Promise<unknown> {
+	async startDevice(
+		deviceId: string,
+		options: { slim?: boolean } = {},
+	): Promise<unknown> {
 		return this.request("/grid/api/start", {
 			method: "POST",
-			body: JSON.stringify({ udid: deviceId }),
+			body: JSON.stringify({ udid: deviceId, slim: options.slim }),
+		});
+	}
+
+	async slimStatus(deviceId: string): Promise<unknown> {
+		return this.request(
+			`/grid/api/slim?${new URLSearchParams({ udid: deviceId })}`,
+		);
+	}
+
+	async setSlim(deviceId: string, enabled: boolean): Promise<unknown> {
+		return this.request("/grid/api/slim", {
+			method: "POST",
+			body: JSON.stringify({ udid: deviceId, enabled }),
 		});
 	}
 

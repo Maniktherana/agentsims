@@ -15,7 +15,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { build as viteBuild } from "vite";
 import ts from "typescript";
 import {
-	CHATGPT_ARCHIVE_NAME,
 	LIBRARY_ARTIFACTS,
 	LIBRARY_DECLARATIONS,
 	runtimeArchiveName,
@@ -37,14 +36,9 @@ const root = resolve(import.meta.dir, "..");
 const dist = resolve(root, "dist");
 const libraryRoot = resolve(root, "../agentsims-react-native");
 const libraryDist = resolve(libraryRoot, "dist");
-const pluginRoot = resolve(root, "../chatgpt");
-const pluginDist = resolve(pluginRoot, "dist");
 const libraryOnly = process.argv.includes("--library-only");
-const pluginOnly = process.argv.includes("--plugin-only");
-if (libraryOnly && pluginOnly)
-	throw new Error("Select one package build mode.");
 const target = runtimeTarget(process.platform, process.arch);
-if (!target && !libraryOnly && !pluginOnly)
+if (!target && !libraryOnly)
 	throw new Error(
 		`Unsupported build host: ${process.platform}-${process.arch}`,
 	);
@@ -67,37 +61,6 @@ function run(command: string, ...args: string[]): void {
 		throw new Error(
 			`${command} ${args[0] ?? ""} failed (${result.signal ?? result.status})`,
 		);
-}
-
-/** The Codex plugin is static files: a manifest, one skill, and the logo. */
-function buildPlugin(): void {
-	rmSync(pluginDist, { recursive: true, force: true });
-	const installed = resolve(pluginDist, "plugin");
-	for (const file of [".codex-plugin", "skills", "assets", "README.md"])
-		cpSync(resolve(pluginRoot, file), resolve(installed, file), {
-			recursive: true,
-		});
-	cpSync(resolve(root, "LICENSE"), resolve(installed, "LICENSE"));
-	const manifestPath = resolve(installed, ".codex-plugin/plugin.json");
-	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	writeFileSync(
-		manifestPath,
-		JSON.stringify({ ...manifest, version }, null, 2) + "\n",
-	);
-	run(
-		runtimeArchiveTool(process.platform),
-		"-czf",
-		resolve(pluginDist, CHATGPT_ARCHIVE_NAME),
-		"-C",
-		installed,
-		".",
-	);
-	console.log("Built Codex plugin");
-}
-
-if (pluginOnly) {
-	buildPlugin();
-	process.exit(0);
 }
 
 async function buildLibrary(): Promise<void> {
@@ -241,6 +204,12 @@ await viteBuild({
 	configFile: false,
 	root,
 	base: "/__SIM_PREVIEW_BASE__/",
+	// The server rewrites the base only in HTML and CSS. Assets that JavaScript
+	// references, such as the video worker, resolve relative to their importer.
+	experimental: {
+		renderBuiltUrl: (_file: string, { hostType }: { hostType: string }) =>
+			hostType === "js" ? { relative: true } : undefined,
+	},
 	logLevel: "warn",
 	plugins: [react(), tailwindcss()],
 	resolve: {

@@ -37,6 +37,7 @@ actor HIDInjector {
     private var simDevice: NSObject?
     private var coreDevice: CoreDeviceHID?
     private var coreDeviceRetryAt: ContinuousClock.Instant?
+    private var coreDeviceConnecting = false
 
     // IndigoHIDMessageForMouseNSEvent(CGPoint*, CGPoint*, IndigoHIDTarget, NSEventType, NSSize, IndigoHIDEdge)
     // arm64 ABI: pointer/int params → x0-x4, float params → d0-d1 (independent numbering).
@@ -167,16 +168,35 @@ actor HIDInjector {
     static let edgeLeft: UInt32   = 1  // Left edge
     static let edgeRight: UInt32  = 4  // Right edge
 
-    /// Returns the CoreDevice transport when the runtime has one. A closed
-    /// connection, for example after dtuhidd restarts, reconnects at most once
-    /// per second. A runtime without dtuhidd is checked again every 10 s.
+    /// Returns the CoreDevice transport when it is connected. This runs for
+    /// every input event, so it only reads memory. A missing or closed
+    /// connection, for example after dtuhidd restarts, reconnects in the
+    /// background at most once per second (every 10 s when the runtime has no
+    /// dtuhidd); events use the legacy client until then.
     private func coreDeviceTransport() -> CoreDeviceHID? {
         if let coreDevice, coreDevice.isConnected { return coreDevice }
+        reconnectCoreDevice()
+        return nil
+    }
+
+    private func reconnectCoreDevice() {
+        guard !coreDeviceConnecting, let device = simDevice else { return }
         let now = ContinuousClock.now
-        if let coreDeviceRetryAt, now < coreDeviceRetryAt { return nil }
-        coreDevice = simDevice.flatMap { CoreDeviceHID(device: $0) }
-        coreDeviceRetryAt = now + (coreDevice == nil ? .seconds(10) : .seconds(1))
-        return coreDevice
+        if let coreDeviceRetryAt, now < coreDeviceRetryAt { return }
+        coreDeviceConnecting = true
+        // CoreDeviceHID.init calls -[SimDevice lookup:error:], a synchronous
+        // CoreSimulator XPC round trip. Keep it off the input queue.
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let transport = CoreDeviceHID(device: device)
+            await self?.installCoreDevice(transport)
+        }
+    }
+
+    private func installCoreDevice(_ transport: CoreDeviceHID?) {
+        coreDeviceConnecting = false
+        guard simDevice != nil else { return }
+        coreDevice = transport
+        coreDeviceRetryAt = ContinuousClock.now + (transport == nil ? .seconds(10) : .seconds(1))
     }
 
     private static func coreDeviceEventType(_ type: String) -> UInt64? {

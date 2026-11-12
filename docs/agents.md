@@ -39,11 +39,6 @@ To review what the agent did, open the trace panel in the [workspace](workspace.
 Use [annotations](workspace.md#send-notes-to-an-agent) to mark problems on a phone screen.
 Then select **Copy prompt** and paste the notes into the agent.
 
-## Use Agentsims inside Codex
-
-A Codex side panel for the workspace is in development.
-Until it is available, use the skill and the browser workspace.
-
 ## Start Agentsims from your own tool
 
 A tool can start its own Agentsims server and stop it when the work is complete:

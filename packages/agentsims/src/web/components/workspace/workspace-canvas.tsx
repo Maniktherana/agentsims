@@ -38,6 +38,10 @@ import {
 	DEVICE_PRESENCE_TRANSITION,
 } from "../../simulator/presence-motion";
 import type { GridDevice } from "../../workspace/grid";
+import {
+	catalogDeviceFor,
+	pendingDevicePresentation,
+} from "../../workspace/canvas-devices";
 import type { PreviewConfig } from "../../workspace/workspace-state";
 import { usePanelPhonePlacement } from "../../hooks/workspace/use-panel-phone-placement";
 import type {
@@ -103,6 +107,8 @@ function DraggableDevice({
 		startX: number;
 		startY: number;
 		offset: WorkspaceDeviceOffset;
+		/** The offset drawn during the drag. State changes once, on release. */
+		latest: WorkspaceDeviceOffset;
 	} | null>(null);
 
 	const correctingRef = useRef(false);
@@ -216,6 +222,7 @@ function DraggableDevice({
 				startX: event.clientX,
 				startY: event.clientY,
 				offset,
+				latest: offset,
 			};
 			ref.current.dataset.dragging = "true";
 			setDragging(true);
@@ -231,9 +238,17 @@ function DraggableDevice({
 				x: drag.offset.x + event.clientX - drag.startX,
 				y: drag.offset.y + event.clientY - drag.startY,
 			};
-			onOffsetChange(deviceId, next);
+			drag.latest = next;
+			// Move only this element. A state change per move renders every device.
+			if (ref.current)
+				ref.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`;
+			window.dispatchEvent(
+				new CustomEvent(WORKSPACE_DEVICE_GEOMETRY_EVENT, {
+					detail: { deviceId },
+				}),
+			);
 		},
-		[deviceId, onOffsetChange],
+		[deviceId],
 	);
 
 	const finishDrag = useCallback(
@@ -246,9 +261,10 @@ function DraggableDevice({
 			if (event.currentTarget.hasPointerCapture(event.pointerId)) {
 				event.currentTarget.releasePointerCapture(event.pointerId);
 			}
+			if (drag.latest !== drag.offset) onOffsetChange(deviceId, drag.latest);
 			onOffsetCommit();
 		},
-		[onOffsetCommit],
+		[deviceId, onOffsetChange, onOffsetCommit],
 	);
 
 	return (
@@ -296,8 +312,13 @@ function DraggableDevice({
 	);
 }
 
+/**
+ * The dot grid is the only workspace surface. With no devices it is empty.
+ * A device that does not stream yet has its slot, frame, and size on the grid,
+ * and its stream replaces the dark screen in place.
+ */
 export function WorkspaceCanvas({
-	visibleDeviceIds,
+	deviceIds,
 	devices,
 	configsByDevice,
 	fallbackConfig,
@@ -306,9 +327,8 @@ export function WorkspaceCanvas({
 	onPanCommit,
 	initialOffsets,
 	onOffsetsCommit,
-	selectedDevice,
-	runningDeviceCount,
 	starting,
+	shuttingDown,
 	actionErrors,
 	onFocus,
 	onStart,
@@ -318,7 +338,8 @@ export function WorkspaceCanvas({
 }: {
 	bottomInset?: number;
 	controlsOffset?: MotionValue<string>;
-	visibleDeviceIds: readonly string[];
+	/** Visible devices, then devices that do not stream yet. */
+	deviceIds: readonly string[];
 	devices: GridDevice[] | null;
 	configsByDevice: Record<string, PreviewConfig | null>;
 	fallbackConfig: PreviewConfig | null;
@@ -327,18 +348,15 @@ export function WorkspaceCanvas({
 	onPanCommit: (pan: CanvasPan) => void;
 	initialOffsets: WorkspaceDeviceOffsets;
 	onOffsetsCommit: (offsets: WorkspaceDeviceOffsets) => void;
-	selectedDevice: GridDevice | null;
-	runningDeviceCount: number;
 	starting: Record<string, boolean>;
+	shuttingDown: Record<string, boolean>;
 	actionErrors: Record<string, string | null>;
 	onFocus: (deviceId: string) => void;
 	onStart: (deviceId: string) => void;
 	renderDevice: (context: WorkspaceDeviceRenderContext) => ReactNode;
 }) {
 	const canvasRef = useRef<HTMLDivElement | null>(null);
-	const renderedDeviceIds = visibleDeviceIds.filter(
-		(id) => configsByDevice[id] || fallbackConfig?.device === id,
-	);
+	const renderedDeviceIds = deviceIds;
 	const previousVisibleRef = useRef(new Set(renderedDeviceIds));
 	const lastActiveDeviceRef = useRef(
 		focusedDeviceId ?? renderedDeviceIds[0] ?? null,
@@ -349,7 +367,6 @@ export function WorkspaceCanvas({
 			? lastActiveDeviceRef.current
 			: (renderedDeviceIds[0] ?? null);
 	const [exitRevision, setExitRevision] = useState(0);
-	const [emptyReady, setEmptyReady] = useState(visibleDeviceIds.length === 0);
 	const layoutRevision = `${renderedDeviceIds.join("|")}:${exitRevision}`;
 	const canvasPan = useCanvasPan(
 		canvasRef,
@@ -360,8 +377,6 @@ export function WorkspaceCanvas({
 	);
 	const positionsRef = useRef(new Map<string, WorkspaceDevicePosition>());
 	useLayoutEffect(() => {
-		if (renderedDeviceIds.length > 0) setEmptyReady(false);
-		else if (previousVisibleRef.current.size === 0) setEmptyReady(true);
 		previousVisibleRef.current = new Set(renderedDeviceIds);
 		if (activeDeviceId) lastActiveDeviceRef.current = activeDeviceId;
 	}, [layoutRevision, activeDeviceId]);
@@ -452,41 +467,6 @@ export function WorkspaceCanvas({
 		if (activeDeviceId) recenterOnDevice(activeDeviceId);
 	}, [activeDeviceId, persistOffsets, recenterOnDevice, renderedDeviceIds]);
 
-	const emptyWorkspace =
-		visibleDeviceIds.length === 0 && emptyReady ? (
-			<div
-				className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-page font-system box-border"
-				style={WORKSPACE_PADDING}
-			>
-				{selectedDevice && !selectedDevice.helper ? (
-					<DevicePlaceholder
-						deviceId={selectedDevice.device}
-						name={selectedDevice.name}
-						runtime={selectedDevice.runtime}
-						chrome={selectedDevice.chrome ?? null}
-						placeholderAsset={selectedDevice.placeholderAsset ?? null}
-						busy={!!starting[selectedDevice.device]}
-						busyLabel="Starting"
-						actionLabel={
-							selectedDevice.state === "Booted" ? "Connect" : "Start"
-						}
-						error={actionErrors[selectedDevice.device] ?? null}
-						onStart={() => onStart(selectedDevice.device)}
-					/>
-				) : runningDeviceCount > 0 ? (
-					<EmptyWorkspace
-						title="No running devices selected"
-						detail="Choose one or more running devices from the device picker."
-					/>
-				) : (
-					<EmptyWorkspace
-						title="No running devices"
-						detail="Add an iOS simulator or Android emulator from the device picker."
-					/>
-				)}
-			</div>
-		) : null;
-
 	return (
 		<>
 			<div
@@ -528,15 +508,10 @@ export function WorkspaceCanvas({
 					>
 						<AnimatePresence
 							initial={false}
-							onExitComplete={() => {
-								setExitRevision((value) => value + 1);
-								if (renderedDeviceIds.length === 0) setEmptyReady(true);
-							}}
+							onExitComplete={() => setExitRevision((value) => value + 1)}
 						>
 							{renderedDeviceIds.map((deviceId) => {
-								const device =
-									devices?.find((candidate) => candidate.device === deviceId) ??
-									null;
+								const device = catalogDeviceFor(devices, deviceId);
 								const config =
 									configsByDevice[deviceId] ??
 									(fallbackConfig?.device === deviceId ? fallbackConfig : null);
@@ -557,18 +532,30 @@ export function WorkspaceCanvas({
 										visibleDeviceIds={renderedDeviceIds}
 										bottomInset={bottomInset}
 									>
-										{config
-											? renderDevice({ deviceId, device, config, focused })
-											: null}
+										{config ? (
+											renderDevice({ deviceId, device, config, focused })
+										) : (
+											<DevicePlaceholder
+												deviceId={deviceId}
+												name={device?.name ?? deviceId.replace(/^android:/, "")}
+												chrome={device?.chrome ?? null}
+												placeholderAsset={device?.placeholderAsset ?? null}
+												presentation={pendingDevicePresentation(device, {
+													starting: !!starting[deviceId],
+													shuttingDown: !!shuttingDown[deviceId],
+													error: actionErrors[deviceId] ?? null,
+												})}
+												onAction={() => onStart(deviceId)}
+											/>
+										)}
 									</DraggableDevice>
 								);
 							})}
 						</AnimatePresence>
 					</div>
 				</div>
-				{emptyWorkspace}
 			</div>
-			{visibleDeviceIds.length > 0 && (
+			{renderedDeviceIds.length > 0 && (
 				<motion.div
 					role="toolbar"
 					aria-label="Canvas view"
@@ -613,14 +600,5 @@ export function WorkspaceCanvas({
 				</motion.div>
 			)}
 		</>
-	);
-}
-
-function EmptyWorkspace({ title, detail }: { title: string; detail: string }) {
-	return (
-		<div className="flex flex-col items-center gap-3 text-center">
-			<h1 className="m-0 text-[18px] text-white/90">{title}</h1>
-			<p className="max-w-120 text-[14px] text-white/55">{detail}</p>
-		</div>
 	);
 }

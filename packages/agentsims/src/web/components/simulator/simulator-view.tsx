@@ -34,6 +34,11 @@ import { isAvccSupported } from "../../simulator/stream/avcc-codec.js";
 import type { SimulatorFrameTiming } from "../../simulator/stream/avcc-codec.js";
 import { LatestValueScheduler } from "../../../core/latest-value-scheduler.js";
 import { useMjpegStream } from "../../hooks/simulator/use-mjpeg-stream.js";
+import { inputFlowFor } from "../../simulator/stream/ws-send-queue.js";
+import {
+	publishStreamStats,
+	streamStatsKey,
+} from "../../simulator/stream/stream-stats.js";
 import { isCurrentMjpegPresentation } from "../../simulator/stream/mjpeg-presentation.js";
 import { SimulatorFrameRateStore } from "../../simulator/stream/simulator-frame-rate.js";
 import { isPresentedStreamStale } from "../../simulator/stream/stream-presentation-liveness.js";
@@ -41,15 +46,11 @@ import {
 	captureRenderedScreenshot,
 	type RenderedScreenshot,
 } from "../../simulator/screenshot/rendered-screenshot.js";
+import { snapSurfaceSize } from "../../simulator/stream/canvas-backing-size.js";
 import { StreamPlaceholder } from "./stream-placeholder.js";
 
 // Custom round cursor matching the finger dot indicator
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
-
-// Scale applied to the AVCC <canvas> so its antialiased layer edge overshoots
-// the surface's overflow:hidden clip (see canvasStyle below). ~0.4% covers a
-// 1px seam at any window size while cropping only a sub-pixel of content.
-const CANVAS_SEAM_OVERSHOOT = 1.004;
 
 const WS_MSG_TOUCH = 0x03;
 const WS_MSG_BUTTON = 0x04;
@@ -59,6 +60,19 @@ const WS_MSG_SCROLL = 0x0b;
 
 type MoveMessage = { type: "begin" | "move" | "end" };
 
+/** Direct mode sends through the socket's input flow: one message in flight. */
+function sendDirectInput(
+	ws: WebSocket | null,
+	tag: number,
+	payload: object,
+): void {
+	if (!ws || ws.readyState !== WebSocket.OPEN) return;
+	inputFlowFor(ws).send({ tag, payload });
+}
+
+/** A reopened H.264 response within this time keeps the stream shown as live. */
+const AVCC_RECONNECT_GRACE_MS = 2_500;
+
 export function streamSurfaceState(
 	connected: boolean,
 	hasPresentedFrame: boolean,
@@ -67,21 +81,34 @@ export function streamSurfaceState(
 	return hasPresentedFrame ? "retained-frame" : "placeholder";
 }
 
+/** Moves sent per second. A device cannot show finger positions faster. */
+const DEFAULT_MAX_INPUT_FPS = 60;
+
+/**
+ * At most one move per frame interval, newest wins. Begin and end are sent at
+ * once, after any waiting move, so the gesture keeps its order.
+ */
 function useMoveCoalescedSender<T extends MoveMessage>(
 	sendNow: (message: T) => void,
-	maxInputFps?: number,
+	maxInputFps = DEFAULT_MAX_INPUT_FPS,
+	onCoalesced?: () => void,
 ): (message: T) => void {
 	const sendNowRef = useRef(sendNow);
 	sendNowRef.current = sendNow;
+	const onCoalescedRef = useRef(onCoalesced);
+	onCoalescedRef.current = onCoalesced;
 	const schedulerRef = useRef<LatestValueScheduler<T> | null>(null);
+	const pendingRef = useRef(false);
 
 	useEffect(() => {
 		schedulerRef.current?.cancel();
+		pendingRef.current = false;
 		schedulerRef.current =
-			maxInputFps && maxInputFps > 0
-				? new LatestValueScheduler(1000 / maxInputFps, (message) =>
-						sendNowRef.current(message),
-					)
+			maxInputFps > 0
+				? new LatestValueScheduler(1000 / maxInputFps, (message) => {
+						pendingRef.current = false;
+						sendNowRef.current(message);
+					})
 				: null;
 		return () => schedulerRef.current?.cancel();
 	}, [maxInputFps]);
@@ -89,11 +116,12 @@ function useMoveCoalescedSender<T extends MoveMessage>(
 	return useCallback((message: T) => {
 		const scheduler = schedulerRef.current;
 		if (message.type === "move" && scheduler) {
+			if (pendingRef.current) onCoalescedRef.current?.();
+			pendingRef.current = true;
 			scheduler.push(message);
 			return;
 		}
-		if (message.type === "end") scheduler?.flush();
-		else scheduler?.cancel();
+		scheduler?.flush();
 		sendNowRef.current(message);
 	}, []);
 }
@@ -139,7 +167,10 @@ export interface SimulatorViewProps {
 	}) => void;
 	/** Enables mouse-wheel/trackpad Digital Crown rotation forwarding. */
 	enableDigitalCrown?: boolean;
-	/** Caps high-frequency drag updates while keeping gesture boundaries immediate. */
+	/**
+	 * Caps drag updates while keeping gesture boundaries immediate. The default
+	 * is 60 on every platform; 0 sends every move.
+	 */
 	maxInputFps?: number;
 	/** Coordinate space expected by the relay. Android maps display coordinates server-side. */
 	relayInputCoordinates?: "raw" | "display";
@@ -519,23 +550,41 @@ export function SimulatorView({
 		},
 		[simulatorFrameRate],
 	);
+	const transportLossTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	useEffect(
+		() => () => {
+			if (transportLossTimerRef.current)
+				clearTimeout(transportLossTimerRef.current);
+		},
+		[],
+	);
 	const onAvccTransportChange = useCallback(
 		(transportConnected: boolean) => {
 			avccTransportConnectedRef.current = transportConnected;
-			if (
-				transportConnected &&
-				(typeof document === "undefined" || !document.hidden)
-			) {
-				simulatorFrameRate.start();
-			} else if (!transportConnected) {
+			if (transportConnected) {
+				if (transportLossTimerRef.current)
+					clearTimeout(transportLossTimerRef.current);
+				transportLossTimerRef.current = null;
+				if (typeof document === "undefined" || !document.hidden)
+					simulatorFrameRate.start();
+				setError(null);
+				return;
+			}
+			// A response that ends and reopens at once is not an outage. Keep the
+			// frame, input, and toolbar live through a short reconnect.
+			if (transportLossTimerRef.current) return;
+			transportLossTimerRef.current = setTimeout(() => {
+				transportLossTimerRef.current = null;
+				if (avccTransportConnectedRef.current) return;
 				simulatorFrameRate.reset();
 				setConnected(false);
-			}
-			if (transportConnected) setError(null);
+			}, AVCC_RECONNECT_GRACE_MS);
 		},
 		[simulatorFrameRate],
 	);
-	useAvccStream({
+	const avccStream = useAvccStream({
 		url,
 		enabled: useAvcc && !paused,
 		viewer,
@@ -582,17 +631,26 @@ export function SimulatorView({
 				onStreamTouch?.(payload);
 				return;
 			}
-			const ws = wsRef.current;
-			if (!ws || ws.readyState !== WebSocket.OPEN) return;
-			const json = new TextEncoder().encode(JSON.stringify(payload));
-			const msg = new Uint8Array(1 + json.length);
-			msg[0] = WS_MSG_TOUCH;
-			msg.set(json, 1);
-			ws.send(msg);
+			sendDirectInput(wsRef.current, WS_MSG_TOUCH, payload);
 		},
 		[relayInputCoordinates, relayMode, onStreamTouch, visibleInputOrientation],
 	);
-	const sendTouch = useMoveCoalescedSender(sendTouchNow, maxInputFps);
+	const coalescedMovesRef = useRef({ count: 0, publishedAt: 0 });
+	const onMoveCoalesced = useCallback(() => {
+		const moves = coalescedMovesRef.current;
+		moves.count += 1;
+		const now = Date.now();
+		if (now - moves.publishedAt < 1_000) return;
+		moves.publishedAt = now;
+		publishStreamStats(streamStatsKey(url), {
+			inputFrameCoalesced: moves.count,
+		});
+	}, [url]);
+	const sendTouch = useMoveCoalescedSender(
+		sendTouchNow,
+		maxInputFps,
+		onMoveCoalesced,
+	);
 
 	const sendButton = useCallback(
 		(button: string) => {
@@ -600,13 +658,7 @@ export function SimulatorView({
 				onStreamButton?.(button);
 				return;
 			}
-			const ws = wsRef.current;
-			if (!ws || ws.readyState !== WebSocket.OPEN) return;
-			const json = new TextEncoder().encode(JSON.stringify({ button }));
-			const msg = new Uint8Array(1 + json.length);
-			msg[0] = WS_MSG_BUTTON;
-			msg.set(json, 1);
-			ws.send(msg);
+			sendDirectInput(wsRef.current, WS_MSG_BUTTON, { button });
 		},
 		[relayMode, onStreamButton],
 	);
@@ -618,13 +670,7 @@ export function SimulatorView({
 				onStreamDigitalCrown?.(delta);
 				return;
 			}
-			const ws = wsRef.current;
-			if (!ws || ws.readyState !== WebSocket.OPEN) return;
-			const json = new TextEncoder().encode(JSON.stringify({ delta }));
-			const msg = new Uint8Array(1 + json.length);
-			msg[0] = WS_MSG_DIGITAL_CROWN;
-			msg.set(json, 1);
-			ws.send(msg);
+			sendDirectInput(wsRef.current, WS_MSG_DIGITAL_CROWN, { delta });
 		},
 		[relayMode, onStreamDigitalCrown],
 	);
@@ -663,13 +709,7 @@ export function SimulatorView({
 				onStreamScroll?.(payload);
 				return;
 			}
-			const ws = wsRef.current;
-			if (!ws || ws.readyState !== WebSocket.OPEN) return;
-			const json = new TextEncoder().encode(JSON.stringify(payload));
-			const msg = new Uint8Array(1 + json.length);
-			msg[0] = WS_MSG_SCROLL;
-			msg.set(json, 1);
-			ws.send(msg);
+			sendDirectInput(wsRef.current, WS_MSG_SCROLL, payload);
 		},
 		[relayInputCoordinates, relayMode, onStreamScroll, visibleInputOrientation],
 	);
@@ -712,13 +752,7 @@ export function SimulatorView({
 				onStreamMultiTouch?.(payload);
 				return;
 			}
-			const ws = wsRef.current;
-			if (!ws || ws.readyState !== WebSocket.OPEN) return;
-			const json = new TextEncoder().encode(JSON.stringify(payload));
-			const msg = new Uint8Array(1 + json.length);
-			msg[0] = WS_MSG_MULTI_TOUCH;
-			msg.set(json, 1);
-			ws.send(msg);
+			sendDirectInput(wsRef.current, WS_MSG_MULTI_TOUCH, payload);
 		},
 		[
 			relayInputCoordinates,
@@ -727,7 +761,11 @@ export function SimulatorView({
 			visibleInputOrientation,
 		],
 	);
-	const sendMultiTouch = useMoveCoalescedSender(sendMultiTouchNow, maxInputFps);
+	const sendMultiTouch = useMoveCoalescedSender(
+		sendMultiTouchNow,
+		maxInputFps,
+		onMoveCoalesced,
+	);
 
 	useEffect(() => {
 		// In relay mode, skip direct WS/MJPEG connections
@@ -785,7 +823,11 @@ export function SimulatorView({
 		const checkStaleness = () => {
 			// Event-driven H.264 capture can stay silent on a static display.
 			// Its HTTP reader reports disconnection; frame silence must not disable input.
-			if (useAvcc && avccTransportConnectedRef.current) return;
+			if (
+				useAvcc &&
+				(avccTransportConnectedRef.current || transportLossTimerRef.current)
+			)
+				return;
 			const last = lastFrameAtRef.current;
 			if (!last || !connectedRef.current) return;
 			if (isPresentedStreamStale(last, Date.now())) setConnected(false);
@@ -1078,21 +1120,31 @@ export function SimulatorView({
 			viewportSize.width / displayScreenSize.width,
 			viewportSize.height / displayScreenSize.height,
 		);
-		return {
+		const box = {
 			width: displayScreenSize.width * scale,
 			height: displayScreenSize.height * scale,
 		};
+		// The canvas is its own GPU layer. Keep it on whole device pixels so the
+		// compositor shows its backing store 1:1.
+		return useAvcc
+			? snapSurfaceSize(box, globalThis.devicePixelRatio || 1)
+			: box;
 	})();
 	const rotationDegrees = streamGeometry.rotationDegrees;
 	const captureRotationDegrees = hasPresentationPlane
 		? (presentationRotationDegrees ?? 0)
 		: rotationDegrees;
 	const capturePresentedSurface = useCallback(() => {
-		const source = getViewElement();
+		// A worker owns the H.264 canvas, so its pixels come from the last still frame.
+		const source = useAvcc
+			? avccStream.presentedImage()
+			: relayMode
+				? relayImgRef.current
+				: imgRef.current;
 		return source
 			? captureRenderedScreenshot(source, captureRotationDegrees)
 			: null;
-	}, [captureRotationDegrees, getViewElement]);
+	}, [avccStream, captureRotationDegrees, relayMode, useAvcc]);
 	useEffect(() => {
 		onCapturePresentedSurfaceChange?.(capturePresentedSurface);
 		return () => onCapturePresentedSurfaceChange?.(null);
@@ -1140,20 +1192,12 @@ export function SimulatorView({
 			} as CSSProperties)
 		: streamImageStyle;
 
-	// A <canvas> is composited as its own GPU layer; when that layer lands on a
-	// fractional device-pixel offset (the surface is centered in the viewport at
-	// a sub-pixel x), its downscaled texture edge antialiases against the
-	// backdrop and shows as a ~1px light seam along the top/right. The <img>
-	// paths paint into the parent layer and never seam, so this only affects the
-	// AVCC canvas. Overshoot by a hair so the seam falls outside the surface's
-	// overflow:hidden clip; the crop is a sub-pixel of content, invisible next
-	// to the rounded-corner mask.
+	// Never scale the canvas: a scale makes the compositor resample the 1:1
+	// backing store. The surface behind it is opaque black, the color of a
+	// dark device screen, so a sub-pixel edge does not show a light seam.
 	const canvasStyle: CSSProperties = hasPresentationPlane
 		? presentedMediaStyle
-		: {
-				...streamImageStyle,
-				transform: `${streamImageStyle.transform ?? ""} scale(${CANVAS_SEAM_OVERSHOOT})`,
-			};
+		: streamImageStyle;
 	const surfaceState = streamSurfaceState(connected, hasPresentedFrame);
 
 	return (
@@ -1191,6 +1235,7 @@ export function SimulatorView({
 							width: fittedBox ? `${fittedBox.width}px` : "100%",
 							height: fittedBox ? `${fittedBox.height}px` : "100%",
 							overflow: "hidden",
+							backgroundColor: useAvcc ? "#000" : undefined,
 							borderRadius: clipStyle?.borderRadius,
 							cornerShape: clipStyle?.cornerShape,
 						} as CSSProperties

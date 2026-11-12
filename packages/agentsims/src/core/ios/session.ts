@@ -4,7 +4,8 @@
  * serves the same wire endpoints the helper's HTTP server did, byte-for-byte:
  *
  *   /stream.mjpeg  multipart/x-mixed-replace JPEG fan-out (?raw=1 → octet-stream)
- *   /stream.avcc   length-prefixed AVCC envelopes (seed + decoder config replay)
+ *   /stream.avcc   length-prefixed AVCC envelopes (seed + decoder config replay;
+ *                  ?maxEdge=N limits the encoded long edge to N pixels)
  *   /ws            binary HID input protocol ([tag][JSON]) → NativeHid
  *   /config        { width, height, orientation }
  *   /health        { status: "ok" }
@@ -23,9 +24,9 @@ import {
 	Orientation,
 	axDescribeAsync,
 	axFrontmostAsync,
-	type MjpegFrame,
 } from "./stream/native";
 import { iosFocusedField } from "./accessibility";
+import { AvccViewerGate } from "../stream/avcc-backlog";
 import type { DeviceField } from "../tools/text-input";
 
 /**
@@ -63,14 +64,24 @@ type IosHid = Pick<
 
 type IosCapture = Pick<
 	NativeCapture,
-	"start" | "stop" | "subscribeMjpeg" | "subscribeAvcc"
+	"start" | "stop" | "snapshot" | "subscribeMjpeg" | "subscribeAvcc"
 > & Partial<Pick<NativeCapture, "requestAvccKeyframe">>;
 
 export interface DeviceSessionDependencies {
 	hid?: IosHid;
 	capture?: IosCapture;
 	describeAccessibility?: (udid: string) => Promise<string>;
-	screenshotWaitMs?: number;
+}
+
+export interface AvccOptions {
+	/** Encoded long-edge limit in pixels. Omit for full device size. */
+	readonly maxEdge?: number;
+	/**
+	 * A live viewer gets the newest frames, never a backlog: while its writes
+	 * are behind, deltas are dropped and it resumes at a fresh keyframe. A
+	 * recorder omits this and receives every frame.
+	 */
+	readonly live?: boolean;
 }
 
 interface IosScreenshot {
@@ -82,19 +93,14 @@ interface IosScreenshot {
 	readonly capturedAt: number;
 }
 
-type ScreenshotWaiter = {
-	readonly afterSequence: number;
-	readonly resolve: (screenshot: IosScreenshot) => void;
-	readonly reject: (error: Error) => void;
-	timeout?: ReturnType<typeof setTimeout>;
-};
-
 // Description/keyframe/delta envelopes are framed natively; only the
 // on-connect JPEG seed is built here.
 const AVCC_SEED_TAG = 0x04;
 
 // WS server→client screen-config push (ClientManager.wsMsgConfig).
 const WS_MSG_CONFIG = 0x82;
+// WS server→client: the previous input message was dispatched.
+const WS_INPUT_ACK = Buffer.from([0x83]);
 
 function avccSeed(jpeg: Uint8Array): Buffer {
 	const out = Buffer.allocUnsafe(5 + jpeg.length);
@@ -113,10 +119,10 @@ const ORIENTATION_BY_NAME: Record<string, number> = {
 
 export class DeviceSession {
 	private readonly capture: IosCapture;
-	private readonly hid: IosHid;
+	private readonly makeHid: () => IosHid;
+	private hidHandle?: IosHid;
 	private readonly describeAccessibility: (udid: string) => Promise<string>;
 	private accessibilityReadback: unknown | undefined;
-	private unsubscribeMjpeg?: () => void;
 	private phase: "unstarted" | "starting" | "running" | "stopped" = "unstarted";
 	private startPromise: Promise<void> | null = null;
 
@@ -124,12 +130,7 @@ export class DeviceSession {
 	private height = 0;
 	private orientation = "portrait";
 
-	private latestJpegBuffer: Buffer | null = null;
-	private latestJpegLength = 0;
-	private latestJpegSequence = 0;
-	private latestJpegCapturedAt = 0;
-	private readonly screenshotWaiters = new Set<ScreenshotWaiter>();
-	private readonly screenshotWaitMs: number;
+	private screenshotSequence = 0;
 	private readonly hidSockets = new Set<HidSocket>();
 	private inputOwner?: string;
 	private inputInFlight = 0;
@@ -139,14 +140,26 @@ export class DeviceSession {
 		private readonly onMutation: (udid: string) => void = () => {},
 		dependencies: DeviceSessionDependencies = {},
 	) {
-		this.hid = dependencies.hid ?? new NativeHid(udid);
+		const hid = dependencies.hid;
+		this.makeHid = () => hid ?? new NativeHid(udid);
 		this.capture = dependencies.capture ?? new NativeCapture(udid);
 		this.describeAccessibility =
 			dependencies.describeAccessibility ?? axDescribeAsync;
-		this.screenshotWaitMs = dependencies.screenshotWaitMs ?? 1_000;
 	}
 
-	/** Begin capture and resolve only after the native pipeline is ready. Idempotent. */
+	/**
+	 * Created after capture starts: a native HID client must not open against a
+	 * Shutdown device, because `simctl boot` can then fail.
+	 */
+	private get hid(): IosHid {
+		this.hidHandle ??= this.makeHid();
+		return this.hidHandle;
+	}
+
+	/**
+	 * Begin capture and resolve only after the native pipeline is ready.
+	 * Idempotent. A failed start can be retried, for example while the device boots.
+	 */
 	start(): Promise<void> {
 		if (this.phase === "running") return Promise.resolve();
 		if (this.phase === "stopped")
@@ -157,29 +170,26 @@ export class DeviceSession {
 
 		this.phase = "starting";
 		this.startPromise = (async () => {
-			await this.capture.start();
-			const unsubscribe = await this.capture.subscribeMjpeg((frame) =>
-				this.onSharedMjpegFrame(frame),
+			// No stream subscription here: native capture encodes only for a viewer.
+			const size = await this.capture.start((width, height) =>
+				this.updateSize(width, height),
 			);
 			if (this.phase === "stopped") {
-				unsubscribe();
 				await this.capture.stop();
 				throw new Error(`Device session ${this.udid} stopped during startup`);
 			}
-			this.unsubscribeMjpeg = unsubscribe;
+			this.updateSize(size.width, size.height);
+			this.hidHandle ??= this.makeHid();
 			this.phase = "running";
 			logRuntime(`ios:${this.udid}`, "Capture ready.");
-		})().catch(async (error) => {
-			this.phase = "stopped";
+		})().catch((error) => {
+			// Native capture resets itself after a failed start.
+			if (this.phase !== "stopped") this.phase = "unstarted";
+			this.startPromise = null;
 			logRuntime(
 				`ios:${this.udid}`,
 				`Capture failed: ${error instanceof Error ? error.message : String(error)}`,
 			);
-			try {
-				await this.capture.stop();
-			} catch (error) {
-				console.warn("[agentsims:ios] recoverable operation failed", error);
-			}
 			throw error;
 		});
 		return this.startPromise;
@@ -188,85 +198,58 @@ export class DeviceSession {
 	async close(): Promise<void> {
 		if (this.phase === "stopped") return;
 		this.phase = "stopped";
-		for (const waiter of this.screenshotWaiters) {
-			if (waiter.timeout) clearTimeout(waiter.timeout);
-			waiter.reject(new Error("A newer iOS screenshot is not available"));
-		}
-		this.screenshotWaiters.clear();
 		for (const ws of this.hidSockets) ws.close();
-		this.unsubscribeMjpeg?.();
 		this.hidSockets.clear();
-		await Promise.allSettled([this.capture.stop(), this.hid.stop()]);
+		await Promise.allSettled([this.capture.stop(), this.hidHandle?.stop()]);
 		logRuntime(`ios:${this.udid}`, "Session closed.");
 	}
 
-	// ── Frame handling ───────────────────────────────────────────────────────
+	// ── Frames ───────────────────────────────────────────────────────────────
 
-	private async onSharedMjpegFrame(frame: MjpegFrame): Promise<void> {
-		const { width, height, data: jpeg } = frame;
-
-		if (width !== this.width || height !== this.height) {
-			this.width = width;
-			this.height = height;
-			this.broadcastConfig();
-		}
-
-		if (!this.latestJpegBuffer || this.latestJpegBuffer.length < jpeg.length) {
-			const currentCapacity = this.latestJpegBuffer?.length ?? 0;
-			this.latestJpegBuffer = Buffer.allocUnsafe(
-				Math.max(jpeg.length, currentCapacity * 2),
-			);
-		}
-		this.latestJpegBuffer.set(jpeg, 0);
-		this.latestJpegLength = jpeg.length;
-		this.latestJpegSequence += 1;
-		this.latestJpegCapturedAt = Date.now();
-
-		const screenshot = this.latestScreenshot();
-		if (!screenshot) return;
-		for (const waiter of this.screenshotWaiters) {
-			if (screenshot.sequence <= waiter.afterSequence) continue;
-			this.screenshotWaiters.delete(waiter);
-			if (waiter.timeout) clearTimeout(waiter.timeout);
-			waiter.resolve({
-				...screenshot,
-				bytes: Buffer.from(screenshot.bytes),
-			});
-		}
-	}
-
-	private latestJpeg(): Buffer | null {
-		if (!this.latestJpegBuffer) return null;
-		return this.latestJpegBuffer.subarray(0, this.latestJpegLength);
-	}
-
-	private latestScreenshot(): IosScreenshot | null {
-		const jpeg = this.latestJpeg();
-		if (!jpeg?.length) return null;
-		return {
-			sequence: this.latestJpegSequence,
-			width: this.width,
-			height: this.height,
-			bytes: jpeg,
-			mimeType: "image/jpeg",
-			capturedAt: this.latestJpegCapturedAt,
-		};
+	private updateSize(width: number, height: number): void {
+		if (width <= 0 || height <= 0) return;
+		if (width === this.width && height === this.height) return;
+		this.width = width;
+		this.height = height;
+		this.broadcastConfig();
 	}
 
 	async subscribeMjpeg(sink: StreamSink): Promise<() => void> {
-		const latest = this.latestJpeg();
-		if (latest) await sink.write(latest);
 		return this.capture.subscribeMjpeg(async ({ data }) => {
 			await sink.write(data);
 		});
 	}
 
-	async subscribeAvcc(sink: StreamSink): Promise<() => void> {
-		const latest = this.latestJpeg();
-		if (latest) await sink.write(avccSeed(latest));
+	async subscribeAvcc(
+		sink: StreamSink,
+		options: AvccOptions = {},
+	): Promise<() => void> {
+		const seed = await this.capture.snapshot().catch(() => null);
+		// Without a seed the keyframe that follows is the first paint.
+		if (!options.live) {
+			if (seed) await sink.write(avccSeed(seed.data));
+			return this.capture.subscribeAvcc(async ({ data }) => {
+				await sink.write(data);
+			}, options.maxEdge);
+		}
+		// Writes keep their order. A live viewer is never awaited.
+		if (seed) void Promise.resolve(sink.write(avccSeed(seed.data))).catch(() => {});
+		const gate = new AvccViewerGate();
+		const requestKeyframe = () =>
+			void this.requestVideoKeyframe().catch(() => {});
 		return this.capture.subscribeAvcc(async ({ data }) => {
-			await sink.write(data);
-		});
+			const tag = data[4];
+			const decision = gate.admit(tag, Date.now());
+			if (decision.requestKeyframe) requestKeyframe();
+			if (!decision.write) return;
+			// Do not wait for this viewer. A slow viewer only drops its own frames.
+			void Promise.resolve(sink.write(data)).then(
+				() => {
+					if (gate.written(tag, Date.now())) requestKeyframe();
+				},
+				() => {},
+			);
+		}, options.maxEdge);
 	}
 
 	async requestVideoKeyframe(): Promise<void> {
@@ -288,35 +271,20 @@ export class DeviceSession {
 		if (this.inputOwner === owner) this.inputOwner = undefined;
 	}
 
+	/** Reads the framebuffer at call time. It never subscribes a stream. */
 	async captureScreenshot(): Promise<IosScreenshot> {
-		const afterSequence = this.latestJpegSequence;
 		await this.start();
-		const current = this.latestScreenshot();
-		if (current && current.sequence > afterSequence) {
-			return { ...current, bytes: Buffer.from(current.bytes) };
-		}
-		return new Promise<IosScreenshot>((resolve, reject) => {
-			const waiter: ScreenshotWaiter = {
-				afterSequence,
-				resolve,
-				reject,
-			};
-			waiter.timeout = setTimeout(() => {
-				this.screenshotWaiters.delete(waiter);
-				reject(
-					new Error(
-						`A newer iOS screenshot was not available within ${this.screenshotWaitMs} ms`,
-					),
-				);
-			}, this.screenshotWaitMs);
-			this.screenshotWaiters.add(waiter);
-
-			const latest = this.latestScreenshot();
-			if (!latest || latest.sequence <= afterSequence) return;
-			this.screenshotWaiters.delete(waiter);
-			clearTimeout(waiter.timeout);
-			resolve({ ...latest, bytes: Buffer.from(latest.bytes) });
-		});
+		const { data, width, height } = await this.capture.snapshot();
+		this.updateSize(width, height);
+		this.screenshotSequence += 1;
+		return {
+			sequence: this.screenshotSequence,
+			width,
+			height,
+			bytes: Buffer.from(data.buffer, data.byteOffset, data.byteLength),
+			mimeType: "image/jpeg",
+			capturedAt: Date.now(),
+		};
 	}
 
 	async readAccessibility(): Promise<unknown> {
@@ -359,15 +327,23 @@ export class DeviceSession {
 		this.hidSockets.add(ws);
 		const cfg = this.configFrame();
 		if (cfg) ws.send(cfg); // seed dimensions/orientation, replacing the old poll
+		// One message at a time, in order. The ack tells the browser that it can
+		// send the next message, so moves never queue up behind a busy device.
+		let previous = Promise.resolve();
 		ws.on("message", (data: Buffer) => {
-			void this.dispatchInputFrame(
-				Buffer.isBuffer(data) ? data : Buffer.from(data),
-			).catch((error) =>
-				console.error(
-					"[agentsims:ios] browser input failed:",
-					error instanceof Error ? error.message : error,
-				),
-			);
+			const frame = Buffer.isBuffer(data) ? data : Buffer.from(data);
+			previous = previous.then(async () => {
+				try {
+					await this.dispatchInputFrame(frame);
+				} catch (error) {
+					console.error(
+						"[agentsims:ios] browser input failed:",
+						error instanceof Error ? error.message : error,
+					);
+				} finally {
+					ws.send(WS_INPUT_ACK);
+				}
+			});
 		});
 		ws.on("close", () => this.hidSockets.delete(ws));
 		ws.on("error", () => this.hidSockets.delete(ws));

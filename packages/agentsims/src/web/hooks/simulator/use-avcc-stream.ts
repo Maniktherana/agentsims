@@ -1,13 +1,23 @@
 import { useEffect, useRef } from "react";
+import { isAvccSupported } from "../../simulator/stream/avcc-codec.js";
+import type { SimulatorFrameTiming } from "../../simulator/stream/avcc-codec.js";
 import {
-	AvccDemuxer,
-	avcCodecString,
-	isAvccSupported,
-	parseAndroidFramePresentation,
-	parseSimulatorFrameTiming,
-	type SimulatorFrameTiming,
-	type AvccChunkType,
-} from "../../simulator/stream/avcc-codec.js";
+	AvccPlayer,
+	type AvccPlayerEvent,
+	type AvccPlayerSource,
+} from "../../simulator/stream/avcc-player.js";
+import type {
+	AvccWorkerReply,
+	AvccWorkerRequest,
+} from "../../simulator/stream/avcc-worker-protocol.js";
+import type {
+	CanvasDisplay,
+	Size,
+} from "../../simulator/stream/canvas-backing-size.js";
+import {
+	publishStreamStats,
+	streamStatsKey,
+} from "../../simulator/stream/stream-stats.js";
 
 export interface UseAvccStreamOptions {
 	/** Base server URL, e.g. "http://localhost:3100". */
@@ -20,7 +30,10 @@ export interface UseAvccStreamOptions {
 	canvasRef: React.RefObject<HTMLCanvasElement | null>;
 	/** Called the first time any frame (seed or decoded) is painted. */
 	onFirstFrame?: () => void;
-	/** Called on every painted frame for presentation state and staleness checks. */
+	/**
+	 * Called when the painted size or presentation generation changes, and at
+	 * most four times a second while frames are painted.
+	 */
 	onFrame?: (size: {
 		width: number;
 		height: number;
@@ -34,29 +47,233 @@ export interface UseAvccStreamOptions {
 	/** Called with a human-readable message when the decode pipeline fails. */
 	onError?: (message: string) => void;
 	/**
-	 * Called when the WebCodecs decoder itself fails fatally (a `VideoDecoder`
-	 * `error` event or a `configure()` throw) — as opposed to a network/stream
-	 * hiccup. When provided it *replaces* {@link onError} for these failures: the
-	 * consumer is expected to downgrade to MJPEG (hardware H.264 decode is no
-	 * longer viable — e.g. a screen recorder starving VideoToolbox), so the
-	 * failure is recovered from rather than surfaced as a user-facing error.
+	 * Called when the WebCodecs decoder fails fatally (a `configure()` throw or
+	 * repeated decoder errors), as opposed to a network hiccup. When provided it
+	 * replaces {@link onError} for these failures: the consumer downgrades to
+	 * MJPEG because hardware H.264 decode is no longer viable.
 	 */
 	onDecoderError?: () => void;
 }
 
-const RETRY_DELAY_MS = 1000;
-/** ~60fps monotonic tick. Never displayed — WebCodecs just needs increasing PTS. */
-const FRAME_DURATION_US = 16_667;
+/** One player per canvas. A transferred canvas cannot be transferred again. */
+interface StreamHost {
+	start(source: AvccPlayerSource): void;
+	stop(): void;
+	resize(display: CanvasDisplay): void;
+	capture(): Promise<ImageBitmap | null>;
+	listen(listener: (event: AvccPlayerEvent) => void): () => void;
+	dispose(): void;
+}
+
+const hosts = new WeakMap<HTMLCanvasElement, StreamHost>();
+
+function workerHost(canvas: HTMLCanvasElement): StreamHost {
+	const offscreen = canvas.transferControlToOffscreen();
+	const worker = new Worker(
+		new URL("../../simulator/stream/avcc-worker.ts", import.meta.url),
+		{ type: "module", name: "agentsims-video" },
+	);
+	const post = (message: AvccWorkerRequest, transfer: Transferable[] = []) =>
+		worker.postMessage(message, transfer);
+	post({ type: "init", canvas: offscreen }, [offscreen]);
+	const listeners = new Set<(event: AvccPlayerEvent) => void>();
+	const captures = new Map<number, (bitmap: ImageBitmap | null) => void>();
+	let nextCapture = 0;
+	worker.onmessage = ({ data }: MessageEvent<AvccWorkerReply>) => {
+		if (data.type === "capture") {
+			const resolve = captures.get(data.id);
+			captures.delete(data.id);
+			if (resolve) resolve(data.bitmap);
+			else data.bitmap?.close();
+			return;
+		}
+		for (const listener of listeners) listener(data);
+	};
+	return {
+		start: (source) => post({ type: "start", source }),
+		stop: () => post({ type: "stop" }),
+		resize: (display) => post({ type: "resize", display }),
+		capture: () =>
+			new Promise((resolve) => {
+				const id = ++nextCapture;
+				captures.set(id, resolve);
+				post({ type: "capture", id });
+			}),
+		listen: (listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		dispose: () => {
+			for (const resolve of captures.values()) resolve(null);
+			captures.clear();
+			worker.terminate();
+		},
+	};
+}
+
+/** Fallback for browsers that cannot transfer a canvas to a worker. */
+function pageHost(canvas: HTMLCanvasElement): StreamHost {
+	const listeners = new Set<(event: AvccPlayerEvent) => void>();
+	const player = new AvccPlayer(canvas, (event) => {
+		for (const listener of listeners) listener(event);
+	});
+	return {
+		start: (source) => player.start(source),
+		stop: () => player.stop(),
+		resize: (display) => player.resize(display),
+		capture: () => player.capture(),
+		listen: (listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		dispose: () => player.dispose(),
+	};
+}
+
+function hostFor(canvas: HTMLCanvasElement): StreamHost {
+	let host = hosts.get(canvas);
+	if (!host) {
+		host =
+			typeof Worker !== "undefined" &&
+			typeof canvas.transferControlToOffscreen === "function"
+				? workerHost(canvas)
+				: pageHost(canvas);
+		hosts.set(canvas, host);
+	}
+	return host;
+}
+
+/** Follow an ancestor scale, such as an entry animation, until it settles. */
+const SCALE_SETTLE_MS = 1_000;
+
+function displayKey(display: CanvasDisplay): string {
+	const box = display.devicePixelBox;
+	return [
+		display.layout.width,
+		display.layout.height,
+		display.rect.width,
+		display.rect.height,
+		display.devicePixelRatio,
+		box?.width,
+		box?.height,
+	].join(",");
+}
+
+/**
+ * Report how `canvas` is displayed: layout size, transformed size, device
+ * pixel ratio, and device-pixel box. The player sizes the backing store from
+ * this report and redraws the last frame in the same step.
+ *
+ * A box change and a ratio change come from the observer and a media query.
+ * An ancestor scale does not change the box, so after each report the size is
+ * followed for a short time while the transformed size moves or is not 1:1.
+ */
+function observeDisplay(
+	canvas: HTMLCanvasElement,
+	onDisplay: (display: CanvasDisplay) => void,
+): () => void {
+	let layout: Size | null = null;
+	let devicePixelBox: Size | undefined;
+	let last = "";
+	let unitScale = true;
+	let frame = 0;
+	let settleUntil = 0;
+	const measure = () => {
+		const width = layout?.width ?? canvas.clientWidth;
+		const height = layout?.height ?? canvas.clientHeight;
+		if (!(width > 0 && height > 0)) return;
+		const rect = canvas.getBoundingClientRect();
+		const display: CanvasDisplay = {
+			layout: { width, height },
+			rect: { width: rect.width, height: rect.height },
+			devicePixelRatio: globalThis.devicePixelRatio || 1,
+			...(devicePixelBox ? { devicePixelBox } : {}),
+		};
+		unitScale =
+			Math.abs(rect.width * rect.height - width * height) <=
+			1e-3 * width * height;
+		const key = displayKey(display);
+		if (key === last) return;
+		last = key;
+		onDisplay(display);
+	};
+	const follow = () => {
+		frame = 0;
+		const before = last;
+		measure();
+		if ((last !== before || !unitScale) && performance.now() < settleUntil)
+			frame = requestAnimationFrame(follow);
+	};
+	const update = () => {
+		measure();
+		if (typeof requestAnimationFrame === "undefined") return;
+		settleUntil = performance.now() + SCALE_SETTLE_MS;
+		if (!frame) frame = requestAnimationFrame(follow);
+	};
+	// The observer does not run while the page is hidden. Measure once now.
+	update();
+
+	// A browser zoom or a move to another display changes the ratio.
+	let ratioQuery: MediaQueryList | null = null;
+	const watchRatio = () => {
+		ratioQuery?.removeEventListener("change", onRatio);
+		if (typeof matchMedia !== "function") return;
+		ratioQuery = matchMedia(
+			`(resolution: ${globalThis.devicePixelRatio || 1}dppx)`,
+		);
+		ratioQuery.addEventListener("change", onRatio);
+	};
+	function onRatio() {
+		watchRatio();
+		update();
+	}
+	watchRatio();
+
+	let observer: ResizeObserver | null = null;
+	if (typeof ResizeObserver !== "undefined") {
+		observer = new ResizeObserver(([entry]) => {
+			if (!entry) return;
+			layout = {
+				width: entry.contentRect.width,
+				height: entry.contentRect.height,
+			};
+			const box = entry.devicePixelContentBoxSize?.[0];
+			devicePixelBox = box
+				? { width: box.inlineSize, height: box.blockSize }
+				: undefined;
+			update();
+		});
+		try {
+			observer.observe(canvas, { box: "device-pixel-content-box" });
+		} catch {
+			observer.observe(canvas);
+		}
+	}
+	return () => {
+		observer?.disconnect();
+		ratioQuery?.removeEventListener("change", onRatio);
+		if (frame) cancelAnimationFrame(frame);
+	};
+}
+
+type CaptureRegistry = Record<string, () => Promise<ImageBitmap | null>>;
 
 /**
  * Decode an H.264 `/stream.avcc` feed into `canvasRef` via WebCodecs.
  *
- * The decode pipeline is keyed only on `url` and `enabled`; the callbacks are
- * read through a ref so passing fresh closures every render does not restart the
- * stream. A no-op when AVCC is unsupported, `enabled` is false, or `url` is
- * empty (a device-less preview config would otherwise fetch a relative
- * `undefined/stream.avcc` from the page origin).
+ * Read, decode, and paint run in a worker that owns the canvas. The page gets
+ * only coarse events. The callbacks are read through a ref so fresh closures
+ * do not restart the stream. A no-op when AVCC is unsupported, `enabled` is
+ * false, or `url` is empty.
  */
+export type AvccStreamHandle = {
+	/**
+	 * The newest frame shown on a still screen, at decoded size. The page cannot
+	 * read pixels from a canvas that a worker owns.
+	 */
+	presentedImage(): ImageBitmap | null;
+};
+
 export function useAvccStream({
 	url,
 	enabled,
@@ -69,7 +286,7 @@ export function useAvccStream({
 	onStatusChange,
 	onError,
 	onDecoderError,
-}: UseAvccStreamOptions): void {
+}: UseAvccStreamOptions): AvccStreamHandle {
 	// Latest-callback ref: keeps the decode effect off the callback identities.
 	const callbacks = useRef({
 		onFirstFrame,
@@ -90,312 +307,88 @@ export function useAvccStream({
 		onDecoderError,
 	};
 
+	const stillRef = useRef<ImageBitmap | null>(null);
+	const handleRef = useRef<AvccStreamHandle>({
+		presentedImage: () => stillRef.current,
+	});
+
 	useEffect(() => {
-		if (!enabled || !url || !isAvccSupported()) return;
-
-		const controller = new AbortController();
-		const demuxer = new AvccDemuxer();
-		let stopped = false;
-		let painted = false;
-		let timestamp = 0;
-		let retryTimer: ReturnType<typeof setTimeout> | null = null;
-		let decoder: VideoDecoder | null = null;
-		let pendingFrame: { frame: VideoFrame; generation?: number } | null = null;
-		const decodeGenerations: Array<number | undefined> = [];
-		let frameGeneration: number | undefined;
-		let decoderGeneration: number | undefined;
-		let paintFrameRequest = 0;
+		const canvas = canvasRef.current;
+		if (!enabled || !url || !canvas || !isAvccSupported()) return;
+		const host = hostFor(canvas);
+		const statsKey = streamStatsKey(url);
 		let transportConnected = false;
-		let hasNativeTiming = false;
-		let receivedFrameSequence = 0n;
-		let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-		let awaitingKeyframe = true;
-		let firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
-		let attempts = 0;
-
-		const isLive = () => !stopped && !controller.signal.aborted;
-		const setTransportConnected = (connected: boolean) => {
-			if (transportConnected === connected) return;
-			transportConnected = connected;
-			callbacks.current.onTransportChange?.(connected);
-		};
-
-		// A fatal decode failure routes to onDecoderError (downgrade to MJPEG) when
-		// a handler is wired, else surfaces as a user-facing error. Routing to both
-		// would flash a red overlay over the stream the parent is about to recover.
-		const reportDecodeFailure = (message: string) => {
-			if (callbacks.current.onDecoderError) callbacks.current.onDecoderError();
-			else callbacks.current.onError?.(message);
-		};
-
-		const paint = (
-			source: CanvasImageSource,
-			width: number,
-			height: number,
-			generation?: number,
-		) => {
-			if (!isLive()) return;
-			const canvas = canvasRef.current;
-			if (!canvas) return;
-			if (canvas.width !== width || canvas.height !== height) {
-				canvas.width = width;
-				canvas.height = height;
-			}
-			const ctx = canvas.getContext("2d");
-			if (!ctx) return;
-			ctx.drawImage(source, 0, 0, width, height);
-			if (firstFrameTimer) clearTimeout(firstFrameTimer);
-			firstFrameTimer = null;
-			callbacks.current.onFrame?.({
-				width,
-				height,
-				...(generation === undefined
-					? {}
-					: { presentationGeneration: generation }),
-			});
-			if (!painted) {
-				painted = true;
-				callbacks.current.onFirstFrame?.();
-			}
-		};
-
-		const queuePaint = (frame: VideoFrame) => {
-			const generation = decodeGenerations.shift();
-			if (!isLive()) {
-				frame.close();
-				return;
-			}
-			pendingFrame?.frame.close();
-			pendingFrame = { frame, generation };
-			if (paintFrameRequest) return;
-			paintFrameRequest = requestAnimationFrame(() => {
-				paintFrameRequest = 0;
-				const latest = pendingFrame;
-				pendingFrame = null;
-				if (!latest) return;
-				try {
-					if (isLive()) {
-						paint(
-							latest.frame,
-							latest.frame.displayWidth,
-							latest.frame.displayHeight,
-							latest.generation,
-						);
-					}
-				} finally {
-					latest.frame.close();
-				}
-			});
-		};
-
-		const restartAfterDecoderError = () => {
-			callbacks.current.onStatusChange?.("Decoder restarting");
-			setTransportConnected(false);
-			void activeReader?.cancel().catch(() => {});
-		};
-
-		const makeDecoder = () =>
-			new VideoDecoder({
-				output: queuePaint,
-				// A decoder can retain broken references across an interrupted H.264
-				// response. End this response and rebuild from its successor's decoder
-				// description and keyframe instead of leaving a false-live transport.
-				error: restartAfterDecoderError,
-			});
-
-		const paintSeed = async (jpeg: Uint8Array) => {
-			// JPEG seed — paint immediately for an instant first frame.
-			const bitmap = await createImageBitmap(
-				new Blob([jpeg as BlobPart], { type: "image/jpeg" }),
-			);
-			try {
-				if (isLive())
-					paint(bitmap, bitmap.width, bitmap.height, frameGeneration);
-			} finally {
-				bitmap.close();
-			}
-		};
-
-		const configureDecoder = (description: Uint8Array) => {
-			if (decoder && decoderGeneration !== frameGeneration) {
-				decoder.close();
-				decoder = null;
-				decodeGenerations.length = 0;
-			}
-			if (!decoder || decoder.state === "closed") decoder = makeDecoder();
-			decoderGeneration = frameGeneration;
-			try {
-				decoder.configure({
-					codec: avcCodecString(description),
-					description,
-					optimizeForLatency: true,
-					hardwareAcceleration: "prefer-hardware",
-				});
-			} catch (err) {
-				reportDecodeFailure(`config: ${(err as Error).message}`);
-			}
-		};
-
-		const decodeFrame = (type: "keyframe" | "delta", data: Uint8Array) => {
-			if (decoder?.state !== "configured") return;
-			if (awaitingKeyframe && type !== "keyframe") return;
-			if (type === "keyframe") awaitingKeyframe = false;
-			// Dropping arbitrary H.264 deltas breaks their reference chain. Reopen
-			// the stream for a fresh keyframe instead of accumulating old frames.
-			if (decodeGenerations.length >= 8) {
-				throw new Error("Video decoder fell behind; restarting the stream");
-			}
-			try {
-				decodeGenerations.push(frameGeneration);
-				decoder.decode(
-					new EncodedVideoChunk({
-						type: type === "keyframe" ? "key" : "delta",
-						timestamp,
-						data,
-					}),
-				);
-				timestamp += FRAME_DURATION_US;
-			} catch {
-				decodeGenerations.pop();
-				/* drop undecodable frame */
-			}
-		};
-
-		const handleChunk = (type: AvccChunkType, payload: Uint8Array) => {
-			switch (type) {
-				case "seed":
-					void paintSeed(payload).catch(() => {});
+		const unlisten = host.listen((event) => {
+			const current = callbacks.current;
+			switch (event.type) {
+				case "transport":
+					if (transportConnected === event.connected) return;
+					transportConnected = event.connected;
+					current.onTransportChange?.(event.connected);
 					return;
-				case "description":
-					configureDecoder(payload);
+				case "status":
+					current.onStatusChange?.(event.status);
 					return;
-				case "presentation": {
-					const metadata = parseAndroidFramePresentation(payload);
-					if (!metadata) return;
-					frameGeneration = metadata.generation;
-					if (decoderGeneration !== frameGeneration) {
-						decoder?.close();
-						decoder = null;
-						decodeGenerations.length = 0;
-					}
+				case "first-frame":
+					current.onFirstFrame?.();
 					return;
-				}
-				case "simulator-frame-timing": {
-					const timing = parseSimulatorFrameTiming(payload);
-					if (timing) {
-						hasNativeTiming = true;
-						callbacks.current.onSimulatorFrameTiming?.(timing);
-					}
+				case "frame":
+					current.onFrame?.({
+						width: event.width,
+						height: event.height,
+						...(event.presentationGeneration === undefined
+							? {}
+							: { presentationGeneration: event.presentationGeneration }),
+					});
 					return;
-				}
-				case "keyframe":
-				case "delta":
-					if (!hasNativeTiming) {
-						callbacks.current.onSimulatorFrameTiming?.({
-							sequence: ++receivedFrameSequence,
-							timestampUs: BigInt(Math.round(performance.now() * 1000)),
-						});
-					}
-					decodeFrame(type, payload);
+				case "timing":
+					current.onSimulatorFrameTiming?.({
+						sequence: event.sequence,
+						timestampUs: event.timestampUs,
+					});
+					return;
+				case "error":
+					current.onError?.(event.message);
+					return;
+				case "decoder-error":
+					if (current.onDecoderError) current.onDecoderError();
+					else current.onError?.("H.264 decoding failed");
+					return;
+				case "stats":
+					publishStreamStats(statsKey, event.stats);
+					return;
+				case "still":
+					stillRef.current?.close();
+					stillRef.current = event.bitmap;
 					return;
 			}
-		};
-
-		const scheduleRetry = () => {
-			if (!isLive() || retryTimer) return;
-			retryTimer = setTimeout(() => {
-				retryTimer = null;
-				void read();
-			}, RETRY_DELAY_MS);
-		};
-
-		const read = async () => {
-			callbacks.current.onStatusChange?.(
-				attempts++ === 0 ? "Opening stream" : "Retrying stream",
-			);
-			// Each HTTP response is a self-contained stream that opens with its own
-			// description — drop any partial bytes left over from a dropped connection.
-			demuxer.reset();
-			if (decoder && decoder.state !== "closed") decoder.close();
-			decoder = null;
-			decodeGenerations.length = 0;
-			pendingFrame?.frame.close();
-			pendingFrame = null;
-			hasNativeTiming = false;
-			receivedFrameSequence = 0n;
-			awaitingKeyframe = true;
-			let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-			try {
-				const streamUrl = viewer
-					? `${url}/stream.avcc?viewer=${encodeURIComponent(viewer)}`
-					: `${url}/stream.avcc`;
-				const res = await fetch(streamUrl, {
-					signal: controller.signal,
-					cache: "no-store",
-				});
-				if (!res.ok) throw new Error(`AVCC stream failed (${res.status})`);
-				const contentType = res.headers.get("content-type")?.split(";", 1)[0];
-				if (contentType !== "application/octet-stream") {
-					throw new Error("AVCC endpoint returned an invalid response");
-				}
-				reader = res.body?.getReader();
-				if (!reader) throw new Error("AVCC response has no body");
-				activeReader = reader;
-				setTransportConnected(true);
-				callbacks.current.onStatusChange?.("Waiting for video");
-				firstFrameTimer = setTimeout(() => {
-					callbacks.current.onStatusChange?.("No video received");
-					void reader?.cancel().catch(() => {});
-				}, 8000);
-				for (;;) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					if (!value) continue;
-					for (const chunk of demuxer.push(value)) {
-						// A network read can contain several frames. Give decoder callbacks
-						// a chance to run before treating that batch as a sustained backlog.
-						if (decodeGenerations.length >= 8) {
-							await new Promise((resolve) => setTimeout(resolve, 50));
-							if (!isLive()) return;
-						}
-						handleChunk(chunk.type, chunk.payload);
-					}
-				}
-			} catch {
-				if (isLive()) callbacks.current.onStatusChange?.("Stream unavailable");
-			} finally {
-				if (firstFrameTimer) clearTimeout(firstFrameTimer);
-				firstFrameTimer = null;
-				await reader?.cancel().catch(() => {});
-				if (activeReader === reader) activeReader = null;
-				if (isLive()) {
-					setTransportConnected(false);
-					scheduleRetry();
-				}
-			}
-		};
-
-		void read();
+		});
+		const stopObserving = observeDisplay(canvas, (display) =>
+			host.resize(display),
+		);
+		const registry = ((globalThis as Record<string, unknown>)
+			.__agentsimsStreamCapture ??= {}) as CaptureRegistry;
+		const capture = () => host.capture();
+		registry[statsKey] = capture;
+		host.start({ url, viewer });
 
 		return () => {
-			stopped = true;
-			if (firstFrameTimer) clearTimeout(firstFrameTimer);
-			setTransportConnected(false);
-			if (retryTimer) clearTimeout(retryTimer);
-			controller.abort();
-			demuxer.reset();
-			if (paintFrameRequest) cancelAnimationFrame(paintFrameRequest);
-			paintFrameRequest = 0;
-			pendingFrame?.frame.close();
-			pendingFrame = null;
-			if (decoder && decoder.state !== "closed") {
-				try {
-					decoder.close();
-				} catch {
-					/* already closed */
-				}
-			}
-			decoder = null;
+			host.stop();
+			unlisten();
+			stopObserving();
+			if (registry[statsKey] === capture) delete registry[statsKey];
+			if (transportConnected) callbacks.current.onTransportChange?.(false);
+			stillRef.current?.close();
+			stillRef.current = null;
+			// The canvas stays mounted across a new source. Release the worker
+			// only after React removes the canvas.
+			setTimeout(() => {
+				if (canvas.isConnected || hosts.get(canvas) !== host) return;
+				hosts.delete(canvas);
+				host.dispose();
+			}, 0);
 		};
 	}, [url, enabled, viewer, canvasRef]);
+
+	return handleRef.current;
 }

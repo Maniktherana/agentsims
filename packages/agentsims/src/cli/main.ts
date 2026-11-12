@@ -429,10 +429,47 @@ export function createProgram(): Command {
 		});
 	devices
 		.command("boot <device>")
-		.description("Boot a simulator or emulator")
+		.description(
+			"Boot a simulator or emulator. iOS boots are slim by default: background services that tests do not need stay off.",
+		)
+		.option("--url <url>")
+		.option(
+			"--no-slim",
+			"Boot an iOS simulator with all services. The device stays opted out until `devices slim on`.",
+		)
+		.action(async (device: string, flags: { url?: string; slim: boolean }) =>
+			json(
+				await client(flags.url).startDevice(
+					device,
+					flags.slim ? {} : { slim: false },
+				),
+			),
+		);
+	const slim = devices
+		.command("slim")
+		.description("Turn slim iOS boots on or off for a simulator");
+	slim
+		.command("on <device>")
+		.description("Slim the next boot of this simulator")
+		.option("--url <url>")
+		.action(async (device: string, flags: { url?: string }) => {
+			json(await client(flags.url).setSlim(device, true));
+			process.stderr.write("Reboot the simulator to apply.\n");
+		});
+	slim
+		.command("off <device>")
+		.description("Restore the services that agentsims turned off")
+		.option("--url <url>")
+		.action(async (device: string, flags: { url?: string }) => {
+			json(await client(flags.url).setSlim(device, false));
+			process.stderr.write("Reboot the simulator to apply.\n");
+		});
+	slim
+		.command("status <device>")
+		.description("Show how many services agentsims manages and how many are off")
 		.option("--url <url>")
 		.action(async (device: string, flags: { url?: string }) =>
-			json(await client(flags.url).startDevice(device)),
+			json(await client(flags.url).slimStatus(device)),
 		);
 	devices
 		.command("shutdown <device>")

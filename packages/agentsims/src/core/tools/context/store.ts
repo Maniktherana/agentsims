@@ -148,6 +148,15 @@ function validateTarget(target: ContextTarget, image: ContextImage): void {
 	)
 		invalid("Invalid target revision.");
 	identifier(target.element.id, "target ID");
+	const structure = target.structure;
+	if (
+		structure &&
+		((structure.ancestors?.length ?? 0) > CONTEXT_LIMITS.structureItems ||
+			(structure.siblings?.items.length ?? 0) > CONTEXT_LIMITS.structureItems ||
+			(structure.children?.items.length ?? 0) > CONTEXT_LIMITS.structureItems ||
+			(structure.nearby?.length ?? 0) > CONTEXT_LIMITS.nearbyTexts)
+	)
+		limit("The target structure exceeds its item limits.");
 }
 
 function validate(input: ContextInput): number {
@@ -175,6 +184,13 @@ function validate(input: ContextInput): number {
 	}
 	if (input.kind !== "annotation") invalid("Invalid context kind.");
 	identifier(input.sessionId, "session ID");
+	if (
+		input.deviceName !== undefined &&
+		(typeof input.deviceName !== "string" ||
+			!input.deviceName.trim() ||
+			input.deviceName.length > CONTEXT_LIMITS.deviceNameCharacters)
+	)
+		invalid("Invalid device name.");
 	const imageBytes = validateImage(input.image);
 	validateTarget(input.target, input.image);
 	const source = input.source;

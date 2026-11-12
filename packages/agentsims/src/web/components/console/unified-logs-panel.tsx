@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@agentsim
 import { Tooltip, TooltipContent, TooltipTrigger } from "@agentsims/ui/components/tooltip";
 import { ArrowDown01Icon, Copy01Icon, Delete02Icon, Download01Icon, FilterHorizontalIcon, Layers01Icon, PauseIcon, PlayIcon, Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { memo, useEffect, useRef, useState, type ComponentProps } from "react";
 import { TextMorph } from "torph/react";
 import type { LogRecord, LogSource } from "../../../core/tools/logs/contracts";
 import { CONSOLE_LEVELS, CONSOLE_SOURCES, copyRecords, type ConsoleDevice, type ConsoleSession, type ConsoleScope } from "../../console/state";
@@ -45,7 +45,7 @@ function LogControl({ label, icon, ...props }: ButtonProps & { label: string; ic
 	</Tooltip>;
 }
 
-export function UnifiedLogsPanel({ selectedDevice, devices, onDeviceChange, active = true, basePath = "", onSelectionChange, scope: controlledScope, onScopeChange }: UnifiedLogsPanelProps) {
+export const UnifiedLogsPanel = memo(function UnifiedLogsPanel({ selectedDevice, devices, onDeviceChange, active = true, basePath = "", onSelectionChange, scope: controlledScope, onScopeChange }: UnifiedLogsPanelProps) {
 	const [localScope, setLocalScope] = useState<ConsoleScope>("device");
 	const scope = controlledScope ?? localScope;
 	const setScope = (next: ConsoleScope) => { setLocalScope(next); onScopeChange?.(next); };
@@ -58,7 +58,7 @@ export function UnifiedLogsPanel({ selectedDevice, devices, onDeviceChange, acti
 	return device && logs.session ? <DeviceLogs key={scope === "all" ? "scope:all" : `device:${device.id}`} device={device}
 		devices={devices} onDeviceChange={onDeviceChange} logs={logs} session={logs.session} scope={scope} onScopeChange={setScope} basePath={basePath} />
 		: <div className={consoleStyles.root}><p className="px-3 py-4">Select a device to view logs.</p></div>;
-}
+});
 
 function DeviceLogs({ device, devices, onDeviceChange, logs, session, scope, onScopeChange, basePath }: {
 	device: ConsoleDevice; devices: readonly ConsoleDevice[]; onDeviceChange: (deviceId: string) => void;

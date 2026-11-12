@@ -14,11 +14,14 @@ import {
 	ChevronUp,
 	type LucideIcon,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import {
+	memo,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
+	useReducer,
 	useRef,
 	useState,
 } from "react";
@@ -27,13 +30,16 @@ import type {
 	TraceCall,
 	TraceCallStatus,
 } from "../../hooks/simulator/use-trace";
-import { IconSwap } from "@agentsims/ui/motion/icon-swap";
 import { TraceCallDetail, renderCallOutput } from "./call-detail";
+import {
+	INITIAL_TRACE_CALL_LIST_SELECTION,
+	activeTraceCallIndex,
+	traceCallListSelectionReducer,
+} from "../../trace/call-list-selection";
 
-const DETAIL_TRANSITION = {
-	duration: 0.16,
-	ease: [0.22, 1, 0.36, 1] as const,
-};
+/** The detail opens at full height at once. Only its content fades in. */
+const DETAIL_TRANSITION = { duration: 0.12, ease: "easeOut" } as const;
+const DETAIL_HIDDEN = { opacity: 0 };
 
 /** Map the list's scroll range to a call. Top is first; bottom is last. */
 export function activeIndexFromScroll(
@@ -116,7 +122,91 @@ function commandIcon(command: string): LucideIcon {
 	return Wrench;
 }
 
-export function TraceCallList({
+interface TraceCallRowProps {
+	call: TraceCall;
+	index: number;
+	device: string;
+	active: boolean;
+	expanded: boolean;
+	/** Zero while collapsed, so a viewport resize renders only the open row. */
+	detailMaxHeight: number;
+	onToggle: (index: number) => void;
+	registerRow: (index: number, element: HTMLDivElement | null) => void;
+}
+
+const TraceCallRow = memo(function TraceCallRow({
+	call,
+	index,
+	device,
+	active,
+	expanded,
+	detailMaxHeight,
+	onToggle,
+	registerRow,
+}: TraceCallRowProps) {
+	const CommandIcon = commandIcon(call.command);
+	const summary = useMemo(() => callSummary(call), [call]);
+	const ref = useCallback(
+		(element: HTMLDivElement | null) => registerRow(index, element),
+		[index, registerRow],
+	);
+	return (
+		<div
+			ref={ref}
+			// Off-screen rows skip layout and paint. Long traces stay cheap without a virtual list.
+			className={`[content-visibility:auto] [contain-intrinsic-size:auto_32px] ${
+				index % 2 === 1 ? "bg-white/[0.018]" : ""
+			}`}
+		>
+			<Button
+				variant="unstyled"
+				size="unstyled"
+				type="button"
+				aria-current={active ? "true" : undefined}
+				aria-expanded={expanded}
+				onClick={() => onToggle(index)}
+				className={`grid h-8 w-full grid-cols-[18px_76px_minmax(0,1fr)_58px] items-center gap-2 px-2 text-start text-[12px] outline-none [transition:background-color_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/25 motion-reduce:transition-none ${
+					active ? "bg-white/[0.055]" : "hover:bg-white/[0.03]"
+				}`}
+			>
+				<span
+					aria-hidden="true"
+					className="grid place-items-center text-white/42"
+				>
+					{expanded ? (
+						<ChevronUp size={13} strokeWidth={1.8} />
+					) : (
+						<CommandIcon size={13} strokeWidth={1.8} />
+					)}
+				</span>
+				<span className="truncate font-semibold text-white/82">
+					{call.command}
+				</span>
+				<span className="truncate text-white/42">{summary}</span>
+				<span
+					className={`text-end text-[10px] font-semibold uppercase tracking-[0.04em] ${STATUS_TEXT[call.status].className}`}
+				>
+					{STATUS_TEXT[call.status].label}
+				</span>
+			</Button>
+			{expanded && (
+				<motion.div
+					initial={DETAIL_HIDDEN}
+					animate={{ opacity: 1 }}
+					transition={DETAIL_TRANSITION}
+				>
+					<TraceCallDetail
+						call={call}
+						device={device}
+						maxHeight={detailMaxHeight}
+					/>
+				</motion.div>
+			)}
+		</div>
+	);
+});
+
+export const TraceCallList = memo(function TraceCallList({
 	traceId,
 	device,
 	calls,
@@ -127,22 +217,26 @@ export function TraceCallList({
 	calls: TraceCall[];
 	onActiveIndexChange: (index: number) => void;
 }) {
-	const reducedMotion = useReducedMotion();
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const rowsRef = useRef<(HTMLDivElement | null)[]>([]);
 	const frameRef = useRef<number | null>(null);
 	const atBottomRef = useRef(false);
 	const selfScrollRef = useRef(false);
-	const summariesRef = useRef(new Map<number, string>());
 	const [scrollIndex, setScrollIndex] = useState(0);
 	const [viewportHeight, setViewportHeight] = useState(0);
-	const [selected, setSelected] = useState<number | null>(null);
-	const [expanded, setExpanded] = useState<number | null>(null);
-	const [pinned, setPinned] = useState(false);
+	const [selection, dispatch] = useReducer(
+		traceCallListSelectionReducer,
+		INITIAL_TRACE_CALL_LIST_SELECTION,
+	);
+	const pinnedRef = useRef(selection.pinned);
+	pinnedRef.current = selection.pinned;
+	const countRef = useRef(calls.length);
+	countRef.current = calls.length;
 
 	const measure = useCallback(() => {
 		const list = scrollRef.current;
 		if (!list) return;
+		// React skips the render when a value is unchanged.
 		setViewportHeight(list.clientHeight);
 		setScrollIndex(
 			activeIndexFromScroll(
@@ -158,7 +252,7 @@ export function TraceCallList({
 
 	const onScroll = () => {
 		if (selfScrollRef.current) selfScrollRef.current = false;
-		else setPinned(false);
+		else if (pinnedRef.current) dispatch({ type: "user-scroll" });
 		if (frameRef.current !== null) return;
 		frameRef.current = requestAnimationFrame(() => {
 			frameRef.current = null;
@@ -177,7 +271,7 @@ export function TraceCallList({
 
 	useLayoutEffect(() => {
 		measure();
-	}, [expanded, measure]);
+	}, [selection.expanded, measure]);
 
 	useEffect(
 		() => () => {
@@ -186,34 +280,32 @@ export function TraceCallList({
 		[],
 	);
 
-	const activeIndex = pinned && selected !== null ? selected : scrollIndex;
+	const activeIndex = activeTraceCallIndex(selection, scrollIndex);
 	useEffect(() => {
 		onActiveIndexChange(activeIndex);
 	}, [activeIndex, onActiveIndexChange]);
 
-	const reveal = (index: number) => {
+	// Reveal the selected row after the selection commits.
+	useLayoutEffect(() => {
+		if (!selection.pinned || selection.selected === null) return;
 		const list = scrollRef.current;
-		const row = rowsRef.current[index];
+		const row = rowsRef.current[selection.selected];
 		if (!list || !row) return;
 		const before = list.scrollTop;
 		row.scrollIntoView({ block: "nearest" });
 		if (list.scrollTop !== before) selfScrollRef.current = true;
-	};
+	}, [selection]);
 
-	const selectIndex = (index: number) => {
-		const next = Math.max(0, Math.min(calls.length - 1, index));
-		setSelected(next);
-		setPinned(true);
-		reveal(next);
-	};
-
-	const summaryFor = (call: TraceCall): string => {
-		const cached = summariesRef.current.get(call.seq);
-		if (cached !== undefined) return cached;
-		const summary = callSummary(call);
-		summariesRef.current.set(call.seq, summary);
-		return summary;
-	};
+	const onToggle = useCallback((index: number) => {
+		dispatch({ type: "toggle", index, count: countRef.current });
+	}, []);
+	const registerRow = useCallback(
+		(index: number, element: HTMLDivElement | null) => {
+			rowsRef.current[index] = element;
+		},
+		[],
+	);
+	const detailMaxHeight = Math.round(viewportHeight * 0.6);
 
 	return (
 		<div
@@ -222,14 +314,21 @@ export function TraceCallList({
 			tabIndex={0}
 			onScroll={onScroll}
 			onKeyDown={(event) => {
-				const current = selected ?? scrollIndex;
 				if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 					event.preventDefault();
-					selectIndex(current + (event.key === "ArrowDown" ? 1 : -1));
+					dispatch({
+						type: "move",
+						delta: event.key === "ArrowDown" ? 1 : -1,
+						scrollIndex,
+						count: calls.length,
+					});
 				} else if (event.key === "Enter") {
 					event.preventDefault();
-					selectIndex(current);
-					setExpanded(expanded === current ? null : current);
+					dispatch({
+						type: "toggle-current",
+						scrollIndex,
+						count: calls.length,
+					});
 				}
 			}}
 			className="h-full min-h-0 overflow-y-auto outline-none [scrollbar-width:thin]"
@@ -241,78 +340,21 @@ export function TraceCallList({
 				<span className="text-end">Status</span>
 			</div>
 			{calls.map((call, index) => {
-				const CommandIcon = commandIcon(call.command);
+				const expanded = selection.expanded === index;
 				return (
-					<div
+					<TraceCallRow
 						key={call.seq}
-						ref={(element) => {
-							rowsRef.current[index] = element;
-						}}
-						className={index % 2 === 1 ? "bg-white/[0.018]" : undefined}
-					>
-						<Button
-							variant="unstyled"
-							size="unstyled"
-							type="button"
-							aria-current={activeIndex === index ? "true" : undefined}
-							aria-expanded={expanded === index}
-							onClick={() => {
-								selectIndex(index);
-								setExpanded(expanded === index ? null : index);
-							}}
-							className={`grid h-8 w-full grid-cols-[18px_76px_minmax(0,1fr)_58px] items-center gap-2 px-2 text-start text-[12px] outline-none [transition:background_var(--agentsims-duration-hover)_var(--agentsims-ease-standard)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/25 motion-reduce:transition-none ${
-								activeIndex === index
-									? "bg-white/[0.055]"
-									: "hover:bg-white/[0.03]"
-							}`}
-						>
-							<span
-								aria-hidden="true"
-								className="grid place-items-center text-white/42"
-							>
-								<IconSwap state={expanded === index ? "open" : "closed"}>
-									{expanded === index ? (
-										<ChevronUp size={13} strokeWidth={1.8} />
-									) : (
-										<CommandIcon size={13} strokeWidth={1.8} />
-									)}
-								</IconSwap>
-							</span>
-							<span className="truncate font-semibold text-white/82">
-								{call.command}
-							</span>
-							<span className="truncate text-white/42">{summaryFor(call)}</span>
-							<span
-								className={`text-end text-[10px] font-semibold uppercase tracking-[0.04em] ${STATUS_TEXT[call.status].className}`}
-							>
-								{STATUS_TEXT[call.status].label}
-							</span>
-						</Button>
-						<AnimatePresence initial={false}>
-							{expanded === index && (
-								<motion.div
-									key="detail"
-									initial={reducedMotion ? false : { height: 0, opacity: 0 }}
-									animate={{ height: "auto", opacity: 1 }}
-									exit={
-										reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0 }
-									}
-									transition={
-										reducedMotion ? { duration: 0 } : DETAIL_TRANSITION
-									}
-									className="overflow-hidden"
-								>
-									<TraceCallDetail
-										call={call}
-										device={device}
-										maxHeight={Math.round(viewportHeight * 0.6)}
-									/>
-								</motion.div>
-							)}
-						</AnimatePresence>
-					</div>
+						call={call}
+						index={index}
+						device={device}
+						active={activeIndex === index}
+						expanded={expanded}
+						detailMaxHeight={expanded ? detailMaxHeight : 0}
+						onToggle={onToggle}
+						registerRow={registerRow}
+					/>
 				);
 			})}
 		</div>
 	);
-}
+});

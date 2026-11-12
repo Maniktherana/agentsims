@@ -282,19 +282,16 @@ if (process.argv.includes("--input-fixture")) {
 				expect(results[platform].dense.reads).toBe(106);
 				expect(results[platform].dense.writes).toBe(0);
 				expect(results[platform].dense.timers).toBe(0);
-				expect(results[platform].dense.messages).toHaveLength(
-					platform === "android" ? 6 : 106,
-				);
-				if (platform === "android") {
-					expect(results[platform].dense.messages).toEqual([
-						{ type: "begin", x: 0.1, y: 0.5 },
-						{ type: "move", x: 0.695, y: 0.5 },
-						{ type: "end", x: 0.8, y: 0.5 },
-						{ type: "begin", x: 0.3, y: 0.5 },
-						{ type: "move", x: 0.5, y: 0.5 },
-						{ type: "end", x: 0.6, y: 0.5 },
-					]);
-				}
+				// Both platforms send at most one move per frame, newest wins. A busy
+				// device must not work through a backlog of old finger positions.
+				expect(results[platform].dense.messages).toEqual([
+					{ type: "begin", x: 0.1, y: 0.5 },
+					{ type: "move", x: 0.695, y: 0.5 },
+					{ type: "end", x: 0.8, y: 0.5 },
+					{ type: "begin", x: 0.3, y: 0.5 },
+					{ type: "move", x: 0.5, y: 0.5 },
+					{ type: "end", x: 0.6, y: 0.5 },
+				]);
 			});
 			test("fresh geometry on each event controls Begin, latest Move, and End coordinates", () => {
 				expect(results[platform].geometry.reads).toBe(3);

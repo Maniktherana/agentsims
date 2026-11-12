@@ -8,6 +8,7 @@ import {
 } from "@agentsims/ui/components/tooltip";
 import { FolderOpen, Route, Search } from "lucide-react";
 import {
+	memo,
 	useState,
 	type KeyboardEventHandler,
 	type PointerEventHandler,
@@ -74,7 +75,7 @@ export function traceOptionLabel(
 		.join(" · ");
 }
 
-export function TracePanel({
+export const TracePanel = memo(function TracePanel({
 	open,
 	device,
 	onClose,
@@ -261,4 +262,4 @@ export function TracePanel({
 			{content}
 		</DevicePanel>
 	);
-}
+});

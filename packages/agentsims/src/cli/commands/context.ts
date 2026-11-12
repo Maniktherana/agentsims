@@ -2,6 +2,10 @@ import { readFile, stat } from "node:fs/promises";
 import type { Command } from "commander";
 import { parseContextInput } from "../../core/tools/context/input";
 import {
+	CONTEXT_PROMPT_DETAILS,
+	isContextPromptDetail,
+} from "../../core/tools/context/prompt";
+import {
 	clientOf,
 	printJson,
 	writerOf,
@@ -73,11 +77,23 @@ export function registerContextCommands(
 	command(
 		"export <ids...>",
 		"Export selected notes, screenshots, source, and logs",
-	).action(async (ids: string[], flags: Flags) =>
-		printJson(
-			write,
-			await client(flags.url).exportContext(flags.workspace, ids),
-		),
-	);
+	)
+		.option(
+			"--detail <level>",
+			`Prompt detail: ${CONTEXT_PROMPT_DETAILS.join(", ")}`,
+			"standard",
+		)
+		.action(async (ids: string[], flags: Flags & { detail: string }) => {
+			if (!isContextPromptDetail(flags.detail))
+				throw new Error("Detail must be compact, standard, or detailed.");
+			printJson(
+				write,
+				await client(flags.url).exportContext(
+					flags.workspace,
+					ids,
+					flags.detail,
+				),
+			);
+		});
 	return program;
 }

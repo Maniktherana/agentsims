@@ -79,6 +79,40 @@ const source = z
 		lines: z.array(z.string()).max(CONTEXT_LIMITS.sourceLines),
 	})
 	.strict();
+const structureText = z.string().max(CONTEXT_LIMITS.structureText);
+const node = z
+	.object({
+		label: structureText.optional(),
+		role: structureText,
+		type: structureText.optional(),
+		testId: structureText.optional(),
+		source: structureText.optional(),
+	})
+	.strict();
+const nodeList = z
+	.object({
+		total: z.number().int().nonnegative().max(100_000),
+		items: z.array(node).max(CONTEXT_LIMITS.structureItems),
+	})
+	.strict()
+	.refine((value) => value.items.length <= value.total);
+const structure = z
+	.object({
+		ancestors: z.array(node).max(CONTEXT_LIMITS.structureItems).optional(),
+		siblings: nodeList.optional(),
+		children: nodeList.optional(),
+		nearby: z.array(structureText).max(CONTEXT_LIMITS.nearbyTexts).optional(),
+		instance: z
+			.object({
+				index: z.number().int().positive(),
+				total: z.number().int().min(2).max(100_000),
+				basis: z.enum(["source", "label"]),
+			})
+			.strict()
+			.refine((value) => value.index <= value.total)
+			.optional(),
+	})
+	.strict();
 const base = {
 	device: identifier,
 	platform: z.enum(["ios", "android"]),
@@ -94,7 +128,12 @@ const input = z.discriminatedUnion("kind", [
 			sessionId: identifier,
 			target: z.discriminatedUnion("kind", [
 				z
-					.object({ kind: z.literal("region"), rect, reason: identifier })
+					.object({
+						kind: z.literal("region"),
+						rect,
+						reason: identifier,
+						overlaps: structureText.optional(),
+					})
 					.strict(),
 				z
 					.object({
@@ -105,6 +144,7 @@ const input = z.discriminatedUnion("kind", [
 						app: identifier,
 						orientation: identifier,
 						element,
+						structure: structure.optional(),
 					})
 					.strict(),
 			]),
@@ -117,6 +157,12 @@ const input = z.discriminatedUnion("kind", [
 				})
 				.strict(),
 			source: source.optional(),
+			deviceName: z
+				.string()
+				.trim()
+				.min(1)
+				.max(CONTEXT_LIMITS.deviceNameCharacters)
+				.optional(),
 		})
 		.strict(),
 	z.object({ ...base, kind: z.literal("logs") }).strict(),

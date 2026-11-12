@@ -46,6 +46,12 @@ export interface AnnotationSendPayload {
 		readonly height: number;
 		readonly base64: string;
 	}[];
+	/** Note N marks its target on image `imageId` with the number N. */
+	readonly markers?: readonly {
+		readonly imageId: string;
+		readonly number: number;
+		readonly rect: AxRect;
+	}[];
 }
 
 export interface AnnotationSendResult {

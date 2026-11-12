@@ -12,6 +12,7 @@ import { TooltipProvider } from "@agentsims/ui/components/tooltip";
 import { Toaster } from "sonner";
 import {
 	useCallback,
+	useMemo,
 	useRef,
 	useState,
 	type Dispatch,
@@ -27,11 +28,14 @@ import {
 } from "./annotation/workspace-mode";
 import { motion } from "motion/react";
 import { AgentsimsBrandLink } from "./components/ui/agentsims-brand-link";
-import { resolveDeviceLifecyclePhase } from "./components/dock/devices/device-row";
 import { WorkspaceHeader } from "./components/workspace/workspace-header";
-import { SimulatorDeviceView } from "./components/workspace/simulator-device-view";
+import {
+	WorkspaceDevice,
+	type WorkspaceDeviceActions,
+} from "./components/workspace/workspace-device";
 import { useDeviceWorkspace } from "./hooks/workspace/use-device-workspace";
 import { resetWorkspaceLayout } from "./workspace/layout-events";
+import { sameForegroundApp } from "./workspace/foreground-app-state";
 import { WorkspaceCanvas } from "./components/workspace/workspace-canvas";
 import {
 	nextWorkspacePanel,
@@ -102,7 +106,9 @@ export function App() {
 	const onCurrentAppChange = useCallback(
 		(id: string, app: ForegroundApp | null) =>
 			setCurrentApps((current) =>
-				current[id] === app ? current : { ...current, [id]: app },
+				sameForegroundApp(current[id] ?? null, app)
+					? current
+					: { ...current, [id]: app },
 			),
 		[],
 	);
@@ -124,7 +130,7 @@ export function App() {
 	if (activeTool) lastOpenHeight.current = panelHeight;
 	const motionHeight = activeTool ? panelHeight : lastOpenHeight.current;
 	const panelMotion = useToolPanelMotion(!!activeTool, motionHeight);
-	const consoleDevices: ConsoleDevice[] = workspace.visibleDeviceIds.map(
+	const consoleDeviceList: ConsoleDevice[] = workspace.visibleDeviceIds.map(
 		(id) => {
 			const device = workspace.gridDevices?.find((item) => item.device === id);
 			const app = currentApps[id];
@@ -135,6 +141,18 @@ export function App() {
 				currentApp: app ? { id: app.bundleId, pid: app.pid } : undefined,
 			};
 		},
+	);
+	// Equal content keeps one array, so the logs panel renders only for a real change.
+	const consoleDeviceKey = JSON.stringify(consoleDeviceList);
+	const consoleDevices = useMemo(
+		() => consoleDeviceList,
+		[consoleDeviceKey],
+	);
+	const selectedConsoleDevice = useMemo(
+		() =>
+			consoleDevices.find((device) => device.id === workspace.effectiveUdid) ??
+			null,
+		[consoleDevices, workspace.effectiveUdid],
 	);
 	const devicePickerOpen = urlState.panel === "devices";
 	const toolsOpen = urlState.panel === "tools";
@@ -170,13 +188,80 @@ export function App() {
 		0,
 		workspace.visibleDeviceIds.indexOf(effectiveSettingsDeviceId ?? ""),
 	);
+	const toolDeviceKey = consoleDevices
+		.map((device) => `${device.id}\u0000${device.name}`)
+		.join("\u0001");
+	const toolDevices = useMemo(
+		() => consoleDevices.map(({ id, name }) => ({ id, name })),
+		// The key carries the content. Equal lists keep one array.
+		[toolDeviceKey],
+	);
+	// Device views get one actions object. Each call reads the latest workspace state.
+	const latest = {
+		workspace,
+		urlState,
+		activeTool,
+		setToolsOpen,
+		setDevtoolsOpen,
+		setSelectedDevtoolsTargetId,
+		endAnnotationMode,
+		onAnnotationEscape,
+		targetsByDevice,
+	};
+	const latestRef = useRef(latest);
+	latestRef.current = latest;
+	const deviceActions = useMemo<WorkspaceDeviceActions>(
+		() => ({
+			selectDevice: (deviceId) => latestRef.current.workspace.selectDevice(deviceId),
+			setDeviceStreaming: (deviceId, value) =>
+				latestRef.current.workspace.setDeviceStreaming(deviceId, value),
+			setToolsOpen: (value) => latestRef.current.setToolsOpen(value),
+			setDevtoolsOpen: (value) => latestRef.current.setDevtoolsOpen(value),
+			setTraceOpen: (value) => {
+				const { activeTool, urlState } = latestRef.current;
+				const open =
+					typeof value === "function" ? value(activeTool === "traces") : value;
+				void urlState.setPanel(
+					nextWorkspacePanel(urlState.panel, "traces", open),
+				);
+			},
+			setAccessibilityOpen: (open) => {
+				const { endAnnotationMode, urlState } = latestRef.current;
+				if (open) endAnnotationMode();
+				void urlState.setPanel(
+					nextWorkspacePanel(urlState.panel, "accessibility", open),
+				);
+			},
+			startAnnotation: (deviceId) => {
+				const { workspace, urlState } = latestRef.current;
+				workspace.selectDevice(deviceId);
+				setAnnotationActive(true);
+				void urlState.setPanel(null);
+			},
+			endAnnotation: () => setAnnotationActive(false),
+			escapeAnnotation: () => latestRef.current.onAnnotationEscape(),
+			onAnnotationSummaryChange,
+			onCurrentAppChange,
+			setDevtoolsTarget: (deviceId, focused, value) => {
+				const { targetsByDevice, setSelectedDevtoolsTargetId } =
+					latestRef.current;
+				const current = targetsByDevice[deviceId] ?? null;
+				const target = typeof value === "function" ? value(current) : value;
+				setTargetsByDevice((all) =>
+					all[deviceId] === target ? all : { ...all, [deviceId]: target },
+				);
+				if (focused) setSelectedDevtoolsTargetId(target);
+			},
+		}),
+		[onAnnotationSummaryChange, onCurrentAppChange],
+	);
 	return (
 		<TooltipProvider delay={0} closeDelay={0}>
 			<AgentsimsBrandLink className="fixed left-3 top-3 z-30 bg-[#181818]/90 px-2 border border-white/[0.08] shadow-[0_18px_56px_rgba(0,0,0,0.5)] [border-radius:8px]" />
 			<WorkspaceCanvas
 				bottomInset={WORKSPACE_DOCK_CLEARANCE + reservedPanelHeight}
 				controlsOffset={panelMotion.dockOffset}
-				visibleDeviceIds={workspace.visibleDeviceIds}
+				deviceIds={workspace.canvasDeviceIds}
 				devices={workspace.gridDevices}
 				configsByDevice={workspace.configsByDevice}
 				fallbackConfig={workspace.config}
@@ -185,99 +270,44 @@ export function App() {
 				onPanCommit={(pan) => void urlState.setPan(pan)}
 				initialOffsets={urlState.positions ?? DEFAULT_DEVICE_OFFSETS}
 				onOffsetsCommit={(positions) => void urlState.setPositions(positions)}
-				selectedDevice={workspace.selectedDevice}
-				runningDeviceCount={workspace.runningDevices.length}
 				starting={workspace.starting}
+				shuttingDown={workspace.shuttingDown}
 				actionErrors={workspace.actionErrors}
 				onFocus={workspace.selectDevice}
 				onStart={workspace.startDevice}
-				renderDevice={({ deviceId, device, config, focused }) => {
-					const deviceIndex = workspace.visibleDeviceIds.indexOf(deviceId);
-					const settingsPosition = Math.sign(
-						deviceIndex - settingsDeviceIndex,
-					) as -1 | 0 | 1;
-					const transportConnected = !!workspace.streamingByDevice[deviceId];
-					const lifecyclePhase = device
-						? resolveDeviceLifecyclePhase(
-								device,
-								!!workspace.starting[deviceId],
-								!!workspace.shuttingDown[deviceId],
-								transportConnected,
-							)
-						: transportConnected
-							? "streaming"
-							: "connecting";
-					return (
-						<SimulatorDeviceView
-							config={config}
-							settingsRefreshRevision={settingsRevisions[deviceId] ?? 0}
-							deviceName={device?.name ?? null}
-							deviceRuntime={device?.runtime ?? null}
-							chrome={device?.chrome ?? null}
-							toolsOpen={deviceId === effectiveSettingsDeviceId && toolsOpen}
-							setToolsOpen={setToolsOpen}
-							traceOpen={focused && activeTool === "traces"}
-							setTraceOpen={(value) => {
-								const open =
-									typeof value === "function"
-										? value(activeTool === "traces")
-										: value;
-								void urlState.setPanel(
-									nextWorkspacePanel(urlState.panel, "traces", open),
-								);
-							}}
-							toolPanelSlot={toolPanelSlot}
-							onCurrentAppChange={onCurrentAppChange}
-							annotationActive={annotationActive}
-							onAnnotationEnd={() => setAnnotationActive(false)}
-							onAnnotationEscape={onAnnotationEscape}
-							onAnnotationStart={() => {
-								workspace.selectDevice(deviceId);
-								setAnnotationActive(true);
-								void urlState.setPanel(null);
-							}}
-							onAnnotationSummaryChange={onAnnotationSummaryChange}
-							accessibilityPanelOpen={focused && activeTool === "accessibility"}
-							onAccessibilityPanelOpenChange={(open) => {
-								if (open) endAnnotationMode();
-								void urlState.setPanel(
-									nextWorkspacePanel(urlState.panel, "accessibility", open),
-								);
-							}}
-							toolDevices={consoleDevices}
-							onToolDeviceChange={workspace.selectDevice}
-							devtoolsOpen={focused && devtoolsOpen}
-							setDevtoolsOpen={setDevtoolsOpen}
-							selectedDevtoolsTargetId={
-								Object.hasOwn(targetsByDevice, deviceId)
-									? targetsByDevice[deviceId]!
-									: deviceId === initialDevToolsTarget.current.device
-										? initialDevToolsTarget.current.target
-										: null
-							}
-							setSelectedDevtoolsTargetId={(value) => {
-								const current = targetsByDevice[deviceId] ?? null;
-								const target =
-									typeof value === "function" ? value(current) : value;
-								setTargetsByDevice((all) =>
-									all[deviceId] === target
-										? all
-										: { ...all, [deviceId]: target },
-								);
-								if (focused) setSelectedDevtoolsTargetId(target);
-							}}
-							streaming={transportConnected}
-							lifecyclePhase={lifecyclePhase}
-							setStreaming={(value) =>
-								workspace.setDeviceStreaming(deviceId, value)
-							}
-							embedded
-							focused={focused}
-							settingsPosition={settingsPosition}
-							onFocus={() => workspace.selectDevice(deviceId)}
-						/>
-					);
-				}}
+				renderDevice={({ deviceId, device, config, focused }) => (
+					<WorkspaceDevice
+						deviceId={deviceId}
+						device={device}
+						config={config}
+						focused={focused}
+						starting={!!workspace.starting[deviceId]}
+						shuttingDown={!!workspace.shuttingDown[deviceId]}
+						transportConnected={!!workspace.streamingByDevice[deviceId]}
+						settingsRefreshRevision={settingsRevisions[deviceId] ?? 0}
+						toolsOpen={deviceId === effectiveSettingsDeviceId && toolsOpen}
+						traceOpen={focused && activeTool === "traces"}
+						accessibilityPanelOpen={focused && activeTool === "accessibility"}
+						devtoolsOpen={focused && devtoolsOpen}
+						annotationActive={annotationActive}
+						toolPanelSlot={toolPanelSlot}
+						toolDevices={toolDevices}
+						settingsPosition={
+							Math.sign(
+								workspace.visibleDeviceIds.indexOf(deviceId) -
+									settingsDeviceIndex,
+							) as -1 | 0 | 1
+						}
+						selectedDevtoolsTargetId={
+							Object.hasOwn(targetsByDevice, deviceId)
+								? targetsByDevice[deviceId]!
+								: deviceId === initialDevToolsTarget.current.device
+									? initialDevToolsTarget.current.target
+									: null
+						}
+						actions={deviceActions}
+					/>
+				)}
 			/>
 			<IntegratedToolPanel
 				open={!!activeTool}
@@ -301,11 +331,7 @@ export function App() {
 			>
 				<div className="h-full min-h-0" hidden={activeTool !== "logs"}>
 					<UnifiedLogsPanel
-						selectedDevice={
-							consoleDevices.find(
-								(device) => device.id === workspace.effectiveUdid,
-							) ?? null
-						}
+						selectedDevice={selectedConsoleDevice}
 						devices={consoleDevices}
 						onDeviceChange={workspace.selectDevice}
 						active={activeTool === "logs"}

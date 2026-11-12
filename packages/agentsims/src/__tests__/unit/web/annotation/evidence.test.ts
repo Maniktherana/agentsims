@@ -211,17 +211,15 @@ test("prompt keeps each device, actual screenshot and target together without ch
 			["two", "/tmp/ios.png"],
 		]),
 	);
-	expect(payload.prompt).toContain(
-		"## 1. Pixel 10 (Android)\nChange: Make it red",
-	);
-	expect(payload.prompt).toContain("Target: Target (button)");
-	expect(payload.prompt).toContain("Screenshot: /tmp/android.png");
-	expect(payload.prompt).toContain(
-		"## 2. iPhone 17 (iOS)\nChange: Keep the other button blue",
-	);
-	expect(payload.prompt).toContain(
-		"Bounds: x 918, y 866, 204 × 272 px in the captured screenshot\nScreenshot: /tmp/ios.png",
-	);
+	const [, first, second] = payload.prompt.split(/^## /m);
+	expect(first).toStartWith("Screen feedback: app on Pixel 10 (Android)");
+	expect(first).toContain("**Screenshot:** 900x1800 px — /tmp/android.png");
+	expect(first).toContain('### 1. button "Target"');
+	expect(first).toContain("**Feedback:** Make it red");
+	expect(second).toStartWith("Screen feedback: app on iPhone 17 (iOS)");
+	expect(second).toContain("**Position:** 918, 866 (204x272)");
+	expect(second).toContain("**Screenshot:** 900x1800 px — /tmp/ios.png");
+	expect(second).toContain("**Feedback:** Keep the other button blue");
 	expect(payload.prompt).not.toContain("ios-uuid");
 	expect(payload.prompt).not.toContain("Captured:");
 	expect(payload.prompt).not.toContain("attachment");
@@ -256,10 +254,108 @@ test("a captured native label explains a region without claiming source identity
 			1500,
 		),
 	};
-	const payload = exportAnnotationNotes([original]);
-	expect(payload.prompt).toContain("## 1. Android device");
-	expect(payload.prompt).toContain("Target: Save (button)");
-	expect(payload.prompt).not.toContain("Source:");
-	expect(payload.prompt).not.toContain("App:");
+	const payload = exportAnnotationNotes([
+		{
+			...original,
+			evidence: captureAnnotationEvidence(
+				original.selection,
+				geometry,
+				{
+					src: "data:image/png;base64,Zmlyc3Q=",
+					width: 900,
+					height: 1800,
+					blob: new Blob(["first"]),
+				},
+				1500,
+			),
+		},
+	]);
+	expect(payload.prompt).toContain("### 1. free region");
+	expect(payload.prompt).toContain(
+		"**Source:** not available — free region, find it from the screenshot",
+	);
+	expect(payload.prompt).toContain(
+		'**Overlaps:** "Save (button)" — native label, not verified',
+	);
+	expect(payload.prompt).not.toContain('button "Save');
 	expect(original.evidence.target.kind).toBe("region");
+});
+
+test("capture freezes structure only from the tree revision that made the selection", () => {
+	const rows = [0, 1, 2].map((index) => ({
+		...node,
+		id: `row-${index}`,
+		path: `0.${index}`,
+		frame: { x: 20, y: 40 + index * 60, width: 80, height: 50 },
+	}));
+	const tree = [
+		{
+			...node,
+			id: "list",
+			path: "0",
+			label: "Rows",
+			role: "list",
+			testId: "rows",
+			frame: { x: 0, y: 0, width: 200, height: 300 },
+		},
+		...rows,
+	];
+	const current = cache(tree);
+	const selection = selectAnnotationAtPoint({
+		identity,
+		cache: current,
+		geometry,
+		point: { x: 40, y: 125 },
+		now: 1500,
+	})!;
+	const image = {
+		src: "data:image/png;base64,Zmlyc3Q=",
+		width: 900,
+		height: 1800,
+		blob: new Blob(["first"]),
+	};
+	const evidence = captureAnnotationEvidence(selection, geometry, image, 1500, {
+		cache: current,
+		deviceName: "Pixel 10",
+	});
+	if (evidence.target.kind !== "element") throw new Error("Expected element");
+	expect(evidence.target.structure?.instance).toEqual({
+		index: 2,
+		total: 3,
+		basis: "label",
+	});
+	expect(evidence.target.structure?.ancestors?.[0]?.label).toBe("Rows");
+	expect(evidence.deviceName).toBe("Pixel 10");
+	expect(Object.isFrozen(evidence.target.structure)).toBe(true);
+	const instance = (evidence: typeof stale) =>
+		exportAnnotationNotes([{ ...note(), evidence, note: "Red" }])
+			.prompt.split("\n")
+			.find((line) => line.startsWith("**Instance:**"));
+	expect(instance(evidence)).toBe(
+		"**Instance:** 2 of 3 with this role and label — change only this one",
+	);
+	const single = cache([tree[0]!, rows[1]!]);
+	expect(
+		instance(
+			captureAnnotationEvidence(
+				selectAnnotationAtPoint({
+					identity,
+					cache: single,
+					geometry,
+					point: { x: 40, y: 125 },
+					now: 1500,
+				})!,
+				geometry,
+				image,
+				1500,
+				{ cache: single },
+			),
+		),
+	).toBeUndefined();
+	const stale = captureAnnotationEvidence(selection, geometry, image, 1500, {
+		cache: cache(tree, 2),
+	});
+	expect(stale.target.kind === "element" && stale.target.structure).toBe(
+		undefined,
+	);
 });

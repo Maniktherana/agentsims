@@ -1,305 +1,101 @@
 ---
 name: agentsims
-description: Controls and inspects iOS simulators, Android emulators, and connected Android devices with the agentsims CLI. Use when the user asks to interact with a mobile app, drive a device, read accessibility state, capture a screenshot, test device conditions, or verify a mobile screen or flow.
+description: Inspect and control iOS simulators, Android emulators, and connected Android devices with the agentsims CLI. Use when the task is to open, tap, type into, scroll, inspect, or verify a mobile app screen or flow, read its accessibility tree, capture a screenshot or video, or change device state such as permissions, camera, or apps.
 license: Apache-2.0
 ---
 
 # Agentsims
 
-You drive the device. agentsims shows you the screen as a tree of named controls plus
-an image, and after every action it tells you what was sent and what changed. Every
-task is doable from that evidence: when a step does not land, the result says what
-happened, and the next step follows from it.
+Use Xcode, Gradle, Metro, or Expo to build. Use agentsims only to inspect and control a device. Physical iPhones are not supported.
 
-When a task needs an app build, use Xcode, Gradle, Metro, or Expo. Use agentsims to
-inspect and control an explicit device. Do not claim device proof without one. Physical
-iPhones are not supported.
+## Procedure
 
-## Setup
+1. **Reach a workspace.** Run `agentsims status`.
+   - It prints `url` → use that server. You do not own it. Never stop it.
+   - It prints `Agentsims is not running` → run `agentsims start --detach`. This task owns that server.
+   - The server is at another address → add `--url <url>` to every command. Never assume port 3200: the user can run the server on any port.
+   - A device or stream is missing → run `agentsims doctor --platform ios` or `--platform android` and do its repair steps.
+2. **Pick a device.** Run `agentsims devices list`. Copy one exact ID, such as `android:emulator-5554` or an iOS simulator UUID. Add `-d <id>` to every device command: without it, a workspace with two devices can receive input on the wrong one. Never change to a different device without telling the user.
+3. **Write the end state.** Before the first action, write the end state with the exact names, text, numbers, dates, and order from the task. You compare every result to this.
+4. **Observe.** Run `agentsims observe -d <id>`. Read the tree. Open the saved image only for a reason in [When to open the image](#when-to-open-the-image).
+5. **Pick one target**, in this order. Stop at the first that applies:
+   1. A ref from the current tree: `@e14`.
+   2. An exact label: `"Save"`. If the CLI says `3 nodes match "Save"`, add `--role <role>` or `--index <n>`.
+   3. A percent point: `50%,80%`. Use it only when no node names the control.
+   4. A pixel point with `--capture cN`. Read [references/pixels.md](references/pixels.md) first.
+6. **Act once.** Send one mutation per command. Never chain mutations with `&&`: an accepted mutation renumbers refs and ends the capture ID, so the second command acts on refs that do not exist.
+7. **Read the result** with the [result table](#read-the-result). The tree that an action prints is your next observation. Run `observe` again only when that tree does not show what you need.
+8. **Decide.** Compare the result to the end state from step 3. Not there → go to step 5. There → go to [Finish](#finish).
 
-Install the Agentsims CLI first. iOS needs macOS, Xcode, and a Simulator runtime;
-Android needs the SDK.
+## Read the result
 
-```sh
-agentsims doctor                                 # host readiness
-agentsims status || agentsims start --detach     # reuse a running workspace
-agentsims devices list                           # exact IDs; pass one as -d on every command
-```
+| You see | It means | Do |
+| --- | --- | --- |
+| `dispatch accepted` | The device took the input | Read `verification` and the tree |
+| `dispatch none` | Nothing was sent. Refs and captures stay valid | Do the fix in [Refusals](#refusals) |
+| `dispatch unknown` or `dispatch=unknown` | The input can have landed | `observe` before any retry: a blind retry can do the action two times |
+| `verification matched` | The `checked:` or `value:` change happened | Continue |
+| `verification mismatch` | The change did not happen | Act differently. Never report done. Never send the same command unchanged |
+| `verification unavailable` | No evidence | Report that check as unverified. Do not submit |
+| `verification not_applicable` | No judged check for this action | Judge `screenChanged=`, `contentMoved=`, `new:`, `gone=yes`, `first:` against the end state |
+| `settled=no (…ms)` | The tree still moved | `agentsims wait --stable -d <id>` |
+| The tree still shows the previous screen after navigation | Accessibility can lag the screen | `observe` again. Never press Back only for this reason |
 
-A workspace URL grants access, not ownership: stop only a workspace this task started,
-do not assume port 3200, and pass `--url` for another address. IDs look like
-`android:emulator-5554`, `android:R5CR20ABC`, `android-avd:Pixel_Tablet`, or a bare UUID
-for an iOS simulator. Never use an ambient or default device when more than one exists,
-and never substitute another device without saying so.
+An accepted dispatch does not prove that the app changed. Only the tree, a readback, or a verification line proves it.
 
-## The loop
+## Refusals
 
-```text
-start or reuse → select device → observe → act → read the result → decide → ↺
-```
+| Message contains | Do |
+| --- | --- |
+| `is not addressable` / `Run observe` | `observe`, then pick from the new tree |
+| `nodes match "X". Use a ref, or add --index` | Add the `--index` or `--role` that the list shows |
+| `is disabled` | Do the step that enables it, or `wait --for` the state that enables it |
+| `is offscreen` / `is clipped` | `scroll` the region until the node shows without `[offscreen]` |
+| `is behind the active window` | Close the dialog or keyboard first (see below) |
+| `has no clickable or long-press trait` | It dispatched. Use the clickable container that the warning names next time |
+| `Android focused a different field` | Target the field that the message names |
+| `capture cN is from before the last input` | Take a new screenshot or use a percent point |
+| `device_gone` | `agentsims devices list`, then start again at step 4 |
 
-Before acting, identify the requested end state. Preserve exact names, text, numbers, dates,
-filters, counts, and ordering from the task.
+Close a dialog or keyboard with its visible control. On Android you can also `press back`. iOS has no Back command, so use the app's own control.
 
-1. `observe`. One bounded observation returns the accessibility tree and an image, with
-   an observation ID such as `s12` and a capture ID such as `c12`.
-2. Reason from the tree. Open the image only when the tree cannot show what you need:
-   colour, layout, drawings, maps, rendered web content, or an empty tree.
-3. Pick the safest target: a current ref `@e14`, then an exact label narrowed with
-   `--role` or `--index`, then a point.
-4. Dispatch one mutation. agentsims re-checks the node right before input and refuses
-   a target that is stale, missing, ambiguous, disabled, covered, or on another device.
-5. Read the result: `dispatch`, `verification`, the new tree with new refs, and an image
-   when pixels add evidence.
-6. Decide the next step from that result. Do not reuse old refs. Do not repeat an action
-   unchanged. Observe again when the returned tree is not enough. Stop when the evidence
-   answers the question or proves the requested final state.
+## Rules
 
-The tree drives the normal loop. Pixels cover what the tree cannot represent. Native
-readback verifies text. You remain the planner.
+- Never use `sleep`. Use `wait --for "<text>"`, `wait --gone "<text>"`, or `wait --stable`: `sleep` proves nothing about the screen. `wait` exits 1 when the state never comes.
+- Open an app with `app list` and `app launch <app-id>`. Never search the launcher: one launch command verifies the foreground app.
+- Read node states before you act: `[clickable]` and `[long-press]` take gestures, `[checked]`/`[unchecked]` hold state, `[scrollable]` is a region for `scroll --in`, `[focused]` takes text. A row prints with the label of its first text, so tap the row, not its text.
+- Use `long-press` only when the task or a `[long-press]` state asks for it. A tap with no effect is not a reason to long-press.
+- A switch result shows `checked: before → after`. If it did not flip, tap one more time, then observe.
+- A root-only tree on iOS, or `accessibility error`, is degraded accessibility, not an empty screen. Read [references/pixels.md](references/pixels.md).
 
-## Tools
+## Points
 
-Every device command takes `-d <id>`. Run `agentsims <command> --help` when a flag is
-uncertain.
+A point is `x,y`. `x` counts from the left edge, `y` from the top edge. Give both values in percent or both in pixels. Percent points need no capture. For `swipe` and `drag`, `<from>` is where the finger goes down and `<to>` is where it lifts. The content moves the opposite way. `scroll down` moves the content to show more below.
 
-| Do              | Command                                                                                                                                      |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| See the screen  | `observe [-o <path>] [--all] [--frames] [--raw]` (tree + image), `screenshot [path]`, `find <text>`                                          |
-| Watch it change | `observe --watch <ms> [--every <ms> \| --samples <n>] [--keep-frames]`, `wait --for\|--gone <text> \| --stable`                              |
-| Touch           | `tap <target>`, `long-press <target> [--duration <ms>]`, `swipe <from> <to>`, `drag <from> <to>`                                             |
-| Type            | `fill <text> --into <target> [--submit]` (replace), `type <text> --into <target>` (insert)                                                   |
-| Keys and device | `press home\|back\|app-switch\|power\|volume-up\|volume-down`, `rotate portrait\|landscape`                                                  |
-| Lists           | `scroll down\|up\|left\|right [--in <target>] [--to-end --collect <selector>]`                                                               |
-| Repeat          | `run <steps.json\|-> ` up to 25 label-addressed steps                                                                                        |
-| Record          | `record start -d <id> [--out <path>]`, `record stop`, `record status` (MP4 of the screen)                                                    |
-| Apps            | `app list`, `app launch <package>`, `app stop <package>`, `app install <path>`, `app uninstall <package>`                                    |
-| Device state    | `permissions list\|grant\|revoke\|reset -a <app>`, `camera list\|use <webcam>\|stop`, `device-logs`, `rotate`                                |
-| Workspace       | `doctor [--platform ios\|android]`, `status`, `logs [-f]`, `start [--detach]`, `stop`, `devices list [--all]`, `devices boot\|shutdown <id>` |
-| Record the run  | `trace start [--name <text>]`, `trace stop`, `trace status`                                                                                  |
+| Finger motion | From | To |
+| --- | --- | --- |
+| Up (content goes down the list) | `50%,80%` | `50%,20%` |
+| Down | `50%,20%` | `50%,80%` |
+| Left | `80%,50%` | `20%,50%` |
+| Right | `20%,50%` | `80%,50%` |
 
-A target is a ref `@e14` from the current tree, an exact label `"Save"` with `--role` or
-`--index` when several match, or a point. Add `--json` to any command for structured
-output.
+## When to open the image
 
-Start a trace before a task you want to review later and stop it after: it writes every
-command, its result, and a screenshot of each step, and it prints the trace id and the
-directory.
-
-## Coordinates
-
-A point is `x,y`. `x` is the distance from the LEFT edge, `y` from the TOP edge, so `0,0`
-is the top-left corner and larger `y` is lower on the screen. Give both values in percent
-or both in pixels; mixing them is refused.
-
-- Percent points are fractions of the screen and need no capture: `50%,80%` is the
-  horizontal centre, 80% of the way down.
-- Pixel points are in the screenshot's own printed dimensions, such as `1080×2400`, and
-  need the capture ID of a screenshot you opened: `603,1311 --capture c7`. The image tool
-  may show you a downscaled copy; convert back to the printed size before writing pixels.
-- `--frames` on `observe` adds `[box=x,y,w,h]` in those same pixels: `x,y` is the top-left
-  corner of the node, `w,h` its size, and its centre is `x + w/2, y + h/2`.
-- For `swipe`, `drag`, and `scroll`, `<from>` is where the finger touches down and `<to>`
-  where it lifts. Content moves the opposite way. `down`/`up` change `y`; `left`/`right`
-  change `x`. `drag` moves one finger slowly, for a slider or a reorder.
-- A capture ID stays valid until the screen changes: an accepted mutation, a rotation, or
-  browser input ends it, so screenshot again and use the new ID. A screenshot written to
-  an existing path overwrites it.
-
-| Finger motion             | From      | To        |
-| ------------------------- | --------- | --------- |
-| Up (content scrolls down) | `50%,80%` | `50%,20%` |
-| Down                      | `50%,20%` | `50%,80%` |
-| Left                      | `80%,50%` | `20%,50%` |
-| Right                     | `20%,50%` | `80%,50%` |
-
-## How to get things done
-
-### Open an app by package, not by hunting
-
-```sh
-agentsims app list -d "$D" | grep -i calendar
-agentsims app launch com.simplemobiletools.calendar.pro -d "$D"
-```
-
-`verification matched` means the app is in the foreground. Do not page through the
-launcher or search the app drawer; one launch is faster and proves itself.
-
-### Find the control, act, read what changed
-
-```text
-- generic "Connected devices" [ref=e237] [clickable]      ← the row, named by its title
-    - text "Bluetooth, pairing" [ref=e240]                ← its subtitle
-- switch "Bluetooth" [ref=e251] [checked] [clickable]
-```
-
-Nodes print as `role "label" [ref=eN] [state]… [testid=x]: value`. Roles and states tell
-you what a node does: `[clickable]` and `[long-press]` take gestures, `[checked]`/
-`[unchecked]` hold state, `[scrollable]` marks a region for `scroll --in`, `[disabled]` is
-present but inert, `[offscreen]` needs scrolling into view, `[focused]` holds text input.
-Extra brackets are facts the platform knows: `[state="On"]` is what a screen reader
-would say, `[error="Required"]` and `[placeholder="Email"]` describe a field,
-`[rows=30]` is a list's full length and `[row=5/30]` an item's place in it,
-`[actions=scroll-forward,expand]` what a node accepts, `[cursor=3]` where typing lands.
-A slider shows its position as a value: `slider "Brightness" [ref=e9]: 93% (238/255)`.
-Rows carry the words they show, so `tap "Connected devices"` or `tap @e237` hits the row;
-when a label matches one actionable node and some inert text, the actionable node wins.
-Then read:
-
-```text
-dispatch      accepted   screenChanged=yes  new: generic (Connected devices, Navigate up)
-verification  matched    checked: checked → unchecked
-accessibility ok  observation=s9  settled=750ms
-```
-
-| You see                                                      | It means                                                | Next                                            |
-| ------------------------------------------------------------ | ------------------------------------------------------- | ----------------------------------------------- |
-| `dispatch accepted`                                          | the device took the input                               | read verification and the tree                  |
-| `dispatch none`                                              | refused before input; nothing changed, refs still valid | the reason names the fix                        |
-| `dispatch unknown`                                           | input may have landed                                   | `observe`, then decide                          |
-| `verification matched` / `mismatch`                          | the checked or value transition did / did not happen    | on mismatch, act differently; never report done |
-| `verification unavailable` / `not_applicable`                | no evidence to judge / no judged check for this action  | read the observed facts instead                 |
-| `screenChanged=`, `new:`, `gone=`, `contentMoved=`, `first:` | facts about the effect                                  | judge them against your goal                    |
-| `settled=no (1500ms)`                                        | the tree was still moving                               | `wait --stable` or `observe`                    |
-
-The tree returned by an action is your next observation; a separate `observe` is for
-when that tree is not enough. One mutation per command: an accepted mutation renumbers
-refs, so a `&&` chain would act on refs that no longer exist. Use `run` for sequences.
-
-### Refusals name their own fix
-
-`ref @e14 is not addressable` → `observe`. `3 nodes match "Save"` → add `--role` or
-`--index`. `[disabled]` or `[offscreen]` → scroll or wait until it is ready. A node
-`has no clickable or long-press trait` still dispatches, and the warning names the
-clickable container to use next time. `Android focused a different field` names the
-field that took focus; target that one.
-
-Close a modal or keyboard with its visible control, then observe; Android can `press back`,
-iOS needs the app's own control. After `device_gone`, run `devices list` and restart from
-`observe`. An AX error or a root-only tree leaves only pixels: use a current screenshot
-with a capture-bound point and report semantic checks as unverified. On iOS 27 an
-unfocused stock app can return only the application root while VoiceOver is off; that is
-degraded AX, not an empty screen.
-
-### Forms
-
-```sh
-agentsims fill "Pasta night" --into "Title" -d "$D"
-agentsims fill "19:30" --into @e42 --submit -d "$D"
-```
-
-`fill` proves focus, writes, reads the field back, and sends Return only after the
-readback matches. Several fields in a row:
-
-```sh
-echo '[{"type":"tap","target":"New event"},
-       {"type":"fill","text":"Pasta night","into":"Title"},
-       {"type":"tap","target":"Save"}]' | agentsims run - -d "$D"
-```
-
-Up to 25 steps, each preceded by a fresh observation, so steps address exact labels and
-percent points only; refs, pixel points, and capture IDs are rejected before anything
-runs. The run stops at the first refusal or mismatch and prints one line per step, and
-every line is evidence, not just the last. Literal newlines in text are rejected.
-
-### Lists and counting
-
-```sh
-agentsims scroll down --to-end --collect text --in @e14 -d "$D"
-```
-
-Prefer the app's relevant filter or sorted view. Count directly when the current tree proves
-that view is complete: `[rows=30]` gives the total including offscreen rows, or every relevant
-row is present with no clipped, offscreen, or continuing content. Associate child values with
-their enclosing row instead of counting matching child labels globally. When the relevant
-result is incomplete, use `--to-end --collect`.
-
-`scroll` needs no capture; `--amount <pct>` sets how far one page moves.
-`--to-end --collect <testid|role|label>` returns every matching row inside the region across
-pages, preserves legitimate identical rows, and removes only the overlap between adjacent
-pages. It reports `count` and `endReached` (`collected  37 items  selector=text`). A row named
-by its title is a `generic`, so collect rows with `generic` or their test ID; `--collect text`
-returns only the texts left inside them. `endReached=no` means a partial list: keep going or
-raise `--max-pages` before you answer.
-
-### Waiting
-
-```sh
-agentsims wait --for "Saved" -d "$D"
-agentsims wait --gone "Loading" --timeout 20000 -d "$D"
-agentsims wait --stable -d "$D"
-```
-
-`wait` polls (defaults `--timeout 10000`, `--interval 500`), returns the tree it ended on,
-and exits 1 when the condition never held. `--stable` waits for two matching reads instead
-of a text. `sleep` proves nothing.
-
-### Motion and video
-
-Playback starts on the tap that opens the file, so that tap is the watch:
-
-```sh
-agentsims tap "ZwUN_moment_70_.mp4" --watch 20000 --every 250 -d "$D"   # or the chooser's "VLC" / "Just once"
-```
-
-Sampling begins the instant the input lands and covers the whole clip; a separate
-`observe --watch` afterwards starts a second late and misses the first frames. Pick a
-window longer than any short clip. Frames that stop changing mean the clip has ended, so
-you learn the length from the sheets instead of needing it first.
-
-Do not try to pause, read the duration, or seek to the start before watching. Player
-controls appear only while an overlay is showing, and the overlay hides itself within a
-few seconds. Every command of yours is a turn apart, so `tap "Pause"` after `tap 50%,50%`
-finds no Pause node. That loop costs turns and captures nothing.
-
-Then read every `sheet` path in order. Indices are global across sheets. Write down each
-distinct text in the order it first appears; consecutive frames with the same text are
-one entry. If a frame is unreadable, or the achieved-interval warning appears, open the
-file again with the same `--watch` and a larger `--every`, or add `--keep-frames` and open
-the single frames. Do not guess a missing word. If you missed the start, replay: open the
-file again with `--watch` on that tap.
-
-`--every 250` samples four times a second. Every frame is the whole screen.
-
-To keep the whole flow, not samples of it, run `agentsims record start -d "$D"` before the
-flow and `agentsims record stop -d "$D"` after it. The stop line prints the MP4 path.
-
-### Controls with no accessibility node
-
-```sh
-agentsims screenshot /tmp/now.png -d "$D"      # open the file, note capture=cN and the size
-agentsims tap 603,1311 --capture c7 -d "$D"    # pixels in the printed dimensions
-agentsims swipe 50%,80% 50%,20% -d "$D"        # percent points need no capture
-```
-
-### Toggles, sliders, places
-
-A switch tap reports `checked: before → after`; if it did not flip, tap once more, not
-blindly twice. A slider reports `value: 45% → 93%`; use `drag` along its bar, and for its
-maximum or minimum drag to the far edge of its box from `--frames`, then check the value
-reads 100% or 0%. For a named place in
-a map, open its own search result (check the subtitle, `Village` versus a bus stop),
-read the coordinate line in its menu, then act. Never long-press the map to place a
-named location.
-
-### Questions
-
-Gather enough evidence for the question. Use a complete relevant filtered view directly;
-collect only when that view is incomplete. Open an item when the answer needs its fields, then
-answer in exactly the format the task asks for.
+Open the image path from `observe` only when one of these is true: the task is about colour, layout, an icon, or a drawing; no node names the target; the tree is empty or root-only; the action printed an image because the window changed; or the next action uses a pixel point. In all other cases the tree is the evidence, and the image costs time.
 
 ## Finish
 
-Check the property the task changed: label and role for a control, matched readback for
-text, the foreground app and screen for navigation, the saved image for a visual change.
-Your last call is `observe`. Quote the node or readback that proves the end state. Run the
-repository's checks, remove temporary instrumentation, and stop only processes this task
-started. Report the user-visible result, each device and state exercised, the dispatch and
-verification evidence, image evidence when the claim is visual, and every branch that stays
-unverified.
+1. Make your last call `observe`, or a command whose printed tree shows the end state.
+2. Quote the node or readback that proves the end state, for example `switch "Bluetooth" [ref=e251] [checked]` or `value: "" → "Buy milk"`.
+3. Report the device ID, each state you exercised, the dispatch and verification lines, the image path when the claim is visual, and each check that stays unverified.
+4. Stop only what this task started: the server from step 1, a recording, a trace, a camera feed. A URL gives access to a server. It does not give the right to stop it.
 
 ## References
 
-- [references/observe.md](references/observe.md): channels, IDs, tree, timed observation, degraded AX.
-- [references/input.md](references/input.md): coordinates, targets, actions and flags, scroll, sequences, text.
-- [references/device-control.md](references/device-control.md): apps, logs, permissions, camera.
+Read the reference before the first command of that kind.
+
+- [references/forms.md](references/forms.md): before you type into a field, or before 3 or more label-addressed steps in one flow.
+- [references/lists.md](references/lists.md): before you count rows, collect a list, or answer a question about list contents.
+- [references/pixels.md](references/pixels.md): before a pixel point, a slider, a map, or work on a degraded tree.
+- [references/motion.md](references/motion.md): before you watch video, animation, a timer, a splash screen, or a toast, or record the screen.
+- [references/device-state.md](references/device-state.md): before you install or remove an app, change permissions, use the camera, read logs, trace a run, or change appearance, locale, location, network, or battery.

@@ -61,13 +61,28 @@ actor H264Encoder {
     private var height: Int32 = 0
     private let fps: Int32
     private var bitrate: Int
+    /// Long-edge limit in pixels; 0 means the source size. VideoToolbox scales
+    /// a source buffer to the session size.
+    private let maxEdge: Int
     private var emittedDescription = false
     private var frameCount: Int64 = 0
     private var lastCreateStatus: OSStatus = noErr
 
-    init(fps: Int = 60, bitrate: Int = 6_000_000) {
+    init(fps: Int = 60, bitrate: Int = 6_000_000, maxEdge: Int = 0) {
         self.fps = Int32(fps)
         self.bitrate = bitrate
+        self.maxEdge = maxEdge
+    }
+
+    /// Session size for a source size. H.264 needs even dimensions.
+    static func encodedSize(width: Int, height: Int, maxEdge: Int) -> (Int32, Int32) {
+        let longEdge = max(width, height)
+        guard maxEdge > 0, longEdge > maxEdge else { return (Int32(width), Int32(height)) }
+        let scale = Double(maxEdge) / Double(longEdge)
+        func even(_ value: Int) -> Int32 {
+            Int32(max(2, Int((Double(value) * scale).rounded()) & ~1))
+        }
+        return (even(width), even(height))
     }
 
     deinit {
@@ -80,8 +95,11 @@ actor H264Encoder {
         forceKeyframe: Bool = false,
         presentationTimeStamp: CMTime? = nil
     ) async throws -> Encoded {
-        let w = Int32(CVPixelBufferGetWidth(source))
-        let h = Int32(CVPixelBufferGetHeight(source))
+        let (w, h) = Self.encodedSize(
+            width: CVPixelBufferGetWidth(source),
+            height: CVPixelBufferGetHeight(source),
+            maxEdge: maxEdge
+        )
         if session == nil || w != width || h != height {
             width = w
             height = h

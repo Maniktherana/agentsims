@@ -26,13 +26,19 @@ export function useViewerLease(device: string): {
 	viewer: string | null;
 	claim: () => void;
 } {
-	const state = useSyncExternalStore(
+	// Select strings. A change for another device does not render this one.
+	const holderSnapshot = () => getViewerState().holders[device];
+	const viewerSnapshot = () => getViewerState().viewer;
+	const holder = useSyncExternalStore(
 		subscribeViewerState,
-		getViewerState,
-		getViewerState,
+		holderSnapshot,
+		holderSnapshot,
 	);
-	const holder = state.holders[device];
-	const viewer = state.viewer;
+	const viewer = useSyncExternalStore(
+		subscribeViewerState,
+		viewerSnapshot,
+		viewerSnapshot,
+	);
 	const active = viewer !== null && (holder === undefined || holder === viewer);
 
 	const claim = useCallback(() => {

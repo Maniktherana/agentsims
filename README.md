@@ -56,7 +56,7 @@ Source mapping is optional. Follow the [Metro setup guide](docs/react-native.md)
 
 - [CLI reference](docs/cli.md)
 - [Workspace features](docs/workspace.md)
-- [Coding agents and extensions](docs/agents.md)
+- [Coding agents](docs/agents.md)
 - [Development](docs/development.md)
 - [All documentation](docs/README.md)
 

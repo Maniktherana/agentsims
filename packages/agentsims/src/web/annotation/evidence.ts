@@ -19,6 +19,12 @@ import {
 	annotationImageRectToViewport,
 } from "./geometry";
 import { annotationCacheFailure } from "./selection";
+import { annotationTargetStructure } from "./structure";
+import { CONTEXT_LIMITS } from "../../core/tools/context/contracts";
+import {
+	formatContextPrompt,
+	type ContextPromptDetail,
+} from "../../core/tools/context/prompt";
 
 export function freezeAnnotationValue<T>(value: T): T {
 	if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -33,6 +39,11 @@ export function captureAnnotationEvidence(
 	geometry: AnnotationGeometry,
 	capture: RenderedScreenshot,
 	capturedAt: number,
+	/** The cache that produced an element selection, and the device display name. */
+	context: {
+		cache?: AnnotationSelectionCache | null;
+		deviceName?: string;
+	} = {},
 ): AnnotationEvidence {
 	const match = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/=]+)$/.exec(
 		capture.src,
@@ -48,6 +59,31 @@ export function captureAnnotationEvidence(
 		},
 	);
 	if (!rect) throw new Error("The selected region is unavailable.");
+	const cache = context.cache;
+	// Structure comes only from the tree revision that produced the selection.
+	const structure =
+		selection.kind === "element" &&
+		cache &&
+		cache.metadata.revision === selection.metadata.revision &&
+		cache.metadata.device === selection.identity.device &&
+		cache.metadata.sessionId === selection.identity.sessionId
+			? annotationTargetStructure(cache, selection.key)
+			: undefined;
+	// Structure is optional. Never let it push the target past the store limit.
+	const structureFits =
+		!!structure &&
+		selection.kind === "element" &&
+		new TextEncoder().encode(
+			JSON.stringify({ rect, element: selection.element, structure }),
+		).length <=
+			CONTEXT_LIMITS.targetBytes - 1024;
+	const overlaps =
+		selection.kind === "region"
+			? selection.previewLabel?.trim().slice(0, CONTEXT_LIMITS.structureText)
+			: undefined;
+	const deviceName = context.deviceName
+		?.trim()
+		.slice(0, CONTEXT_LIMITS.deviceNameCharacters);
 	return freezeAnnotationValue(
 		structuredClone({
 			kind: "annotation",
@@ -65,7 +101,12 @@ export function captureAnnotationEvidence(
 			},
 			target:
 				selection.kind === "region"
-					? { kind: "region", rect, reason: selection.reason }
+					? {
+							kind: "region",
+							rect,
+							reason: selection.reason,
+							...(overlaps ? { overlaps } : {}),
+						}
 					: {
 							kind: "element",
 							rect,
@@ -74,7 +115,9 @@ export function captureAnnotationEvidence(
 							app: selection.identity.app!,
 							orientation: selection.identity.orientation!,
 							element: selection.element,
+							...(structureFits ? { structure } : {}),
 						},
+			...(deviceName ? { deviceName } : {}),
 		} satisfies AnnotationEvidence),
 	);
 }
@@ -145,39 +188,22 @@ export function annotationNoteViewportRect(
 export function exportAnnotationNotes(
 	notes: readonly LiveAnnotationNote[],
 	imagePaths?: ReadonlyMap<string, string>,
+	detail: ContextPromptDetail = "standard",
 ): AnnotationSendPayload {
 	const images = notes.map((note) => ({ id: note.id, ...note.evidence.image }));
-	const prompt = notes
-		.map((note, index) => {
-			const evidence = note.evidence;
-			const rect = evidence.target.rect;
-			const platform = evidence.platform === "ios" ? "iOS" : "Android";
-			const label =
-				evidence.target.kind === "element"
-					? `${evidence.target.element.label || evidence.target.element.type}${evidence.target.element.role ? ` (${evidence.target.element.role})` : ""}`
-					: note.selection.kind === "region"
-						? note.selection.previewLabel
-						: undefined;
-			const lines = [
-				`## ${index + 1}. ${note.deviceName ? `${note.deviceName} (${platform})` : `${platform} device`}`,
-				`Change: ${note.note}`,
-				`Target: ${label || "Selected screen region"}`,
-				`Bounds: x ${Math.round(rect.x)}, y ${Math.round(rect.y)}, ${Math.round(rect.width)} × ${Math.round(rect.height)} px in the captured screenshot`,
-				`Screenshot: ${imagePaths?.get(note.id) || `image ${index + 1}`}`,
-			];
-			const source =
-				evidence.target.kind === "element"
-					? evidence.target.element.source
-					: undefined;
-			if (evidence.target.kind === "element")
-				lines.splice(2, 0, `App: ${evidence.target.app}`);
-			if (source?.file && source.line)
-				lines.push(`Source: ${source.file}:${source.line}`);
-			return lines.join("\n");
-		})
-		.join("\n\n");
-	return freezeAnnotationValue({
-		prompt: `Apply these changes to the app screens.\n\n${prompt}`,
-		images,
-	});
+	const markers = notes.map((note, index) => ({
+		imageId: note.id,
+		number: index + 1,
+		rect: { ...note.evidence.target.rect },
+	}));
+	const prompt = formatContextPrompt(
+		notes.map((note) => ({
+			note: note.note,
+			evidence: note.evidence,
+			deviceName: note.deviceName,
+			screenshot: imagePaths?.get(note.id),
+		})),
+		detail,
+	);
+	return freezeAnnotationValue({ prompt, images, markers });
 }

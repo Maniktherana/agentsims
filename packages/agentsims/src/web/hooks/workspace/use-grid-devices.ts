@@ -25,6 +25,32 @@ export class LatestGridRequest {
 }
 
 /**
+ * Keep the previous device objects when a poll returns the same data. The
+ * workspace then renders nothing for an idle poll, and each device view sees
+ * a new object only when its own catalog entry changes.
+ */
+export function reuseGridDevices(
+	previous: GridDevice[] | null,
+	next: GridDevice[],
+): GridDevice[] {
+	if (!previous) return next;
+	const byId = new Map<string, { device: GridDevice; json: string }>();
+	for (const device of previous)
+		byId.set(device.device, { device, json: JSON.stringify(device) });
+	let changed = previous.length !== next.length;
+	const merged = next.map((device, index) => {
+		const known = byId.get(device.device);
+		if (known && known.json === JSON.stringify(device)) {
+			if (previous[index] !== known.device) changed = true;
+			return known.device;
+		}
+		changed = true;
+		return device;
+	});
+	return changed ? merged : previous;
+}
+
+/**
  * Fetches the grid device list with server-side pagination. The most relevant
  * devices (streaming → booted → last-opened) sort first, so the initial page is
  * the useful one; `loadMore`/`loadAll` grow the window. Over a tunnel this
@@ -59,7 +85,7 @@ export function useGridDevices(
 				});
 				const json = await res.json();
 				if (cancelled || !requestsRef.current.isCurrent(request)) return;
-				setDevices(json.devices ?? []);
+				setDevices((previous) => reuseGridDevices(previous, json.devices ?? []));
 				if (typeof json.total === "number") setTotal(json.total);
 			} catch {
 				// Preserve the last good catalog through transient discovery failures.

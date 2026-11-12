@@ -47,7 +47,6 @@ To build one product, use its command:
 | Product                      | Command                                                 |
 | ---------------------------- | ------------------------------------------------------- |
 | React Native npm package     | `bun run --cwd packages/agentsims-react-native build`   |
-| Codex extension              | `bun run --cwd packages/chatgpt build`                  |
 
 Each build writes to its own output directory:
 
@@ -55,9 +54,8 @@ Each build writes to its own output directory:
 | -------------------------------------------------------------- | ------------------------------------------------ |
 | `packages/agentsims/dist/releases/agentsims-<platform>.tar.gz` | Native executable, preview, and platform helpers |
 | `packages/agentsims-react-native/dist/npm/agentsims`           | The React Native npm package                     |
-| `packages/chatgpt/dist/agentsims-chatgpt.tar.gz`               | The extension archive                            |
 
-The runtime build compiles native helpers. The React Native and extension builds do not need mobile SDKs.
+The runtime build compiles native helpers. The React Native build does not need mobile SDKs.
 
 ### Run your build
 
@@ -131,7 +129,6 @@ The browser connects to the server for video, input, and tools.
 | --------------------------------- | ---------------------------------------------------------- | ----------------------------- |
 | `packages/agentsims`              | Native runtime, CLI, browser workspace, and device services | Homebrew, curl, or PowerShell |
 | `packages/agentsims-react-native` | Metro and Babel plugins (`agentsims` on npm)               | npm dependency of the app     |
-| `packages/chatgpt`                | Codex extension, host adapter, and skills                  | Plugin host                   |
 | `apps/web`                        | The agentsims.dev website and docs                         | agentsims.dev                 |
 
-The React Native package and the extension use an installed runtime. The npm package has no executable.
+The React Native package uses an installed runtime. The npm package has no executable.

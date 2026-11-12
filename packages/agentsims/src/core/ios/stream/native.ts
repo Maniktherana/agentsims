@@ -54,12 +54,16 @@ export interface SimHIDHandle {
 }
 
 interface SimCaptureHandle {
-	start(): Promise<void>;
+	start(
+		onSize: (width: number, height: number) => void,
+	): Promise<[number, number]>;
 	stop(): Promise<void>;
+	snapshot(): Promise<[Uint8Array, number, number]>;
 	requestAvccKeyframe(): Promise<void>;
 	subscribe(
 		codec: number,
 		onFrame: RawFrameCallback,
+		maxEdge: number,
 	): Promise<NativeUnsubscribe>;
 }
 
@@ -108,6 +112,10 @@ export type MjpegFrame = {
 	width: number;
 	height: number;
 };
+
+export type ScreenSize = { width: number; height: number };
+
+export type JpegSnapshot = ScreenSize & { data: Uint8Array };
 
 export type AvccFrame = {
 	data: Uint8Array;
@@ -267,28 +275,50 @@ export class NativeHid {
 	}
 }
 
+type AvccGroup = {
+	readonly listeners: Set<(frame: AvccFrame) => Promise<void>>;
+	subscription: Promise<NativeUnsubscribe> | null;
+	unsubscribe: NativeUnsubscribe | null;
+	stopping: Promise<void> | null;
+};
+
+/** 0 means full size. Other values are a positive whole number of pixels. */
+function normalizeMaxEdge(maxEdge: number | undefined): number {
+	return maxEdge !== undefined && Number.isFinite(maxEdge) && maxEdge >= 1
+		? Math.floor(maxEdge)
+		: 0;
+}
+
 /**
- * In-process frame capture + encode for one simulator. Replaces the spawned
- * helper's capture pipeline. MJPEG and H.264/AVCC frames are produced while
- * callers hold codec-specific subscriptions; encoded frames arrive on the JS
- * thread after being marshalled from the native encode thread.
+ * In-process frame capture + encode for one simulator. Native code copies and
+ * encodes frames only while a codec has a subscriber. `snapshot` reads the
+ * framebuffer on demand. Encoded frames arrive on the JS thread after being
+ * marshalled from the native encode thread.
  */
 export class NativeCapture {
 	private readonly handle: SimCaptureHandle;
-	private readonly avccListeners = new Set<
-		(frame: AvccFrame) => Promise<void>
-	>();
-	private avccSubscription: Promise<NativeUnsubscribe> | null = null;
-	private avccUnsubscribe: NativeUnsubscribe | null = null;
-	private avccStopping: Promise<void> | null = null;
+	/** One native AVCC subscription per long-edge limit. */
+	private readonly avccGroups = new Map<number, AvccGroup>();
 
 	constructor(udid: string) {
 		this.handle = new (load().SimCapture)(udid);
 	}
 
-	/** Begin capturing. Throws if the device isn't booted. */
-	start(): Promise<void> {
-		return this.handle.start();
+	/**
+	 * Begin capturing and resolve with the surface size in device pixels.
+	 * `onSize` receives later size changes. Throws if the device isn't booted.
+	 */
+	async start(
+		onSize: (width: number, height: number) => void,
+	): Promise<ScreenSize> {
+		const [width, height] = await this.handle.start(onSize);
+		return { width, height };
+	}
+
+	/** JPEG of the framebuffer at call time, at full device resolution. */
+	async snapshot(): Promise<JpegSnapshot> {
+		const [data, width, height] = await this.handle.snapshot();
+		return { data, width, height };
 	}
 
 	/** Recover an existing AVCC subscription without replacing its encoder. */
@@ -299,17 +329,36 @@ export class NativeCapture {
 	subscribeMjpeg(
 		onFrame: (frame: MjpegFrame) => Promise<void>,
 	): Promise<() => void> {
-		return this.handle.subscribe(CODEC_MJPEG, (data, width, height, _flags) => {
-			return onFrame({ data, width, height });
-		});
+		return this.handle.subscribe(
+			CODEC_MJPEG,
+			(data, width, height, _flags) => onFrame({ data, width, height }),
+			0,
+		);
 	}
 
+	/**
+	 * `maxEdge` limits the encoded long edge in pixels. Omit it, or pass a
+	 * value of at least the device long edge, for full size.
+	 */
 	async subscribeAvcc(
 		onFrame: (frame: AvccFrame) => Promise<void>,
+		maxEdge?: number,
 	): Promise<() => void> {
-		this.avccListeners.add(onFrame);
-		await this.avccStopping;
-		if (!this.avccSubscription) {
+		const edge = normalizeMaxEdge(maxEdge);
+		let group = this.avccGroups.get(edge);
+		if (!group) {
+			group = {
+				listeners: new Set(),
+				subscription: null,
+				unsubscribe: null,
+				stopping: null,
+			};
+			this.avccGroups.set(edge, group);
+		}
+		const { listeners } = group;
+		listeners.add(onFrame);
+		await group.stopping;
+		if (!group.subscription) {
 			const subscription = this.handle.subscribe(
 				CODEC_AVCC,
 				async (data, width, height, flags) => {
@@ -321,53 +370,57 @@ export class NativeCapture {
 						isKeyframe: (flags & FLAG_KEYFRAME) !== 0,
 					};
 					await Promise.allSettled(
-						[...this.avccListeners].map((listener) => listener(frame)),
+						[...listeners].map((listener) => listener(frame)),
 					);
 				},
+				edge,
 			);
-			this.avccSubscription = subscription;
+			group.subscription = subscription;
 			try {
-				this.avccUnsubscribe = await subscription;
+				group.unsubscribe = await subscription;
 			} catch (error) {
-				if (this.avccSubscription === subscription) {
-					this.avccSubscription = null;
-					this.avccUnsubscribe = null;
+				if (group.subscription === subscription) {
+					group.subscription = null;
+					group.unsubscribe = null;
 				}
-				this.avccListeners.delete(onFrame);
+				listeners.delete(onFrame);
 				throw error;
 			}
 		} else {
-			await this.avccSubscription;
+			await group.subscription;
 			await this.handle.requestAvccKeyframe();
 		}
 
 		let active = true;
+		const owner = group;
 		return () => {
 			if (!active) return;
 			active = false;
-			this.avccListeners.delete(onFrame);
-			if (this.avccListeners.size === 0) {
-				const unsubscribe = this.avccUnsubscribe;
-				this.avccUnsubscribe = null;
-				this.avccSubscription = null;
-				if (unsubscribe) {
-					const stopping = Promise.resolve(unsubscribe()).finally(() => {
-						if (this.avccStopping === stopping) this.avccStopping = null;
-					});
-					this.avccStopping = stopping;
-				}
-			}
+			owner.listeners.delete(onFrame);
+			if (owner.listeners.size > 0) return;
+			const unsubscribe = owner.unsubscribe;
+			owner.unsubscribe = null;
+			owner.subscription = null;
+			if (!unsubscribe) return;
+			const stopping = Promise.resolve(unsubscribe()).finally(() => {
+				if (owner.stopping === stopping) owner.stopping = null;
+			});
+			owner.stopping = stopping;
 		};
 	}
 
 	/** Halt frame production and release native capture resources. */
 	async stop(): Promise<void> {
-		this.avccListeners.clear();
-		const unsubscribe = this.avccUnsubscribe;
-		this.avccUnsubscribe = null;
-		this.avccSubscription = null;
-		if (unsubscribe) await unsubscribe();
-		await this.avccStopping;
+		const groups = [...this.avccGroups.values()];
+		this.avccGroups.clear();
+		for (const group of groups) {
+			group.listeners.clear();
+			const unsubscribe = group.unsubscribe;
+			group.unsubscribe = null;
+			group.subscription = null;
+			if (unsubscribe) await unsubscribe();
+			await group.stopping;
+		}
 		await this.handle.stop();
 	}
 }

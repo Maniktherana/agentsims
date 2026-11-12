@@ -136,6 +136,82 @@ describe("device lifecycle reconciliation", () => {
 		]);
 	});
 
+	test("an iOS start publishes the boot stream before bootstatus and resolves after it", async () => {
+		const calls: string[] = [];
+		const bootReady = Promise.withResolvers<void>();
+		let starts = 0;
+		const published = Promise.withResolvers<void>();
+		const lifecycle = new DeviceLifecycle(
+			async (_command, args) => {
+				calls.push(args.join(" "));
+				if (args[1] === "bootstatus") await bootReady.promise;
+				return { error: null, stdout: "", stderr: "" };
+			},
+			{
+				getIosSession: () => ({
+					start: async () => {
+						starts += 1;
+						// The display does not exist during the first attempts.
+						if (starts < 3) throw new Error("No framebuffer display descriptor found");
+					},
+				}),
+				closeIosSession: async () => {
+					calls.push("close");
+				},
+				writeDeviceState: async (state) => {
+					calls.push(`state:${state.device}`);
+					published.resolve();
+				},
+			} as unknown as ConstructorParameters<typeof DeviceLifecycle>[1],
+			"darwin",
+		);
+
+		let resolved = false;
+		const start = lifecycle.start(IOS, 3200, "/.sim").then((result) => {
+			resolved = true;
+			return result;
+		});
+		await published.promise;
+		expect(resolved).toBe(false);
+		expect(calls).toEqual([
+			`simctl boot ${IOS}`,
+			`simctl bootstatus ${IOS}`,
+			`state:${IOS}`,
+		]);
+
+		bootReady.resolve();
+		expect(await start).toEqual({ error: null, device: IOS });
+		expect(starts).toBe(3);
+	});
+
+	test("an already booted simulator keeps trying capture after bootstatus returns", async () => {
+		let starts = 0;
+		const lifecycle = new DeviceLifecycle(
+			async (_command, args) =>
+				args[1] === "boot"
+					? {
+							error: new Error("exit 149"),
+							stdout: "",
+							stderr: "Unable to boot device in current state: Booted\n",
+						}
+					: { error: null, stdout: "", stderr: "" },
+			{
+				getIosSession: () => ({
+					start: async () => {
+						starts += 1;
+						// The display port appears a few seconds after attach.
+						if (starts < 8) throw new Error("No framebuffer display descriptor found");
+					},
+				}),
+				writeDeviceState: async () => {},
+			} as unknown as ConstructorParameters<typeof DeviceLifecycle>[1],
+			"darwin",
+		);
+
+		expect(await lifecycle.start(IOS, 3200, "/.sim")).toEqual({ error: null, device: IOS });
+		expect(starts).toBe(8);
+	});
+
 	test("coalesces duplicate shutdown requests for one simulator", async () => {
 		let finishShutdown!: () => void;
 		const shutdownFinished = new Promise<void>((resolve) => {

@@ -3,9 +3,9 @@ import CoreVideo
 import CoreMedia
 import os
 
-// The capture + encode engine, reused verbatim from SimStreamHelper. Replicates
-// main.swift's frameHandler: MJPEG always encodes while clients exist; H.264 runs
-// only while AVCC is active. Encoded bytes (JPEG, or natively-framed AVCC
+// The capture + encode engine. Nothing is copied or encoded without a consumer:
+// MJPEG encodes while MJPEG consumers exist, H.264 while AVCC consumers exist,
+// and a static screen sends nothing to H.264 consumers. Encoded bytes (JPEG, or natively-framed AVCC
 // envelopes) are handed back through a Swift closure on a native encode thread;
 // the node-swift binding (sim-module.swift) marshals them onto the JS thread via
 // a NodeAsyncQueue (threadsafe function).
@@ -86,10 +86,15 @@ actor CaptureEngine {
 
     // mjpeg is stateless so we can share a single encoder instance
     private let mjpegEncoder = MJPEGEncoder()
+    private let snapshotEncoder = VideoEncoder(quality: 0.7)
 
     private(set) var screenSize = Dimensions(width: 0, height: 0)
     private var consumers = [UUID: CaptureConsuming]()
+    private var mjpegConsumers = Set<UUID>()
     private var avccEncoders = [UUID: AVCCEncoder]()
+    /// The last copied frame. A new AVCC consumer or a keyframe request
+    /// encodes it again, so a static screen still gets a keyframe at once.
+    private var latestFrame: Frame?
     private var frameContinuation: AsyncStream<Frame>.Continuation?
     private var frameTask: Task<Void, Never>?
 
@@ -97,20 +102,35 @@ actor CaptureEngine {
         self.deviceUDID = deviceUDID
     }
 
-    func start() async throws {
-        guard phase == .unstarted else { return }
+    /// Starts capture and returns the current surface size in device pixels.
+    /// `onSize` receives later size changes, with or without consumers.
+    func start(onSize: @escaping @Sendable (Int, Int) -> Void) async throws -> Dimensions {
+        guard phase == .unstarted else { return await currentSize() }
         phase = .starting
-        // Latch `started` only after capture actually begins: if start() throws
-        // (e.g. device not booted), a later retry should still be allowed.
         let (frames, frameContinuation) = AsyncStream.makeStream(
             of: Frame.self,
             // drop old frames if there's backpressure
             bufferingPolicy: .bufferingNewest(1)
         )
-        self.frameContinuation = frameContinuation
-        try await frameCapture.start(deviceUDID: deviceUDID) { pixelBuffer, _, nativeTiming in
-            frameContinuation.yield(Frame(pixelBuffer: pixelBuffer, nativeTiming: nativeTiming))
+        do {
+            try await frameCapture.start(
+                deviceUDID: deviceUDID,
+                onFrame: { pixelBuffer, _, nativeTiming in
+                    frameContinuation.yield(Frame(pixelBuffer: pixelBuffer, nativeTiming: nativeTiming))
+                },
+                // Not through the frame stream: its newest-only buffer would let
+                // an idle tick replace a pending frame.
+                onIdle: { [weak self] in Task { await self?.reemitIdle() } },
+                onSize: onSize
+            )
+        } catch {
+            // A device that is still booting fails here. Allow a later retry.
+            frameContinuation.finish()
+            await frameCapture.stop()
+            phase = .unstarted
+            throw error
         }
+        self.frameContinuation = frameContinuation
         frameTask = Task { [weak self] in
             for await frame in frames {
                 guard let self else { return }
@@ -118,48 +138,98 @@ actor CaptureEngine {
             }
         }
         phase = .running
+        return await currentSize()
+    }
+
+    private func currentSize() async -> Dimensions {
+        guard let size = await frameCapture.getScreenSize() else { return screenSize }
+        return Dimensions(width: size.width, height: size.height)
+    }
+
+    /// JPEG of the framebuffer as it is now, at full device resolution.
+    func snapshot() async throws -> (Data, Dimensions) {
+        guard phase == .running else { throw Errors.notRunning }
+        guard let pixelBuffer = await frameCapture.snapshot() else { throw Errors.noFrame }
+        let data = try await snapshotEncoder.encode(pixelBuffer: pixelBuffer)
+        return (data, pixelBuffer.dimensions)
+    }
+
+    private func updateDemand() async {
+        await frameCapture.setDemand(frames: !consumers.isEmpty, idleReemit: !mjpegConsumers.isEmpty)
+        if consumers.isEmpty { latestFrame = nil }
+    }
+
+    /// Give a new consumer the current frame without waiting for a change.
+    /// `sameFrame` keeps the frame id, so MJPEG reuses the cached JPEG.
+    private func seed(_ consumer: CaptureConsuming, sameFrame: Bool) async {
+        if let latestFrame {
+            consumer.handleFrame(sameFrame
+                ? latestFrame
+                : Frame(pixelBuffer: latestFrame.pixelBuffer, nativeTiming: nil))
+        } else {
+            await frameCapture.captureNow()
+        }
     }
 
     private func addConsumer<E: FrameEncoder>(
         encoder: E,
         onFrame: sending @escaping @isolated(any) (E.Encoded) async -> Void
-    ) -> (@Sendable () async -> Void) {
+    ) async -> (@Sendable () async -> Void) {
         let consumer = CaptureConsumer(encoder: encoder) { [weak self] encoded in
             guard let self, await self.phase == .running else { return }
             await onFrame(encoded)
         }
         let id = UUID()
         consumers[id] = consumer
+        mjpegConsumers.insert(id)
+        let hadFrames = consumers.count > 1
+        await updateDemand()
+        if hadFrames { await seed(consumer, sameFrame: true) }
         return { await self.removeConsumer(id) }
     }
 
     private func removeConsumer(
         _ id: UUID
-    ) {
+    ) async {
         consumers.removeValue(forKey: id)
+        mjpegConsumers.remove(id)
+        await updateDemand()
     }
 
     private func handleFrame(_ frame: Frame) {
-        guard phase == .running else { return }
+        guard phase == .running, !consumers.isEmpty else { return }
+        latestFrame = frame
         screenSize = frame.pixelBuffer.dimensions
         for consumer in consumers.values {
             consumer.handleFrame(frame)
         }
     }
 
+    /// Send the last frame again to MJPEG consumers. The frame id is the
+    /// same, so MJPEGEncoder returns the cached JPEG without encoding.
+    private func reemitIdle() {
+        guard phase == .running, let latestFrame else { return }
+        for id in mjpegConsumers {
+            consumers[id]?.handleFrame(latestFrame)
+        }
+    }
+
     func addMJPEGConsumer(
         onFrame: sending @escaping (Dimensions, Data) async -> Void
-    ) -> (@Sendable () async -> Void) {
-        return addConsumer(encoder: mjpegEncoder, onFrame: { [weak self] data in
+    ) async -> (@Sendable () async -> Void) {
+        return await addConsumer(encoder: mjpegEncoder, onFrame: { [weak self] data in
             guard let self else { return }
             await onFrame(screenSize, data)
         })
     }
 
+    /// `maxEdge` > 0 encodes at a size whose long edge is at most `maxEdge`
+    /// pixels. 0 encodes at the full surface size.
     func addAVCCConsumer(
+        maxEdge: Int,
         onFrame: sending @escaping (Dimensions, Data, Int32) async -> Void
-    ) -> (@Sendable () async -> Void) {
-        let encoder = AVCCEncoder()
+    ) async -> (@Sendable () async -> Void) {
+        let encoder = AVCCEncoder(maxEdge: maxEdge)
         let consumer = CaptureConsumer(encoder: encoder) { [weak self] encoded in
             let flagDescription: Int32 = 1 << 0
             let flagKeyframe: Int32 = 1 << 1
@@ -195,19 +265,32 @@ actor CaptureEngine {
             }
         }
         let id = UUID()
+        let hadFrames = !consumers.isEmpty
         consumers[id] = consumer
         avccEncoders[id] = encoder
+        await updateDemand()
+        if hadFrames { await seed(consumer, sameFrame: false) }
         return { await self.removeAVCCConsumer(id) }
     }
 
-    private func removeAVCCConsumer(_ id: UUID) {
+    private func removeAVCCConsumer(_ id: UUID) async {
         consumers.removeValue(forKey: id)
         avccEncoders.removeValue(forKey: id)
+        await updateDemand()
     }
 
     func requestAVCCKeyframe() async {
-        for encoder in avccEncoders.values {
-            await encoder.requestKeyframe()
+        let ids = Array(avccEncoders.keys)
+        for id in ids {
+            await avccEncoders[id]?.requestKeyframe()
+        }
+        // A static screen sends no new frame, so encode the last one again.
+        if let latestFrame {
+            for id in ids {
+                consumers[id]?.handleFrame(Frame(pixelBuffer: latestFrame.pixelBuffer, nativeTiming: nil))
+            }
+        } else if !ids.isEmpty {
+            await frameCapture.captureNow()
         }
     }
 
@@ -220,9 +303,16 @@ actor CaptureEngine {
         frameTask = nil
         await frameCapture.stop()
         consumers.removeAll()
+        mjpegConsumers.removeAll()
+        latestFrame = nil
         let encoders = Array(avccEncoders.values)
         avccEncoders.removeAll()
         for encoder in encoders { await encoder.stop() }
+    }
+
+    enum Errors: Error {
+        case notRunning
+        case noFrame
     }
 }
 
@@ -243,10 +333,12 @@ actor MJPEGEncoder: FrameEncoder {
 actor AVCCEncoder: FrameEncoder {
     private static let timeout: Duration = .milliseconds(500)
 
-    let h264Encoder = H264Encoder(fps: 60)
+    let h264Encoder: H264Encoder
     var forceKeyframe = true
 
-    init() {}
+    init(maxEdge: Int = 0) {
+        h264Encoder = H264Encoder(fps: 60, maxEdge: maxEdge)
+    }
 
     struct Encoded {
         let frame: H264Encoder.Encoded

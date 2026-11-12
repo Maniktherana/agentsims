@@ -1,4 +1,5 @@
 import { simEndpoint } from "../preview/sim-endpoint";
+import { annotationClipboardCaptures } from "./clipboard-image";
 import type {
 	AnnotationContextClient,
 	AnnotationSendPayload,
@@ -88,25 +89,28 @@ export async function exportAnnotationImageFiles(
 	);
 }
 
-async function clipboardImage(payload: AnnotationSendPayload): Promise<Blob> {
-	if (
-		payload.images.length === 1 &&
-		payload.images[0]!.mimeType === "image/png"
-	)
-		return imageBlob(payload.images[0]!.base64, "image/png");
-	const images = await Promise.all(
-		payload.images.map(async (entry) => {
-			const bitmap = await createImageBitmap(
-				imageBlob(entry.base64, entry.mimeType),
-			);
-			return bitmap;
-		}),
+const MARKER = "#ff3b30";
+
+/** Draw at copy time. The frozen evidence image never changes. */
+export async function annotatedClipboardImage(
+	payload: AnnotationSendPayload,
+): Promise<Blob> {
+	const captures = annotationClipboardCaptures(payload);
+	if (!captures.length) throw new Error("Clipboard image is unavailable.");
+	const bitmaps = await Promise.all(
+		captures.map((capture) =>
+			createImageBitmap(
+				imageBlob(capture.image.base64, capture.image.mimeType),
+			),
+		),
 	);
 	try {
-		const columns = Math.ceil(Math.sqrt(images.length));
-		const cellWidth = Math.max(...images.map((entry) => entry.width));
-		const cellHeight = Math.max(...images.map((entry) => entry.height)) + 32;
-		const rows = Math.ceil(images.length / columns);
+		const labelled = captures.length > 1;
+		const header = labelled ? 48 : 0;
+		const columns = Math.ceil(Math.sqrt(bitmaps.length));
+		const rows = Math.ceil(bitmaps.length / columns);
+		const cellWidth = Math.max(...bitmaps.map((entry) => entry.width));
+		const cellHeight = Math.max(...bitmaps.map((entry) => entry.height)) + header;
 		const scale = Math.min(
 			1,
 			8192 / (columns * cellWidth),
@@ -120,13 +124,42 @@ async function clipboardImage(payload: AnnotationSendPayload): Promise<Blob> {
 		context.scale(scale, scale);
 		context.fillStyle = "#ffffff";
 		context.fillRect(0, 0, columns * cellWidth, rows * cellHeight);
-		images.forEach((entry, index) => {
+		captures.forEach((capture, index) => {
+			const bitmap = bitmaps[index]!;
 			const x = (index % columns) * cellWidth;
-			const y = Math.floor(index / columns) * cellHeight;
-			context.fillStyle = "#000000";
-			context.font = "20px sans-serif";
-			context.fillText(`${index + 1}`, x + 8, y + 24);
-			context.drawImage(entry, x, y + 32);
+			const y = Math.floor(index / columns) * cellHeight + header;
+			if (labelled) {
+				context.fillStyle = "#000000";
+				context.font = "600 28px sans-serif";
+				context.textBaseline = "middle";
+				context.textAlign = "left";
+				context.fillText(`Image ${capture.number}`, x + 8, y - header / 2);
+			}
+			context.drawImage(bitmap, x, y);
+			const line = Math.max(3, bitmap.width / 250);
+			const radius = Math.max(14, bitmap.width / 40);
+			context.strokeStyle = MARKER;
+			context.lineWidth = line;
+			for (const marker of capture.markers)
+				context.strokeRect(
+					x + marker.rect.x,
+					y + marker.rect.y,
+					marker.rect.width,
+					marker.rect.height,
+				);
+			for (const marker of capture.markers) {
+				const cx = x + Math.min(Math.max(marker.rect.x, radius), bitmap.width - radius);
+				const cy = y + Math.min(Math.max(marker.rect.y, radius), bitmap.height - radius);
+				context.beginPath();
+				context.arc(cx, cy, radius, 0, Math.PI * 2);
+				context.fillStyle = MARKER;
+				context.fill();
+				context.fillStyle = "#ffffff";
+				context.font = `700 ${Math.round(radius * 1.1)}px sans-serif`;
+				context.textAlign = "center";
+				context.textBaseline = "middle";
+				context.fillText(String(marker.number), cx, cy);
+			}
 		});
 		return await new Promise<Blob>((resolve, reject) =>
 			canvas.toBlob(
@@ -138,28 +171,58 @@ async function clipboardImage(payload: AnnotationSendPayload): Promise<Blob> {
 			),
 		);
 	} finally {
-		images.forEach((entry) => entry.close());
+		bitmaps.forEach((entry) => entry.close());
 	}
 }
 
-/** One clipboard item includes text and every captured image, without a new capture. */
-export async function copyAnnotationPayload(
-	payload: AnnotationSendPayload,
-): Promise<void> {
+type Payload = AnnotationSendPayload | Promise<AnnotationSendPayload>;
+
+/**
+ * Plain text and one PNG. No HTML flavor: chat composers take HTML first and
+ * drop data-URI images, so the image would never attach.
+ */
+export function annotationClipboardFlavors(
+	payload: Payload,
+	image: (payload: AnnotationSendPayload) => Promise<Blob> = annotatedClipboardImage,
+): Record<"text/plain" | "image/png", Promise<Blob>> {
+	const ready = Promise.resolve(payload);
+	return {
+		"text/plain": ready.then(
+			(value) => new Blob([value.prompt], { type: "text/plain" }),
+		),
+		"image/png": ready.then(image),
+	};
+}
+
+function clipboard() {
 	if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
 		throw new Error(
 			"Clipboard access is unavailable. Your notes are retained.",
 		);
-	const escaped = payload.prompt.replace(
-		/[&<>]/g,
-		(character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character]!,
-	);
-	const html = `<pre>${escaped}</pre>${payload.images.map((entry, index) => `<p>${index + 1}</p><img src="data:${entry.mimeType};base64,${entry.base64}" alt="Screenshot ${index + 1}">`).join("")}`;
-	await navigator.clipboard.write([
-		new ClipboardItem({
-			"text/plain": new Blob([payload.prompt], { type: "text/plain" }),
-			"text/html": new Blob([html], { type: "text/html" }),
-			"image/png": clipboardImage(payload),
-		}),
-	]);
+	return navigator.clipboard;
+}
+
+/**
+ * Call this directly in the click handler. The write starts before any await,
+ * so the browser keeps the user activation while the payload is prepared.
+ */
+export function copyAnnotationPayload(payload: Payload): Promise<void> {
+	try {
+		return clipboard().write([
+			new ClipboardItem(annotationClipboardFlavors(payload)),
+		]);
+	} catch (error) {
+		return Promise.reject(error);
+	}
+}
+
+/** Only the marked PNG, for apps that read one clipboard flavor. */
+export function copyAnnotationImage(payload: AnnotationSendPayload): Promise<void> {
+	try {
+		return clipboard().write([
+			new ClipboardItem({ "image/png": annotatedClipboardImage(payload) }),
+		]);
+	} catch (error) {
+		return Promise.reject(error);
+	}
 }

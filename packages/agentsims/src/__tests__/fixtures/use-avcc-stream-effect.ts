@@ -40,6 +40,7 @@ async function runScenario(scenario: Scenario) {
 	let firstFrames = 0;
 	let decodedFrames = 0;
 	let cancellations = 0;
+	let createdImages = 0;
 	let closedFrames = 0;
 	const transports: boolean[] = [];
 	const timers = new Map<number, { due: number; callback: () => void }>();
@@ -62,11 +63,14 @@ async function runScenario(scenario: Scenario) {
 		rafs.delete(id);
 	};
 	const closeFrame = () => { closedFrames++; };
-	globalThis.createImageBitmap = (async () => ({
-		width: landscapeStream.width,
-		height: landscapeStream.height,
-		close: closeFrame,
-	})) as unknown as typeof createImageBitmap;
+	globalThis.createImageBitmap = (async () => {
+		createdImages++;
+		return {
+			width: landscapeStream.width,
+			height: landscapeStream.height,
+			close: closeFrame,
+		};
+	}) as unknown as typeof createImageBitmap;
 	globalThis.EncodedVideoChunk = class {} as unknown as typeof EncodedVideoChunk;
 	globalThis.VideoDecoder = class {
 		state = "unconfigured";
@@ -74,6 +78,7 @@ async function runScenario(scenario: Scenario) {
 		configure() { this.state = "configured"; }
 		decode() {
 			decodedFrames++;
+			createdImages++;
 			this.callbacks.output({
 				displayWidth: landscapeStream.width,
 				displayHeight: landscapeStream.height,
@@ -133,12 +138,13 @@ async function runScenario(scenario: Scenario) {
 	const snapshot = (): StreamState => ({
 		paints, firstFrames, decodedFrames, cancellations,
 		transports: [...transports],
-		retryScheduled: [...timers.values()].some((timer) => timer.due - now === 1_000),
+		// A failed response reconnects after a short first delay.
+		retryScheduled: [...timers.values()].some((timer) => timer.due - now === 100),
 	});
 	await settle();
 	const before = snapshot();
 	// Advance past startup timeout, but stop before the resulting retry fires.
-	now = 8_001;
+	now = 8_000;
 	for (const [id, timer] of timers) {
 		if (timer.due > now) continue;
 		timers.delete(id);
@@ -147,8 +153,14 @@ async function runScenario(scenario: Scenario) {
 	await settle();
 	const after = snapshot();
 	cleanup?.();
+	// The worker host is released on the next task after its canvas unmounts.
+	for (const [id, timer] of timers) {
+		if (timer.due > now) continue;
+		timers.delete(id);
+		timer.callback();
+	}
 	await settle();
-	if (closedFrames !== paints + (scenario === "no-context" ? 1 : 0)) {
+	if (closedFrames !== createdImages) {
 		throw new Error("The fixture did not release its image resources");
 	}
 	return { before, after };

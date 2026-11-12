@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
-import { TextMorph } from "torph/react";
 import {
 	EMPTY_SIMULATOR_FRAME_RATE,
+	streamRateLabel,
 	type SimulatorFrameRateStore,
 } from "../../simulator/stream/simulator-frame-rate";
 import type { DeviceLifecyclePhase } from "../dock/devices/device-row";
@@ -45,11 +45,8 @@ export function StreamStatusPill({
 						: "text-right text-[11px] font-medium leading-none text-white/45"
 				}
 			>
-				{streaming ? (
-					<TextMorph>{`${fps === null ? "—" : fps} FPS`}</TextMorph>
-				) : (
-					lifecycleLabel
-				)}
+				{/* One text node. A rate change writes one character-data mutation, not a morph. */}
+				{streaming ? streamRateLabel(fps) : lifecycleLabel}
 			</span>
 		</span>
 	);

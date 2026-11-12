@@ -18,6 +18,11 @@ actor VideoEncoder {
     }
 
     func encode(pixelBuffer: CVPixelBuffer) throws -> Data {
+        // ImageIO leaves autoreleased temporaries; drain them per frame.
+        try autoreleasepool { try encodeFrame(pixelBuffer: pixelBuffer) }
+    }
+
+    private func encodeFrame(pixelBuffer: CVPixelBuffer) throws -> Data {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
 

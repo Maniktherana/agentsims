@@ -42,6 +42,8 @@ const requestContext = Effect.gen(function* () {
 	return { request, url: new URL(request.url) };
 });
 const deviceBody = z.object({ udid: z.string() });
+const startBody = z.object({ udid: z.string(), slim: z.boolean().optional() });
+const slimBody = z.object({ udid: z.string(), enabled: z.boolean() });
 const actionsBody = z.object({ actions: z.array(z.unknown()) });
 const traceSourceBody = z.object({ directory: z.string().min(1).max(4096) });
 const stepsBody = z.object({ steps: z.array(z.unknown()) });
@@ -196,13 +198,14 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 			Effect.gen(function* () {
 				const { request } = yield* requestContext;
 				const body = yield* decodeInput(
-					deviceBody,
+					startBody,
 					yield* requestJson(request),
 				);
 				const config = yield* ServerConfig;
 				return yield* (yield* Devices).start(body.udid, {
 					port: config.port,
 					basePath: config.basePath,
+					slim: body.slim,
 				});
 			}),
 		),
@@ -643,7 +646,33 @@ const deviceCommandRoutes = HttpRouter.empty.pipe(
 	),
 );
 
+const slimRoutes = HttpRouter.empty.pipe(
+	HttpRouter.get(
+		"/grid/api/slim",
+		commandResponse(
+			Effect.gen(function* () {
+				const { url } = yield* requestContext;
+				const query = yield* decodeInput(
+					deviceBody,
+					Object.fromEntries(url.searchParams),
+				);
+				return yield* (yield* Devices).slimStatus(query.udid);
+			}),
+		),
+	),
+	HttpRouter.post(
+		"/grid/api/slim",
+		commandResponse(
+			Effect.gen(function* () {
+				const { request } = yield* requestContext;
+				const body = yield* decodeInput(slimBody, yield* requestJson(request));
+				return yield* (yield* Devices).setSlim(body.udid, body.enabled);
+			}),
+		),
+	),
+);
+
 export const commandRoutes = HttpRouter.concat(
 	deviceCommandRoutes,
 	recordingRoutes,
-);
+).pipe(HttpRouter.concat(slimRoutes));

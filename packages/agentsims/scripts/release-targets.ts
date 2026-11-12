@@ -50,8 +50,6 @@ export const LIBRARY_DECLARATIONS = [
 	"core/tools/devices/state.d.ts",
 ] as const;
 
-export const CHATGPT_ARCHIVE_NAME = "agentsims-chatgpt.tar.gz";
-
 export function runtimeCompileTarget(
 	target: RuntimeTarget,
 ): Bun.Build.CompileTarget {

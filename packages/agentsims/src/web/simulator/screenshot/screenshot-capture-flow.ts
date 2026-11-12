@@ -59,3 +59,30 @@ export function startScreenshotCapture({
 	);
 	return { requestId, done };
 }
+
+/**
+ * A screenshot from the server only. The preview opens when the full-size
+ * image arrives. The page never reads pixels from the stream surface.
+ */
+export function startServerScreenshotCapture({
+	begin,
+	captureAuthoritative,
+	reportError,
+}: {
+	begin: (capture: CapturedScreenshotPreview) => number;
+	captureAuthoritative: () => Promise<CapturedScreenshotPreview>;
+	reportError: (message: string) => void;
+}): ScreenshotCaptureFlow {
+	const done = captureAuthoritative().then(
+		(capture) => {
+			begin(capture);
+		},
+		(error: unknown) => {
+			if ((error as { name?: string }).name !== "AbortError")
+				reportError(
+					error instanceof Error ? error.message : "Screenshot failed",
+				);
+		},
+	);
+	return { requestId: 0, done };
+}

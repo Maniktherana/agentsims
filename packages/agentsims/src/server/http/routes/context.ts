@@ -18,6 +18,7 @@ import {
 	ContextImageExportError,
 	exportContextImages,
 } from "../../../core/tools/context/image-export";
+import { isContextPromptDetail } from "../../../core/tools/context/prompt";
 import { json, requestSource } from "./shared";
 
 const MAX_BODY = 12 * 1024 * 1024;
@@ -164,11 +165,19 @@ export const contextRoutes = HttpRouter.empty.pipe(
 						);
 					return [...new Set(value.ids as string[])];
 				});
+				const detail = yield* input(() => {
+					if (value.detail !== undefined && !isContextPromptDetail(value.detail))
+						throw new ContextError(
+							"invalid",
+							"Detail must be compact, standard, or detailed.",
+						);
+					return value.detail ?? "standard";
+				});
 				const contexts = yield* Contexts;
 				const items = yield* Effect.all(
 					ids.map((id) => contexts.get(workspace, id)),
 				);
-				return exportContext(items);
+				return exportContext(items, detail);
 			}),
 		),
 	),

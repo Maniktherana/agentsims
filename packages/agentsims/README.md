@@ -34,7 +34,6 @@ npm install --save-dev agentsims
 
 Linux emulators use the `adb-screenrecord-h264` path. macOS emulators use the `mmap-videotoolbox-h264` path with Apple's VideoToolbox encoder. Physical Android devices stream video through ADB.
 The RN npm package has no runtime executable and does not download one.
-The separate [ChatGPT plugin](../../packages/chatgpt/README.md) reuses an installed runtime.
 
 Check your installed tools:
 

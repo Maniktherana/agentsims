@@ -1,3 +1,4 @@
+import type { ContextPromptDetail } from "../../core/tools/context/prompt";
 import type {
 	LiveAnnotationNote,
 	LiveAnnotationSummaryController,
@@ -79,6 +80,7 @@ export function workspaceAnnotationComments(
 export async function prepareWorkspaceAnnotationExport(
 	controllers: readonly LiveAnnotationSummaryController[],
 	current: () => readonly LiveAnnotationSummaryController[],
+	detail: ContextPromptDetail = "standard",
 ): Promise<AnnotationSendPayload | null> {
 	const selected = controllers.filter((controller) =>
 		controller.comments.some((note) => note.note.trim()),
@@ -110,7 +112,11 @@ export async function prepareWorkspaceAnnotationExport(
 		ids.length !== comments.length
 	)
 		return null;
-	const local = exportAnnotationNotes(comments.map((entry) => entry.note));
+	const local = exportAnnotationNotes(
+		comments.map((entry) => entry.note),
+		undefined,
+		detail,
+	);
 	return freezeAnnotationValue({
 		...local,
 		retainedContext: { workspace, ids, prompt: local.prompt },
@@ -120,6 +126,7 @@ export async function prepareWorkspaceAnnotationExport(
 export async function prepareWorkspaceAnnotationSend(
 	controllers: readonly LiveAnnotationSummaryController[],
 	current: () => readonly LiveAnnotationSummaryController[],
+	detail: ContextPromptDetail = "standard",
 ): Promise<AnnotationSendPayload | null> {
 	if (
 		controllers.some(
@@ -129,5 +136,5 @@ export async function prepareWorkspaceAnnotationSend(
 		)
 	)
 		return null;
-	return prepareWorkspaceAnnotationExport(controllers, current);
+	return prepareWorkspaceAnnotationExport(controllers, current, detail);
 }

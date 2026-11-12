@@ -131,6 +131,7 @@ describe("workspace annotation Copy", () => {
 			const operation = copyWorkspaceAnnotationNotes(
 				[summary(fixture)],
 				() => [summary(fixture)],
+				"standard",
 				{
 					exportImages: async (payload) => {
 						expect(payload.retainedContext?.ids).toEqual(["server-context-1"]);
@@ -142,7 +143,7 @@ describe("workspace annotation Copy", () => {
 						);
 					},
 					copy: async (payload) => {
-						copied = payload;
+						copied = await payload;
 						copyEntered.resolve();
 						await finishCopy.promise;
 					},
@@ -156,7 +157,10 @@ describe("workspace annotation Copy", () => {
 			expect(copied!.prompt).not.toContain("Captured:");
 			expect(copied!.prompt).not.toContain("attachment 1");
 			finishCopy.resolve();
-			await operation;
+			const result = await operation;
+			// Notes stay until the image-only copy window ends.
+			expect(fixture.store.getSnapshot().comments).toHaveLength(1);
+			result.clear();
 			expect(fixture.store.getSnapshot().comments).toHaveLength(0);
 			expect(fixture.store.getSnapshot().editor).toBeNull();
 		});
@@ -171,6 +175,7 @@ describe("workspace annotation Copy", () => {
 				copyWorkspaceAnnotationNotes(
 					[summary(fixture)],
 					() => [summary(fixture)],
+					"standard",
 					{
 						exportImages: async (payload) => {
 							if (phase === "export") throw new Error("Export failed");
@@ -203,12 +208,14 @@ describe("workspace annotation Copy", () => {
 		const operation = copyWorkspaceAnnotationNotes(
 			[summary(first), summary(second)],
 			() => [summary(first), summary(second)],
+			"standard",
 			{
 				exportImages: async (payload) =>
 					new Map(
 						payload.images.map((entry) => [entry.id, "/tmp/captured.png"]),
 					),
-				copy: async () => {
+				copy: async (payload) => {
+					await payload;
 					copyEntered.resolve();
 					await finishCopy.promise;
 				},
@@ -220,7 +227,7 @@ describe("workspace annotation Copy", () => {
 		first.store.select(point);
 		first.store.setNote("New while copying");
 		finishCopy.resolve();
-		await operation;
+		(await operation).clear();
 		expect(
 			first.store.getSnapshot().comments.map((entry) => entry.note),
 		).toEqual(["New while copying"]);
@@ -235,17 +242,22 @@ describe("workspace annotation Copy", () => {
 		};
 		fixture.store.select(point);
 		fixture.store.setNote("Copied");
-		await copyWorkspaceAnnotationNotes(
-			[summary(fixture)],
-			() => [summary(fixture)],
-			{
-				exportImages: async (payload) =>
-					new Map(
-						payload.images.map((entry) => [entry.id, "/tmp/captured.png"]),
-					),
-				copy: async () => {},
-			},
-		);
+		(
+			await copyWorkspaceAnnotationNotes(
+				[summary(fixture)],
+				() => [summary(fixture)],
+				"standard",
+				{
+					exportImages: async (payload) =>
+						new Map(
+							payload.images.map((entry) => [entry.id, "/tmp/captured.png"]),
+						),
+					copy: async (payload) => {
+						await payload;
+					},
+				},
+			)
+		).clear();
 		await settle();
 		expect(fixture.store.getSnapshot().comments).toHaveLength(0);
 	});

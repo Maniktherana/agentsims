@@ -63,6 +63,8 @@ export interface AndroidHidSocket {
 }
 
 const WS_MSG_CONFIG = 0x82;
+/** Server→client: the previous input message was dispatched. */
+const ANDROID_WS_INPUT_ACK = Buffer.from([0x83]);
 const WS_MSG_TOUCH = 0x03;
 const WS_MSG_MULTI_TOUCH = 0x05;
 const TRANSPORT_IDLE_CLOSE_MS = 15_000;
@@ -1079,19 +1081,24 @@ export class AndroidSession {
 			// Match iOS HID: wheel samples are already ordered on the socket and must
 			// reach the native input stream immediately. Serializing them with taps,
 			// buttons, and ADB fallbacks turns a trackpad burst into a visible queue.
+			// The ack lets the browser send its next message, so input never
+			// queues behind a busy device.
+			const ack = () => ws.send(ANDROID_WS_INPUT_ACK);
 			if (message[0] === 0x0b) {
-				void this.dispatchInputFrame(message).catch(() => {});
+				void this.dispatchInputFrame(message).catch(() => {}).finally(ack);
 				return;
 			}
 			const touchType = touchMessageType(message);
 			if (touchType === "move") {
+				// The scheduler keeps only the newest move. Nothing waits behind it.
 				this.inputMoveScheduler.push(message);
+				ack();
 				return;
 			}
 			if (touchType === "begin") this.inputMoveScheduler.cancel();
 			else if (touchType === "end" || touchType === "cancel")
 				this.inputMoveScheduler.flush();
-			this.queueHidMessage(message);
+			this.queueHidMessage(message, ack);
 		});
 		const detach = () => {
 			this.hidSockets.delete(ws);
@@ -1101,11 +1108,12 @@ export class AndroidSession {
 		ws.on("error", detach);
 	}
 
-	private queueHidMessage(message: Buffer): void {
+	private queueHidMessage(message: Buffer, done: () => void = () => {}): void {
 		Effect.runFork(
 			Effect.promise(() => this.dispatchInputFrame(message)).pipe(
 				this.inputSemaphore.withPermits(1),
 				Effect.catchAllCause(() => Effect.void),
+				Effect.ensuring(Effect.sync(done)),
 			),
 		);
 	}

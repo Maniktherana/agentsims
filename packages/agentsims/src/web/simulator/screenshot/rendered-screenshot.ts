@@ -19,13 +19,13 @@ function dataUrlToBlob(dataUrl: string): Blob {
 }
 
 export function captureRenderedScreenshot(
-	source: HTMLCanvasElement | HTMLImageElement,
+	source: ImageBitmap | HTMLImageElement,
 	rotationDegrees = 0,
 ): RenderedScreenshot | null {
 	const sourceWidth =
-		source instanceof HTMLCanvasElement ? source.width : source.naturalWidth;
+		source instanceof HTMLImageElement ? source.naturalWidth : source.width;
 	const sourceHeight =
-		source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
+		source instanceof HTMLImageElement ? source.naturalHeight : source.height;
 	if (sourceWidth <= 0 || sourceHeight <= 0) return null;
 
 	const normalizedRotation = ((rotationDegrees % 360) + 360) % 360;

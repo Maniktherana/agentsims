@@ -25,7 +25,7 @@ The existing `agentsims/metro`, `agentsims/babel-plugin`, and `agentsims/state` 
 
 Install the standalone runtime through Homebrew, curl, or Windows PowerShell.
 Follow the [runtime install guide](https://github.com/Maniktherana/agentsims#install).
-This npm package contains no executable, installer, or ChatGPT extension.
+This npm package contains no executable or installer.
 
 Source mapping does not start a runtime by default.
 Run `agentsims start` to open the workspace.

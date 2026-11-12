@@ -12,6 +12,7 @@ import { parseLogTarget } from "../../core/tools/logs/target";
 import { DeviceActionSchema } from "../../core/tools/input";
 import { TargetActionSchema } from "../../core/tools/observe/targets";
 import { TextInputSchema } from "../../core/tools/text-input";
+import { CONTEXT_PROMPT_DETAILS } from "../../core/tools/context/prompt";
 import {
 	boundedResult,
 	contextImageUri,
@@ -321,11 +322,17 @@ export function createMcpServer(options: {
 				.object({
 					workspace: workspaceIdentity,
 					ids: z.array(identity).min(1).max(32),
+					detail: z
+						.enum(CONTEXT_PROMPT_DETAILS)
+						.optional()
+						.describe(
+							"Prompt detail. compact: target and source only. standard (default): adds React owners, position, and instance. detailed: adds enclosing elements, siblings, children, and nearby text.",
+						),
 				})
 				.strict(),
 			annotations: readOnly,
 		},
-		async ({ workspace, ids }, ctx) =>
+		async ({ workspace, ids, detail }, ctx) =>
 			execute(async () => {
 				const api = client(ctx);
 				const selected = [...new Set(ids)];
@@ -337,7 +344,7 @@ export function createMcpServer(options: {
 				return contextResult(
 					workspace,
 					items,
-					await api.exportContext(workspace, selected),
+					await api.exportContext(workspace, selected, detail),
 				);
 			}),
 	);

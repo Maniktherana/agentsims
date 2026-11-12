@@ -3,41 +3,53 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 import { pressable } from "../motion/pressable";
 
+/** Press feedback belongs to real buttons. Rows and list items never scale. */
+function pressableVariants<T extends Record<string, string>>(
+	variants: T,
+): { [K in keyof T]: string } {
+	const result = {} as { [K in keyof T]: string };
+	for (const key of Object.keys(variants) as (keyof T)[])
+		result[key] = `${pressable} ${variants[key]}`;
+	return result;
+}
+
 const buttonVariants = cva(
-	`${pressable} inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium outline-none disabled:pointer-events-none disabled:opacity-50`,
+	"inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium outline-none disabled:pointer-events-none disabled:opacity-50",
 	{
 		variants: {
 			variant: {
-				default: "bg-primary text-primary-foreground hover:bg-primary/90",
-				flat: "bg-[var(--agentsims-button-flat)] text-white/85 hover:bg-[var(--agentsims-button-flat-hover)] active:bg-[var(--agentsims-button-flat-pressed)]",
-				raised:
-					"bg-[var(--agentsims-button-raised)] text-white/90 shadow-[var(--agentsims-button-raised-shadow)] hover:bg-[var(--agentsims-button-raised-hover)] active:bg-[var(--agentsims-button-raised-pressed)]",
-				contrast:
-					"bg-white text-black hover:bg-white/90 active:bg-white/80 focus-visible:ring-2 focus-visible:ring-white/45 disabled:bg-white/10 disabled:text-white/35",
-				// The fill paints the padding box. A second gradient paints the
-				// transparent border, lighter at the top, so the edge looks silver.
-				surface:
-					"border border-transparent text-foreground [--surface-top:oklch(0.214267_0.003881_286.068)] [--surface-bottom:oklch(0.173482_0.002043_286.185)] [background:linear-gradient(var(--surface-top),var(--surface-bottom))_padding-box,linear-gradient(oklch(1_0_0/0.24),oklch(1_0_0/0.1))_border-box] hover:[--surface-top:oklch(0.24_0.004_286.068)] hover:[--surface-bottom:oklch(0.195_0.002_286.185)]",
-				outline:
-					"border border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-				secondary:
-					"bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
-				ghost:
-					"text-foreground hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground",
-				quiet:
-					"bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white/90 aria-expanded:bg-white/[0.06]",
-				dock: "border border-transparent text-white/78 hover:bg-white/[0.08] hover:text-white aria-pressed:bg-white/[0.1] aria-pressed:text-white",
-				toolbar:
-					"border border-transparent text-white/55 hover:bg-white/[0.06] hover:text-white aria-pressed:border-white/[0.12] aria-pressed:bg-white/[0.075] aria-pressed:text-white",
-				destructive:
-					"border border-transparent bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30",
-				"danger-ghost":
-					"border border-transparent bg-transparent text-white/45 hover:bg-red-500/10 hover:text-red-300 focus-visible:text-red-300",
-				"danger-icon":
-					"bg-transparent text-red-300 hover:bg-red-500/15 hover:text-red-200 active:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-red-400/35",
-				link: "text-primary underline-offset-4 hover:underline",
+				...pressableVariants({
+					default: "bg-primary text-primary-foreground hover:bg-primary/90",
+					flat: "bg-[var(--agentsims-button-flat)] text-white/85 hover:bg-[var(--agentsims-button-flat-hover)] active:bg-[var(--agentsims-button-flat-pressed)]",
+					raised:
+						"bg-[var(--agentsims-button-raised)] text-white/90 shadow-[var(--agentsims-button-raised-shadow)] hover:bg-[var(--agentsims-button-raised-hover)] active:bg-[var(--agentsims-button-raised-pressed)]",
+					contrast:
+						"bg-white text-black hover:bg-white/90 active:bg-white/80 focus-visible:ring-2 focus-visible:ring-white/45 disabled:bg-white/10 disabled:text-white/35",
+					// The fill paints the padding box. A second gradient paints the
+					// transparent border, lighter at the top, so the edge looks silver.
+					surface:
+						"border border-transparent text-foreground [--surface-top:oklch(0.214267_0.003881_286.068)] [--surface-bottom:oklch(0.173482_0.002043_286.185)] [background:linear-gradient(var(--surface-top),var(--surface-bottom))_padding-box,linear-gradient(oklch(1_0_0/0.24),oklch(1_0_0/0.1))_border-box] hover:[--surface-top:oklch(0.24_0.004_286.068)] hover:[--surface-bottom:oklch(0.195_0.002_286.185)]",
+					outline:
+						"border border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+					secondary:
+						"bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+					ghost:
+						"text-foreground hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground",
+					quiet:
+						"bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white/90 aria-expanded:bg-white/[0.06]",
+					dock: "border border-transparent text-white/78 hover:bg-white/[0.08] hover:text-white aria-pressed:bg-white/[0.1] aria-pressed:text-white",
+					toolbar:
+						"border border-transparent text-white/55 hover:bg-white/[0.06] hover:text-white aria-pressed:border-white/[0.12] aria-pressed:bg-white/[0.075] aria-pressed:text-white",
+					destructive:
+						"border border-transparent bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30",
+					"danger-ghost":
+						"border border-transparent bg-transparent text-white/45 hover:bg-red-500/10 hover:text-red-300 focus-visible:text-red-300",
+					"danger-icon":
+						"bg-transparent text-red-300 hover:bg-red-500/15 hover:text-red-200 active:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-red-400/35",
+					link: "text-primary underline-offset-4 hover:underline",
+				}),
 				unstyled:
-					"rounded-none border-0 bg-transparent p-0 font-[inherit] text-inherit transition-none active:scale-100",
+					"rounded-none border-0 bg-transparent p-0 font-[inherit] text-inherit",
 			},
 			size: {
 				default: "h-8 gap-1.5 px-3 text-[13px]",

@@ -37,4 +37,3 @@ jobs:
       - run: bun run lint
       - run: "bun run test:ci"
       - run: bun run build
-      - run: bun run --cwd ../chatgpt build

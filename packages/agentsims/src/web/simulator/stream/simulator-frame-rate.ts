@@ -180,3 +180,9 @@ export class SimulatorFrameRateStore {
 }
 
 export const EMPTY_SIMULATOR_FRAME_RATE = new SimulatorFrameRateStore();
+
+/** No frames arrive for an unchanged screen. That is idle, not a broken stream. */
+export function streamRateLabel(fps: SimulatorFrameRate): string {
+	if (fps === null) return "—";
+	return fps === 0 ? "Idle" : `${fps} FPS`;
+}

@@ -176,3 +176,14 @@ describe("isCurrentMjpegPresentation", () => {
 		expect(isCurrentMjpegPresentation(null, "blob:old", null)).toBe(false);
 	});
 });
+
+describe("streamRateLabel", () => {
+	test("a static screen reads as idle, not as a broken stream", async () => {
+		const { streamRateLabel } = await import(
+			"../../../../../web/simulator/stream/simulator-frame-rate"
+		);
+		expect(streamRateLabel(0)).toBe("Idle");
+		expect(streamRateLabel(60)).toBe("60 FPS");
+		expect(streamRateLabel(null)).toBe("—");
+	});
+});

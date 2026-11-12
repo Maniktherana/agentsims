@@ -162,14 +162,20 @@ export function LocationEmulationTool({
 		setPlayback(INITIAL_PLAYBACK);
 	}, [prepared]);
 
-	// Visualisation tick — runs continuously even while paused/idle so the
-	// camera keeps spinning lazily.
+	// Visualisation tick. It runs while the section is open (the camera spins
+	// lazily) or while a route plays (the route must advance even when hidden).
+	// A closed section with an idle route draws nothing and schedules nothing.
 	const cameraAngleRef = useRef(0);
 	const lastFrameRef = useRef<number | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	const openRef = useRef(open);
+	openRef.current = open;
 
+	const animating = open || playback.status === "playing";
 	useEffect(() => {
+		if (!animating) return;
 		let raf = 0;
+		lastFrameRef.current = null;
 		const tick = (ts: number) => {
 			const last = lastFrameRef.current;
 			const dt = last == null ? 16 : Math.min(64, ts - last);
@@ -195,7 +201,7 @@ export function LocationEmulationTool({
 				}
 			}
 
-			const canvas = canvasRef.current;
+			const canvas = openRef.current ? canvasRef.current : null;
 			if (canvas) {
 				let renderTrail = trailRef.current;
 				let markerOverride: Vec3 | null = null;
@@ -236,7 +242,7 @@ export function LocationEmulationTool({
 		};
 		raf = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(raf);
-	}, []);
+	}, [animating]);
 
 	// Periodically reflect arc/elapsed into React state for the stats row,
 	// throttled to keep re-renders cheap (the 60fps animation lives in refs).

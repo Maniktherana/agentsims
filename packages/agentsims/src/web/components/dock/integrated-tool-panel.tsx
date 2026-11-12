@@ -61,6 +61,8 @@ export function IntegratedToolPanel({
 		startY: number;
 		startHeight: number;
 		preferredHeight: number;
+		/** The height drawn during the drag. App state changes once, on release. */
+		height: number;
 	} | null>(null);
 	const bounds = integratedToolPanelHeightBounds(minHeight, maxHeight);
 	const boundedHeight = clampIntegratedToolPanelHeight(
@@ -71,11 +73,17 @@ export function IntegratedToolPanel({
 	const cancelResize = (pointerId?: number) => {
 		const active = drag.current;
 		if (!active || (pointerId !== undefined && active.pointerId !== pointerId))
-			return;
+			return null;
 		drag.current = null;
 		if (resizeHandleRef.current?.hasPointerCapture(active.pointerId)) {
 			resizeHandleRef.current.releasePointerCapture(active.pointerId);
 		}
+		return active;
+	};
+	const commitResize = (pointerId: number) => {
+		const active = cancelResize(pointerId);
+		if (active && active.height !== active.startHeight)
+			onHeightChange(active.height);
 	};
 
 	const restoreOpenerFocus = () => {
@@ -110,7 +118,7 @@ export function IntegratedToolPanel({
 		if (panel) panel.inert = !open;
 		wasOpen.current = open;
 	}, [open]);
-	useLayoutEffect(() => () => cancelResize(), []);
+	useLayoutEffect(() => () => void cancelResize(), []);
 
 	const resizeStart = (event: PointerEvent<HTMLDivElement>) => {
 		if (!open || drag.current || event.button !== 0 || !event.isPrimary) return;
@@ -123,6 +131,7 @@ export function IntegratedToolPanel({
 			startY: event.clientY,
 			startHeight: boundedHeight,
 			preferredHeight: Number.isFinite(height) ? height : boundedHeight,
+			height: boundedHeight,
 		};
 	};
 	const resizeMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -137,10 +146,13 @@ export function IntegratedToolPanel({
 			bounds.min,
 			bounds.max,
 		);
-		if (next !== boundedHeight) onHeightChange(next);
+		if (next === active.height) return;
+		active.height = next;
+		// Resize the panel directly. A state change here renders the whole workspace per move.
+		if (panelRef.current) panelRef.current.style.height = `${next}px`;
 	};
 	const resizeEnd = (event: PointerEvent<HTMLDivElement>) => {
-		cancelResize(event.pointerId);
+		commitResize(event.pointerId);
 	};
 	const resizeRelease = (event: PointerEvent<HTMLDivElement>) => {
 		const active = drag.current;
@@ -151,8 +163,13 @@ export function IntegratedToolPanel({
 			event.clientY,
 			event.currentTarget.ownerDocument.defaultView?.innerHeight ?? 0,
 		);
+		if (!shouldClose) {
+			commitResize(event.pointerId);
+			return;
+		}
 		cancelResize(event.pointerId);
-		if (!shouldClose) return;
+		if (panelRef.current)
+			panelRef.current.style.height = `${active.startHeight}px`;
 		event.preventDefault();
 		event.stopPropagation();
 		onHeightChange(active.preferredHeight);

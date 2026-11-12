@@ -72,9 +72,18 @@ export function ToolsPanel({
 	const [dockHost, setDockHost] = useState<HTMLElement | null>(null);
 	const contentRef = useRef<HTMLDivElement | null>(null);
 
+	// Look up the dock slot on each open. A slot from an earlier open can be detached.
 	useLayoutEffect(() => {
-		setDockHost(document.getElementById("agentsims-tools-dock-slot"));
+		if (open) setDockHost(document.getElementById("agentsims-tools-dock-slot"));
 	}, [open]);
+	// Closed Settings unmount after the exit fade. Their loops, polls, and charts stop.
+	const [exiting, setExiting] = useState(false);
+	const wasOpenRef = useRef(open);
+	useLayoutEffect(() => {
+		if (wasOpenRef.current && !open && dockHost) setExiting(true);
+		if (open) setExiting(false);
+		wasOpenRef.current = open;
+	}, [open, dockHost]);
 
 	useLayoutEffect(() => {
 		if (open && contentRef.current) contentRef.current.scrollTop = 0;
@@ -98,7 +107,7 @@ export function ToolsPanel({
 				</PanelHeader>
 			)}
 
-			{(open || dockHost !== null) && (
+			{(open || exiting) && (
 				<div
 					ref={contentRef}
 					data-tools-panel-content
@@ -171,6 +180,9 @@ export function ToolsPanel({
 					filter: open ? "blur(0px)" : "blur(4px)",
 				}}
 				transition={{ duration: 0.18, ease: [0, 0, 0.2, 1] }}
+				onAnimationComplete={() => {
+					if (!open) setExiting(false);
+				}}
 				className={`absolute inset-0 flex min-h-0 flex-col overflow-hidden bg-[var(--agentsims-panel-bg)] text-white/90 ${
 					open ? "pointer-events-auto z-10" : "pointer-events-none z-0"
 				}`}

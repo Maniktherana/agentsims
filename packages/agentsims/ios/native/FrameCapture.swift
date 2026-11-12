@@ -13,16 +13,18 @@ struct NativeFrameTiming: Sendable {
 /// Headless simulator frame capture via direct IOSurface access.
 ///
 /// Uses SimulatorKit frame callbacks (via objc_msgSend on the IO port descriptor)
-/// for event-driven capture with zero jitter. Maintains a 5fps idle floor
-/// for late-joining clients.
+/// for event-driven capture with zero jitter. Frames are copied and emitted only
+/// while a consumer wants them, and only when the surface seed changes.
 ///
-/// Pipeline: IOSurface (shared memory) → CVPixelBuffer (zero-copy) → H.264 encode
+/// Pipeline: IOSurface (shared memory) → CVPixelBuffer (copy) → encoders
 actor FrameCapture {
     private let queue = DispatchSerialQueue(label: "frame-capture", qos: .userInteractive)
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
     private var photocopier = Photocopier()
     private var onFrame: ((CVPixelBuffer, CMTime, NativeFrameTiming?) -> Void)?
+    private var onIdle: (() -> Void)?
+    private var onSize: ((Int, Int) -> Void)?
     private var frameCount: UInt64 = 0
     private var nativeFrameSequence: UInt64 = 0
     private(set) var capturedWidth: Int = 0
@@ -31,27 +33,36 @@ actor FrameCapture {
     private var lastCaptureTime: ContinuousClock.Instant = .now
     private var lastSeeds: [ObjectIdentifier: UInt32] = [:]
     private var rewireTickCount: Int = 0
-    /// Interval at which the idle timer re-emits the current frame even when
-    /// the simulator isn't rendering anything new. This is load-bearing for two
-    /// consumers:
-    /// 1. Browsers rendering `<img src="…/stream.mjpeg">` only render a multipart
-    ///    chunk once the NEXT boundary arrives, so a single static frame never
-    ///    paints until something changes.
-    /// 2. Any upstream MJPEG→WebSocket relay only caches a frame when at least
-    ///    one subscriber is due for it — a late-joining relay subscriber on an
-    ///    idle sim never gets a cached frame to show.
-    /// Re-emitting at ~5 fps fixes both without meaningful CPU cost.
+    private var surfaceSeen = false
+    /// True while any consumer wants frames. Without demand a callback only
+    /// tracks the surface size and returns before the copy.
+    private var demand = false
+    /// True while an MJPEG consumer exists. See `idleInterval`.
+    private var idleReemit = false
+    /// At most one capture waits on `queue`; callbacks that arrive meanwhile
+    /// coalesce into it.
+    private var capturePending = false
+    /// While an MJPEG consumer exists, the idle timer asks the engine to send
+    /// the last frame again (already encoded) at this interval. Browsers that
+    /// render `<img src="…/stream.mjpeg">` paint a multipart chunk only when
+    /// the NEXT boundary arrives, so a single static frame never paints.
+    /// H.264 consumers do not need this: a static screen sends nothing.
     private static let idleInterval: ContinuousClock.Duration = .milliseconds(200)
 
     private var descriptors: [NSObject] = []
     private var callbackUUIDs: [ObjectIdentifier: UUID] = [:]
     private var ioClient: NSObject?
+    private var deviceUDID: String?
 
     func start(
         deviceUDID: String,
-        onFrame: @escaping @Sendable (CVPixelBuffer, CMTime, NativeFrameTiming?) -> Void
+        onFrame: @escaping @Sendable (CVPixelBuffer, CMTime, NativeFrameTiming?) -> Void,
+        onIdle: @escaping @Sendable () -> Void,
+        onSize: @escaping @Sendable (Int, Int) -> Void
     ) throws {
         self.onFrame = onFrame
+        self.onIdle = onIdle
+        self.onSize = onSize
 
         SimFrameworks.load()
         guard let device = Self.findSimDevice(udid: deviceUDID) else {
@@ -67,8 +78,15 @@ actor FrameCapture {
             throw makeError(3, "Failed to get device IO")
         }
         self.ioClient = io
+        self.deviceUDID = deviceUDID
 
-        try wireUpFramebuffer()
+        do {
+            try wireUpFramebuffer()
+        } catch let error as NSError where error.domain == "FrameCapture" && error.code == 5 {
+            // A booted device can publish its display port later, for example
+            // right after an external `simctl boot`. The idle timer rewires.
+            print("[capture] No display descriptor yet; waiting for it.")
+        }
         startIdleTimer()
     }
 
@@ -107,16 +125,25 @@ actor FrameCapture {
             try registerFrameCallbacks(desc: desc)
         }
 
-        if let best = pickBestDescriptor() {
-            let surfSel = NSSelectorFromString("framebufferSurface")
-            if let surfObj = best.perform(surfSel)?.takeUnretainedValue() {
-                let surf = unsafeBitCast(surfObj, to: IOSurface.self)
-                capturedWidth = IOSurfaceGetWidth(surf)
-                capturedHeight = IOSurfaceGetHeight(surf)
+        if let surface = currentSurface() {
+            let w = IOSurfaceGetWidth(surface)
+            let h = IOSurfaceGetHeight(surface)
+            // A rewire after start can be the first time the size is known.
+            if w > 0, h > 0, (w != capturedWidth || h != capturedHeight) {
+                capturedWidth = w
+                capturedHeight = h
+                onSize?(w, h)
             }
         }
 
         captureFrame()
+    }
+
+    private func currentSurface() -> IOSurface? {
+        guard let desc = pickBestDescriptor() else { return nil }
+        let surfSel = NSSelectorFromString("framebufferSurface")
+        guard let surfObj = desc.perform(surfSel)?.takeUnretainedValue() else { return nil }
+        return unsafeBitCast(surfObj, to: IOSurface.self)
     }
 
     private func findFramebufferDescriptors(io: NSObject) throws -> [NSObject] {
@@ -178,8 +205,8 @@ actor FrameCapture {
         desc.registerScreenCallbacks(
             uuid: uuid,
             callbackQueue: queue,
-            frameCallback: { [self] in assumeIsolated { $0.captureFrame() } },
-            surfacesChangedCallback: { [self] in assumeIsolated { $0.captureFrame() } },
+            frameCallback: { [self] in assumeIsolated { $0.scheduleCapture() } },
+            surfacesChangedCallback: { [self] in assumeIsolated { $0.scheduleCapture() } },
             propertiesChangedCallback: {}
         )
     }
@@ -195,53 +222,93 @@ actor FrameCapture {
     }
 
     private func onIdleTimerTick() {
-        let now = ContinuousClock.now
-        guard (now - self.lastCaptureTime) >= Self.idleInterval else { return }
-        self.captureFrame(force: true)
-        // Self-heal: if we've never captured a frame, the cached descriptor
-        // is likely stale. Re-wire the pipeline periodically (every ~1s)
-        // until frames start flowing.
-        if self.frameCount == 0 {
-            self.rewireTickCount += 1
-            if self.rewireTickCount % 5 == 0 {
-                do {
-                    try self.wireUpFramebuffer()
-                } catch {
-                    // Swallow — we'll try again on the next tick.
-                }
+        // Self-heal: if no surface was ever readable, the cached descriptor
+        // is likely stale. Re-wire the pipeline every ~1s until one appears.
+        if !surfaceSeen {
+            captureFrame()
+            rewireTickCount += 1
+            // Every ~5 s also fetch the device and IO object again in case
+            // the cached ones predate the boot.
+            if rewireTickCount % 25 == 0, let deviceUDID,
+               let device = Self.findSimDevice(udid: deviceUDID),
+               let io = device.perform(NSSelectorFromString("io"))?.takeUnretainedValue() as? NSObject {
+                ioClient = io
+            }
+            if rewireTickCount % 5 == 0 {
+                try? wireUpFramebuffer()
             }
         }
+        guard demand else { return }
+        // Seed check only: catches a missed callback and costs nothing when
+        // the screen is static.
+        captureFrame()
+        let now = ContinuousClock.now
+        if idleReemit, now - lastCaptureTime >= Self.idleInterval {
+            lastCaptureTime = now
+            onIdle?()
+        }
+    }
+
+    /// Set what consumers want. When demand starts, emit the current frame
+    /// at once so the first consumer does not wait for a screen change.
+    func setDemand(frames: Bool, idleReemit: Bool) {
+        let started = frames && !demand
+        demand = frames
+        self.idleReemit = frames && idleReemit
+        if started { captureFrame(force: true) }
+    }
+
+    /// Emit the current frame even when the seed has not changed.
+    func captureNow() {
+        captureFrame(force: true)
     }
 
     // MARK: - Frame capture
 
+    private func scheduleCapture() {
+        guard !capturePending else { return }
+        capturePending = true
+        queue.async { [self] in
+            assumeIsolated {
+                $0.capturePending = false
+                $0.captureFrame()
+            }
+        }
+    }
+
     private func captureFrame(force: Bool = false) {
+        // SimulatorKit XPC replies leave autoreleased temporaries; drain per capture.
+        autoreleasepool { captureFrameBody(force: force) }
+    }
+
+    private func captureFrameBody(force: Bool) {
         guard let desc = pickBestDescriptor() else { return }
 
         let surfSel = NSSelectorFromString("framebufferSurface")
         guard let surfObj = desc.perform(surfSel)?.takeUnretainedValue() else { return }
         let surface = unsafeBitCast(surfObj, to: IOSurface.self)
 
-        // Seed-skip: when the simulator's framebuffer content hasn't changed,
-        // don't spend cycles re-encoding the same pixels back-to-back from the
-        // frame-callback path. BUT: we must still re-emit at the idle floor
-        // (~5 fps) so that downstream consumers keep seeing a live stream —
-        // see the `idleInterval` doc-comment for why that matters.
-        let key = ObjectIdentifier(desc)
-        let seed = IOSurfaceGetSeed(surface)
-        let seedChanged = lastSeeds[key] != seed
-        if frameCount > 0, !seedChanged, !force { return }
-        lastSeeds[key] = seed
-
         let w = IOSurfaceGetWidth(surface)
         let h = IOSurfaceGetHeight(surface)
         guard w > 0, h > 0 else { return }
+        surfaceSeen = true
 
         if capturedWidth != w || capturedHeight != h {
             capturedWidth = w
             capturedHeight = h
             print("[capture] Surface size changed: \(w)x\(h)")
+            onSize?(w, h)
         }
+
+        guard demand else { return }
+
+        // Seed-skip: when the framebuffer content has not changed, do not copy
+        // or encode the same pixels again.
+        let key = ObjectIdentifier(desc)
+        let seed = IOSurfaceGetSeed(surface)
+        let seedChanged = lastSeeds[key] != seed
+        if frameCount > 0, !seedChanged, !force { return }
+        lastSeeds[key] = seed
 
         var pixelBuffer: Unmanaged<CVPixelBuffer>?
         let status = CVPixelBufferCreateWithIOSurface(
@@ -268,6 +335,24 @@ actor FrameCapture {
         onFrame?(copy, timestamp, nativeTiming)
     }
 
+    /// Copy the framebuffer as it is now. SimulatorKit recycles the surface in
+    /// place, so the caller gets a private copy.
+    func snapshot() -> CVPixelBuffer? {
+        autoreleasepool { () -> CVPixelBuffer? in
+            guard let surface = currentSurface(),
+                  IOSurfaceGetWidth(surface) > 0, IOSurfaceGetHeight(surface) > 0
+            else { return nil }
+            var pixelBuffer: Unmanaged<CVPixelBuffer>?
+            let status = CVPixelBufferCreateWithIOSurface(
+                kCFAllocatorDefault, surface,
+                [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA] as CFDictionary,
+                &pixelBuffer
+            )
+            guard status == kCVReturnSuccess, let pb = pixelBuffer?.takeRetainedValue() else { return nil }
+            return photocopier.copy(pb)
+        }
+    }
+
     func getScreenSize() -> (width: Int, height: Int)? {
         guard capturedWidth > 0, capturedHeight > 0 else { return nil }
         return (capturedWidth, capturedHeight)
@@ -288,6 +373,12 @@ actor FrameCapture {
         descriptors.removeAll()
         lastSeeds.removeAll()
         onFrame = nil
+        onIdle = nil
+        onSize = nil
+        deviceUDID = nil
+        demand = false
+        idleReemit = false
+        surfaceSeen = false
         ioClient = nil
         capturedWidth = 0
         capturedHeight = 0

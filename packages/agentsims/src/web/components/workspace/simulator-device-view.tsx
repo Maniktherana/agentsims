@@ -65,6 +65,7 @@ import {
 import {
 	ScreenshotPreviewOverlay,
 	ScreenshotFlash,
+	copyScreenshotBlob,
 	normalizeScreenshotPng,
 	readScreenshotImageSize,
 	resolveScreenshotPreviewSidecar,
@@ -107,8 +108,9 @@ import { hidUsageForCode } from "../../simulator/input/hid";
 import { PANEL_WIDTH } from "../../workspace/panel-widths";
 import { simEndpoint } from "../../preview/sim-endpoint";
 import type { RenderedScreenshot } from "../../simulator/screenshot/rendered-screenshot";
-import { startScreenshotCapture } from "../../simulator/screenshot/screenshot-capture-flow";
-import { downloadScreenshot } from "../../simulator/screenshot/screenshot-save";
+import { startServerScreenshotCapture } from "../../simulator/screenshot/screenshot-capture-flow";
+import { HostScreenshotSave } from "../../simulator/screenshot/host-screenshot";
+import { notifySavedFile } from "../ui/saved-file-toast";
 import { SimulatorFrameRateStore } from "../../simulator/stream/simulator-frame-rate";
 import { resolveSimulatorDeviceLayout } from "../../workspace/simulator-device-layout";
 import { WORKSPACE_DEVICE_GEOMETRY_EVENT } from "../../workspace/layout-events";
@@ -132,6 +134,7 @@ import {
 	decodeForegroundAppEvent,
 	type ForegroundApp,
 } from "../../../core/tools/devices/foreground-apps";
+import { sameForegroundApp } from "../../workspace/foreground-app-state";
 const currentAppCache = new Map<string, ForegroundApp>();
 
 export interface SimulatorDeviceViewProps {
@@ -682,8 +685,12 @@ export function SimulatorDeviceView({
 			if (!active) return;
 			const next = decodeForegroundAppEvent(event.data);
 			if (!next) return;
-			currentAppCache.set(config.device, next);
-			setCurrentApp(next);
+			// The stream repeats the same app. An unchanged app sets no state.
+			setCurrentApp((current) => {
+				const kept = sameForegroundApp(current, next) ? current! : next;
+				currentAppCache.set(config.device, kept);
+				return kept;
+			});
 		};
 		return () => {
 			active = false;
@@ -908,41 +915,102 @@ export function SimulatorDeviceView({
 	} | null>(null);
 	const screenshotRequestRef = useRef<AbortController | null>(null);
 
+	// The host CLI writes the screenshot, as it writes recordings. The file holds
+	// the server capture at full device resolution, never the stream surface.
 	const saveCapturedScreenshot = useCallback(
-		async (blob: Blob, signal: AbortSignal) => {
-			downloadScreenshot(blob, config.device, signal);
-			screenshot.reportSaved();
+		async (hostSave: HostScreenshotSave, blob: Blob, signal: AbortSignal) => {
+			signal.throwIfAborted();
+			const path = await hostSave.commit();
+			notifySavedFile({
+				title: "Screenshot saved",
+				path,
+				exec: execOnHost,
+				copy: {
+					kind: "image",
+					copy: async () => {
+						await copyScreenshotBlob(blob);
+					},
+				},
+			});
 		},
-		[config.device, screenshot],
+		[],
 	);
 
+	const screenshotSources = useCallback(() => {
+		const screenRect = screenSurfaceRef.current?.getBoundingClientRect();
+		const frameRect = simContainerRef.current?.getBoundingClientRect();
+		const source = screenRect
+			? {
+					left: screenRect.left,
+					top: screenRect.top,
+					width: screenRect.width,
+					height: screenRect.height,
+					borderRadius:
+						useDeviceFrame && chrome
+							? deviceFrameScreenRadius(chrome)
+							: imgBorderRadius,
+					cornerShape: imgCornerShape,
+				}
+			: undefined;
+		// The flash covers the phone body; the captured image starts at its
+		// screen opening. Both use viewport coordinates above the portal.
+		const flashSource =
+			useDeviceFrame && chrome && frameRect
+				? {
+						left:
+							frameRect.left +
+							(chrome.body.x / chrome.frame.width) * frameRect.width,
+						top:
+							frameRect.top +
+							(chrome.body.y / chrome.frame.height) * frameRect.height,
+						width: (chrome.body.width / chrome.frame.width) * frameRect.width,
+						height:
+							(chrome.body.height / chrome.frame.height) * frameRect.height,
+						borderRadius: `${(chrome.outerCornerRadius / chrome.body.width) * 100}% / ${(chrome.outerCornerRadius / chrome.body.height) * 100}%`,
+					}
+				: source;
+		return { source, flashSource };
+	}, [chrome, imgBorderRadius, imgCornerShape, useDeviceFrame]);
+
 	const captureDeviceScreenshot = useCallback(
-		async (controller: AbortController) => {
-			const screenshotUrl = new URL(
-				"screenshot.png",
-				config.streamUrl,
-			).toString();
-			const res = await fetch(screenshotUrl, {
-				cache: "no-store",
-				signal: controller.signal,
-			});
-			if (!res.ok) throw new Error(`Screenshot failed (${res.status})`);
-			const blob = await normalizeScreenshotPng(await res.blob());
-			if (controller.signal.aborted)
-				throw new DOMException("Aborted", "AbortError");
-			const href = URL.createObjectURL(blob);
+		async (controller: AbortController, hostSave: HostScreenshotSave) => {
+			const sources = screenshotSources();
 			try {
-				const size = await readScreenshotImageSize(href);
-				return {
-					id: crypto.randomUUID(),
-					src: href,
-					...size,
-					blob,
-					save: (signal: AbortSignal) => saveCapturedScreenshot(blob, signal),
-					release: () => URL.revokeObjectURL(href),
-				};
+				const screenshotUrl = new URL(
+					"screenshot.png",
+					config.streamUrl,
+				).toString();
+				const res = await fetch(screenshotUrl, {
+					cache: "no-store",
+					signal: controller.signal,
+				});
+				if (!res.ok) throw new Error(`Screenshot failed (${res.status})`);
+				const blob = await normalizeScreenshotPng(await res.blob());
+				if (controller.signal.aborted)
+					throw new DOMException("Aborted", "AbortError");
+				const href = URL.createObjectURL(blob);
+				try {
+					const size = await readScreenshotImageSize(href);
+					return {
+						id: crypto.randomUUID(),
+						src: href,
+						...size,
+						blob,
+						...sources,
+						save: (signal: AbortSignal) =>
+							saveCapturedScreenshot(hostSave, blob, signal),
+						release: () => {
+							URL.revokeObjectURL(href);
+							// A preview that ends without a save leaves no file.
+							hostSave.discard();
+						},
+					};
+				} catch (error) {
+					URL.revokeObjectURL(href);
+					throw error;
+				}
 			} catch (error) {
-				URL.revokeObjectURL(href);
+				hostSave.discard();
 				throw error;
 			} finally {
 				if (screenshotRequestRef.current === controller) {
@@ -950,7 +1018,7 @@ export function SimulatorDeviceView({
 				}
 			}
 		},
-		[config.streamUrl, saveCapturedScreenshot],
+		[config.streamUrl, saveCapturedScreenshot, screenshotSources],
 	);
 
 	const resetScreenshotFeedback = screenshotPreview.reset;
@@ -968,80 +1036,19 @@ export function SimulatorDeviceView({
 		screenshotRequestRef.current?.abort();
 		const controller = new AbortController();
 		screenshotRequestRef.current = controller;
-		const flow = startScreenshotCapture({
-			capturePresentedSurface: () => {
-				const rendered = capturePresentedSurfaceRef.current?.() ?? null;
-				if (!rendered) return null;
-				const screenRect = screenSurfaceRef.current?.getBoundingClientRect();
-				const frameRect = simContainerRef.current?.getBoundingClientRect();
-				const source = screenRect
-					? {
-							left: screenRect.left,
-							top: screenRect.top,
-							width: screenRect.width,
-							height: screenRect.height,
-							borderRadius:
-								useDeviceFrame && chrome
-									? deviceFrameScreenRadius(chrome)
-									: imgBorderRadius,
-							cornerShape: imgCornerShape,
-						}
-					: undefined;
-				// The flash covers the phone body; the captured image starts at its
-				// screen opening. Both use viewport coordinates above the portal.
-				const flashSource =
-					useDeviceFrame && chrome && frameRect
-						? {
-								left:
-									frameRect.left +
-									(chrome.body.x / chrome.frame.width) * frameRect.width,
-								top:
-									frameRect.top +
-									(chrome.body.y / chrome.frame.height) * frameRect.height,
-								width:
-									(chrome.body.width / chrome.frame.width) * frameRect.width,
-								height:
-									(chrome.body.height / chrome.frame.height) * frameRect.height,
-								borderRadius: `${(chrome.outerCornerRadius / chrome.body.width) * 100}% / ${(chrome.outerCornerRadius / chrome.body.height) * 100}%`,
-							}
-						: source;
-				return {
-					id: crypto.randomUUID(),
-					...rendered,
-					source,
-					flashSource,
-					save: (signal: AbortSignal) =>
-						saveCapturedScreenshot(rendered.blob, signal),
-					cancel: () => controller.abort(),
-				};
-			},
+		// The host capture starts at the click, so the saved file matches the preview.
+		const hostSave = new HostScreenshotSave(execOnHost, config.device);
+		const flow = startServerScreenshotCapture({
 			begin: screenshotPreview.beginCapture,
-			captureAuthoritative: () => captureDeviceScreenshot(controller),
-			replace: screenshotPreview.replaceCapture,
+			captureAuthoritative: () => captureDeviceScreenshot(controller, hostSave),
 			reportError: screenshot.reportError,
 		});
-		if (!flow) {
-			controller.abort();
-			if (screenshotRequestRef.current === controller) {
-				screenshotRequestRef.current = null;
-			}
-			return;
-		}
 		void flow.done.finally(() => {
 			if (screenshotRequestRef.current === controller) {
 				screenshotRequestRef.current = null;
 			}
 		});
-	}, [
-		captureDeviceScreenshot,
-		chrome,
-		imgBorderRadius,
-		imgCornerShape,
-		saveCapturedScreenshot,
-		screenshot,
-		screenshotPreview,
-		useDeviceFrame,
-	]);
+	}, [captureDeviceScreenshot, config.device, screenshot, screenshotPreview]);
 
 	useLayoutEffect(() => {
 		const preview = screenshotPreview.preview;
@@ -1147,6 +1154,25 @@ export function SimulatorDeviceView({
 		onHostPathDrop: screenshotPreview.dismissPreview,
 	});
 
+	const traceDevice = useMemo(
+		() => ({
+			id: config.device,
+			name: deviceName ?? config.device,
+			platform: isAndroidDevice ? ("android" as const) : ("ios" as const),
+			runtime: deviceRuntime,
+			applicationName: currentApp?.bundleId,
+			connected: streaming,
+		}),
+		[
+			config.device,
+			currentApp?.bundleId,
+			deviceName,
+			deviceRuntime,
+			isAndroidDevice,
+			streaming,
+		],
+	);
+	const closeTrace = useCallback(() => setTraceOpen(false), [setTraceOpen]);
 	const simulatorBounds = useSimulatorBounds(deviceStackRef, simContainerRef);
 	const simulatorResize = useSimulatorResize({
 		deviceId: config.device,
@@ -1694,15 +1720,8 @@ export function SimulatorDeviceView({
 									<TracePanel
 										embedded
 										open={traceOpen && focused}
-										device={{
-											id: config.device,
-											name: deviceName ?? config.device,
-											platform: isAndroidDevice ? "android" : "ios",
-											runtime: deviceRuntime,
-											applicationName: currentApp?.bundleId,
-											connected: streaming,
-										}}
-										onClose={() => setTraceOpen(false)}
+										device={traceDevice}
+										onClose={closeTrace}
 									/>
 								</div>
 								<div
