@@ -1,5 +1,297 @@
 # Changelog
 
+## 2026-11-11
+
+### Added
+
+- **Slim iOS boots.** `agentsims devices boot` turns off background services
+  that tests do not need, such as Siri, Spotlight, iCloud, widgets, and Health.
+  Slim boots apply to iOS 18.5 and later runtimes. The browser workspace also
+  boots devices this way. `--no-slim` boots a simulator with all services. That
+  simulator keeps all services until you run `agentsims devices slim on`.
+  (`6bac1a2`)
+- `agentsims devices slim on`, `off`, and `status` change or show the slim
+  setting of one simulator. A change applies at the next reboot. (`6bac1a2`)
+- **Prompt detail levels.** The annotation Comments popover has a Prompt detail
+  menu: Compact, Standard, and Detailed. `agentsims context export --detail
+  <level>` and the MCP `context_export` tool accept the same levels. Standard is
+  the default and adds React owners, position, and the instance number.
+  Detailed also adds enclosing elements, siblings, children, nearby text, and
+  the source code. (`6bac1a2`)
+- **Marked annotation images.** Copy prompt puts the prompt and a PNG on the
+  clipboard. The PNG shows a numbered red marker on each target. For 10 seconds
+  after the copy, the button reads Copy image and copies only the PNG.
+  (`6bac1a2`)
+
+### Changed
+
+- Exported prompts use Markdown. The export groups notes by app and device.
+  Notes with the same screenshot share one image line. Source code lines
+  appear only at the Detailed level. (`6bac1a2`)
+- Browser screenshots save to `~/Downloads` through the host CLI as
+  `screenshot-<device>-<time>.png`. The preview opens when the full-size image
+  arrives. The toast can open the file or copy the image. (`6bac1a2`)
+- Screenshot and recording toasts show the folder instead of the full path.
+  (`6bac1a2`)
+- The browser decodes and draws video in a Web Worker. A viewer that falls
+  behind skips to the next keyframe and does not restart the stream. The
+  server drops frames for a slow iOS viewer, so other viewers do not wait.
+  Reconnection starts after 100 ms. (`6bac1a2`)
+- The video canvas uses the pixel density of the display. (`6bac1a2`)
+- The browser sends one input message at a time, and the device acknowledges
+  each one. A busy device gets the newest finger position, not a queue of old
+  positions. iOS drags send at most 60 moves per second, as Android drags do.
+  (`6bac1a2`)
+- iOS devices stream while they boot. A boot that does not finish closes its
+  session. (`6bac1a2`)
+- iOS capture encodes frames only while a viewer or a recording uses them, and
+  only when the screen changes. iOS screenshots read the current frame and do
+  not wait for a new one. (`6bac1a2`)
+- Booting, shut-down, and disconnected devices keep a place on the canvas with
+  their frame, name, and status. The button below the frame reads Start,
+  Connect, or Retry. Retry appears with the error after a failed start. The
+  empty-canvas messages are removed. (`6bac1a2`)
+- The frame rate readout shows `Idle` when the screen does not change.
+  (`6bac1a2`)
+- The Agentsims skill is shorter. It gives one device procedure. Its
+  references cover forms, lists, pixel targets, motion, and device state.
+  (`6bac1a2`)
+
+### Removed
+
+- The Codex plugin and its local marketplace entry are removed. Use
+  `agentsims skill` to give Agentsims to a coding agent. (`6bac1a2`)
+
+### Fixed
+
+- The workspace page shows a dark background while it loads, not a white one.
+  (`6bac1a2`)
+- iOS input continues while Agentsims reconnects to the CoreDevice HID service.
+  (`6bac1a2`)
+- DevTools target lists no longer flicker during background updates. (`6bac1a2`)
+
+## 2026-10-22
+
+### Added
+
+- **`agentsims skill`.** The command installs the Agentsims skill for Claude
+  Code, Codex, Cursor, and other coding agents through `npx skills add`.
+  `--global` installs it for the user, `--agent` selects agents, and `--yes`
+  skips questions. The command needs Node.js 20 or newer. (`5ce17a6`)
+
+### Changed
+
+- The curl and PowerShell installers run `agentsims skill` when Node.js is
+  installed. `--no-skill`, `-NoSkill`, or `AGENTSIMS_NO_SKILL=1` skips it.
+  (`5ce17a6`)
+
+## 2026-10-20
+
+### Internal
+
+- The site deploy script builds the site before it deploys. (`8f42854`)
+
+## 2026-10-19
+
+### Added
+
+- The site has a social preview image. (`060b62f`)
+
+## 2026-10-12
+
+### Added
+
+- **Documentation on the site.** The site shows the `docs` pages under `/docs`
+  with a sidebar, an outline, and a copy-page button. (`50d7486`, `f5ee007`)
+- The site shows the install command and the Download button for the
+  visitor's operating system. (`84218c1`)
+
+### Changed
+
+- **The Codex plugin opens the workspace in the Codex in-app browser.** The
+  plugin is one skill. It checks the installation, starts the server, and opens
+  its URL. The MCP app panel and `agentsims mcp --app` are removed. (`eef618d`)
+- `agentsims mcp` uses the running workspace server, or starts one in the
+  background. That server continues to run after the MCP session ends.
+  (`eef618d`)
+- iOS log streams read the `info` level instead of `debug`. (`46e69ba`)
+
+### Fixed
+
+- **Less CPU use when idle.** The workspace collects logs only while the Logs
+  panel is open and visible. Foreground-app reads are shared, device and
+  foreground polls are slower, and device lists are cached. (`46e69ba`)
+- Each iOS `log stream` process in the simulator stops with its reader. Event
+  streams end at shutdown, and the server exits after cleanup. (`46e69ba`)
+
+## 2026-10-11
+
+### Added
+
+- **One-line Windows install.** `irm https://agentsims.dev/install.ps1 | iex`
+  checks the archive checksum, installs Agentsims, and adds it to `PATH`.
+  (`4e22ffa`)
+- **One active tab per device.** The focused or clicked browser tab holds a
+  device. Other tabs show "This device is active in another tab." and a Use it
+  here button. Only the holder gets video, accessibility, and input. The CLI
+  and agents have no such limit. (`43136d8`)
+
+### Changed
+
+- The ChatGPT extension runs the browser workspace in the Codex panel. Android
+  video does not show in the panel. (`0e8269c`)
+
+### Fixed
+
+- App details refresh after an install or uninstall. (`4e22ffa`)
+- The Siri button works through CoreDevice HID on Xcode 27. (`1dae3bf`)
+- The frame rate readout does not go above 120. (`1dae3bf`)
+
+### Internal
+
+- Homebrew bottle files have no rebuild number, so the publish workflow
+  uploads them. (`1549f09`)
+
+## 2026-10-10
+
+### Changed
+
+- **Homebrew installs prebuilt bottles.** The release builds Apple Silicon and
+  Intel bottles on macOS 15. A build from source stops when the Command Line
+  Tools are older than the macOS version. (`8e4b72c`)
+- The curl installer adds Agentsims to `PATH` by default. It updates the zsh,
+  bash, or fish profile. `--no-modify-path` keeps the profile unchanged.
+  (`062c226`)
+
+### Fixed
+
+- **iOS input works on Xcode 27.** Touches, keys, and hardware buttons use the
+  simulator's CoreDevice HID service when it exists. (`062c226`)
+- A failed `simctl boot` stops the device start and reports the error. Before,
+  a second boot attempt could start the simulator without a display.
+  (`062c226`)
+
+### Internal
+
+- One release script prepares the release. The publish workflow tests each
+  archive, updates the Homebrew tap, and installs the formula on a clean Mac.
+  (`062c226`, `8e4b72c`)
+
+## 2026-10-07
+
+### Added
+
+- **Standalone runtime.** Agentsims is a native executable. It needs no
+  Node.js, npm, or Bun. Releases include macOS Apple Silicon and Intel, Linux
+  x64, and Windows x64 archives. Install it with Homebrew on macOS or with the
+  curl script on macOS and Linux. (`17e43bb`)
+- **Android on Windows.** The Windows runtime supports Android emulators and
+  physical Android devices. `agentsims logs` follows the server log without
+  `tail`. (`17e43bb`, `706a134`, `dd806ee`)
+- **Application logs.** `agentsims app-logs` reads iOS, Android, and React
+  Native application logs, and `--follow` streams them. It follows the
+  foreground app unless `--app` selects one. `--level`, `--query`, `--source`,
+  and `--process` filter the records. React Native logs need `--project-id`,
+  `--metro-url`, and `--inspector-target`. (`17e43bb`)
+- **Logs panel.** The browser Logs panel shows the logs of one device or of all
+  visible devices. It filters by log type and minimum severity, and it can copy
+  or download the logs. (`7bacdaa`)
+- **Annotations.** The Annotate button lets you select a screen target or a
+  region and write a comment. Copy prompt copies the comments and screenshots
+  as a prompt for a coding agent. `agentsims context list`, `add`, `note`,
+  `save`, `remove`, and `export` manage and export the notes of a workspace.
+  (`17e43bb`, `7bacdaa`)
+- **MCP server.** `agentsims mcp` serves device tools, `app_logs`, and saved
+  context over MCP stdio. `--url` attaches to a running server. (`17e43bb`)
+- **ChatGPT extension.** A Codex plugin shows the workspace through MCP
+  extensions. It uses an installed runtime. (`17e43bb`)
+
+### Changed
+
+- **The `agentsims` npm package contains only React Native source mapping.**
+  It has no executable and does not download one. `agentsims/metro`,
+  `agentsims/babel-plugin`, and `agentsims/state` remain. A Metro preview uses
+  the installed runtime. (`17e43bb`)
+- Logs, Traces, Web DevTools, and the Accessibility tree open in one resizable
+  panel below the devices. (`7bacdaa`)
+- `agentsims doctor` checks the runtime files. It reports a missing, empty, or
+  non-executable file, a wrong architecture, an invalid code signature, and a
+  native addon that does not load. (`17e43bb`)
+- The Build Mobile Apps skill is now the Agentsims skill in `skills/agentsims`.
+  (`17e43bb`, `5ac2e5a`)
+
+### Removed
+
+- Removed the Claude Code marketplace entry. (`17e43bb`)
+
+### Fixed
+
+- Rotation and viewport tracking work on Android emulators that stream through
+  ADB. (`d87d633`)
+- On Linux, Agentsims treats an exited server process as stopped. (`d87d633`)
+- `agentsims stop` does not wait for device discovery. (`706a134`)
+- `--help`, `--version`, and argument errors no longer cut off CLI output.
+  (`0497853`)
+- The site hero stays clear at narrow widths, and the install command copy
+  button works again. (`fac0910`, `b087e62`, `6b9ef16`)
+
+### Internal
+
+- The React Native integration moved to `packages/agentsims-react-native`.
+  (`17e43bb`)
+- Release checks verify the runtime, library, and extension archives on every
+  platform, including Windows. (`d87d633`, `68e039f`, `706a134`, `4d290b0`,
+  `9feb00f`)
+- The README is shorter. Installation, CLI, workspace, agent, React Native, and
+  development guides moved into `docs`. (`5ac2e5a`)
+- Pinned the icon package to a version with case-correct module exports.
+  (`d9ad5a7`)
+
+## 2026-09-24
+
+### Internal
+
+- The site deploys to Cloudflare with Wrangler. (`9d12d2c`)
+- Site demo images and videos use WebP and WebM. (`7e2b9d9`)
+
+## 2026-09-23
+
+### Added
+
+- The landing page has sections that show a coding agent workflow and agent
+  control of a device. (`96379b2`)
+
+## 2026-09-22
+
+### Fixed
+
+- iOS accessibility reads no longer fail when an element reports a NaN range
+  value. (`570b97c`)
+
+### Internal
+
+- Shared UI colors use OKLCH values. (`d6bd1ec`)
+
+## 2026-09-21
+
+### Added
+
+- **Open any trace folder.** The trace panel opens one trace folder or a folder
+  of traces from any location. Trace state and new calls reach every open
+  panel at once, also when another client starts or stops the trace.
+  (`a26a025`)
+
+### Fixed
+
+- An Android emulator stays in the shutting-down state until it leaves the
+  device list. Offline emulators do not appear in the list. (`b626b0a`)
+- Device row actions keep a transparent background. (`14fa739`)
+
+### Internal
+
+- Moved the shared UI components and motion presets into `packages/ui`. The
+  workspace and the site use them. (`cc8c23a`)
+
 ## 2026-09-20
 
 ### Added
